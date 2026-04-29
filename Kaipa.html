@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kaipa · 户外徒步 App</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  * { box-sizing: border-box; }
+  @keyframes kaipa-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes kaipa-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script src="tokens.js"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="map.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="screen-map.jsx"></script>
+<script type="text/babel" src="screen-route.jsx"></script>
+<script type="text/babel" src="screens-other.jsx"></script>
+<script type="text/babel" src="screens-new.jsx"></script>
+<script type="text/babel" src="screens-final.jsx"></script>
+<script type="text/babel" src="screen-gpx-import.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "mode": "light",
+  "preset": "meadow",
+  "customAccent": "#4A7C59",
+  "useCustom": false,
+  "initialZoom": "region",
+  "showLabels": true
+}/*EDITMODE-END*/;
+
+const PRESETS = [
+  { id: 'meadow',   label: '草地绿', hex: '#22C55E' },
+  { id: 'moss',     label: '苔藓',   hex: '#4A7C59' },
+  { id: 'citrus',   label: '柑橘',   hex: '#FF7A1A' },
+  { id: 'ember',    label: '砖红',   hex: '#A84228' },
+  { id: 'peach',    label: '桃粉',   hex: '#FF8FB1' },
+  { id: 'lake',     label: '湖蓝',   hex: '#2C5D7E' },
+];
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  const presetHex = (PRESETS.find(p => p.id === t.preset) || PRESETS[0]).hex;
+  const accent = t.useCustom ? (t.customAccent || presetHex) : presetHex;
+
+  React.useEffect(() => {
+    window.KAIPA_TOKENS = window.KAIPA_BUILD_TOKENS({ mode: t.mode, accent });
+    document.body.style.background = window.KAIPA_TOKENS.color.bg;
+    document.body.style.color = window.KAIPA_TOKENS.color.ink;
+  }, [t.mode, accent]);
+
+  const themeKey = `${t.mode}-${accent}`;
+
+  return (
+    <>
+      <div key={themeKey}>
+        <DesignCanvas>
+          <DCSection id="discover" title="发现 + 搜索" subtitle="从地图入口找到合适的下一条线路">
+            <DCArtboard id="globe" label="3D 地球" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'globe', showLabels: t.showLabels }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="region" label="区域 · 北京周边" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'region', showLabels: t.showLabels }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="trail" label="路线 · 箭扣长城" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'trail', showLabels: t.showLabels }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="search" label="搜索结果" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenSearch /></IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="tabbar" title="Tab Bar · 探索 → 出发" subtitle="进入探索页中间 tab 即变身出发 FAB（登山者 + 发光），点击弹出半屏 Sheet">
+            <DCArtboard id="tab-explore" label="探索页 · 出发 FAB" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'region', showLabels: t.showLabels }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="tab-other" label="其他页 · 普通指南针" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGearLibrary /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="tab-sheet" label="点击 FAB · 半屏 Sheet" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'region', showLabels: t.showLabels, departureSheet: true }} />
+              </IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="gpx" title="GPX 导入流程" subtitle="从手表 / 第三方平台把已有的轨迹带进来 · 3 步">
+            <DCArtboard id="gpx-1" label="1 · 选择来源" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGPXImport step={0} /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="gpx-2" label="2 · 解析预览" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGPXImport step={1} /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="gpx-3" label="3 · 命名保存" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGPXImport step={2} /></IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="immersive" title="沉浸模式 · 纯地图" subtitle="去掉所有 UI chrome 后的预览">
+            <DCArtboard id="imm-globe" label="地球 · 全屏" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'globe', showLabels: t.showLabels, immersive: true }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="imm-region" label="区域 · 全屏" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'region', showLabels: t.showLabels, immersive: true }} />
+              </IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="imm-trail" label="路线 · 全屏" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}>
+                <ScreenMap tweaks={{ initialZoom: 'trail', showLabels: t.showLabels, immersive: true }} />
+              </IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="flow" title="出发流程" subtitle="路线详情 → 装备 → 天气 → 安全确认 → 导航">
+            <DCArtboard id="route" label="路线详情" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenRouteDetail /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="gear-pick" label="第 1 步 · 装备" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGearPick /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="weather" label="第 2 步 · 天气" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenWeather /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="confirm" label="第 3 步 · 安全" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenConfirm /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="navigate" label="导航 HUD" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenNavigate /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="navigate-hud" label="导航 HUD+" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenNavigateHUD /></IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="me" title="装备 + 我的" subtitle="个人数据、装备、回顾、社区">
+            <DCArtboard id="library" label="装备库" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGearLibrary /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="gear-cat" label="分类 · 鞋履" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGearCategory /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="gear-item" label="装备详情 · 多图" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenGearItemDetail /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="profile" label="个人主页 v1" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenProfile /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="profile-plus" label="个人主页 v2 · 足迹 + Wrapped" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenProfilePlus /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="publish" label="路线发布" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenRoutePublish /></IOSDevice>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="onboarding" title="Onboarding" subtitle="首次启动 · 3 屏">
+            <DCArtboard id="onb-welcome" label="1 · 欢迎" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenOnboarding step={0} /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="onb-level" label="2 · 难度偏好" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenOnboarding step={1} /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="onb-safety" label="3 · 安全权限" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenOnboarding step={2} /></IOSDevice>
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      </div>
+
+      <TweaksPanel title="主题">
+        <TweakSection label="模式" />
+        <TweakRadio label="亮 / 暗" value={t.mode}
+                    options={[{value:'light',label:'☀ 浅色'},{value:'dark',label:'☾ 深色'}]}
+                    onChange={v => setTweak('mode', v)} />
+
+        <TweakSection label="主题色预设" />
+        <PresetSwatches value={t.preset} onChange={v => {
+          setTweak({ preset: v, useCustom: false });
+        }} disabled={t.useCustom} />
+
+        <TweakSection label="自定义" />
+        <TweakToggle label="使用自定义色" value={t.useCustom}
+                     onChange={v => setTweak('useCustom', v)} />
+        <TweakColor label="自定义色" value={t.customAccent || '#5C8A4A'}
+                    onChange={v => setTweak({ customAccent: v, useCustom: true })} />
+
+        <TweakSection label="地图" />
+        <TweakRadio label="初始视图" value={t.initialZoom}
+                    options={['globe','region','trail']}
+                    onChange={v => setTweak('initialZoom', v)} />
+        <TweakToggle label="显示标签" value={t.showLabels}
+                     onChange={v => setTweak('showLabels', v)} />
+      </TweaksPanel>
+    </>
+  );
+}
+
+function PresetSwatches({ value, onChange, disabled }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6,
+      opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? 'none' : 'auto',
+    }}>
+      {PRESETS.map(p => {
+        const active = value === p.id;
+        return (
+          <button key={p.id} type="button"
+                  onClick={() => onChange(p.id)}
+                  title={p.label}
+                  style={{
+                    appearance: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                    height: 30, borderRadius: 8, background: p.hex,
+                    boxShadow: active
+                      ? `0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3.5px ${p.hex}`
+                      : '0 1px 2px rgba(0,0,0,0.15), inset 0 0 0 0.5px rgba(0,0,0,0.1)',
+                    transition: 'box-shadow .15s',
+                  }} />
+        );
+      })}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
