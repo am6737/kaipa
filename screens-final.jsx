@@ -702,6 +702,673 @@ function HeroLandscape() {
   );
 }
 
+// ─── Settings — 主题色 + 外观设置 ──────────────────────────────
+function ScreenSettings() {
+  const C = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS.color[p] });
+  const K = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS[p] });
+
+  const [selMode, setSelMode] = React.useState('light');
+  const [selPreset, setSelPreset] = React.useState(1);
+
+  const presets = [
+    { label: '草地绿', hex: '#22C55E' },
+    { label: '苔藓',   hex: '#4A7C59' },
+    { label: '柑橘',   hex: '#FF7A1A' },
+    { label: '砖红',   hex: '#A84228' },
+    { label: '桃粉',   hex: '#FF8FB1' },
+    { label: '湖蓝',   hex: '#2C5D7E' },
+  ];
+
+  const SettingRow = ({ icon, title, detail, right, last }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, padding: '13px 0',
+      borderBottom: last ? 'none' : `0.5px solid ${C.lineSoft}`,
+    }}>
+      <div style={{
+        width: 34, height: 34, borderRadius: 9,
+        background: C.mossSoft,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <window.Icon name={icon} size={16} color={C.mossDeep} />
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: C.ink, letterSpacing: -0.2 }}>{title}</div>
+        {detail && <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 1 }}>{detail}</div>}
+      </div>
+      {right || <window.Icon name="forward" size={14} color={C.inkDim} />}
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'relative', height: '100%', background: C.bg, overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }}>
+        <window.IOSStatusBar dark={K.mode === 'dark'} />
+      </div>
+
+      <div style={{ padding: '60px 16px 110px', height: '100%', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, marginBottom: 24,
+        }}>
+          <window.CircleBtn icon="back" />
+          <span style={{ fontSize: 20, fontWeight: 700, color: C.ink, letterSpacing: -0.5 }}>设置</span>
+        </div>
+
+        {/* 外观模式 */}
+        <div style={{ marginBottom: 22 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: C.inkMuted, letterSpacing: 0.3,
+            textTransform: 'uppercase', marginBottom: 10, paddingLeft: 2,
+          }}>外观模式</div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10,
+          }}>
+            {[
+              { key: 'light', label: '浅色', icon: 'sun' },
+              { key: 'dark',  label: '深色', icon: 'moon' },
+              { key: 'auto',  label: '跟随系统', icon: 'phone' },
+            ].map(m => {
+              const active = selMode === m.key;
+              return (
+                <div key={m.key} onClick={() => setSelMode(m.key)} style={{
+                  padding: '16px 8px', borderRadius: 16, cursor: 'pointer',
+                  background: active ? C.mossSoft : C.surface,
+                  border: `1.5px solid ${active ? C.mossDeep : C.line}`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                  transition: 'all .15s',
+                }}>
+                  <window.Icon name={m.icon} size={24} color={active ? C.mossDeep : C.inkMuted} />
+                  <span style={{
+                    fontSize: 12.5, fontWeight: active ? 600 : 500,
+                    color: active ? C.mossDeep : C.ink, letterSpacing: -0.1,
+                  }}>{m.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 主题色 */}
+        <div style={{ marginBottom: 22 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: C.inkMuted, letterSpacing: 0.3,
+            textTransform: 'uppercase', marginBottom: 10, paddingLeft: 2,
+          }}>主题色</div>
+          <div style={{
+            padding: 16, background: C.surface, borderRadius: 18,
+            border: `0.5px solid ${C.line}`,
+          }}>
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10,
+            }}>
+              {presets.map((p, i) => {
+                const active = selPreset === i;
+                return (
+                  <div key={i} onClick={() => setSelPreset(i)} style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    cursor: 'pointer',
+                  }}>
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 999, background: p.hex,
+                      boxShadow: active
+                        ? `0 0 0 2.5px ${C.bg}, 0 0 0 4.5px ${p.hex}`
+                        : `0 2px 6px ${p.hex}30`,
+                      transition: 'box-shadow .15s',
+                    }} />
+                    <span style={{
+                      fontSize: 10, color: active ? C.ink : C.inkMuted,
+                      fontWeight: active ? 600 : 400, letterSpacing: -0.1,
+                    }}>{p.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Preview strip */}
+            <div style={{
+              marginTop: 16, padding: 14, borderRadius: 14,
+              background: C.surfaceHi || C.bg,
+              border: `0.5px solid ${C.lineSoft}`,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12,
+                background: presets[selPreset].hex,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <window.Icon name="mountain" size={20} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, letterSpacing: -0.2 }}>预览效果</div>
+                <div style={{ fontSize: 11, color: C.inkMuted, marginTop: 2 }}>
+                  按钮、标签和高亮将使用此颜色
+                </div>
+              </div>
+            </div>
+
+            {/* Custom color */}
+            <div style={{
+              marginTop: 12, display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 0 0', borderTop: `0.5px solid ${C.lineSoft}`,
+            }}>
+              <window.Icon name="sparkle" size={15} color={C.inkMuted} />
+              <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 500, flex: 1 }}>自定义颜色</span>
+              <div style={{
+                width: 28, height: 28, borderRadius: 8,
+                background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
+                border: `1.5px solid ${C.line}`,
+              }} />
+              <window.Icon name="forward" size={13} color={C.inkDim} />
+            </div>
+          </div>
+        </div>
+
+        {/* 其他设置 */}
+        <div style={{ marginBottom: 22 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: C.inkMuted, letterSpacing: 0.3,
+            textTransform: 'uppercase', marginBottom: 10, paddingLeft: 2,
+          }}>通用</div>
+          <div style={{
+            padding: '0 16px', background: C.surface, borderRadius: 18,
+            border: `0.5px solid ${C.line}`,
+          }}>
+            <SettingRow icon="globe" title="语言" detail="简体中文" />
+            <SettingRow icon="ruler" title="单位" detail="公制 (km, m)" />
+            <SettingRow icon="pin" title="离线地图" detail="已下载 3 个区域 · 1.2GB" />
+            <SettingRow icon="bell" title="通知" detail="天气预警、好友动态" />
+            <SettingRow icon="shield" title="隐私" detail="仅好友可见轨迹" />
+            <SettingRow icon="cloud" title="数据同步" detail="iCloud · 最近同步 2 分钟前" last />
+          </div>
+        </div>
+
+        {/* 关于 */}
+        <div>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: C.inkMuted, letterSpacing: 0.3,
+            textTransform: 'uppercase', marginBottom: 10, paddingLeft: 2,
+          }}>关于</div>
+          <div style={{
+            padding: '0 16px', background: C.surface, borderRadius: 18,
+            border: `0.5px solid ${C.line}`,
+          }}>
+            <SettingRow icon="chat" title="反馈与帮助" />
+            <SettingRow icon="star" title="给 Kaipa 评分" />
+            <SettingRow icon="lock" title="用户协议与隐私" last />
+          </div>
+        </div>
+
+        {/* Version */}
+        <div style={{
+          textAlign: 'center', marginTop: 24, fontSize: 11,
+          color: C.inkDim, fontFamily: K.font.mono,
+        }}>Kaipa v1.0.0 (build 42)</div>
+      </div>
+
+      <window.TabBar active="me" departing={false} />
+    </div>
+  );
+}
+
+// ─── Trip Complete — 行程完成总结 ─────────────────────────────
+function ScreenTripComplete() {
+  const C = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS.color[p] });
+  const K = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS[p] });
+
+  const stats = [
+    { value: '11.4', unit: 'km', label: '总距离' },
+    { value: '680', unit: 'm', label: '累计爬升' },
+    { value: '5:18', unit: '', label: '用时' },
+    { value: '4.2', unit: 'km/h', label: '均速' },
+  ];
+
+  const achievements = [
+    { icon: 'mountain', label: '登顶 1410m', unlocked: true },
+    { icon: 'flame', label: '连续 3 周', unlocked: true },
+    { icon: 'star', label: '首条 T3', unlocked: true },
+    { icon: 'moon', label: '日出行者', unlocked: false },
+  ];
+
+  const photos = [
+    { spot: '北京结', time: '06:42' },
+    { spot: '鹰飞倒仰', time: '08:15' },
+    { spot: '天梯', time: '09:33' },
+    { spot: '九眼楼', time: '11:01' },
+  ];
+
+  return (
+    <div style={{ position: 'relative', height: '100%', background: C.bg, overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }}>
+        <window.IOSStatusBar dark={true} />
+      </div>
+
+      <div style={{ height: '100%', overflowY: 'auto' }}>
+        {/* Hero — celebration header */}
+        <div style={{
+          position: 'relative', height: 300, overflow: 'hidden',
+          background: `linear-gradient(135deg, ${C.mossDeep}, ${C.flare}cc)`,
+        }}>
+          {/* Decorative trail SVG */}
+          <svg viewBox="0 0 400 300" width="100%" height="100%"
+               style={{ position: 'absolute', inset: 0, opacity: 0.12 }}>
+            <path d="M-20,260 Q60,190 120,210 T240,150 T360,110 T420,70"
+                  fill="none" stroke="#fff" strokeWidth="3" strokeDasharray="8 6" />
+            <path d="M-20,280 Q80,210 160,230 T280,170 T380,130 T420,90"
+                  fill="none" stroke="#fff" strokeWidth="2" />
+          </svg>
+          {/* Bottom fade into bg */}
+          <div style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: 60,
+            background: `linear-gradient(180deg, transparent, ${C.bg})`,
+          }} />
+
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'flex-start',
+            padding: '70px 20px 60px', textAlign: 'center',
+          }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: 999,
+              background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(10px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 14,
+            }}>
+              <window.Icon name="check" size={26} color="#fff" strokeWidth={2.5} />
+            </div>
+            <div style={{
+              fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: 600,
+              letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8,
+            }}>行程完成</div>
+            <div style={{
+              fontSize: 28, fontWeight: 700, color: '#fff', letterSpacing: -0.8,
+              lineHeight: 1.1,
+            }}>箭扣长城</div>
+            <div style={{
+              fontSize: 13, color: 'rgba(255,255,255,0.65)', marginTop: 8,
+            }}>2026.04.26 · 周六 · 06:12 — 11:30</div>
+          </div>
+        </div>
+
+        <div style={{ padding: '0 16px 110px', marginTop: -40, position: 'relative', zIndex: 5 }}>
+          {/* Stats card */}
+          <div style={{
+            padding: 20, borderRadius: 20, background: C.surface,
+            border: `0.5px solid ${C.line}`,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+          }}>
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
+            }}>
+              {stats.map((s, i) => (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <div style={{
+                    fontSize: 24, fontWeight: 700, color: C.ink,
+                    fontFamily: K.font.sans, letterSpacing: -0.5,
+                  }}>
+                    {s.value}
+                    {s.unit && <span style={{ fontSize: 11, fontWeight: 500, color: C.inkMuted, marginLeft: 2 }}>{s.unit}</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.inkMuted, marginTop: 3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Mini elevation profile */}
+            <div style={{
+              marginTop: 18, paddingTop: 16, borderTop: `0.5px solid ${C.lineSoft}`,
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
+              }}>
+                <window.Icon name="altitude" size={14} color={C.inkMuted} />
+                <span style={{ fontSize: 11, color: C.inkMuted, fontWeight: 500 }}>海拔轨迹</span>
+              </div>
+              <svg viewBox="0 0 320 60" width="100%" height="50" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="tc-elev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={C.flare} stopOpacity="0.25" />
+                    <stop offset="100%" stopColor={C.flare} stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <path d="M0,50 L15,45 L40,35 L65,25 L90,18 L130,8 L160,14 L200,10 L230,22 L260,28 L290,38 L320,42 L320,60 L0,60 Z"
+                      fill="url(#tc-elev)" />
+                <path d="M0,50 L15,45 L40,35 L65,25 L90,18 L130,8 L160,14 L200,10 L230,22 L260,28 L290,38 L320,42"
+                      fill="none" stroke={C.flare} strokeWidth="1.5" strokeLinejoin="round" />
+                <circle cx="0" cy="50" r="3" fill={C.moss} stroke={C.surface} strokeWidth="1.5" />
+                <circle cx="320" cy="42" r="3" fill={C.flare} stroke={C.surface} strokeWidth="1.5" />
+              </svg>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: 10, color: C.inkDim, marginTop: 4,
+              }}>
+                <span>730m 起点</span>
+                <span style={{ color: C.flare, fontWeight: 600 }}>1410m 最高</span>
+                <span>1180m 终点</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Achievements */}
+          <div style={{ marginTop: 24 }}>
+            <window.SectionTitle title="本次成就" right={`${achievements.filter(a => a.unlocked).length} 个解锁`} />
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 10,
+          }}>
+            {achievements.map((a, i) => (
+              <div key={i} style={{
+                aspectRatio: '1', borderRadius: 16,
+                background: a.unlocked ? C.surface : 'transparent',
+                border: `0.5px solid ${a.unlocked ? C.line : C.lineSoft}`,
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: 6,
+                opacity: a.unlocked ? 1 : 0.4,
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 999,
+                  background: a.unlocked ? C.flareSoft : C.lineSoft,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <window.Icon name={a.icon} size={18}
+                    color={a.unlocked ? C.flare : C.inkDim} />
+                </div>
+                <span style={{
+                  fontSize: 10, color: a.unlocked ? C.ink : C.inkDim,
+                  fontWeight: 500, letterSpacing: -0.1, textAlign: 'center',
+                  padding: '0 4px',
+                }}>{a.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Photo timeline */}
+          <div style={{ marginTop: 24 }}>
+            <window.SectionTitle title="沿途记录" right={`${photos.length} 张`} />
+          </div>
+          <div style={{
+            display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4,
+            marginTop: 10, marginLeft: -16, paddingLeft: 16, marginRight: -16, paddingRight: 16,
+          }}>
+            {photos.map((p, i) => (
+              <div key={i} style={{
+                minWidth: 130, height: 170, borderRadius: 16, overflow: 'hidden',
+                position: 'relative', border: `0.5px solid ${C.line}`,
+                background: C.terrain.mid,
+              }}>
+                <window.PhotoStripe seed={i + 10} />
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.6) 100%)',
+                }} />
+                <div style={{ position: 'absolute', top: 10, left: 10 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: '#fff',
+                    background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(8px)',
+                    padding: '3px 8px', borderRadius: 99,
+                  }}>{p.time}</span>
+                </div>
+                <div style={{ position: 'absolute', bottom: 10, left: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{p.spot}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Share & rate */}
+          <div style={{ marginTop: 24 }}>
+            <window.SectionTitle title="分享这次旅程" />
+          </div>
+          <div style={{
+            padding: 18, borderRadius: 18, background: C.surface,
+            border: `0.5px solid ${C.line}`, marginTop: 10,
+          }}>
+            {/* Wrapped mini card */}
+            <div style={{
+              padding: 16, borderRadius: 14,
+              background: `linear-gradient(135deg, ${C.mossDeep}, ${C.flare}bb)`,
+              color: '#fff', marginBottom: 14,
+            }}>
+              <div style={{ fontSize: 10, opacity: 0.75, fontWeight: 500, letterSpacing: 0.5, marginBottom: 6 }}>KAIPA WRAPPED</div>
+              <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4, marginBottom: 4 }}>箭扣长城 · 11.4km</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>2026.04.26 · 5 小时 18 分 · ↑680m</div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button style={{
+                height: 44, borderRadius: 12, border: 'none', cursor: 'pointer',
+                background: C.flare, color: '#fff',
+                fontSize: 13.5, fontWeight: 600, fontFamily: K.font.sans,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+                <window.Icon name="share" size={15} color="#fff" />
+                分享给朋友
+              </button>
+              <button style={{
+                height: 44, borderRadius: 12, border: `1px solid ${C.line}`, cursor: 'pointer',
+                background: C.surface, color: C.ink,
+                fontSize: 13.5, fontWeight: 600, fontFamily: K.font.sans,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+                <window.Icon name="download" size={15} color={C.ink} />
+                保存图片
+              </button>
+            </div>
+          </div>
+
+          {/* Rate this route */}
+          <div style={{
+            marginTop: 16, padding: 18, borderRadius: 18, background: C.surface,
+            border: `0.5px solid ${C.line}`,
+          }}>
+            <div style={{
+              fontSize: 14, fontWeight: 600, color: C.ink, letterSpacing: -0.2,
+              marginBottom: 12,
+            }}>给这条路线评分</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {[1, 2, 3, 4, 5].map(s => (
+                <div key={s} style={{
+                  width: 36, height: 36, borderRadius: 999, cursor: 'pointer',
+                  background: s <= 4 ? C.flareSoft : C.lineSoft,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <window.Icon name="star" size={18} color={s <= 4 ? C.flare : C.inkDim} />
+                </div>
+              ))}
+            </div>
+            <div style={{
+              height: 68, borderRadius: 12, padding: '10px 12px',
+              background: C.bg, border: `0.5px solid ${C.lineSoft}`,
+              fontSize: 12.5, color: C.inkDim,
+            }}>留下一句话给后来的人…</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom CTA */}
+      <div style={{
+        position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 25,
+        padding: '12px 16px 32px',
+        background: `linear-gradient(180deg, transparent 0%, ${C.bg} 50%)`,
+      }}>
+        <button style={{
+          width: '100%', height: 54, borderRadius: 16,
+          background: C.ink, color: C.bg, border: 'none',
+          fontSize: 15, fontWeight: 600, fontFamily: K.font.sans,
+          letterSpacing: -0.3, cursor: 'pointer',
+        }}>完成  ·  返回首页</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Notifications — 通知中心 ─────────────────────────────────
+function ScreenNotifications() {
+  const C = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS.color[p] });
+  const K = new Proxy({}, { get: (_, p) => window.KAIPA_TOKENS[p] });
+
+  const sections = [
+    {
+      label: '今天', items: [
+        {
+          type: 'weather', icon: 'weather', iconBg: C.sky,
+          title: '天气预警 · 箭扣长城', detail: '明日午后雷阵雨概率 65%，建议调整出行时间',
+          time: '2 小时前', unread: true,
+        },
+        {
+          type: 'social', icon: 'heart', iconBg: C.flare,
+          title: 'Sara K. 赞了你的路线', detail: '箭扣长城 · 11.4km',
+          time: '4 小时前', unread: true,
+        },
+        {
+          type: 'system', icon: 'download', iconBg: C.moss,
+          title: '离线地图已更新', detail: '怀柔区地图包 v3.2 · 248MB',
+          time: '5 小时前', unread: false,
+        },
+      ],
+    },
+    {
+      label: '昨天', items: [
+        {
+          type: 'social', icon: 'users', iconBg: C.sand || '#C4A882',
+          title: '陈芳 开始了行程', detail: '十三陵水库环线 · 正在进行中',
+          time: '昨天 14:20', unread: false,
+        },
+        {
+          type: 'achievement', icon: 'flag', iconBg: C.flare,
+          title: '新成就解锁!', detail: '「百公里」— 累计徒步超过 100km',
+          time: '昨天 11:30', unread: false,
+        },
+      ],
+    },
+    {
+      label: '本周', items: [
+        {
+          type: 'weather', icon: 'sun', iconBg: C.sky,
+          title: '本周末天气预报', detail: '周六多云 18°C，周日晴 22°C — 适合出行',
+          time: '周三', unread: false,
+        },
+        {
+          type: 'social', icon: 'chat', iconBg: C.moss,
+          title: '陈明 评论了你的路线', detail: '「鹰飞倒仰确实很险，下次一起去…」',
+          time: '周二', unread: false,
+        },
+        {
+          type: 'system', icon: 'sparkle', iconBg: C.flare,
+          title: 'Kaipa 周报', detail: '本周 2 次出行 · 28.7km · 查看回顾 →',
+          time: '周一', unread: false,
+        },
+      ],
+    },
+  ];
+
+  return (
+    <div style={{ position: 'relative', height: '100%', background: C.bg, overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30 }}>
+        <window.IOSStatusBar dark={K.mode === 'dark'} />
+      </div>
+
+      <div style={{ padding: '60px 16px 110px', height: '100%', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginTop: 4, marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <window.CircleBtn icon="back" />
+            <span style={{ fontSize: 20, fontWeight: 700, color: C.ink, letterSpacing: -0.5 }}>通知</span>
+          </div>
+          <span style={{
+            fontSize: 12, color: C.flare, fontWeight: 500, letterSpacing: -0.1,
+          }}>全部已读</span>
+        </div>
+
+        {/* Quick filters */}
+        <div style={{
+          display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto',
+        }}>
+          {[
+            { label: '全部', active: true },
+            { label: '天气', icon: 'weather' },
+            { label: '好友', icon: 'users' },
+            { label: '系统', icon: 'bell' },
+          ].map((f, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '7px 14px', borderRadius: 99, whiteSpace: 'nowrap',
+              background: f.active ? C.ink : C.surface,
+              color: f.active ? C.bg : C.ink,
+              border: `0.5px solid ${f.active ? C.ink : C.line}`,
+              fontSize: 12.5, fontWeight: 500,
+            }}>
+              {f.icon && <window.Icon name={f.icon} size={13}
+                color={f.active ? C.bg : C.inkMuted} />}
+              {f.label}
+            </div>
+          ))}
+        </div>
+
+        {/* Notification sections */}
+        {sections.map((sec, si) => (
+          <div key={si} style={{ marginBottom: 20 }}>
+            <div style={{
+              fontSize: 12, fontWeight: 600, color: C.inkMuted,
+              letterSpacing: 0.3, marginBottom: 10, paddingLeft: 2,
+            }}>{sec.label}</div>
+
+            <div style={{
+              background: C.surface, borderRadius: 18,
+              border: `0.5px solid ${C.line}`, overflow: 'hidden',
+            }}>
+              {sec.items.map((item, ii) => (
+                <div key={ii} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 12,
+                  padding: '14px 16px',
+                  borderBottom: ii < sec.items.length - 1 ? `0.5px solid ${C.lineSoft}` : 'none',
+                  background: item.unread ? (C.flareSoft + '30') : 'transparent',
+                }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                    background: item.iconBg + '20',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <window.Icon name={item.icon} size={17} color={item.iconBg} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span style={{
+                        fontSize: 13.5, fontWeight: item.unread ? 600 : 500,
+                        color: C.ink, letterSpacing: -0.2,
+                        flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{item.title}</span>
+                      {item.unread && <div style={{
+                        width: 7, height: 7, borderRadius: 99, background: C.flare, flexShrink: 0,
+                      }} />}
+                    </div>
+                    <div style={{
+                      fontSize: 12, color: C.inkMuted, marginTop: 3, lineHeight: 1.4,
+                    }}>{item.detail}</div>
+                    <div style={{
+                      fontSize: 11, color: C.inkDim, marginTop: 4,
+                    }}>{item.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <window.TabBar active="me" departing={false} />
+    </div>
+  );
+}
+
 window.ScreenNavigateHUD = ScreenNavigateHUD;
 window.ScreenRoutePublish = ScreenRoutePublish;
 window.ScreenOnboarding = ScreenOnboarding;
+window.ScreenSettings = ScreenSettings;
+window.ScreenTripComplete = ScreenTripComplete;
+window.ScreenNotifications = ScreenNotifications;

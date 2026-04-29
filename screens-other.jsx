@@ -683,16 +683,101 @@ function ScreenGearLibrary() {
           <window.CircleBtn icon="plus" color="#fff" />
         </div>
 
-        <div style={{
-          marginTop: 18, padding: 18,
-          background: Co.surface, border: `0.5px solid ${Co.line}`, borderRadius: 18,
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12,
-          boxShadow: '0 1px 3px rgba(40,30,20,0.04)',
-        }}>
-          <window.Stat value="44" label="件装备" />
-          <window.Stat value="14.9" unit="kg" label="总重" />
-          <window.Stat value="¥18.7" unit="k" label="总值" />
-        </div>
+        {(() => {
+          const spendCats = [
+            { name: '背包', val: 5.1, color: Co.flare },
+            { name: '鞋履', val: 4.2, color: Co.sky },
+            { name: '衣物', val: 3.6, color: Co.sand },
+            { name: '帐篷', val: 2.8, color: '#C47D5A' },
+            { name: '电子', val: 1.2, color: Co.moss },
+            { name: '工具', val: 0.7, color: '#7BAFC8' },
+            { name: '水补', val: 0.6, color: '#A89070' },
+            { name: '炊具', val: 0.5, color: Co.inkDim },
+          ];
+          const spendTotal = spendCats.reduce((s, c) => s + c.val, 0);
+          const dr = 48, dsw = 15, dcirc = 2 * Math.PI * dr;
+
+          return (
+            <div style={{
+              marginTop: 18, padding: '20px 18px 16px',
+              background: Co.surface, border: `0.5px solid ${Co.line}`, borderRadius: 18,
+              boxShadow: '0 1px 3px rgba(40,30,20,0.04)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <svg viewBox="0 0 136 136" width="136" height="136" style={{ flexShrink: 0, display: 'block' }}>
+                  {(() => {
+                    let off = 0;
+                    return spendCats.map((cat, i) => {
+                      const seg = (cat.val / spendTotal) * dcirc;
+                      const gap = 2;
+                      const el = (
+                        <circle key={i} cx="68" cy="68" r={dr}
+                          fill="none" stroke={cat.color} strokeWidth={dsw}
+                          strokeDasharray={`${(seg - gap).toFixed(2)} ${(dcirc - seg + gap).toFixed(2)}`}
+                          strokeDashoffset={`${-(off + gap / 2).toFixed(2)}`}
+                          transform="rotate(-90 68 68)" />
+                      );
+                      off += seg;
+                      return el;
+                    });
+                  })()}
+                  <text x="68" y="60" textAnchor="middle" dominantBaseline="central"
+                    style={{ fontSize: 30, fontWeight: 700, fontFamily: Ko.font.sans,
+                      fill: Co.ink, letterSpacing: -1 }}>
+                    44
+                  </text>
+                  <text x="68" y="80" textAnchor="middle" dominantBaseline="central"
+                    style={{ fontSize: 10, fontWeight: 500, fontFamily: Ko.font.sans,
+                      fill: Co.inkMuted, letterSpacing: 0.3 }}>
+                    件装备
+                  </text>
+                </svg>
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px', flex: 1,
+                }}>
+                  {spendCats.map((cat, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div style={{
+                        width: 7, height: 7, borderRadius: 99, background: cat.color, flexShrink: 0,
+                      }} />
+                      <span style={{
+                        fontSize: 10.5, color: Co.ink, fontFamily: Ko.font.sans,
+                        fontWeight: 500, letterSpacing: -0.1,
+                      }}>{cat.name}</span>
+                      <span style={{
+                        fontSize: 10, color: Co.inkDim, fontFamily: Ko.font.sans, marginLeft: 'auto',
+                      }}>¥{cat.val}k</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12,
+                marginTop: 16, paddingTop: 14,
+                borderTop: `0.5px solid ${Co.lineSoft}`,
+              }}>
+                <window.Stat value="14.9" unit="kg" label="总重" />
+                <window.Stat value="¥18.7" unit="k" label="总值" />
+                <window.Stat value="8" label="个分类" />
+              </div>
+
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                marginTop: 14, paddingTop: 12,
+                borderTop: `0.5px solid ${Co.lineSoft}`,
+              }}>
+                <window.Icon name="alert" size={14} color={Co.flare} />
+                <span style={{
+                  fontSize: 12, fontWeight: 500, color: Co.flare,
+                  letterSpacing: -0.2, fontFamily: Ko.font.sans,
+                }}>
+                  安全类装备不足，建议补充急救包
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         <div style={{ marginTop: 24, marginBottom: 12 }}>
           <window.SectionTitle title="装备预设" right="3 套" />

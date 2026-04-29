@@ -140,7 +140,7 @@ function App() {
             </DCArtboard>
           </DCSection>
 
-          <DCSection id="flow" title="出发流程" subtitle="路线详情 → 装备 → 天气 → 安全确认 → 导航">
+          <DCSection id="flow" title="出发流程" subtitle="路线详情 → 装备 → 天气 → 安全 → 导航 → 完成">
             <DCArtboard id="route" label="路线详情" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenRouteDetail /></IOSDevice>
             </DCArtboard>
@@ -159,9 +159,12 @@ function App() {
             <DCArtboard id="navigate-hud" label="导航 HUD+" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenNavigateHUD /></IOSDevice>
             </DCArtboard>
+            <DCArtboard id="trip-done" label="行程完成 · 总结" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenTripComplete /></IOSDevice>
+            </DCArtboard>
           </DCSection>
 
-          <DCSection id="me" title="装备 + 我的" subtitle="个人数据、装备、回顾、社区">
+          <DCSection id="me" title="装备 + 我的" subtitle="个人数据、装备、设置">
             <DCArtboard id="library" label="装备库" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenGearLibrary /></IOSDevice>
             </DCArtboard>
@@ -171,11 +174,14 @@ function App() {
             <DCArtboard id="gear-item" label="装备详情 · 多图" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenGearItemDetail /></IOSDevice>
             </DCArtboard>
-            <DCArtboard id="profile" label="个人主页 v1" width={402} height={874}>
-              <IOSDevice dark={t.mode === 'dark'}><ScreenProfile /></IOSDevice>
-            </DCArtboard>
-            <DCArtboard id="profile-plus" label="个人主页 v2 · 足迹 + Wrapped" width={402} height={874}>
+            <DCArtboard id="profile" label="个人主页 · 足迹 + Wrapped" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenProfilePlus /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="settings" label="⚙ 设置 · 主题色" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenSettings /></IOSDevice>
+            </DCArtboard>
+            <DCArtboard id="notifications" label="🔔 通知中心" width={402} height={874}>
+              <IOSDevice dark={t.mode === 'dark'}><ScreenNotifications /></IOSDevice>
             </DCArtboard>
             <DCArtboard id="publish" label="路线发布" width={402} height={874}>
               <IOSDevice dark={t.mode === 'dark'}><ScreenRoutePublish /></IOSDevice>

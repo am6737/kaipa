@@ -46,6 +46,7 @@ const KAIPA_ICONS = {
   light:   'M9 2h6l-1 6h2l-7 14 2-9H8l1-11Z',
   knife:   'M3 17 17 3l4 4-2 2-12 12H3v-4Z',
   socks:   'M9 2v9l-4 5a4 4 0 1 0 6 5l8-8V2H9Z',
+  shield:  'M12 2l8 4v6c0 5.5-3.8 9.7-8 11-4.2-1.3-8-5.5-8-11V6l8-4Z',
 
   // UI bits
   layers2: 'M12 2 2 7l10 5 10-5-10-5Z',
