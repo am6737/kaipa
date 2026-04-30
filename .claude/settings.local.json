@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(cp /tmp/design-extract/kaipa/project/icons.jsx /home/coder/workspaces/kaipa/icons.jsx)",
+      "Bash(cp /tmp/design-extract/kaipa/project/map.jsx /home/coder/workspaces/kaipa/map.jsx)",
+      "Bash(cp /tmp/design-extract/kaipa/project/ios-frame.jsx /home/coder/workspaces/kaipa/ios-frame.jsx)",
+      "Bash(cp /tmp/design-extract/kaipa/project/design-canvas.jsx /home/coder/workspaces/kaipa/design-canvas.jsx)",
+      "Bash(cp /tmp/design-extract/kaipa/project/tweaks-panel.jsx /home/coder/workspaces/kaipa/tweaks-panel.jsx)",
+      "Bash(python3 *)",
+      "Bash(curl *)"
+    ]
+  }
+}

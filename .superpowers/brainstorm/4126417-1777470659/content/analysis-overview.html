@@ -1,0 +1,76 @@
+<h2>Kaipa 全面审查 — 优化方向总览</h2>
+<p class="subtitle">我仔细读完了全部 12 个源文件、30+ 个组件。以下是按优先级排列的 4 大优化方向，点击你最想先讨论的。</p>
+
+<div class="options">
+
+  <div class="option" data-choice="visual" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>视觉一致性 & 打磨</h3>
+      <p><strong>影响：高 · 工作量：中</strong></p>
+      <p>发现的问题：</p>
+      <ul style="margin:8px 0;padding-left:18px;font-size:13px;line-height:1.7;opacity:0.85">
+        <li><strong>字体大小散乱</strong> — 全 app 出现 26 种不同字号（8.5px ~ 34px），没有统一的排版梯度</li>
+        <li><strong>间距不规律</strong> — padding/gap/margin 使用了 20+ 种不同值，没有遵循 4pt 网格</li>
+        <li><strong>图标尺寸不统一</strong> — 同类型按钮在不同页面用了 14/15/16/17/18px 不同大小</li>
+        <li><strong>圆角不一致</strong> — 卡片圆角混用 12/14/16/18px，同级元素圆角不同</li>
+        <li><strong>硬编码颜色</strong> — 部分地方直接写 hex (#C47D5A, #7BAFC8) 而不用 token</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="option" data-choice="interaction" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>交互 & 状态缺失</h3>
+      <p><strong>影响：高 · 工作量：中</strong></p>
+      <p>发现的问题：</p>
+      <ul style="margin:8px 0;padding-left:18px;font-size:13px;line-height:1.7;opacity:0.85">
+        <li><strong>空状态缺失</strong> — 装备库、搜索结果、路线列表都没有「无内容」占位</li>
+        <li><strong>加载状态不完整</strong> — 只有装备选择页有 shimmer，其他页面没有骨架屏</li>
+        <li><strong>按钮无响应</strong> — 导航页的相机/暂停、设置页的列表行、地图缩放按钮都没有点击处理</li>
+        <li><strong>暗色模式适配不全</strong> — 部分硬编码颜色（警告红、成功绿）在暗色下不协调</li>
+        <li><strong>TabBar 无 active 动效</strong> — 切换 tab 没有平滑过渡</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="option" data-choice="newscreens" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>补充缺失页面</h3>
+      <p><strong>影响：中 · 工作量：大</strong></p>
+      <p>目前 app 流程中明显缺少的页面：</p>
+      <ul style="margin:8px 0;padding-left:18px;font-size:13px;line-height:1.7;opacity:0.85">
+        <li><strong>登录/注册</strong> — 有 Onboarding 但没有账号体系入口</li>
+        <li><strong>搜索筛选详情</strong> — 搜索页有 filter chip 但没有展开的筛选面板</li>
+        <li><strong>行程结束/总结</strong> — 有导航 HUD 但没有「完成行程」的总结回顾页</li>
+        <li><strong>社区/动态详情</strong> — ScreenFeed 有帖子列表但没有详情页和评论页</li>
+        <li><strong>消息/通知中心</strong> — 有 bell 图标但没有通知列表页</li>
+        <li><strong>装备添加/编辑</strong> — 装备库有「添加」按钮但没有添加流程</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="option" data-choice="system" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>设计系统 & 代码架构</h3>
+      <p><strong>影响：中 · 工作量：大</strong></p>
+      <p>底层架构问题：</p>
+      <ul style="margin:8px 0;padding-left:18px;font-size:13px;line-height:1.7;opacity:0.85">
+        <li><strong>Token Proxy 命名混乱</strong> — 6 个文件用了 Ko/Co、Kn/Cn、Kf/Cf、Kr/Cr、Kg/Cg、K/C 六套不同变量名</li>
+        <li><strong>缺少语义化颜色</strong> — 没有 alert/warning/success/info 等语义色 token</li>
+        <li><strong>组件复用率低</strong> — SettingCard/ToggleCard/AccessRow 结构相似但各自独立实现</li>
+        <li><strong>缺少排版 token</strong> — 无 heading/body/caption 类型层级，全部硬编码 fontSize</li>
+        <li><strong>动效时间未 token 化</strong> — 1400ms、2.5s、1.8s 等散布各处</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px;padding:16px 20px;background:rgba(74,124,89,0.08);border-radius:12px;border-left:3px solid rgba(74,124,89,0.5)">
+  <p style="margin:0;font-size:14px;line-height:1.6"><strong>我的建议：</strong>先做 <strong>A（视觉一致性）</strong>，因为它能以最小工作量产生最大的质感提升。然后是 B（交互状态），让 demo 更完整。C 和 D 可以根据你的目标按需推进。</p>
+  <p style="margin:8px 0 0;font-size:13px;opacity:0.7">你也可以多选，我们可以混合推进。</p>
+</div>

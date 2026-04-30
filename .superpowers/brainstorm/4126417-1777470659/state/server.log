@@ -1,0 +1,3 @@
+{"type":"server-started","port":60311,"host":"0.0.0.0","url_host":"localhost","url":"http://localhost:60311","screen_dir":"/home/coder/workspaces/kaipa/.superpowers/brainstorm/4126417-1777470659/content","state_dir":"/home/coder/workspaces/kaipa/.superpowers/brainstorm/4126417-1777470659/state"}
+{"type":"screen-added","file":"/home/coder/workspaces/kaipa/.superpowers/brainstorm/4126417-1777470659/content/analysis-overview.html"}
+{"type":"server-stopped","reason":"owner process exited"}
