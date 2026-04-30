@@ -15,6 +15,8 @@ import '../../features/gear/presentation/gear_category_screen.dart';
 import '../../features/gear/presentation/gear_item_detail_screen.dart';
 import '../../features/gear/presentation/gear_pick_screen.dart';
 import '../../features/gear/presentation/category_management_screen.dart';
+import '../../features/gear/presentation/preset_management_screen.dart';
+import '../../features/gear/presentation/preset_detail_screen.dart';
 import '../../features/navigation/presentation/navigate_screen.dart';
 import '../../features/navigation/presentation/navigate_hud_screen.dart';
 import '../../features/trip/presentation/trip_complete_screen.dart';
@@ -84,6 +86,16 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: 'categories/manage',
                   builder: (_, _) => const CategoryManagementScreen(),
+                ),
+                GoRoute(
+                  path: 'presets/manage',
+                  builder: (_, _) => const PresetManagementScreen(),
+                ),
+                GoRoute(
+                  path: 'preset/:id',
+                  builder: (_, state) => PresetDetailScreen(
+                    presetId: state.pathParameters['id']!,
+                  ),
                 ),
               ],
             ),
