@@ -9,6 +9,9 @@ import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/glass_container.dart';
+import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/stat_widget.dart';
+import '../../../core/widgets/kaipa_icons.dart';
 
 class NavigateHudScreen extends ConsumerStatefulWidget {
   final String routeId;
@@ -54,15 +57,19 @@ class _NavigateHudScreenState extends ConsumerState<NavigateHudScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: tokens.color.surface,
-        title: Text('确认发送紧急求助？', style: TextStyle(color: tokens.color.ink)),
-        content: Text('这将向你的紧急联系人发送你的当前位置信息。', style: TextStyle(color: tokens.color.inkMuted)),
+        title: Text('确认发送紧急求助？',
+            style: TextStyle(color: tokens.color.ink)),
+        content: Text('这将向你的紧急联系人发送你的当前位置信息。',
+            style: TextStyle(color: tokens.color.inkMuted)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('取消', style: TextStyle(color: tokens.color.inkMuted)),
+            child: Text('取消',
+                style: TextStyle(color: tokens.color.inkMuted)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626)),
             onPressed: () {
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
@@ -84,76 +91,128 @@ class _NavigateHudScreenState extends ConsumerState<NavigateHudScreen> {
 
     return Scaffold(
       body: routeAsync.when(
-        loading: () => Center(child: CircularProgressIndicator(color: colors.flare)),
-        error: (e, _) => Center(child: Text('加载失败', style: TextStyle(color: colors.ink))),
+        loading: () => Center(
+            child: CircularProgressIndicator(color: colors.flare)),
+        error: (e, _) => Center(
+            child: Text('加载失败', style: TextStyle(color: colors.ink))),
         data: (route) => _buildHud(route, tokens, colors),
       ),
     );
   }
 
-  Widget _buildHud(RouteModel route, KaipaTokens tokens, KaipaColors colors) {
+  Widget _buildHud(
+      RouteModel route, KaipaTokens tokens, KaipaColors colors) {
     return Stack(
       children: [
         // Full-bleed map
-        FlutterMap(
-          options: MapOptions(
-            initialCenter: LatLng(route.latitude, route.longitude),
-            initialZoom: 14,
+        Positioned.fill(
+          child: FlutterMap(
+            options: MapOptions(
+              initialCenter: LatLng(route.latitude, route.longitude),
+              initialZoom: 14,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.kaipa.app',
+              ),
+            ],
           ),
-          children: [
-            TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
-          ],
         ),
 
-        // Top route ribbon
+        // Top ribbon
         Positioned(
-          top: MediaQuery.of(context).padding.top + 8,
-          left: 16, right: 16,
+          top: 56,
+          left: 16,
+          right: 16,
           child: GlassContainer(
             tokens: tokens,
             radius: 18,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                GestureDetector(
+                // Back button
+                CircleButton(
+                  icon: KaipaIcons.back,
+                  size: 32,
+                  iconSize: 14,
+                  tokens: tokens,
                   onTap: () => context.pop(),
-                  child: Container(
-                    width: 32, height: 32,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: colors.surface.withAlpha(120),
-                    ),
-                    child: Icon(Icons.arrow_back_ios_new, size: 14, color: colors.ink),
-                  ),
                 ),
                 const SizedBox(width: 10),
+                // Status + route column
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Row(
                         children: [
-                          Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: colors.flare)),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colors.flare,
+                            ),
+                          ),
                           const SizedBox(width: 5),
-                          Text('进行中  ·  ${_formatTime(_elapsedSeconds)}',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: colors.flare)),
+                          Text(
+                            '进行中 · ${_formatTime(_elapsedSeconds)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: colors.flare,
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(route.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.2)),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Text(
+                          '箭扣长城 → 鹰飞倒仰',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: colors.ink,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
+                // Participant badge
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 9, vertical: 5),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(99),
                     color: colors.mossSoft,
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.people, size: 11, color: colors.mossDeep),
-                      Text('2', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.mossDeep)),
+                      KaipaIcon(
+                        name: KaipaIcons.users,
+                        size: 11,
+                        color: colors.mossDeep,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        '2',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: colors.mossDeep,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -162,145 +221,461 @@ class _NavigateHudScreenState extends ConsumerState<NavigateHudScreen> {
           ),
         ),
 
-        // Right rail buttons
+        // Right rail
         Positioned(
-          top: MediaQuery.of(context).padding.top + 80,
+          top: 130,
           right: 16,
           child: Column(
             children: [
-              _buildGlassBtn(Icons.add, colors, tokens),
+              // Zoom pill
+              GlassContainer(
+                tokens: tokens,
+                radius: 14,
+                padding: const EdgeInsets.all(4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Plus button
+                    SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Center(
+                        child: KaipaIcon(
+                          name: KaipaIcons.plus,
+                          size: 16,
+                          color: colors.ink,
+                        ),
+                      ),
+                    ),
+                    // Divider
+                    Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6),
+                      child: Container(
+                        height: 0.5,
+                        color: colors.line,
+                      ),
+                    ),
+                    // Minus button
+                    SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Center(
+                        child: Text(
+                          '−',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: colors.ink,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 8),
-              _buildGlassBtn(Icons.remove, colors, tokens),
+              // Navigate pill
+              GlassContainer(
+                tokens: tokens,
+                radius: 14,
+                padding: const EdgeInsets.all(4),
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Center(
+                    child: KaipaIcon(
+                      name: KaipaIcons.navigate,
+                      size: 16,
+                      color: colors.flare,
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(height: 8),
-              _buildGlassBtn(Icons.my_location, colors, tokens, iconColor: colors.flare),
-              const SizedBox(height: 8),
-              _buildGlassBtn(Icons.layers, colors, tokens),
+              // Layers pill
+              GlassContainer(
+                tokens: tokens,
+                radius: 14,
+                padding: const EdgeInsets.all(4),
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Center(
+                    child: KaipaIcon(
+                      name: KaipaIcons.layers,
+                      size: 16,
+                      color: colors.ink,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
 
-        // Left panel: elevation
+        // Left elevation panel
         Positioned(
-          top: MediaQuery.of(context).padding.top + 80,
+          top: 130,
           left: 16,
           child: GlassContainer(
             tokens: tokens,
             radius: 14,
             padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('ELEV', style: TextStyle(fontSize: 9, color: colors.inkMuted, fontWeight: FontWeight.w500, letterSpacing: 1)),
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: 58, height: 60,
-                  child: CustomPaint(painter: _ElevStripPainter(colors)),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('0', style: TextStyle(fontSize: 9, color: colors.inkDim)),
-                    const SizedBox(width: 30),
-                    Text('${route.distanceKm}', style: TextStyle(fontSize: 9, color: colors.inkDim)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(height: 0.5, width: 58, color: colors.line),
-                const SizedBox(height: 8),
-                Text('NOW', style: TextStyle(fontSize: 9, color: colors.inkMuted, letterSpacing: 1)),
-                const SizedBox(height: 2),
-                RichText(text: TextSpan(children: [
-                  TextSpan(text: '${route.maxAltitudeM ?? 0}', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: colors.ink)),
-                  TextSpan(text: 'm', style: TextStyle(fontSize: 9, color: colors.inkDim)),
-                ])),
-              ],
+            child: SizedBox(
+              width: 58,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ELEV label
+                  Text(
+                    'ELEV',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: colors.inkMuted,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // Elevation sparkline
+                  SizedBox(
+                    width: 56,
+                    height: 38,
+                    child: CustomPaint(
+                      size: const Size(56, 38),
+                      painter: _ElevSparklinePainter(colors),
+                    ),
+                  ),
+                  // Range labels
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '0',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontFamily: 'monospace',
+                            color: colors.inkDim,
+                          ),
+                        ),
+                        Text(
+                          '11.4',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontFamily: 'monospace',
+                            color: colors.inkDim,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Divider
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Container(
+                      height: 0.5,
+                      color: colors.line,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // NOW label
+                  Text(
+                    'NOW',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: colors.inkMuted,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  // Current elevation
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '1312',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: colors.ink,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(width: 1),
+                      Text(
+                        'm',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: colors.inkDim,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
 
         // Bottom card
         Positioned(
-          bottom: 0, left: 0, right: 0,
+          bottom: 28,
+          left: 16,
+          right: 16,
           child: GlassContainer(
             tokens: tokens,
-            radius: 24,
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 34),
+            radius: 20,
+            padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Next waypoint
-                Row(
-                  children: [
-                    Container(
-                      width: 36, height: 36,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        color: colors.flareSoft,
-                      ),
-                      child: Icon(Icons.flag, size: 18, color: colors.flare),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('下一站', style: TextStyle(fontSize: 10, color: colors.inkMuted)),
-                          Text(route.photoSpots.isNotEmpty ? route.photoSpots.first.name : '终点',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: colors.ink)),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text('${(route.distanceKm * 0.3).toStringAsFixed(1)} km', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: colors.ink)),
-                        Text('~${(route.distanceKm * 0.3 / 3 * 60).round()} min', style: TextStyle(fontSize: 10, color: colors.inkMuted)),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Stats row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _statCol('距离', '${(route.distanceKm * _elapsedSeconds / 20000).clamp(0, route.distanceKm).toStringAsFixed(1)} km', colors),
-                    _statCol('爬升', '${(route.elevationGainM * _elapsedSeconds / 20000).clamp(0, route.elevationGainM).round()} m', colors),
-                    _statCol('速度', '${(_elapsedSeconds > 0 ? (route.distanceKm * _elapsedSeconds / 20000 / (_elapsedSeconds / 3600)).clamp(0, 5) : 0).toStringAsFixed(1)} km/h', colors),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Action buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => setState(() => _isPaused = !_isPaused),
-                        icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause, size: 18),
-                        label: Text(_isPaused ? '继续' : '暂停'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: colors.sky,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          minimumSize: const Size(0, 48),
+                // Next waypoint row
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      // Icon box
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: colors.flareSoft,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: colors.flare.withAlpha(77),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Center(
+                          child: KaipaIcon(
+                            name: KaipaIcons.forward,
+                            size: 20,
+                            color: colors.flare,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 80,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _showSosDialog,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      const SizedBox(width: 12),
+                      // Info column
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'NEXT · 340 m · 右后方',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                                color: colors.inkMuted,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                '鹰飞倒仰 · 打卡点',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: colors.ink,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        child: const Text('SOS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // 4-column stats grid
+                Container(
+                  padding: const EdgeInsets.only(top: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: colors.line,
+                        width: 0.5,
                       ),
                     ),
-                  ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: StatWidget(
+                          value: '4.7',
+                          unit: 'km',
+                          label: '已走',
+                          tokens: tokens,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: StatWidget(
+                          value: '312',
+                          unit: 'm',
+                          label: '爬升',
+                          tokens: tokens,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: StatWidget(
+                          value: '2.1',
+                          unit: 'km/h',
+                          label: '均速',
+                          tokens: tokens,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: StatWidget(
+                          value: '6.7',
+                          unit: 'km',
+                          label: '剩余',
+                          tokens: tokens,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Action row
+                Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.only(top: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: colors.line,
+                        width: 0.5,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Pause button
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _isPaused = !_isPaused),
+                          child: Container(
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: colors.surfaceHi,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
+                              children: [
+                                KaipaIcon(
+                                  name: _isPaused
+                                      ? KaipaIcons.play
+                                      : KaipaIcons.pause,
+                                  size: 13,
+                                  color: colors.ink,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _isPaused ? '继续' : '暂停',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: colors.ink,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Checkpoint button
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {},
+                          child: Container(
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: colors.surfaceHi,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
+                              children: [
+                                KaipaIcon(
+                                  name: KaipaIcons.camera,
+                                  size: 14,
+                                  color: colors.ink,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '打卡',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: colors.ink,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // SOS button
+                      GestureDetector(
+                        onTap: _showSosDialog,
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC0392B),
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFC0392B)
+                                    .withAlpha(115),
+                                blurRadius: 14,
+                                offset: const Offset(0, 4),
+                              ),
+                              const BoxShadow(
+                                color: Color.fromRGBO(
+                                    255, 255, 255, 0.15),
+                                blurRadius: 0,
+                                spreadRadius: 1,
+                                offset: Offset.zero,
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'SOS',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -309,62 +684,87 @@ class _NavigateHudScreenState extends ConsumerState<NavigateHudScreen> {
       ],
     );
   }
-
-  Widget _buildGlassBtn(IconData icon, KaipaColors colors, KaipaTokens tokens, {Color? iconColor}) {
-    return GlassContainer(
-      tokens: tokens,
-      radius: 14,
-      padding: const EdgeInsets.all(10),
-      child: Icon(icon, size: 16, color: iconColor ?? colors.ink),
-    );
-  }
-
-  Widget _statCol(String label, String value, KaipaColors colors) {
-    return Column(
-      children: [
-        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: colors.ink)),
-        const SizedBox(height: 2),
-        Text(label, style: TextStyle(fontSize: 10, color: colors.inkMuted)),
-      ],
-    );
-  }
 }
 
-class _ElevStripPainter extends CustomPainter {
+/// Sparkline painter for the elevation strip in the left panel.
+class _ElevSparklinePainter extends CustomPainter {
   final KaipaColors colors;
-  _ElevStripPainter(this.colors);
+
+  _ElevSparklinePainter(this.colors);
+
+  static const List<double> _data = [
+    0.1, 0.18, 0.28, 0.42, 0.55, 0.68, 0.62, 0.58, 0.74, 0.85, 0.82,
+    0.7, 0.55, 0.4,
+  ];
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = colors.flare.withAlpha(60)
-      ..style = PaintingStyle.fill;
-    final path = Path()
-      ..moveTo(0, size.height * 0.8)
-      ..quadraticBezierTo(size.width * 0.2, size.height * 0.5, size.width * 0.4, size.height * 0.3)
-      ..quadraticBezierTo(size.width * 0.6, size.height * 0.1, size.width * 0.7, size.height * 0.15)
-      ..quadraticBezierTo(size.width * 0.85, size.height * 0.2, size.width, size.height * 0.5)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(path, paint);
+    if (_data.isEmpty) return;
 
-    final linePaint = Paint()
-      ..color = colors.flare
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    final linePath = Path()
-      ..moveTo(0, size.height * 0.8)
-      ..quadraticBezierTo(size.width * 0.2, size.height * 0.5, size.width * 0.4, size.height * 0.3)
-      ..quadraticBezierTo(size.width * 0.6, size.height * 0.1, size.width * 0.7, size.height * 0.15)
-      ..quadraticBezierTo(size.width * 0.85, size.height * 0.2, size.width, size.height * 0.5);
-    canvas.drawPath(linePath, linePaint);
+    final points = <Offset>[];
+    for (int i = 0; i < _data.length; i++) {
+      final x = i / (_data.length - 1) * size.width;
+      final y = size.height - _data[i] * size.height;
+      points.add(Offset(x, y));
+    }
 
-    // Current position dot
+    // Filled area
+    final fillPath = Path()..moveTo(0, size.height);
+    for (final p in points) {
+      fillPath.lineTo(p.dx, p.dy);
+    }
+    fillPath.lineTo(size.width, size.height);
+    fillPath.close();
+
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..color = colors.flareSoft
+        ..style = PaintingStyle.fill,
+    );
+
+    // Line
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      linePath.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..color = colors.flare
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // Current position marker at index ~5.3
+    const markerIdx = 5.3;
+    final markerX = markerIdx / (_data.length - 1) * size.width;
+    // Interpolate Y between index 5 and 6
+    final lowerIdx = markerIdx.floor();
+    final upperIdx = markerIdx.ceil();
+    final frac = markerIdx - lowerIdx;
+    final markerVal =
+        _data[lowerIdx] + (_data[upperIdx] - _data[lowerIdx]) * frac;
+    final markerY = size.height - markerVal * size.height;
+
+    // White stroke circle
     canvas.drawCircle(
-      Offset(size.width * 0.4, size.height * 0.3),
+      Offset(markerX, markerY),
       3,
-      Paint()..color = colors.flare,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    // Flare fill circle
+    canvas.drawCircle(
+      Offset(markerX, markerY),
+      3,
+      Paint()
+        ..color = colors.flare
+        ..style = PaintingStyle.fill,
     );
   }
 

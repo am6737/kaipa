@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,25 +9,60 @@ import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/glass_container.dart';
-import '../../../core/widgets/diff_badge.dart';
+import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/stat_widget.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 
-class NavigateScreen extends ConsumerWidget {
+class NavigateScreen extends ConsumerStatefulWidget {
   final String routeId;
 
   const NavigateScreen({super.key, required this.routeId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NavigateScreen> createState() => _NavigateScreenState();
+}
+
+class _NavigateScreenState extends ConsumerState<NavigateScreen> {
+  Timer? _timer;
+  int _elapsedSeconds = 0;
+  bool _isPaused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_isPaused) setState(() => _elapsedSeconds++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatTime(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
-    final routeAsync = ref.watch(routeByIdProvider(routeId));
+    final routeAsync = ref.watch(routeByIdProvider(widget.routeId));
 
     return Scaffold(
       body: routeAsync.when(
         loading: () => _buildLoading(colors),
         error: (error, stack) => _buildError(context, colors, error),
-        data: (route) => _buildContent(context, ref, tokens, colors, route),
+        data: (route) => _buildContent(context, tokens, colors, route),
       ),
     );
   }
@@ -104,13 +140,11 @@ class NavigateScreen extends ConsumerWidget {
 
   Widget _buildContent(
     BuildContext context,
-    WidgetRef ref,
     KaipaTokens tokens,
     KaipaColors colors,
     RouteModel route,
   ) {
     final center = LatLng(route.latitude, route.longitude);
-    final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Stack(
       children: [
@@ -164,174 +198,94 @@ class NavigateScreen extends ConsumerWidget {
           ),
         ),
 
-        // Back button top-left
+        // Top HUD
         Positioned(
-          top: MediaQuery.of(context).padding.top + 12,
+          top: 56,
           left: 16,
-          child: GestureDetector(
-            onTap: () => context.pop(),
-            child: GlassContainer(
-              dark: true,
-              radius: 9999,
-              tokens: tokens,
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: Center(
-                  child: KaipaIcon(
-                    name: KaipaIcons.back,
-                    size: 18,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // Bottom glass overlay card
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
+          right: 16,
           child: GlassContainer(
-            dark: true,
-            radius: 24,
             tokens: tokens,
-            padding: EdgeInsets.fromLTRB(20, 24, 20, 20 + bottomPad),
+            radius: 20,
+            padding: const EdgeInsets.all(16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Route name + difficulty badge
+                // Status row
                 Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        route.name,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: -0.5,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: colors.flare,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    DiffBadge(level: route.difficulty, tokens: tokens),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Stats row: distance, elevation gain, estimated time
-                Row(
-                  children: [
-                    _StatItem(
-                      icon: KaipaIcons.ruler,
-                      value: '${route.distanceKm.toStringAsFixed(1)} km',
-                      label: '距离',
-                      colors: colors,
+                    const SizedBox(width: 6),
+                    Text(
+                      '进行中 · ${_formatTime(_elapsedSeconds)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: colors.flare,
+                        letterSpacing: -0.1,
+                      ),
                     ),
-                    const SizedBox(width: 24),
-                    _StatItem(
-                      icon: KaipaIcons.altitude,
-                      value: '${route.elevationGainM.toInt()} m',
-                      label: '爬升',
-                      colors: colors,
-                    ),
-                    const SizedBox(width: 24),
-                    _StatItem(
-                      icon: KaipaIcons.clock,
-                      value: _formatDuration(route.estimatedDuration),
-                      label: '预计时间',
-                      colors: colors,
+                    const Spacer(),
+                    Text(
+                      '箭扣长城',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.inkMuted,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
-
-                // Action buttons
+                // Divider
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Container(
+                    height: 0.5,
+                    color: colors.line,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // 4-column stats grid
                 Row(
                   children: [
-                    // Gear button
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () =>
-                            context.push('/gear/pick/$routeId'),
-                        child: Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withAlpha(20),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withAlpha(30),
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              KaipaIcon(
-                                name: KaipaIcons.backpack,
-                                size: 18,
-                                color: Colors.white.withAlpha(200),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '准备装备',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withAlpha(200),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      child: StatWidget(
+                        value: '4.7',
+                        unit: 'km',
+                        label: '已走',
+                        tokens: tokens,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // Start navigation button
+                    const SizedBox(width: 8),
                     Expanded(
-                      flex: 2,
-                      child: GestureDetector(
-                        onTap: () =>
-                            context.push('/navigate-hud/$routeId'),
-                        child: Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: colors.flare,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: colors.flare.withAlpha(60),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              KaipaIcon(
-                                name: KaipaIcons.navigate,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                '开始导航',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      child: StatWidget(
+                        value: '312',
+                        unit: 'm',
+                        label: '爬升',
+                        tokens: tokens,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: StatWidget(
+                        value: '2.1',
+                        unit: 'km/h',
+                        label: '均速',
+                        tokens: tokens,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: StatWidget(
+                        value: '6.7',
+                        unit: 'km',
+                        label: '剩余',
+                        tokens: tokens,
                       ),
                     ),
                   ],
@@ -340,68 +294,157 @@ class NavigateScreen extends ConsumerWidget {
             ),
           ),
         ),
-      ],
-    );
-  }
 
-  static String _formatDuration(Duration d) {
-    final hours = d.inHours;
-    final minutes = d.inMinutes % 60;
-    if (hours > 0 && minutes > 0) return '$hours小时$minutes分';
-    if (hours > 0) return '$hours小时';
-    return '$minutes分钟';
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  final String icon;
-  final String value;
-  final String label;
-  final KaipaColors colors;
-
-  const _StatItem({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.colors,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            KaipaIcon(
-              name: icon,
-              size: 14,
-              color: Colors.white.withAlpha(140),
+        // Next waypoint card
+        Positioned(
+          bottom: 200,
+          left: 16,
+          right: 16,
+          child: GlassContainer(
+            tokens: tokens,
+            radius: 16,
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                // Icon box
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: colors.flareSoft,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: colors.flare.withAlpha(77),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Center(
+                    child: KaipaIcon(
+                      name: KaipaIcons.camera,
+                      size: 22,
+                      color: colors.flare,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Info column
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '下一个 · 340 米',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colors.inkMuted,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Text(
+                          '鹰飞倒仰 · 打卡点',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: colors.ink,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Text(
+                          '海拔 1410m · ↑ 98m',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: colors.inkMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Forward icon
+                KaipaIcon(
+                  name: KaipaIcons.forward,
+                  size: 14,
+                  color: colors.inkMuted,
+                ),
+              ],
             ),
-            const SizedBox(width: 6),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                letterSpacing: -0.2,
-              ),
-            ),
-          ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.white.withAlpha(120),
+
+        // Bottom action bar
+        Positioned(
+          bottom: 50,
+          left: 16,
+          right: 16,
+          child: Row(
+            children: [
+              // Camera button
+              CircleButton(
+                icon: KaipaIcons.camera,
+                size: 56,
+                iconSize: 22,
+                tokens: tokens,
+              ),
+              const SizedBox(width: 10),
+              // Pause button
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _isPaused = !_isPaused),
+                  child: Container(
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: colors.flare,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colors.flare.withAlpha(128),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        KaipaIcon(
+                          name: _isPaused ? KaipaIcons.play : KaipaIcons.pause,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _isPaused ? '继续' : '暂停',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Bell button
+              CircleButton(
+                icon: KaipaIcons.bell,
+                size: 56,
+                iconSize: 22,
+                color: colors.flare,
+                tokens: tokens,
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 }
-
