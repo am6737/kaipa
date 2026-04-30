@@ -404,19 +404,12 @@ class GearRepository {
     final uid = _userId;
     final data = await _client
         .from('gear_presets')
-        .select()
+        .select('*, gear_preset_items(item_id, gear_items(weight_g))')
         .eq('user_id', uid)
         .order('created_at', ascending: false);
 
-    final presets = <GearPresetModel>[];
-    for (final row in (data as List)) {
-      final presetId = row['id'] as String;
-      final itemsData = await _client
-          .from('gear_preset_items')
-          .select('item_id, gear_items(weight_g)')
-          .eq('preset_id', presetId);
-
-      final items = itemsData as List;
+    return (data as List).map((row) {
+      final items = (row['gear_preset_items'] as List?) ?? [];
       final totalWeight = items.fold<double>(0, (sum, item) {
         final gear = item['gear_items'] as Map<String, dynamic>?;
         if (gear == null) return sum;
@@ -426,16 +419,15 @@ class GearRepository {
         return sum;
       });
 
-      presets.add(GearPresetModel(
+      return GearPresetModel(
         id: row['id'] as String,
         userId: row['user_id'] as String,
         name: row['name'] as String,
         createdAt: DateTime.parse(row['created_at'] as String),
         itemCount: items.length,
         totalWeightG: totalWeight,
-      ));
-    }
-    return presets;
+      );
+    }).toList();
   }
 
   Future<GearPresetModel> createPreset({required String name}) async {

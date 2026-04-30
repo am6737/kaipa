@@ -119,7 +119,9 @@ class _PresetManagementScreenState extends ConsumerState<PresetManagementScreen>
       builder: (_) => CreatePresetSheet(
         existingNames: presets.map((p) => p.name).toList(),
       ),
-    );
+    ).then((created) {
+      if (created == true) ref.invalidate(gearPresetsProvider);
+    });
   }
 
   @override

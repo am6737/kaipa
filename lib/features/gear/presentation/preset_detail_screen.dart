@@ -18,8 +18,8 @@ class PresetDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
-  String? _presetName;
   bool _isEditingName = false;
+  String? _renamedName;
   final _nameController = TextEditingController();
 
   @override
@@ -28,24 +28,14 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
     super.dispose();
   }
 
-  void _loadPresetName() {
-    final presetsAsync = ref.read(gearPresetsProvider);
-    presetsAsync.whenData((presets) {
-      final preset = presets.where((p) => p.id == widget.presetId).firstOrNull;
-      if (preset != null && mounted) {
-        setState(() => _presetName = preset.name);
-      }
-    });
-  }
-
-  void _startRename() {
-    _nameController.text = _presetName ?? '';
+  void _startRename(String currentName) {
+    _nameController.text = currentName;
     setState(() => _isEditingName = true);
   }
 
   Future<void> _saveRename() async {
     final newName = _nameController.text.trim();
-    if (newName.isEmpty || newName == _presetName) {
+    if (newName.isEmpty) {
       setState(() => _isEditingName = false);
       return;
     }
@@ -55,7 +45,7 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
       await repo.renamePreset(presetId: widget.presetId, newName: newName);
       ref.invalidate(gearPresetsProvider);
       setState(() {
-        _presetName = newName;
+        _renamedName = newName;
         _isEditingName = false;
       });
     } catch (e) {
@@ -67,18 +57,20 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
     }
   }
 
-  Future<void> _removeItem(GearItemModel item) async {
+  Future<bool> _confirmRemoveItem(GearItemModel item) async {
     try {
       final repo = ref.read(gearRepositoryProvider);
       await repo.removeItemFromPreset(presetId: widget.presetId, itemId: item.id);
       ref.invalidate(presetItemsProvider(widget.presetId));
       ref.invalidate(gearPresetsProvider);
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('移除失败: $e')),
         );
       }
+      return false;
     }
   }
 
@@ -108,8 +100,10 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
     final tokens = context.kaipaTokens;
     final colors = tokens.color;
     final itemsAsync = ref.watch(presetItemsProvider(widget.presetId));
-
-    if (_presetName == null) _loadPresetName();
+    final presetName = _renamedName ??
+        ref.watch(gearPresetsProvider).valueOrNull
+            ?.where((p) => p.id == widget.presetId)
+            .firstOrNull?.name ?? '预设';
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -142,9 +136,9 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
                 onSubmitted: (_) => _saveRename(),
               )
             : GestureDetector(
-                onTap: _startRename,
+                onTap: () => _startRename(presetName),
                 child: Text(
-                  _presetName ?? '预设',
+                  presetName,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -245,7 +239,7 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
                   ),
                   child: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
                 ),
-                onDismissed: (_) => _removeItem(item),
+                confirmDismiss: (_) => _confirmRemoveItem(item),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
