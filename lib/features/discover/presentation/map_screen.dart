@@ -58,6 +58,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
     final routesAsync = ref.watch(allRoutesProvider);
+    final immersive = ref.watch(immersiveModeProvider);
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -98,94 +99,107 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
 
           // ── Top: search bar + profile ──
-          SafeArea(
-            bottom: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Row(
+          AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(0, -1) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => context.push('/discover/search'),
-                          child: GlassContainer(
-                            radius: KaipaRadius.pill,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
-                              child: Row(
-                                children: [
-                                  KaipaIcon(
-                                    name: KaipaIcons.search,
-                                    size: 17,
-                                    color: colors.inkMuted,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      '搜索路线、山峰、地点',
-                                      style: TextStyle(
-                                        color: colors.inkDim,
-                                        fontSize: 15,
-                                        letterSpacing: -0.2,
-                                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => context.push('/discover/search'),
+                                child: GlassContainer(
+                                  radius: KaipaRadius.pill,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        KaipaIcon(
+                                          name: KaipaIcons.search,
+                                          size: 17,
+                                          color: colors.inkMuted,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            '搜索路线、山峰、地点',
+                                            style: TextStyle(
+                                              color: colors.inkDim,
+                                              fontSize: 15,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      // Filter button
-                      GestureDetector(
-                        onTap: () => setState(() => _showFilters = !_showFilters),
-                        child: GlassContainer(
-                          radius: KaipaRadius.pill,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.tune_rounded,
-                                    size: 18, color: colors.ink),
-                                if (_selectedFilter != '全部') ...[
-                                  const SizedBox(width: 4),
-                                  Container(
-                                    width: 6,
-                                    height: 6,
-                                    decoration: BoxDecoration(
-                                      color: colors.flare,
-                                      shape: BoxShape.circle,
-                                    ),
+                            const SizedBox(width: 10),
+                            // Filter button
+                            GestureDetector(
+                              onTap: () => setState(() => _showFilters = !_showFilters),
+                              child: GlassContainer(
+                                radius: KaipaRadius.pill,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.tune_rounded,
+                                          size: 18, color: colors.ink),
+                                      if (_selectedFilter != '全部') ...[
+                                        const SizedBox(width: 4),
+                                        Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: BoxDecoration(
+                                            color: colors.flare,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
-                                ],
-                              ],
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 10),
+                            CircleButton(
+                              icon: KaipaIcons.user,
+                              onTap: () {
+                                final shell = StatefulNavigationShell.of(context);
+                                shell.goBranch(2);
+                              },
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      CircleButton(
-                        icon: KaipaIcons.user,
-                        onTap: () {
-                          final shell = StatefulNavigationShell.of(context);
-                          shell.goBranch(2);
-                        },
                       ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
 
           // Tap outside to close filters (below the panel)
-          if (_showFilters)
+          if (_showFilters && !immersive)
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -195,7 +209,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
 
           // Filter dropdown panel (above the overlay)
-          if (_showFilters)
+          if (_showFilters && !immersive)
             Positioned(
               top: MediaQuery.of(context).padding.top + 60,
               left: 16,
@@ -264,53 +278,66 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           Positioned(
             right: 16,
             bottom: 120,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // NEW: fullscreen enter button
-                _MapButton(
-                  icon: Icons.fullscreen,
-                  colors: colors,
-                  onTap: () {
-                    setState(() {
-                      _showFilters = false;
-                      _activeRoute = null;
-                    });
-                    ref.read(immersiveModeProvider.notifier).state = true;
-                  },
-                ),
-                const SizedBox(height: 14),
-                _MapButton(
-                  icon: Icons.add,
-                  colors: colors,
-                  onTap: () => _mapController.move(
-                    _mapController.camera.center,
-                    _mapController.camera.zoom + 1,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              offset: immersive ? const Offset(1, 0) : Offset.zero,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                opacity: immersive ? 0.0 : 1.0,
+                child: IgnorePointer(
+                  ignoring: immersive,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // NEW: fullscreen enter button
+                      _MapButton(
+                        icon: Icons.fullscreen,
+                        colors: colors,
+                        onTap: () {
+                          setState(() {
+                            _showFilters = false;
+                            _activeRoute = null;
+                          });
+                          ref.read(immersiveModeProvider.notifier).state = true;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _MapButton(
+                        icon: Icons.add,
+                        colors: colors,
+                        onTap: () => _mapController.move(
+                          _mapController.camera.center,
+                          _mapController.camera.zoom + 1,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _MapButton(
+                        icon: Icons.remove,
+                        colors: colors,
+                        onTap: () => _mapController.move(
+                          _mapController.camera.center,
+                          _mapController.camera.zoom - 1,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _MapButton(
+                        icon: Icons.navigation_rounded,
+                        colors: colors,
+                        highlighted: true,
+                        onTap: () =>
+                            _mapController.move(_defaultCenter, _defaultZoom),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                _MapButton(
-                  icon: Icons.remove,
-                  colors: colors,
-                  onTap: () => _mapController.move(
-                    _mapController.camera.center,
-                    _mapController.camera.zoom - 1,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _MapButton(
-                  icon: Icons.navigation_rounded,
-                  colors: colors,
-                  highlighted: true,
-                  onTap: () =>
-                      _mapController.move(_defaultCenter, _defaultZoom),
-                ),
-              ],
+              ),
             ),
           ),
 
           // ── Active route preview (swipe down to dismiss) ──
-          if (_activeRoute != null)
+          if (_activeRoute != null && !immersive)
             Positioned(
               left: 12,
               right: 12,
