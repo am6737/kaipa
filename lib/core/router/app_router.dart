@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/discover/data/immersive_provider.dart';
 import '../../features/discover/presentation/map_screen.dart';
 import '../../features/discover/presentation/search_screen.dart';
 import '../../features/discover/presentation/weather_screen.dart';
@@ -26,10 +28,34 @@ import '../widgets/bottom_nav_bar.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+class _AuthNotifier extends ChangeNotifier {
+  _AuthNotifier() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
+  final authNotifier = _AuthNotifier();
+  ref.onDispose(authNotifier.dispose);
+
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/discover',
+    refreshListenable: authNotifier,
+    redirect: (context, state) {
+      final loggedIn = Supabase.instance.client.auth.currentUser != null;
+      final path = state.matchedLocation;
+
+      const authRequired = ['/gear', '/profile'];
+      final needsAuth = authRequired.any((p) => path.startsWith(p));
+
+      if (!loggedIn && needsAuth) {
+        return '/login';
+      }
+      return null;
+    },
     routes: [
       // 3-tab shell: gear | discover (center) | profile
       StatefulShellRoute.indexedStack(
@@ -165,13 +191,15 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _AppShell extends StatelessWidget {
+class _AppShell extends ConsumerWidget {
   final StatefulNavigationShell navigationShell;
 
   const _AppShell({required this.navigationShell});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final immersive = ref.watch(immersiveModeProvider);
+
     return Scaffold(
       body: Stack(
         children: [
@@ -180,11 +208,24 @@ class _AppShell extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: 0,
-            child: BottomNavBar(
-              currentIndex: navigationShell.currentIndex,
-              onTap: (index) => navigationShell.goBranch(
-                index,
-                initialLocation: index == navigationShell.currentIndex,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              offset: immersive ? const Offset(0, 1) : Offset.zero,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                opacity: immersive ? 0.0 : 1.0,
+                child: IgnorePointer(
+                  ignoring: immersive,
+                  child: BottomNavBar(
+                    currentIndex: navigationShell.currentIndex,
+                    onTap: (index) => navigationShell.goBranch(
+                      index,
+                      initialLocation: index == navigationShell.currentIndex,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
