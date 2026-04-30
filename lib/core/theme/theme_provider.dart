@@ -14,7 +14,7 @@ final sharedPrefsProvider = Provider<SharedPreferences>((ref) {
 // ─── Theme preferences model ────────────────────────────────────────
 class ThemePrefs {
   final String mode; // 'light' | 'dark' | 'system'
-  final String preset; // 'moss' | 'meadow' | 'citrus' | 'ember' | 'peach' | 'lake'
+  final String preset; // 'moss' | 'forest' | 'hunter' | 'pine' | 'juniper' | 'ember' | 'ochre' | 'lake' | 'midnight' | 'ink'
   final String customAccent; // hex string e.g. '#FF0000'
   final bool useCustom;
 

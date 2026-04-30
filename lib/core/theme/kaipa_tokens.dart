@@ -56,6 +56,7 @@ class KaipaDiffColors {
       case 'easy':
         return easy;
       case 'mod':
+      case 'moderate':
         return mod;
       case 'hard':
         return hard;
@@ -229,22 +230,7 @@ class KaipaTokens {
 
   /// Returns hex string for preset name.
   static String presetHex(String preset) {
-    switch (preset) {
-      case 'meadow':
-        return '#22C55E';
-      case 'moss':
-        return '#4A7C59';
-      case 'citrus':
-        return '#FF7A1A';
-      case 'ember':
-        return '#A84228';
-      case 'peach':
-        return '#FF8FB1';
-      case 'lake':
-        return '#2C5D7E';
-      default:
-        return '#4A7C59';
-    }
+    return KaipaAccents.all[preset] ?? KaipaAccents.moss;
   }
 
   /// Build tokens from mode and accent, matching buildTokens() in tokens.js exactly.
