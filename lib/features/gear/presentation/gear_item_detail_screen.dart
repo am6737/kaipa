@@ -10,6 +10,8 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/stat_widget.dart';
+import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/section_title.dart';
 
 class GearItemDetailScreen extends ConsumerStatefulWidget {
   final String itemId;
@@ -56,203 +58,40 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     KaipaColors colors,
     GearItemModel item,
   ) {
-    final screenWidth = MediaQuery.of(context).size.width;
     final dateFormat = DateFormat('yyyy-MM-dd');
 
     return CustomScrollView(
       slivers: [
         // Photo area
         SliverToBoxAdapter(
-          child: Stack(
-            children: [
-              // Photo or placeholder
-              Container(
-                width: screenWidth,
-                height: screenWidth * 0.75,
-                decoration: BoxDecoration(
-                  color: colors.surfaceHi,
-                ),
-                child: item.photoUrl != null
-                    ? Image.network(
-                        item.photoUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) =>
-                            _buildPhotoPlaceholder(colors),
-                      )
-                    : _buildPhotoPlaceholder(colors),
-              ),
-
-              // Top bar overlay
-              Positioned(
-                top: MediaQuery.of(context).padding.top,
-                left: 0,
-                right: 0,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _CircleButton(
-                        colors: colors,
-                        onTap: () => context.pop(),
-                        child: KaipaIcon(
-                          name: KaipaIcons.back,
-                          size: 20,
-                          color: colors.ink,
-                        ),
-                      ),
-                      _CircleButton(
-                        colors: colors,
-                        onTap: () => _toggleFavorite(item),
-                        child: KaipaIcon(
-                          name: _isFavorite
-                              ? KaipaIcons.heartFill
-                              : KaipaIcons.heart,
-                          size: 20,
-                          color: _isFavorite ? colors.diff.extreme : colors.ink,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+          child: _buildPhotoArea(context, colors, item),
         ),
 
-        // Content
+        // Body content
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 110),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title and brand
-                Text(
-                  item.name,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    color: colors.ink,
-                    letterSpacing: -0.7,
-                    height: 1.1,
-                  ),
-                ),
-                if (item.brand != null && item.brand!.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    item.brand!,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: colors.inkMuted,
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                ],
+                // Title row
+                _buildTitleRow(colors, item),
 
-                const SizedBox(height: 24),
+                // Stats card
+                const SizedBox(height: 18),
+                _buildStatsCard(colors),
 
-                // Specs card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: colors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: colors.line, width: 0.5),
-                  ),
-                  child: _buildSpecsGrid(colors, item, dateFormat),
-                ),
+                // 规格 section
+                const SizedBox(height: 22),
+                _buildSpecsSection(colors, item, dateFormat),
 
-                // Notes section
-                if (item.notes != null && item.notes!.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  Text(
-                    '备注',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: colors.ink,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: colors.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: colors.line, width: 0.5),
-                    ),
-                    child: Text(
-                      item.notes!,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: colors.ink,
-                        letterSpacing: -0.1,
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                ],
+                // 备注 section
+                const SizedBox(height: 22),
+                _buildNotesSection(colors, item),
 
-                // Action buttons
-                const SizedBox(height: 32),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 50,
-                        child: OutlinedButton(
-                          onPressed: () {
-                            // Navigate to edit screen (placeholder)
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: colors.flare,
-                            side: BorderSide(color: colors.flare, width: 1.5),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            '编辑',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: () => _showDeleteDialog(context, colors, item),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: colors.diff.extreme,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            '删除',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 32),
+                // 参与过的路线 section
+                const SizedBox(height: 22),
+                _buildRoutesSection(colors),
               ],
             ),
           ),
@@ -261,43 +100,248 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     );
   }
 
-  Widget _buildSpecsGrid(
+  // ─── Photo area ────────────────────────────────────────────────────
+
+  Widget _buildPhotoArea(
+    BuildContext context,
     KaipaColors colors,
     GearItemModel item,
-    DateFormat dateFormat,
   ) {
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    return Container(
+      width: double.infinity,
+      height: 380,
+      color: const Color(0xFF2A2118),
+      child: Stack(
+        children: [
+          // Main photo or placeholder
+          Positioned.fill(
+            child: item.photoUrl != null
+                ? Image.network(
+                    item.photoUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) =>
+                        _buildPhotoPlaceholder(colors),
+                  )
+                : _buildPhotoPlaceholder(colors),
+          ),
+
+          // Top overlay: back + share + more
+          Positioned(
+            top: topPadding + 8,
+            left: 12,
+            right: 12,
+            child: Row(
+              children: [
+                CircleButton(
+                  icon: KaipaIcons.back,
+                  dark: true,
+                  onTap: () => context.pop(),
+                ),
+                const Spacer(),
+                CircleButton(
+                  icon: KaipaIcons.share,
+                  dark: true,
+                  onTap: () {
+                    // Share action placeholder
+                  },
+                ),
+                const SizedBox(width: 8),
+                CircleButton(
+                  icon: KaipaIcons.more,
+                  dark: true,
+                  onTap: () => _showMoreMenu(context, colors, item),
+                ),
+              ],
+            ),
+          ),
+
+          // Photo counter badge centered top
+          Positioned(
+            top: topPadding + 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color.fromRGBO(0, 0, 0, 0.45),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  '1 / 1',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Page dots + thumbnail strip at bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 12,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Page dots
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 18,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Thumbnail strip
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      // Main thumbnail
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 2,
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: item.photoUrl != null
+                                ? Image.network(
+                                    item.photoUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Container(
+                                      color: const Color(0xFF3A3128),
+                                      child: Center(
+                                        child: KaipaIcon(
+                                          name: KaipaIcons.backpack,
+                                          size: 20,
+                                          color: Colors.white.withAlpha(128),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    color: const Color(0xFF3A3128),
+                                    child: Center(
+                                      child: KaipaIcon(
+                                        name: KaipaIcons.backpack,
+                                        size: 20,
+                                        color: Colors.white.withAlpha(128),
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            '主图',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Add-photo button (dashed border)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.white38,
+                                width: 1,
+                                // Note: Flutter doesn't support dashed borders
+                                // natively, so we use a lighter solid border
+                              ),
+                            ),
+                            child: Center(
+                              child: KaipaIcon(
+                                name: KaipaIcons.plus,
+                                size: 18,
+                                color: Colors.white38,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const SizedBox(height: 12), // match label height
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoPlaceholder(KaipaColors colors) {
+    return Center(
+      child: KaipaIcon(
+        name: KaipaIcons.backpack,
+        size: 80,
+        color: Colors.white.withAlpha(60),
+      ),
+    );
+  }
+
+  // ─── Title row ─────────────────────────────────────────────────────
+
+  Widget _buildTitleRow(KaipaColors colors, GearItemModel item) {
     final condInfo = _conditionInfo(item.condition, colors);
 
-    return Wrap(
-      spacing: 32,
-      runSpacing: 20,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 120,
-          child: StatWidget(
-            value: item.weightG != null
-                ? item.weightG!.toStringAsFixed(0)
-                : '--',
-            unit: 'g',
-            label: '重量',
-          ),
-        ),
-        SizedBox(
-          width: 120,
-          child: StatWidget(
-            value: item.price != null
-                ? item.price!.toStringAsFixed(0)
-                : '--',
-            unit: '¥',
-            label: '价格',
-          ),
-        ),
-        SizedBox(
-          width: 120,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                item.name,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: colors.ink,
+                  letterSpacing: -0.6,
+                  height: 1.15,
+                ),
+              ),
+            ),
+            if (item.condition != null) ...[
+              const SizedBox(width: 10),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 8,
@@ -310,46 +354,303 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                 child: Text(
                   condInfo.label,
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
                     color: condInfo.color,
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                '状态',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: colors.inkMuted,
-                  letterSpacing: -0.1,
-                ),
-              ),
             ],
-          ),
+          ],
         ),
-        SizedBox(
-          width: 120,
-          child: StatWidget(
-            value: item.purchasedAt != null
-                ? dateFormat.format(item.purchasedAt!)
-                : '--',
-            label: '购买日期',
+        const SizedBox(height: 4),
+        Text(
+          item.brand ?? '--',
+          style: TextStyle(
+            fontSize: 13,
+            color: colors.inkMuted,
+            letterSpacing: -0.1,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildPhotoPlaceholder(KaipaColors colors) {
-    return Center(
-      child: KaipaIcon(
-        name: KaipaIcons.backpack,
-        size: 80,
-        color: colors.inkDim,
+  // ─── Stats card ────────────────────────────────────────────────────
+
+  Widget _buildStatsCard(KaipaColors colors) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: const Row(
+        children: [
+          Expanded(child: StatWidget(value: '--', label: '使用次数')),
+          Expanded(child: StatWidget(value: '--', unit: 'km', label: '累计里程')),
+          Expanded(child: StatWidget(value: '--', label: '自评')),
+        ],
       ),
     );
   }
+
+  // ─── 规格 section ──────────────────────────────────────────────────
+
+  Widget _buildSpecsSection(
+    KaipaColors colors,
+    GearItemModel item,
+    DateFormat dateFormat,
+  ) {
+    final specs = <_SpecRow>[
+      _SpecRow('品牌', item.brand ?? '--'),
+      _SpecRow('型号', '--'),
+      _SpecRow('尺码', '--'),
+      _SpecRow(
+        '重量',
+        item.weightG != null
+            ? '${item.weightG!.toStringAsFixed(0)} g'
+            : '--',
+        mono: true,
+      ),
+      _SpecRow(
+        '价格',
+        item.price != null
+            ? '¥${item.price!.toStringAsFixed(0)}'
+            : '--',
+        mono: true,
+      ),
+      _SpecRow(
+        '入手日期',
+        item.purchasedAt != null
+            ? dateFormat.format(item.purchasedAt!)
+            : '--',
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(
+          title: '规格',
+          padding: EdgeInsets.zero,
+          trailing: Text(
+            '编辑',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: colors.flare,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < specs.length; i++) ...[
+                if (i > 0)
+                  Divider(height: 0.5, thickness: 0.5, color: colors.line),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        specs[i].label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colors.inkMuted,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        specs[i].value,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: colors.ink,
+                          fontFamily: specs[i].mono ? 'monospace' : null,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── 备注 section ──────────────────────────────────────────────────
+
+  Widget _buildNotesSection(KaipaColors colors, GearItemModel item) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(
+          title: '备注',
+          padding: EdgeInsets.zero,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Text(
+            item.notes ?? '--',
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.ink,
+              height: 1.55,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── 参与过的路线 section ───────────────────────────────────────────
+
+  Widget _buildRoutesSection(KaipaColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(
+          title: '参与过的路线',
+          padding: EdgeInsets.zero,
+          trailing: Text(
+            '--',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: colors.inkMuted,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Center(
+            child: Text(
+              '暂无记录',
+              style: TextStyle(
+                fontSize: 13,
+                color: colors.inkDim,
+                letterSpacing: -0.1,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── More menu ─────────────────────────────────────────────────────
+
+  void _showMoreMenu(
+    BuildContext context,
+    KaipaColors colors,
+    GearItemModel item,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              const SizedBox(height: 10),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.lineSoft,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 收藏/取消收藏
+              ListTile(
+                leading: KaipaIcon(
+                  name: _isFavorite
+                      ? KaipaIcons.heartFill
+                      : KaipaIcons.heart,
+                  size: 20,
+                  color: _isFavorite ? colors.diff.extreme : colors.ink,
+                ),
+                title: Text(
+                  _isFavorite ? '取消收藏' : '收藏',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: colors.ink,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _toggleFavorite(item);
+                },
+              ),
+
+              // 删除
+              ListTile(
+                leading: KaipaIcon(
+                  name: KaipaIcons.close,
+                  size: 20,
+                  color: colors.diff.extreme,
+                ),
+                title: Text(
+                  '删除',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: colors.diff.extreme,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _showDeleteDialog(context, colors, item);
+                },
+              ),
+
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ─── Existing business logic (kept unchanged) ──────────────────────
 
   Future<void> _toggleFavorite(GearItemModel item) async {
     final newValue = !_isFavorite;
@@ -564,38 +865,14 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
   }
 }
 
-// ─── Circle button overlay ──────────────────────────────────────────
+// ─── Spec row helper ───────────────────────────────────────────────
 
-class _CircleButton extends StatelessWidget {
-  final KaipaColors colors;
-  final VoidCallback onTap;
-  final Widget child;
+class _SpecRow {
+  final String label;
+  final String value;
+  final bool mono;
 
-  const _CircleButton({
-    required this.colors,
-    required this.onTap,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: colors.glass,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: colors.line,
-            width: 0.5,
-          ),
-        ),
-        child: Center(child: child),
-      ),
-    );
-  }
+  const _SpecRow(this.label, this.value, {this.mono = false});
 }
 
 // ─── Condition badge helper ─────────────────────────────────────────
