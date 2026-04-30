@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/supabase/supabase_provider.dart';
 import '../domain/gear_category_model.dart';
 import '../domain/gear_item_model.dart';
+import '../domain/gear_trip_summary.dart';
+import '../domain/gear_preset_model.dart';
 
 const _uncategorizedId = 'b0000000-0000-0000-0000-000000000000';
 
@@ -381,6 +383,131 @@ class GearRepository {
         .eq('category_id', categoryId);
     return (data as List).length;
   }
+
+  Future<List<GearTripSummary>> getTripsForGearItem(String itemId) async {
+    final uid = _userId;
+    final data = await _client
+        .from('trips')
+        .select('id, started_at, actual_distance_km, actual_elevation_m, routes(name, difficulty)')
+        .eq('user_id', uid)
+        .contains('gear_used', [itemId])
+        .order('started_at', ascending: false);
+
+    return (data as List)
+        .map((row) => GearTripSummary.fromJson(row))
+        .toList();
+  }
+
+  // ─── Preset queries ────────────────────────────────────────────────
+
+  Future<List<GearPresetModel>> getUserPresets() async {
+    final uid = _userId;
+    final data = await _client
+        .from('gear_presets')
+        .select()
+        .eq('user_id', uid)
+        .order('created_at', ascending: false);
+
+    final presets = <GearPresetModel>[];
+    for (final row in (data as List)) {
+      final presetId = row['id'] as String;
+      final itemsData = await _client
+          .from('gear_preset_items')
+          .select('item_id, gear_items(weight_g)')
+          .eq('preset_id', presetId);
+
+      final items = itemsData as List;
+      final totalWeight = items.fold<double>(0, (sum, item) {
+        final gear = item['gear_items'] as Map<String, dynamic>?;
+        if (gear == null) return sum;
+        final w = gear['weight_g'];
+        if (w == null) return sum;
+        if (w is num) return sum + w.toDouble();
+        return sum;
+      });
+
+      presets.add(GearPresetModel(
+        id: row['id'] as String,
+        userId: row['user_id'] as String,
+        name: row['name'] as String,
+        createdAt: DateTime.parse(row['created_at'] as String),
+        itemCount: items.length,
+        totalWeightG: totalWeight,
+      ));
+    }
+    return presets;
+  }
+
+  Future<GearPresetModel> createPreset({required String name}) async {
+    final uid = _userId;
+    final row = await _client
+        .from('gear_presets')
+        .insert({'user_id': uid, 'name': name})
+        .select()
+        .single();
+
+    return GearPresetModel.fromJson(row);
+  }
+
+  Future<void> renamePreset({required String presetId, required String newName}) async {
+    final uid = _userId;
+    await _client
+        .from('gear_presets')
+        .update({'name': newName})
+        .eq('id', presetId)
+        .eq('user_id', uid);
+  }
+
+  Future<void> deletePreset({required String presetId}) async {
+    final uid = _userId;
+    await _client
+        .from('gear_presets')
+        .delete()
+        .eq('id', presetId)
+        .eq('user_id', uid);
+  }
+
+  Future<List<GearItemModel>> getPresetItems(String presetId) async {
+    final data = await _client
+        .from('gear_preset_items')
+        .select('item_id, gear_items(*)')
+        .eq('preset_id', presetId)
+        .order('created_at', ascending: true);
+
+    return (data as List)
+        .where((row) => row['gear_items'] != null)
+        .map((row) => GearItemModel.fromJson(row['gear_items'] as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> addItemToPreset({required String presetId, required String itemId}) async {
+    await _client
+        .from('gear_preset_items')
+        .insert({'preset_id': presetId, 'item_id': itemId});
+  }
+
+  Future<void> removeItemFromPreset({required String presetId, required String itemId}) async {
+    await _client
+        .from('gear_preset_items')
+        .delete()
+        .eq('preset_id', presetId)
+        .eq('item_id', itemId);
+  }
+
+  Future<void> setPresetItems({required String presetId, required List<String> itemIds}) async {
+    // Remove all existing items
+    await _client
+        .from('gear_preset_items')
+        .delete()
+        .eq('preset_id', presetId);
+
+    // Insert new items
+    if (itemIds.isNotEmpty) {
+      await _client
+          .from('gear_preset_items')
+          .insert(itemIds.map((id) => {'preset_id': presetId, 'item_id': id}).toList());
+    }
+  }
 }
 
 // ─── Riverpod providers ──────────────────────────────────────────────
@@ -405,4 +532,21 @@ final gearItemByIdProvider =
     FutureProvider.family<GearItemModel, String>((ref, itemId) async {
   final repo = ref.watch(gearRepositoryProvider);
   return repo.getItemById(itemId);
+});
+
+final tripsForGearItemProvider =
+    FutureProvider.family<List<GearTripSummary>, String>((ref, itemId) async {
+  final repo = ref.watch(gearRepositoryProvider);
+  return repo.getTripsForGearItem(itemId);
+});
+
+final gearPresetsProvider = FutureProvider<List<GearPresetModel>>((ref) async {
+  final repo = ref.watch(gearRepositoryProvider);
+  return repo.getUserPresets();
+});
+
+final presetItemsProvider =
+    FutureProvider.family<List<GearItemModel>, String>((ref, presetId) async {
+  final repo = ref.watch(gearRepositoryProvider);
+  return repo.getPresetItems(presetId);
 });
