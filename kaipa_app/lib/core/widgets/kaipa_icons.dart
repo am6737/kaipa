@@ -80,6 +80,18 @@ class KaipaIcons {
   static const String navigate = 'navigate';
   static const String hiker = 'hiker';
   static const String mic = 'mic';
+  static const String inbox = 'inbox';
+  static const String rope = 'rope';
+  static const String gloves = 'gloves';
+  static const String hat = 'hat';
+  static const String glasses = 'glasses';
+  static const String map = 'map';
+  static const String firstAid = 'firstAid';
+  static const String food = 'food';
+  static const String sleeping = 'sleeping';
+  static const String pants = 'pants';
+  static const String watch = 'watch';
+  static const String radio = 'radio';
 
   /// All icon path data keyed by name.
   static const Map<String, String> pathData = {
@@ -152,6 +164,18 @@ class KaipaIcons {
     'navigate': 'M3 11 21 3l-8 18-2-8-8-2Z',
     'hiker': 'M14 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-1 2-3 4 3 3v7h2v-6l-2-2 2-3 2 4h3v-2h-2l-2-4-3-1Zm-7 7-2 4 1 1 3-3 1 4 2-1-2-5h-3Zm12 2 2 5-2 1-1-4-2 2-1-1 2-3h2Z',
     'mic': 'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm6-3a6 6 0 0 1-12 0M12 17v4M8 21h8',
+    'inbox': 'M3 9l4-5h10l4 5v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Zm0 0h5l2 3h4l2-3h5',
+    'rope': 'M6 4a2 2 0 0 1 4 0c0 2-4 3-4 6a2 2 0 0 0 4 0c0-2-4-3-4-6Zm8 8a2 2 0 0 1 4 0c0 2-4 3-4 6a2 2 0 0 0 4 0c0-2-4-3-4-6Z',
+    'gloves': 'M6 10V4a2 2 0 0 1 4 0v4M10 8V3a2 2 0 0 1 4 0v5M14 8V4a2 2 0 0 1 4 0v6l-2 7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7Z',
+    'hat': 'M4 16h16M6 16c0-4 2-8 6-10s6 6 6 10M8 16v3h8v-3',
+    'glasses': 'M3 12a3 3 0 1 0 6 0 3 3 0 0 0-6 0Zm12 0a3 3 0 1 0 6 0 3 3 0 0 0-6 0ZM9 12h6M3 12H2m20 0h-1',
+    'map': 'M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6Zm6-3v15m6-12v15',
+    'firstAid': 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm6 4v6m-3-3h6',
+    'food': 'M4 4v7a3 3 0 0 0 3 3h1v6M4 4h1m-1 3h4m0-3v7a3 3 0 0 1-3 3M20 4v16M17 4v6a3 3 0 0 0 3 3',
+    'sleeping': 'M3 18h18M4 18V14a8 8 0 0 1 16 0v4M8 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
+    'pants': 'M6 2h12v7l-2 13h-3l-1-10-1 10H8L6 9V2Z',
+    'watch': 'M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM12 6V2h4M12 18v4h4M12 9v3l2 1',
+    'radio': 'M5 6h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Zm7 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM9 4l3-2 3 2',
   };
 
   /// Set of icon names that should be rendered filled rather than stroked.
