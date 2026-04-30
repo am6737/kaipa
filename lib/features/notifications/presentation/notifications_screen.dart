@@ -1,112 +1,244 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../data/notification_repository.dart';
-import '../domain/notification_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
+import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/kaipa_icons.dart';
+
+// ─── Demo notification data model ────────────────────────────────────
+class _DemoNotif {
+  final String title;
+  final String detail;
+  final String time;
+  final bool unread;
+  final String icon;
+  final Color Function(KaipaColors) iconColor;
+  final String type; // for filtering: weather, social, system, achievement
+
+  const _DemoNotif({
+    required this.title,
+    required this.detail,
+    required this.time,
+    this.unread = false,
+    required this.icon,
+    required this.iconColor,
+    required this.type,
+  });
+}
+
+class _DemoSection {
+  final String label;
+  final List<_DemoNotif> items;
+
+  const _DemoSection({required this.label, required this.items});
+}
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   String _filter = '';
 
+  // ─── Filter chip definitions ─────────────────────────────────────
+  static const List<Map<String, String>> _filters = [
+    {'id': '', 'label': '全部', 'icon': ''},
+    {'id': 'weather', 'label': '天气', 'icon': 'weather'},
+    {'id': 'social', 'label': '好友', 'icon': 'users'},
+    {'id': 'system', 'label': '系统', 'icon': 'bell'},
+  ];
+
+  // ─── Hardcoded demo data ─────────────────────────────────────────
+  static List<_DemoSection> _buildDemoData() {
+    return [
+      _DemoSection(
+        label: '今天',
+        items: [
+          _DemoNotif(
+            title: '天气预警 · 箭扣长城',
+            detail: '明日午后雷阵雨概率 65%，建议调整出行时间',
+            time: '2 小时前',
+            unread: true,
+            icon: KaipaIcons.weather,
+            iconColor: (c) => c.sky,
+            type: 'weather',
+          ),
+          _DemoNotif(
+            title: 'Sara K. 赞了你的路线',
+            detail: '箭扣长城 · 11.4km',
+            time: '4 小时前',
+            unread: true,
+            icon: KaipaIcons.heart,
+            iconColor: (c) => c.flare,
+            type: 'social',
+          ),
+          _DemoNotif(
+            title: '离线地图已更新',
+            detail: '怀柔区地图包 v3.2 · 248MB',
+            time: '5 小时前',
+            unread: false,
+            icon: KaipaIcons.download,
+            iconColor: (c) => c.moss,
+            type: 'system',
+          ),
+        ],
+      ),
+      _DemoSection(
+        label: '昨天',
+        items: [
+          _DemoNotif(
+            title: '陈芳 开始了行程',
+            detail: '十三陵水库环线 · 正在进行中',
+            time: '昨天 14:20',
+            unread: false,
+            icon: KaipaIcons.users,
+            iconColor: (c) => c.sand,
+            type: 'social',
+          ),
+          _DemoNotif(
+            title: '新成就解锁!',
+            detail: '「百公里」— 累计徒步超过 100km',
+            time: '昨天 11:30',
+            unread: false,
+            icon: KaipaIcons.flag,
+            iconColor: (c) => c.flare,
+            type: 'system',
+          ),
+        ],
+      ),
+      _DemoSection(
+        label: '本周',
+        items: [
+          _DemoNotif(
+            title: '本周末天气预报',
+            detail: '周六多云 18°C，周日晴 22°C — 适合出行',
+            time: '周三',
+            unread: false,
+            icon: KaipaIcons.sun,
+            iconColor: (c) => c.sky,
+            type: 'weather',
+          ),
+          _DemoNotif(
+            title: '陈明 评论了你的路线',
+            detail: '「鹰飞倒仰确实很险，下次一起去…」',
+            time: '周二',
+            unread: false,
+            icon: KaipaIcons.chat,
+            iconColor: (c) => c.moss,
+            type: 'social',
+          ),
+          _DemoNotif(
+            title: 'Kaipa 周报',
+            detail: '本周 2 次出行 · 28.7km · 查看回顾 →',
+            time: '周一',
+            unread: false,
+            icon: KaipaIcons.sparkle,
+            iconColor: (c) => c.flare,
+            type: 'system',
+          ),
+        ],
+      ),
+    ];
+  }
+
+  List<_DemoSection> _getFilteredData() {
+    final allData = _buildDemoData();
+    if (_filter.isEmpty) return allData;
+
+    // Filter items within each section; keep sections that still have items
+    final filtered = <_DemoSection>[];
+    for (final section in allData) {
+      final items = section.items.where((n) {
+        if (_filter == 'social') {
+          return n.type == 'social';
+        }
+        return n.type == _filter;
+      }).toList();
+      if (items.isNotEmpty) {
+        filtered.add(_DemoSection(label: section.label, items: items));
+      }
+    }
+    return filtered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
-    final notifsAsync = ref.watch(notificationsProvider(_filter.isEmpty ? null : _filter));
-
-    final filters = [
-      {'id': '', 'label': '全部'},
-      {'id': 'weather', 'label': '天气'},
-      {'id': 'social', 'label': '社交'},
-      {'id': 'achievement', 'label': '成就'},
-      {'id': 'system', 'label': '系统'},
-    ];
+    final sections = _getFilteredData();
 
     return Scaffold(
       backgroundColor: colors.bg,
-      appBar: AppBar(
-        backgroundColor: colors.bg,
-        leading: IconButton(icon: Icon(Icons.arrow_back_ios, color: colors.ink), onPressed: () => context.pop()),
-        title: Text('通知', style: TextStyle(color: colors.ink, fontWeight: FontWeight.w700)),
-      ),
-      body: Column(
-        children: [
-          // Filter chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: filters.map((f) {
-                final selected = _filter == f['id'];
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    selected: selected,
-                    label: Text(f['label']!),
-                    labelStyle: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
-                      color: selected ? colors.flare : colors.ink,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // --- Header ---
+            _buildHeader(colors),
+            const SizedBox(height: 12),
+
+            // --- Filter chips ---
+            _buildFilterChips(colors),
+            const SizedBox(height: 8),
+
+            // --- Notification list ---
+            Expanded(
+              child: sections.isEmpty
+                  ? _buildEmptyState(colors)
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      itemCount: sections.length,
+                      itemBuilder: (_, i) => _buildSection(
+                        sections[i],
+                        colors,
+                      ),
                     ),
-                    backgroundColor: colors.surface,
-                    selectedColor: colors.flareSoft,
-                    side: BorderSide(color: selected ? colors.flare : colors.line, width: 0.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
-                    onSelected: (_) => setState(() => _filter = f['id']!),
-                  ),
-                );
-              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Header: GlassContainer back + title + "全部已读" ──────────────
+  Widget _buildHeader(KaipaColors colors) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          CircleButton(
+            icon: KaipaIcons.back,
+            onTap: () => context.pop(),
+          ),
+          const Spacer(),
+          Text(
+            '通知',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: colors.ink,
+              letterSpacing: -0.5,
             ),
           ),
-          // Notifications list
-          Expanded(
-            child: notifsAsync.when(
-              loading: () => Center(child: CircularProgressIndicator(color: colors.flare)),
-              error: (e, _) => Center(child: Text('加载失败', style: TextStyle(color: colors.inkMuted))),
-              data: (notifs) => notifs.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.notifications_none, size: 48, color: colors.inkDim),
-                          const SizedBox(height: 12),
-                          Text('没有通知', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colors.ink)),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      color: colors.flare,
-                      onRefresh: () async => ref.invalidate(notificationsProvider(_filter.isEmpty ? null : _filter)),
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: notifs.length,
-                        itemBuilder: (_, i) {
-                          final showHeader = i == 0 || _timeGroup(notifs[i].createdAt) != _timeGroup(notifs[i - 1].createdAt);
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (showHeader) Padding(
-                                padding: const EdgeInsets.only(top: 16, bottom: 8),
-                                child: Text(_timeGroup(notifs[i].createdAt), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: colors.inkMuted)),
-                              ),
-                              _NotifCard(notif: notifs[i], colors: colors, onTap: () {
-                                ref.read(notificationRepositoryProvider).markAsRead(notifs[i].id);
-                                ref.invalidate(notificationsProvider(_filter.isEmpty ? null : _filter));
-                              }),
-                              const SizedBox(height: 8),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
+          const Spacer(),
+          GestureDetector(
+            onTap: () {
+              // Mark all as read (demo: no-op)
+            },
+            child: Text(
+              '全部已读',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: colors.flare,
+              ),
             ),
           ),
         ],
@@ -114,97 +246,236 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     );
   }
 
-  String _timeGroup(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final date = DateTime(dt.year, dt.month, dt.day);
-    if (date == today) return '今天';
-    if (date == today.subtract(const Duration(days: 1))) return '昨天';
-    return '更早';
-  }
-}
-
-class _NotifCard extends StatelessWidget {
-  final NotificationModel notif;
-  final KaipaColors colors;
-  final VoidCallback onTap;
-
-  const _NotifCard({required this.notif, required this.colors, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    IconData icon;
-    Color iconColor;
-    switch (notif.type) {
-      case 'weather':
-        icon = Icons.cloud;
-        iconColor = colors.sky;
-      case 'social':
-        icon = Icons.people;
-        iconColor = colors.flare;
-      case 'achievement':
-        icon = Icons.star;
-        iconColor = colors.sand;
-      case 'safety':
-        icon = Icons.shield;
-        iconColor = colors.diff.extreme;
-      default:
-        icon = Icons.notifications;
-        iconColor = colors.inkMuted;
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.line, width: 0.5),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: iconColor.withAlpha(25),
-              ),
-              child: Icon(icon, size: 18, color: iconColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(notif.title, style: TextStyle(fontSize: 14, fontWeight: notif.isRead ? FontWeight.w500 : FontWeight.w700, color: colors.ink)),
-                  if (notif.body != null) ...[
-                    const SizedBox(height: 3),
-                    Text(notif.body!, style: TextStyle(fontSize: 12, color: colors.inkMuted), maxLines: 2, overflow: TextOverflow.ellipsis),
+  // ─── Filter chips: 4 horizontal pills ──────────────────────────────
+  Widget _buildFilterChips(KaipaColors colors) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: _filters.map((f) {
+          final isActive = _filter == f['id'];
+          final hasIcon = f['icon']!.isNotEmpty;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _filter = f['id']!),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: isActive ? colors.ink : colors.surface,
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(
+                    color: isActive ? colors.ink : colors.line,
+                    width: 0.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasIcon) ...[
+                      KaipaIcon(
+                        name: f['icon']!,
+                        size: 13,
+                        color: isActive ? colors.bg : colors.ink,
+                      ),
+                      const SizedBox(width: 5),
+                    ],
+                    Text(
+                      f['label']!,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: isActive ? colors.bg : colors.ink,
+                      ),
+                    ),
                   ],
-                  const SizedBox(height: 4),
-                  Text(_relativeTime(notif.createdAt), style: TextStyle(fontSize: 10, color: colors.inkDim)),
-                ],
+                ),
               ),
             ),
-            if (!notif.isRead)
-              Container(
-                width: 8, height: 8,
-                margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(shape: BoxShape.circle, color: colors.flare),
-              ),
-          ],
-        ),
+          );
+        }).toList(),
       ),
     );
   }
 
-  String _relativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
-    if (diff.inHours < 24) return '${diff.inHours}小时前';
-    if (diff.inDays < 7) return '${diff.inDays}天前';
-    return '${dt.month}月${dt.day}日';
+  // ─── Empty state ───────────────────────────────────────────────────
+  Widget _buildEmptyState(KaipaColors colors) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          KaipaIcon(
+            name: KaipaIcons.bell,
+            size: 48,
+            color: colors.inkDim,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '没有通知',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: colors.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Section: label + grouped surface container ────────────────────
+  Widget _buildSection(_DemoSection section, KaipaColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section label
+        Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 8, left: 2),
+          child: Text(
+            section.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: colors.inkMuted,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+
+        // Grouped surface container
+        Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Column(
+              children: List.generate(
+                section.items.length * 2 - 1,
+                (index) {
+                  if (index.isOdd) {
+                    // Divider between rows
+                    return Divider(
+                      height: 0.5,
+                      thickness: 0.5,
+                      color: colors.lineSoft,
+                      indent: 0,
+                      endIndent: 0,
+                    );
+                  }
+                  final notif = section.items[index ~/ 2];
+                  return _buildNotifRow(notif, colors);
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Single notification row ───────────────────────────────────────
+  Widget _buildNotifRow(_DemoNotif notif, KaipaColors colors) {
+    final typeColor = notif.iconColor(colors);
+
+    return Container(
+      color: notif.unread
+          ? colorWithOpacity(colors.flareSoft, 0.30)
+          : Colors.transparent,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Icon circle: 36x36, borderRadius 10
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: colorWithOpacity(typeColor, 0.20),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Center(
+              child: KaipaIcon(
+                name: notif.icon,
+                size: 17,
+                color: typeColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Content column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title row with unread dot
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        notif.title,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: notif.unread
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                          color: colors.ink,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    if (notif.unread)
+                      Container(
+                        width: 7,
+                        height: 7,
+                        margin: const EdgeInsets.only(left: 8),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: colors.flare,
+                        ),
+                      ),
+                  ],
+                ),
+
+                // Detail text
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    notif.detail,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      color: colors.inkMuted,
+                      height: 1.4,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+
+                // Time text
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    notif.time,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: colors.inkDim,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
