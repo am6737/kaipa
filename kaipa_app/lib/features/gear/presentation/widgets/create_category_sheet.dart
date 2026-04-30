@@ -41,7 +41,7 @@ class _CreateCategorySheetState extends ConsumerState<CreateCategorySheet> {
       error = null;
     } else if (name.length > 10) {
       error = '名称最多 10 个字符';
-    } else if (widget.existingCategories.any((c) => c.name == name)) {
+    } else if (widget.existingCategories.any((c) => c.name.toLowerCase() == name.toLowerCase())) {
       error = '分类名称已存在';
     }
     setState(() => _errorText = error);

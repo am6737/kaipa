@@ -1048,17 +1048,7 @@ class _AddCategoryCard extends ConsumerWidget {
                 }
               });
             },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(KaipaRadius.lg),
-          border: Border.all(
-            color: isAtLimit ? colors.inkDim : colors.line,
-            width: 1,
-            strokeAlign: BorderSide.strokeAlignInside,
-          ),
-        ),
-        child: CustomPaint(
+      child: CustomPaint(
           painter: _DashedBorderPainter(
             color: isAtLimit ? colors.inkDim : colors.inkMuted,
             radius: KaipaRadius.lg,
@@ -1087,7 +1077,6 @@ class _AddCategoryCard extends ConsumerWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

@@ -186,7 +186,7 @@ class _IconPickerState extends State<IconPicker> with SingleTickerProviderStateM
         SizedBox(
           width: 200,
           child: TextField(
-            maxLength: 2,
+            maxLength: 8,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 24),
             decoration: InputDecoration(

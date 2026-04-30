@@ -103,7 +103,7 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
       return;
     }
 
-    if (_categories.any((c) => c.id != category.id && c.name == newName)) {
+    if (_categories.any((c) => c.id != category.id && c.name.toLowerCase() == newName.toLowerCase())) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('分类名称已存在')),
       );
@@ -114,8 +114,6 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
       final repo = ref.read(gearRepositoryProvider);
       if (category.isBuiltin) {
         await repo.renameBuiltinCategory(builtinId: category.id, newName: newName);
-      } else if (category.isOverride) {
-        await repo.renameCustomCategory(categoryId: category.id, newName: newName);
       } else {
         await repo.renameCustomCategory(categoryId: category.id, newName: newName);
       }
