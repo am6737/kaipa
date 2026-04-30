@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   RouteModel? _activeRoute;
   String _selectedFilter = '全部';
   bool _showFilters = false;
+  bool _showExitButton = false;
+  Timer? _exitButtonTimer;
 
   static const _defaultCenter = LatLng(40.3, 116.5);
   static const _defaultZoom = 9.5;
@@ -54,11 +57,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   @override
+  void dispose() {
+    _exitButtonTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showExitButtonBriefly() {
+    setState(() => _showExitButton = true);
+    _exitButtonTimer?.cancel();
+    _exitButtonTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _showExitButton = false);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
     final routesAsync = ref.watch(allRoutesProvider);
     final immersive = ref.watch(immersiveModeProvider);
+
+    ref.listen(immersiveModeProvider, (prev, next) {
+      if (prev == true && next == false) {
+        _exitButtonTimer?.cancel();
+        setState(() => _showExitButton = false);
+      }
+    });
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -72,7 +96,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               initialCenter: _defaultCenter,
               initialZoom: _defaultZoom,
               onTap: (_, _) {
-                if (_activeRoute != null) {
+                final immersive = ref.read(immersiveModeProvider);
+                if (immersive) {
+                  _showExitButtonBriefly();
+                } else if (_activeRoute != null) {
                   setState(() => _activeRoute = null);
                 }
               },
@@ -350,6 +377,41 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   onTap: () =>
                       context.push('/discover/route/${_activeRoute!.id}'),
                   onClose: () => setState(() => _activeRoute = null),
+                ),
+              ),
+            ),
+
+          if (immersive)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              right: 16,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _showExitButton ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !_showExitButton,
+                  child: GestureDetector(
+                    onTap: () {
+                      _exitButtonTimer?.cancel();
+                      setState(() => _showExitButton = false);
+                      ref.read(immersiveModeProvider.notifier).state = false;
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withAlpha(100),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.close_fullscreen,
+                          size: 20,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
