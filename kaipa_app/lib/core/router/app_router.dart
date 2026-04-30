@@ -12,6 +12,7 @@ import '../../features/gear/presentation/gear_library_screen.dart';
 import '../../features/gear/presentation/gear_category_screen.dart';
 import '../../features/gear/presentation/gear_item_detail_screen.dart';
 import '../../features/gear/presentation/gear_pick_screen.dart';
+import '../../features/gear/presentation/category_management_screen.dart';
 import '../../features/navigation/presentation/navigate_screen.dart';
 import '../../features/navigation/presentation/navigate_hud_screen.dart';
 import '../../features/trip/presentation/trip_complete_screen.dart';
@@ -30,11 +31,38 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/discover',
     routes: [
+      // 3-tab shell: gear | discover (center) | profile
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return _AppShell(navigationShell: navigationShell);
         },
         branches: [
+          // Branch 0: Gear
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/gear',
+              builder: (_, _) => const GearLibraryScreen(),
+              routes: [
+                GoRoute(
+                  path: 'category/:id',
+                  builder: (_, state) => GearCategoryScreen(
+                    categoryId: state.pathParameters['id']!,
+                  ),
+                ),
+                GoRoute(
+                  path: 'item/:id',
+                  builder: (_, state) => GearItemDetailScreen(
+                    itemId: state.pathParameters['id']!,
+                  ),
+                ),
+                GoRoute(
+                  path: 'categories/manage',
+                  builder: (_, _) => const CategoryManagementScreen(),
+                ),
+              ],
+            ),
+          ]),
+          // Branch 1: Discover (map — center tab)
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/discover',
@@ -53,32 +81,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               ],
             ),
           ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/gear',
-              builder: (_, _) => const GearLibraryScreen(),
-              routes: [
-                GoRoute(
-                  path: 'category/:id',
-                  builder: (_, state) => GearCategoryScreen(
-                    categoryId: state.pathParameters['id']!,
-                  ),
-                ),
-                GoRoute(
-                  path: 'item/:id',
-                  builder: (_, state) => GearItemDetailScreen(
-                    itemId: state.pathParameters['id']!,
-                  ),
-                ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/feed',
-              builder: (_, _) => const FeedScreen(),
-            ),
-          ]),
+          // Branch 2: Profile (me)
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/profile',
@@ -86,6 +89,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ]),
         ],
+      ),
+      // Modal routes (full-screen, no tab bar)
+      GoRoute(
+        path: '/feed',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, _) => const FeedScreen(),
       ),
       GoRoute(
         path: '/gear/pick/:routeId',
@@ -164,13 +173,22 @@ class _AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: navigationShell.currentIndex,
-        onTap: (index) => navigationShell.goBranch(
-          index,
-          initialLocation: index == navigationShell.currentIndex,
-        ),
+      body: Stack(
+        children: [
+          navigationShell,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: BottomNavBar(
+              currentIndex: navigationShell.currentIndex,
+              onTap: (index) => navigationShell.goBranch(
+                index,
+                initialLocation: index == navigationShell.currentIndex,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
