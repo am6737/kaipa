@@ -70,7 +70,7 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
 
     try {
       final repo = ref.read(gearRepositoryProvider);
-      await repo.reorderCategories(orderedIds: updatedIds);
+      await repo.reorderCategories(orderedIds: updatedIds, categories: list);
       ref.invalidate(gearCategoriesProvider);
     } catch (e) {
       _loadCategories();

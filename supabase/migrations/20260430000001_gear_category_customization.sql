@@ -21,7 +21,10 @@ ALTER TABLE gear_categories ADD CONSTRAINT uq_user_builtin_override UNIQUE (user
 -- 5. Index for user-specific queries
 CREATE INDEX idx_gear_categories_user ON gear_categories(user_id) WHERE user_id IS NOT NULL;
 
--- 6. Drop old permissive policy and replace with new granular ones
+-- 6. Prevent duplicate category names per user (case-insensitive)
+CREATE UNIQUE INDEX uq_user_category_name ON gear_categories(user_id, lower(name)) WHERE user_id IS NOT NULL;
+
+-- 7. Drop old permissive policy and replace with new granular ones
 DROP POLICY IF EXISTS "gear_categories_public_read" ON gear_categories;
 
 CREATE POLICY "gear_categories_select" ON gear_categories FOR SELECT USING (

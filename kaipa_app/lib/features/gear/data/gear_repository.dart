@@ -159,7 +159,6 @@ class GearRepository {
   Future<void> resetBuiltinCategory({required String overrideId}) async {
     final uid = _userId;
 
-    // Fetch override to get builtin_ref
     final override = await _client
         .from('gear_categories')
         .select()
@@ -178,7 +177,16 @@ class GearRepository {
         .eq('user_id', uid)
         .eq('category_id', overrideId);
 
-    // Delete the override record
+    // Verify no items remain on the override before deleting
+    final remaining = await _client
+        .from('gear_items')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('category_id', overrideId);
+    if ((remaining as List).isNotEmpty) {
+      throw Exception('Item migration incomplete, aborting delete');
+    }
+
     await _client
         .from('gear_categories')
         .delete()
@@ -196,7 +204,16 @@ class GearRepository {
         .eq('user_id', uid)
         .eq('category_id', categoryId);
 
-    // Delete the category
+    // Verify no items remain before deleting (prevents cascade data loss)
+    final remaining = await _client
+        .from('gear_items')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('category_id', categoryId);
+    if ((remaining as List).isNotEmpty) {
+      throw Exception('Item migration incomplete, aborting delete');
+    }
+
     await _client
         .from('gear_categories')
         .delete()
@@ -204,16 +221,57 @@ class GearRepository {
         .eq('user_id', uid);
   }
 
-  Future<void> reorderCategories({required List<String> orderedIds}) async {
+  Future<void> reorderCategories({
+    required List<String> orderedIds,
+    required List<GearCategoryModel> categories,
+  }) async {
     final uid = _userId;
     for (int i = 0; i < orderedIds.length; i++) {
       final id = orderedIds[i];
-      // Try updating as user category first
-      await _client
-          .from('gear_categories')
-          .update({'sort_order': i + 1})
-          .eq('id', id)
-          .eq('user_id', uid);
+      final cat = categories.firstWhere((c) => c.id == id);
+
+      if (cat.isBuiltin) {
+        // Built-in categories can't be updated via RLS — create an override
+        // record that inherits icon/name but carries the new sort_order
+        final existingOverrides = await _client
+            .from('gear_categories')
+            .select()
+            .eq('user_id', uid)
+            .eq('builtin_ref', id);
+
+        if ((existingOverrides as List).isNotEmpty) {
+          await _client
+              .from('gear_categories')
+              .update({'sort_order': i + 1})
+              .eq('user_id', uid)
+              .eq('builtin_ref', id);
+        } else if (cat.sortOrder != i + 1) {
+          // Only create override if position actually changed
+          await _client.from('gear_categories').insert({
+            'name': cat.name,
+            'icon': cat.icon,
+            'icon_type': cat.iconType,
+            'sort_order': i + 1,
+            'is_builtin': false,
+            'user_id': uid,
+            'builtin_ref': id,
+            'original_name': cat.name,
+          });
+
+          // Migrate items from built-in to the new override
+          await _client
+              .from('gear_items')
+              .update({'category_id': id})
+              .eq('user_id', uid)
+              .eq('category_id', id);
+        }
+      } else {
+        await _client
+            .from('gear_categories')
+            .update({'sort_order': i + 1})
+            .eq('id', id)
+            .eq('user_id', uid);
+      }
     }
   }
 
