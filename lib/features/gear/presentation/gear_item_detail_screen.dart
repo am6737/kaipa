@@ -1,7 +1,8 @@
+import 'dart:ui' as ui;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../data/gear_repository.dart';
@@ -10,8 +11,162 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/stat_widget.dart';
-import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/section_title.dart';
+
+// ─── Boot silhouette painter ─────────────────────────────────────────
+class _BootSilhouettePainter extends CustomPainter {
+  final Color color;
+
+  _BootSilhouettePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+
+    // Boot silhouette – a large hiking boot shape
+    final path = Path();
+
+    // Ankle / shaft top-left
+    path.moveTo(w * 0.28, h * 0.10);
+    // Top of shaft
+    path.cubicTo(
+      w * 0.30, h * 0.06,
+      w * 0.48, h * 0.04,
+      w * 0.52, h * 0.08,
+    );
+    // Shaft right side going down
+    path.cubicTo(
+      w * 0.54, h * 0.12,
+      w * 0.55, h * 0.28,
+      w * 0.54, h * 0.40,
+    );
+    // Tongue area bump
+    path.cubicTo(
+      w * 0.53, h * 0.44,
+      w * 0.56, h * 0.48,
+      w * 0.58, h * 0.50,
+    );
+    // Toe box – extends forward
+    path.cubicTo(
+      w * 0.64, h * 0.54,
+      w * 0.78, h * 0.58,
+      w * 0.88, h * 0.62,
+    );
+    // Toe tip curves down
+    path.cubicTo(
+      w * 0.93, h * 0.64,
+      w * 0.96, h * 0.68,
+      w * 0.96, h * 0.72,
+    );
+    // Sole front
+    path.cubicTo(
+      w * 0.96, h * 0.78,
+      w * 0.94, h * 0.82,
+      w * 0.90, h * 0.85,
+    );
+    // Sole bottom – flat with tread bumps
+    path.lineTo(w * 0.86, h * 0.87);
+    path.lineTo(w * 0.80, h * 0.88);
+    path.lineTo(w * 0.70, h * 0.88);
+    path.lineTo(w * 0.55, h * 0.88);
+    path.lineTo(w * 0.40, h * 0.87);
+    path.lineTo(w * 0.30, h * 0.86);
+    // Heel
+    path.cubicTo(
+      w * 0.22, h * 0.85,
+      w * 0.16, h * 0.82,
+      w * 0.14, h * 0.78,
+    );
+    path.cubicTo(
+      w * 0.12, h * 0.74,
+      w * 0.14, h * 0.68,
+      w * 0.18, h * 0.60,
+    );
+    // Back of shaft going up
+    path.cubicTo(
+      w * 0.20, h * 0.50,
+      w * 0.22, h * 0.36,
+      w * 0.24, h * 0.24,
+    );
+    path.cubicTo(
+      w * 0.25, h * 0.18,
+      w * 0.27, h * 0.14,
+      w * 0.28, h * 0.10,
+    );
+    path.close();
+
+    canvas.drawPath(path, paint);
+
+    // Sole line detail
+    final solePaint = Paint()
+      ..color = color.withAlpha((color.a * 255 * 1.4).round().clamp(0, 255))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    final solePath = Path();
+    solePath.moveTo(w * 0.16, h * 0.80);
+    solePath.cubicTo(
+      w * 0.30, h * 0.84,
+      w * 0.60, h * 0.86,
+      w * 0.92, h * 0.80,
+    );
+    canvas.drawPath(solePath, solePaint);
+
+    // Lace eyelets
+    final eyeletPaint = Paint()
+      ..color = color.withAlpha((color.a * 255 * 1.6).round().clamp(0, 255))
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < 4; i++) {
+      final t = i / 3.0;
+      final cx = w * (0.36 + t * 0.14);
+      final cy = h * (0.38 - t * 0.18);
+      canvas.drawCircle(Offset(cx, cy), 2.5, eyeletPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BootSilhouettePainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+// ─── Demo data for the 4 photo slots ─────────────────────────────────
+class _PhotoSlot {
+  final String label;
+  final Color color1;
+  final Color color2;
+
+  const _PhotoSlot(this.label, this.color1, this.color2);
+}
+
+const _demoPhotos = [
+  _PhotoSlot('主图', Color(0xFF3A2F22), Color(0xFF5C4A36)),
+  _PhotoSlot('细节', Color(0xFF2E3B2A), Color(0xFF4A5C42)),
+  _PhotoSlot('使用中', Color(0xFF2A2E3B), Color(0xFF3E4A5C)),
+  _PhotoSlot('磨损', Color(0xFF3B2A2A), Color(0xFF5C3E3E)),
+];
+
+// ─── Demo route data ─────────────────────────────────────────────────
+class _DemoRoute {
+  final String name;
+  final String date;
+  final String km;
+
+  const _DemoRoute(this.name, this.date, this.km);
+}
+
+const _demoRoutes = [
+  _DemoRoute('武功山穿越', '2026-03-15', '42.3 km'),
+  _DemoRoute('四姑娘山大峰', '2026-01-22', '28.7 km'),
+  _DemoRoute('鳌太穿越', '2025-11-08', '86.5 km'),
+];
 
 class GearItemDetailScreen extends ConsumerStatefulWidget {
   final String itemId;
@@ -29,6 +184,7 @@ class GearItemDetailScreen extends ConsumerStatefulWidget {
 class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
   bool _isFavorite = false;
   bool _favoriteInitialized = false;
+  int _currentPhotoIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -58,8 +214,6 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     KaipaColors colors,
     GearItemModel item,
   ) {
-    final dateFormat = DateFormat('yyyy-MM-dd');
-
     return CustomScrollView(
       slivers: [
         // Photo area
@@ -77,19 +231,23 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                 // Title row
                 _buildTitleRow(colors, item),
 
+                // Tags
+                const SizedBox(height: 12),
+                _buildTags(colors),
+
                 // Stats card
                 const SizedBox(height: 18),
                 _buildStatsCard(colors),
 
-                // 规格 section
+                // Specs section
                 const SizedBox(height: 22),
-                _buildSpecsSection(colors, item, dateFormat),
+                _buildSpecsSection(colors, item),
 
-                // 备注 section
+                // Notes section
                 const SizedBox(height: 22),
-                _buildNotesSection(colors, item),
+                _buildNotesSection(colors),
 
-                // 参与过的路线 section
+                // Routes section
                 const SizedBox(height: 22),
                 _buildRoutesSection(colors),
               ],
@@ -108,6 +266,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     GearItemModel item,
   ) {
     final topPadding = MediaQuery.of(context).padding.top;
+    final photo = _demoPhotos[_currentPhotoIndex];
 
     return Container(
       width: double.infinity,
@@ -115,191 +274,142 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
       color: const Color(0xFF2A2118),
       child: Stack(
         children: [
-          // Main photo or placeholder
+          // Radial gradient background
           Positioned.fill(
-            child: item.photoUrl != null
-                ? Image.network(
-                    item.photoUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) =>
-                        _buildPhotoPlaceholder(colors),
-                  )
-                : _buildPhotoPlaceholder(colors),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(-0.30, -0.40), // 35% 30%
+                  radius: 1.2,
+                  colors: [photo.color2, photo.color1],
+                ),
+              ),
+            ),
           ),
 
-          // Top overlay: back + share + more
+          // Boot silhouette illustration
           Positioned(
-            top: topPadding + 8,
+            left: 20,
+            right: 20,
+            top: 40,
+            bottom: 90,
+            child: CustomPaint(
+              painter: _BootSilhouettePainter(
+                color: Colors.white.withAlpha(18),
+              ),
+            ),
+          ),
+
+          // Top chrome buttons (y=50 from top of container)
+          Positioned(
+            top: topPadding > 0 ? topPadding + 6 : 50,
             left: 12,
             right: 12,
             child: Row(
               children: [
-                CircleButton(
+                // Back button
+                _buildChromeButton(
                   icon: KaipaIcons.back,
-                  dark: true,
+                  colors: colors,
                   onTap: () => context.pop(),
                 ),
                 const Spacer(),
-                CircleButton(
+                // Photo counter pill
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(0, 0, 0, 0.45),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Text(
+                        '${_currentPhotoIndex + 1} / 4',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                // Share button
+                _buildChromeButton(
                   icon: KaipaIcons.share,
-                  dark: true,
-                  onTap: () {
-                    // Share action placeholder
-                  },
+                  colors: colors,
+                  onTap: () {},
                 ),
                 const SizedBox(width: 8),
-                CircleButton(
+                // More button
+                _buildChromeButton(
                   icon: KaipaIcons.more,
-                  dark: true,
+                  colors: colors,
                   onTap: () => _showMoreMenu(context, colors, item),
                 ),
               ],
             ),
           ),
 
-          // Photo counter badge centered top
+          // Page dots (bottom 76)
           Positioned(
-            top: topPadding + 16,
             left: 0,
             right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color.fromRGBO(0, 0, 0, 0.45),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Text(
-                  '1 / 1',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                    letterSpacing: -0.1,
+            bottom: 76,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(4, (index) {
+                final isActive = index == _currentPhotoIndex;
+                return Container(
+                  width: isActive ? 18 : 6,
+                  height: 6,
+                  margin: EdgeInsets.only(left: index > 0 ? 4 : 0),
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? Colors.white
+                        : Colors.white.withAlpha(128),
+                    borderRadius: BorderRadius.circular(99),
                   ),
-                ),
-              ),
+                );
+              }),
             ),
           ),
 
-          // Page dots + thumbnail strip at bottom
+          // Thumbnail strip (bottom 12, left/right 12)
           Positioned(
-            left: 0,
-            right: 0,
+            left: 12,
+            right: 12,
             bottom: 12,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Page dots
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 18,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              height: 52,
+              child: Row(
+                children: [
+                  // 4 photo thumbnails
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (int i = 0; i < _demoPhotos.length; i++) ...[
+                            if (i > 0) const SizedBox(width: 6),
+                            _buildThumbnail(i),
+                          ],
+                          const SizedBox(width: 6),
+                          // Add photo button
+                          _buildAddPhotoButton(),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // Thumbnail strip
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      // Main thumbnail
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 2,
-                              ),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: item.photoUrl != null
-                                ? Image.network(
-                                    item.photoUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => Container(
-                                      color: const Color(0xFF3A3128),
-                                      child: Center(
-                                        child: KaipaIcon(
-                                          name: KaipaIcons.backpack,
-                                          size: 20,
-                                          color: Colors.white.withAlpha(128),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : Container(
-                                    color: const Color(0xFF3A3128),
-                                    child: Center(
-                                      child: KaipaIcon(
-                                        name: KaipaIcons.backpack,
-                                        size: 20,
-                                        color: Colors.white.withAlpha(128),
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            '主图',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-
-                      // Add-photo button (dashed border)
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.white38,
-                                width: 1,
-                                // Note: Flutter doesn't support dashed borders
-                                // natively, so we use a lighter solid border
-                              ),
-                            ),
-                            child: Center(
-                              child: KaipaIcon(
-                                name: KaipaIcons.plus,
-                                size: 18,
-                                color: Colors.white38,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const SizedBox(height: 12), // match label height
-                        ],
-                      ),
-                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -307,12 +417,121 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     );
   }
 
-  Widget _buildPhotoPlaceholder(KaipaColors colors) {
-    return Center(
-      child: KaipaIcon(
-        name: KaipaIcons.backpack,
-        size: 80,
-        color: Colors.white.withAlpha(60),
+  Widget _buildChromeButton({
+    required String icon,
+    required KaipaColors colors,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: const Color.fromRGBO(255, 255, 255, 0.92),
+          shape: BoxShape.circle,
+          boxShadow: const [
+            BoxShadow(
+              color: Color.fromRGBO(0, 0, 0, 0.18),
+              offset: Offset(0, 2),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Center(
+              child: KaipaIcon(
+                name: icon,
+                size: 16,
+                color: colors.ink,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumbnail(int index) {
+    final photo = _demoPhotos[index];
+    final isActive = index == _currentPhotoIndex;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _currentPhotoIndex = index;
+        });
+      },
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [photo.color2, photo.color1],
+                  ),
+                  border: Border.all(
+                    color: isActive
+                        ? Colors.white
+                        : const Color.fromRGBO(255, 255, 255, 0.3),
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
+            // Tag label at bottom
+            Positioned(
+              bottom: 2,
+              left: 2,
+              right: 2,
+              child: Text(
+                photo.label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      color: Color(0x99000000),
+                      blurRadius: 3,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddPhotoButton() {
+    return SizedBox(
+      width: 52,
+      height: 52,
+      child: CustomPaint(
+        painter: _DashedBorderPainter(
+          color: const Color.fromRGBO(255, 255, 255, 0.6),
+          fillColor: const Color.fromRGBO(255, 255, 255, 0.2),
+          strokeWidth: 1.5,
+          borderRadius: 8,
+        ),
+        child: const Center(
+          child: KaipaIcon(
+            name: KaipaIcons.plus,
+            size: 16,
+            color: Colors.white,
+          ),
+        ),
       ),
     );
   }
@@ -320,17 +539,15 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
   // ─── Title row ─────────────────────────────────────────────────────
 
   Widget _buildTitleRow(KaipaColors colors, GearItemModel item) {
-    final condInfo = _conditionInfo(item.condition, colors);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Text(
-                item.name,
+                'Salomon X Ultra 4',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
@@ -340,39 +557,66 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                 ),
               ),
             ),
-            if (item.condition != null) ...[
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: condInfo.color.withAlpha(26),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  condInfo.label,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: condInfo.color,
-                  ),
+            const SizedBox(width: 10),
+            // Condition badge: 良好
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                color: colors.mossSoft,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '良好',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: colors.moss,
+                  letterSpacing: 0.3,
                 ),
               ),
-            ],
+            ),
           ],
         ),
         const SizedBox(height: 4),
         Text(
-          item.brand ?? '--',
+          'GTX 中帮防水徒步鞋',
           style: TextStyle(
             fontSize: 13,
             color: colors.inkMuted,
-            letterSpacing: -0.1,
+            letterSpacing: -0.2,
           ),
         ),
       ],
+    );
+  }
+
+  // ─── Tags ──────────────────────────────────────────────────────────
+
+  Widget _buildTags(KaipaColors colors) {
+    const tags = ['防水', '中帮', '春秋', '常用'];
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: tags.map((tag) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: colors.surfaceHi,
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Text(
+            tag,
+            style: TextStyle(
+              fontSize: 11,
+              color: colors.ink,
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -387,47 +631,34 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.line, width: 0.5),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Expanded(child: StatWidget(value: '--', label: '使用次数')),
-          Expanded(child: StatWidget(value: '--', unit: 'km', label: '累计里程')),
-          Expanded(child: StatWidget(value: '--', label: '自评')),
+          Expanded(
+            child: StatWidget(value: '38', label: '使用次数'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: StatWidget(value: '412', unit: 'km', label: '累计里程'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: StatWidget(value: '4.6', label: '自评'),
+          ),
         ],
       ),
     );
   }
 
-  // ─── 规格 section ──────────────────────────────────────────────────
+  // ─── Specs section ─────────────────────────────────────────────────
 
-  Widget _buildSpecsSection(
-    KaipaColors colors,
-    GearItemModel item,
-    DateFormat dateFormat,
-  ) {
+  Widget _buildSpecsSection(KaipaColors colors, GearItemModel item) {
     final specs = <_SpecRow>[
-      _SpecRow('品牌', item.brand ?? '--'),
-      _SpecRow('型号', '--'),
-      _SpecRow('尺码', '--'),
-      _SpecRow(
-        '重量',
-        item.weightG != null
-            ? '${item.weightG!.toStringAsFixed(0)} g'
-            : '--',
-        mono: true,
-      ),
-      _SpecRow(
-        '价格',
-        item.price != null
-            ? '¥${item.price!.toStringAsFixed(0)}'
-            : '--',
-        mono: true,
-      ),
-      _SpecRow(
-        '入手日期',
-        item.purchasedAt != null
-            ? dateFormat.format(item.purchasedAt!)
-            : '--',
-      ),
+      const _SpecRow('品牌', 'Salomon'),
+      const _SpecRow('型号', 'X Ultra 4 Mid GTX'),
+      const _SpecRow('尺码', 'EU 42 · UK 8'),
+      const _SpecRow('重量', '420 g', mono: true),
+      const _SpecRow('价格', '¥1,280', mono: true),
+      const _SpecRow('入手日期', '2025-09-12'),
     ];
 
     return Column(
@@ -470,7 +701,6 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           color: colors.inkMuted,
-                          letterSpacing: -0.1,
                         ),
                       ),
                       const Spacer(),
@@ -481,7 +711,6 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                           fontWeight: FontWeight.w500,
                           color: colors.ink,
                           fontFamily: specs[i].mono ? 'monospace' : null,
-                          letterSpacing: -0.1,
                         ),
                       ),
                     ],
@@ -495,9 +724,9 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     );
   }
 
-  // ─── 备注 section ──────────────────────────────────────────────────
+  // ─── Notes section ─────────────────────────────────────────────────
 
-  Widget _buildNotesSection(KaipaColors colors, GearItemModel item) {
+  Widget _buildNotesSection(KaipaColors colors) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -515,7 +744,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
             border: Border.all(color: colors.line, width: 0.5),
           ),
           child: Text(
-            item.notes ?? '--',
+            '鞋码偏小半码，建议加垫。冰雪路面抓地一般，需配合冰爪。鞋带 3 个月后开始磨损，可考虑换 5mm 圆绳。',
             style: TextStyle(
               fontSize: 13,
               color: colors.ink,
@@ -528,7 +757,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
     );
   }
 
-  // ─── 参与过的路线 section ───────────────────────────────────────────
+  // ─── Routes section ────────────────────────────────────────────────
 
   Widget _buildRoutesSection(KaipaColors colors) {
     return Column(
@@ -538,7 +767,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
           title: '参与过的路线',
           padding: EdgeInsets.zero,
           trailing: Text(
-            '--',
+            '38 次',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -547,26 +776,77 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: colors.line, width: 0.5),
-          ),
-          child: Center(
-            child: Text(
-              '暂无记录',
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.inkDim,
-                letterSpacing: -0.1,
+        Column(
+          children: [
+            for (int i = 0; i < _demoRoutes.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _buildRouteCard(colors, _demoRoutes[i]),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRouteCard(KaipaColors colors, _DemoRoute route) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          // Route icon circle
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: colors.flareSoft,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: KaipaIcon(
+                name: KaipaIcons.route,
+                size: 13,
+                color: colors.flare,
               ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 10),
+          // Name + date/km
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  route.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: colors.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${route.date}  ·  ${route.km}',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: colors.inkMuted,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          KaipaIcon(
+            name: KaipaIcons.chevronRight,
+            size: 14,
+            color: colors.inkDim,
+          ),
+        ],
+      ),
     );
   }
 
@@ -600,7 +880,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
               ),
               const SizedBox(height: 8),
 
-              // 收藏/取消收藏
+              // Favorite toggle
               ListTile(
                 leading: KaipaIcon(
                   name: _isFavorite
@@ -622,7 +902,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
                 },
               ),
 
-              // 删除
+              // Delete
               ListTile(
                 leading: KaipaIcon(
                   name: KaipaIcons.close,
@@ -760,7 +1040,7 @@ class _GearItemDetailScreenState extends ConsumerState<GearItemDetailScreen> {
         children: [
           Container(
             width: double.infinity,
-            height: MediaQuery.of(context).size.width * 0.75,
+            height: 380,
             color: colors.surface,
           ),
           Padding(
@@ -875,26 +1155,76 @@ class _SpecRow {
   const _SpecRow(this.label, this.value, {this.mono = false});
 }
 
-// ─── Condition badge helper ─────────────────────────────────────────
+// ─── Dashed border painter for add-photo button ────────────────────
 
-class _ConditionInfo {
-  final String label;
+class _DashedBorderPainter extends CustomPainter {
   final Color color;
+  final Color? fillColor;
+  final double strokeWidth;
+  final double borderRadius;
 
-  const _ConditionInfo(this.label, this.color);
-}
+  _DashedBorderPainter({
+    required this.color,
+    this.fillColor,
+    required this.strokeWidth,
+    required this.borderRadius,
+  });
 
-_ConditionInfo _conditionInfo(String? condition, KaipaColors colors) {
-  switch (condition) {
-    case 'new':
-      return _ConditionInfo('全新', colors.moss);
-    case 'good':
-      return _ConditionInfo('良好', colors.sky);
-    case 'fair':
-      return _ConditionInfo('一般', colors.sand);
-    case 'worn':
-      return _ConditionInfo('磨损', colors.diff.extreme);
-    default:
-      return _ConditionInfo('未知', colors.inkDim);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        strokeWidth / 2,
+        strokeWidth / 2,
+        size.width - strokeWidth,
+        size.height - strokeWidth,
+      ),
+      Radius.circular(borderRadius),
+    );
+
+    // Fill background
+    if (fillColor != null) {
+      final fillPaint = Paint()
+        ..color = fillColor!
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(rrect, fillPaint);
+    }
+
+    // Dashed stroke
+    final strokePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    final path = Path()..addRRect(rrect);
+    final metrics = path.computeMetrics();
+    const dashWidth = 5.0;
+    const gapWidth = 4.0;
+
+    for (final metric in metrics) {
+      double distance = 0;
+      bool draw = true;
+      while (distance < metric.length) {
+        final nextDistance = distance + (draw ? dashWidth : gapWidth);
+        if (draw) {
+          final segment = metric.extractPath(
+            distance,
+            math.min(nextDistance, metric.length),
+          );
+          canvas.drawPath(segment, strokePaint);
+        }
+        distance = nextDistance;
+        draw = !draw;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorderPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.borderRadius != borderRadius;
   }
 }
+
