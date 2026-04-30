@@ -2,49 +2,65 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../data/gear_repository.dart';
-import '../domain/gear_category_model.dart';
-import '../domain/gear_item_model.dart';
-import 'widgets/create_category_sheet.dart';
+import 'widgets/create_gear_item_sheet.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
-import '../../../core/theme/kaipa_theme.dart';
 import '../../../core/widgets/kaipa_icons.dart';
-import '../../../core/widgets/glass_container.dart';
 
-// ─── Preset data model ──────────────────────────────────────────────
+// ─── Hardcoded demo data ───────────────────────────────────────────
 
-class _GearPreset {
+class _DemoCategory {
+  final String icon;
   final String name;
-  final String description;
-  final int itemCount;
-  final List<Color> gradientColors;
+  final int count;
+  final double weightKg;
 
-  const _GearPreset({
+  const _DemoCategory({
+    required this.icon,
     required this.name,
-    required this.description,
-    required this.itemCount,
-    required this.gradientColors,
+    required this.count,
+    required this.weightKg,
   });
 }
 
-// ─── Donut chart colors per category index ──────────────────────────
-
-const List<Color> _kCategoryChartColors = [
-  Color(0xFF5C8A4A), // moss green
-  Color(0xFF5A8FB5), // sky blue
-  Color(0xFFD4A155), // amber
-  Color(0xFFA84228), // ember red
-  Color(0xFF7A9A6E), // light green
-  Color(0xFF8B6DB0), // purple
-  Color(0xFFD97B5A), // coral
-  Color(0xFF4A7C9B), // teal
-  Color(0xFFC9B894), // sand
-  Color(0xFF6E6B62), // grey
+const List<_DemoCategory> _kDemoCategories = [
+  _DemoCategory(icon: KaipaIcons.boot, name: '鞋履', count: 4, weightKg: 1.2),
+  _DemoCategory(icon: KaipaIcons.backpack, name: '背包', count: 3, weightKg: 4.1),
+  _DemoCategory(icon: KaipaIcons.jacket, name: '衣物', count: 12, weightKg: 3.8),
+  _DemoCategory(icon: KaipaIcons.tent, name: '帐篷', count: 2, weightKg: 2.4),
+  _DemoCategory(icon: KaipaIcons.bottle, name: '水补', count: 6, weightKg: 0.8),
+  _DemoCategory(icon: KaipaIcons.light, name: '电子', count: 5, weightKg: 0.6),
+  _DemoCategory(icon: KaipaIcons.knife, name: '工具', count: 8, weightKg: 0.9),
+  _DemoCategory(icon: KaipaIcons.flame, name: '炊具', count: 4, weightKg: 1.1),
 ];
+
+class _DemoPreset {
+  final String name;
+  final String spec;
+  final Color dotColor;
+
+  const _DemoPreset({
+    required this.name,
+    required this.spec,
+    required this.dotColor,
+  });
+}
+
+class _DonutSegment {
+  final String label;
+  final double value;
+  final Color color;
+  final String price;
+
+  const _DonutSegment({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.price,
+  });
+}
 
 // ─── Main screen ────────────────────────────────────────────────────
 
@@ -55,363 +71,230 @@ class GearLibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
-    final categoriesAsync = ref.watch(gearCategoriesProvider);
-    final itemsAsync = ref.watch(allGearItemsProvider);
 
     return Scaffold(
       backgroundColor: colors.bg,
       body: SafeArea(
-        child: categoriesAsync.when(
-          loading: () => _buildShimmerLoading(colors),
-          error: (error, stack) => _buildErrorState(colors, error, ref),
-          data: (categories) {
-            // Items may fail if not authenticated — show categories anyway
-            final items = itemsAsync.valueOrNull ?? <GearItemModel>[];
-            if (categories.isEmpty && items.isEmpty) {
-              return Column(
-                children: [
-                  _buildHeader(context, colors, categories: categories),
-                  Expanded(child: _buildEmptyState(colors)),
-                ],
-              );
-            }
-            return _buildContent(context, colors, categories, items);
-          },
-        ),
+        bottom: false,
+        child: _buildContent(context, colors, ref),
       ),
     );
   }
-
-  // ─── Header ─────────────────────────────────────────────────────
-
-  Widget _buildHeader(BuildContext context, KaipaColors colors, {List<GearCategoryModel>? categories}) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            '装备库',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              color: colors.ink,
-              letterSpacing: -0.6,
-            ),
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GestureDetector(
-                onTap: () {
-                  context.push('/gear/categories/manage');
-                },
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: colors.surface,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: colors.line, width: 0.5),
-                  ),
-                  child: Center(
-                    child: Icon(Icons.tune, size: 18, color: colors.inkMuted),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: () {
-                  // Navigate to add gear
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: colors.flare,
-                    borderRadius: BorderRadius.circular(KaipaRadius.pill),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      KaipaIcon(
-                        name: KaipaIcons.plus,
-                        size: 16,
-                        color: Colors.white,
-                        strokeWidth: 2.0,
-                      ),
-                      const SizedBox(width: 4),
-                      const Text(
-                        '添加',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Content ────────────────────────────────────────────────────
 
   Widget _buildContent(
     BuildContext context,
     KaipaColors colors,
-    List<GearCategoryModel> categories,
-    List<GearItemModel> items,
+    WidgetRef ref,
   ) {
-    // Compute item count per category
-    final countByCategory = <String, int>{};
-    final weightByCategory = <String, double>{};
-    for (final item in items) {
-      countByCategory[item.categoryId] =
-          (countByCategory[item.categoryId] ?? 0) + 1;
-      weightByCategory[item.categoryId] =
-          (weightByCategory[item.categoryId] ?? 0) + (item.weightG ?? 0);
-    }
+    // Donut chart segment data (hardcoded per spec)
+    final segments = [
+      _DonutSegment(label: '背包', value: 5.1, color: colors.flare, price: '¥5.1k'),
+      _DonutSegment(label: '鞋履', value: 4.2, color: colors.sky, price: '¥4.2k'),
+      _DonutSegment(label: '衣物', value: 3.6, color: colors.sand, price: '¥3.6k'),
+      _DonutSegment(label: '帐篷', value: 2.8, color: const Color(0xFFC47D5A), price: '¥2.8k'),
+      _DonutSegment(label: '电子', value: 1.2, color: colors.moss, price: '¥1.2k'),
+      _DonutSegment(label: '工具', value: 0.7, color: const Color(0xFF7BAFC8), price: '¥0.7k'),
+      _DonutSegment(label: '水补', value: 0.6, color: const Color(0xFFA89070), price: '¥0.6k'),
+      _DonutSegment(label: '炊具', value: 0.5, color: colors.inkDim, price: '¥0.5k'),
+    ];
 
-    // Compute totals
-    final totalItems = items.length;
-    double totalWeightG = 0;
-    double totalValue = 0;
-    for (final item in items) {
-      totalWeightG += item.weightG ?? 0;
-      totalValue += item.price ?? 0;
-    }
-    final totalWeightKg = totalWeightG / 1000;
-
-    // Build chart data
-    final chartSegments = <_ChartSegment>[];
-    for (int i = 0; i < categories.length; i++) {
-      final count = countByCategory[categories[i].id] ?? 0;
-      if (count > 0) {
-        chartSegments.add(_ChartSegment(
-          label: categories[i].name,
-          value: count.toDouble(),
-          color: _kCategoryChartColors[i % _kCategoryChartColors.length],
-        ));
-      }
-    }
-
-    // Check for missing safety/emergency gear
-    final hasSafetyCategory = categories.any((c) =>
-        c.name.contains('安全') ||
-        c.name.contains('急救') ||
-        c.name.contains('应急') ||
-        c.icon == KaipaIcons.shield);
-    final safetyCategory = hasSafetyCategory
-        ? categories.firstWhere(
-            (c) =>
-                c.name.contains('安全') ||
-                c.name.contains('急救') ||
-                c.name.contains('应急') ||
-                c.icon == KaipaIcons.shield,
-            orElse: () => categories.first,
-          )
-        : null;
-    final missingSafetyGear =
-        safetyCategory != null && (countByCategory[safetyCategory.id] ?? 0) == 0;
-
-    // Presets
+    // Presets data (hardcoded per spec)
     final presets = [
-      _GearPreset(
-        name: '日间短途',
-        description: '轻装出行',
-        itemCount: (totalItems * 0.4).round().clamp(3, 15),
-        gradientColors: [colors.moss, colors.mossDeep],
-      ),
-      _GearPreset(
-        name: '过夜露营',
-        description: '一晚住宿',
-        itemCount: (totalItems * 0.7).round().clamp(5, 25),
-        gradientColors: [colors.sky, colorWithOpacity(colors.sky, 0.7)],
-      ),
-      _GearPreset(
-        name: '高海拔挑战',
-        description: '极限环境',
-        itemCount: (totalItems * 0.9).round().clamp(8, 30),
-        gradientColors: [colors.flare, colors.flareDeep],
-      ),
+      _DemoPreset(name: '一日徒步', spec: '8 件 · 5.2kg', dotColor: colors.moss),
+      _DemoPreset(name: '过夜重装', spec: '24 件 · 12.1kg', dotColor: colors.flare),
+      _DemoPreset(name: '雪线攀登', spec: '18 件 · 9.4kg', dotColor: colors.sky),
     ];
 
     return CustomScrollView(
       slivers: [
         // Header
-        SliverToBoxAdapter(child: _buildHeader(context, colors, categories: categories)),
+        SliverToBoxAdapter(child: _buildHeader(context, colors, ref)),
 
-        // Statistics card
+        // Overview card
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: GlassContainer(
-              radius: KaipaRadius.lg,
-              padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: colors.line, width: 0.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color.fromRGBO(40, 30, 20, 0.04),
+                    offset: Offset(0, 1),
+                    blurRadius: 3,
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               child: Column(
                 children: [
                   // Donut chart + legend
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       // Donut chart
                       SizedBox(
-                        width: 120,
-                        height: 120,
+                        width: 136,
+                        height: 136,
                         child: CustomPaint(
                           painter: _DonutChartPainter(
-                            segments: chartSegments,
+                            segments: segments,
                             centerTextColor: colors.ink,
                             centerSubTextColor: colors.inkMuted,
-                            totalCount: totalItems,
                           ),
-                          size: const Size(120, 120),
+                          size: const Size(136, 136),
                         ),
                       ),
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 16),
                       // Legend grid
                       Expanded(
-                        child: _buildLegendGrid(chartSegments, colors),
+                        child: _buildLegendGrid(segments, colors),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Divider
-                  Container(
-                    height: 0.5,
-                    color: colors.line,
-                  ),
-
-                  const SizedBox(height: 16),
 
                   // Stats row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatItem(
-                          value: '${totalWeightKg.toStringAsFixed(1)} kg',
-                          label: '总重量',
-                          colors: colors,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Container(
+                      padding: const EdgeInsets.only(top: 14),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: colors.lineSoft,
+                            width: 0.5,
+                          ),
                         ),
                       ),
-                      Container(width: 0.5, height: 32, color: colors.line),
-                      Expanded(
-                        child: _StatItem(
-                          value: totalValue >= 10000
-                              ? '${(totalValue / 10000).toStringAsFixed(1)}万'
-                              : '${totalValue.toStringAsFixed(0)}',
-                          label: '估值 (¥)',
-                          colors: colors,
-                        ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _StatItem(
+                              value: '14.9',
+                              unit: ' kg',
+                              label: '总重',
+                              colors: colors,
+                            ),
+                          ),
+                          Expanded(
+                            child: _StatItem(
+                              value: '¥18.7',
+                              unit: ' k',
+                              label: '总值',
+                              colors: colors,
+                            ),
+                          ),
+                          Expanded(
+                            child: _StatItem(
+                              value: '8',
+                              unit: ' 个',
+                              label: '分类',
+                              colors: colors,
+                            ),
+                          ),
+                        ],
                       ),
-                      Container(width: 0.5, height: 32, color: colors.line),
-                      Expanded(
-                        child: _StatItem(
-                          value: '${categories.length}',
-                          label: '类别',
-                          colors: colors,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
 
-                  // Alert banner for missing safety gear
-                  if (missingSafetyGear) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
+                  // Alert banner
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Container(
+                      padding: const EdgeInsets.only(top: 12),
                       decoration: BoxDecoration(
-                        color: colorWithOpacity(
-                          const Color(0xFFF59E0B), // amber
-                          0.12,
-                        ),
-                        borderRadius: BorderRadius.circular(KaipaRadius.sm),
-                        border: Border.all(
-                          color: colorWithOpacity(
-                            const Color(0xFFF59E0B),
-                            0.3,
+                        border: Border(
+                          top: BorderSide(
+                            color: colors.lineSoft,
+                            width: 0.5,
                           ),
-                          width: 0.5,
                         ),
                       ),
                       child: Row(
                         children: [
                           KaipaIcon(
                             name: KaipaIcons.alert,
-                            size: 18,
-                            color: const Color(0xFFF59E0B),
+                            size: 14,
+                            color: colors.flare,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '缺少安全/应急装备，建议补充',
+                              '安全类装备不足，建议补充急救包',
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w500,
-                                color: colors.ink,
-                                letterSpacing: -0.1,
+                                color: colors.flare,
+                                letterSpacing: -0.2,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
           ),
         ),
 
-        // Gear Presets section
+        // Presets section
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-            child: Text(
-              '装备方案',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: colors.ink,
-                letterSpacing: -0.4,
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '装备预设',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: colors.ink,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                Text(
+                  '3 套',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: colors.inkMuted,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: SizedBox(
+              height: 96,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: presets.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final preset = presets[index];
+                  return _PresetCard(preset: preset, colors: colors);
+                },
               ),
             ),
           ),
         ),
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 100,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: presets.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final preset = presets[index];
-                return _PresetCard(preset: preset, colors: colors);
-              },
-            ),
-          ),
-        ),
 
-        // Category Grid section header
+        // Categories section
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
             child: Text(
-              '装备分类',
+              '分类',
               style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
@@ -424,64 +307,116 @@ class GearLibraryScreen extends ConsumerWidget {
 
         // Category Grid
         SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.45,
             ),
             delegate: SliverChildBuilderDelegate(
               (context, index) {
-                // Last item is the "+" add category card
-                if (index == categories.length) {
-                  return _AddCategoryCard(
-                    colors: colors,
-                    categories: categories,
-                  );
-                }
-                final category = categories[index];
-                final itemCount = countByCategory[category.id] ?? 0;
-                final weightG = weightByCategory[category.id] ?? 0;
-                final weightKg = weightG / 1000;
+                final cat = _kDemoCategories[index];
                 return _CategoryCard(
-                  category: category,
-                  itemCount: itemCount,
-                  weightKg: weightKg,
+                  icon: cat.icon,
+                  name: cat.name,
+                  count: cat.count,
+                  weightKg: cat.weightKg,
                   colors: colors,
                   onTap: () {
-                    context.push('/gear/category/${category.id}');
+                    // Navigate using index-based route
                   },
                 );
               },
-              childCount: categories.length + 1,
+              childCount: _kDemoCategories.length,
             ),
           ),
         ),
 
-        // Bottom padding
+        // Bottom padding to clear the floating bottom nav bar
         const SliverToBoxAdapter(
-          child: SizedBox(height: 40),
+          child: SizedBox(height: 120),
         ),
       ],
     );
   }
 
+  // ─── Header ─────────────────────────────────────────────────────
+
+  Widget _buildHeader(BuildContext context, KaipaColors colors, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 60, 16, 0),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '装备库',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w700,
+                color: colors.ink,
+                letterSpacing: -0.8,
+              ),
+            ),
+            GestureDetector(
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: colors.bg,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  builder: (_) => const CreateGearItemSheet(),
+                ).then((created) {
+                  if (created == true) {
+                    ref.invalidate(gearCategoriesProvider);
+                    ref.invalidate(allGearItemsProvider);
+                  }
+                });
+              },
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colors.flare,
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: KaipaIcon(
+                    name: KaipaIcons.plus,
+                    size: 16,
+                    color: Colors.white,
+                    strokeWidth: 2.0,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ─── Legend grid ────────────────────────────────────────────────
 
-  Widget _buildLegendGrid(List<_ChartSegment> segments, KaipaColors colors) {
-    // 2-column layout
+  Widget _buildLegendGrid(List<_DonutSegment> segments, KaipaColors colors) {
+    // 2-column layout with gap 6 vertical, 10 horizontal
     final rows = <Widget>[];
     for (int i = 0; i < segments.length; i += 2) {
       final left = segments[i];
       final right = i + 1 < segments.length ? segments[i + 1] : null;
       rows.add(
         Padding(
-          padding: EdgeInsets.only(bottom: i + 2 < segments.length ? 8 : 0),
+          padding: EdgeInsets.only(bottom: i + 2 < segments.length ? 6 : 0),
           child: Row(
             children: [
               Expanded(child: _LegendItem(segment: left, colors: colors)),
+              const SizedBox(width: 10),
               if (right != null)
                 Expanded(child: _LegendItem(segment: right, colors: colors))
               else
@@ -497,197 +432,38 @@ class GearLibraryScreen extends ConsumerWidget {
       children: rows,
     );
   }
-
-  // ─── Empty state ────────────────────────────────────────────────
-
-  Widget _buildEmptyState(KaipaColors colors) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            KaipaIcon(
-              name: KaipaIcons.backpack,
-              size: 64,
-              color: colors.inkDim,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              '还没有装备，点击右上角添加',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: colors.inkMuted,
-                letterSpacing: -0.2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ─── Error state ────────────────────────────────────────────────
-
-  Widget _buildErrorState(KaipaColors colors, Object error, WidgetRef ref) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            KaipaIcon(
-              name: KaipaIcons.alert,
-              size: 48,
-              color: colors.diff.extreme,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: colors.ink,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error.toString(),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.inkMuted,
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () {
-                ref.invalidate(gearCategoriesProvider);
-                ref.invalidate(allGearItemsProvider);
-              },
-              child: Text(
-                '重试',
-                style: TextStyle(
-                  color: colors.flare,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ─── Shimmer loading ────────────────────────────────────────────
-
-  Widget _buildShimmerLoading(KaipaColors colors) {
-    return Shimmer.fromColors(
-      baseColor: colors.surface,
-      highlightColor: colors.surfaceHi,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Header placeholder
-            Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Stats card placeholder
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(KaipaRadius.lg),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Preset row placeholder
-            Container(
-              height: 100,
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(KaipaRadius.md),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Grid placeholders
-            Expanded(
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1.2,
-                ),
-                itemCount: 6,
-                itemBuilder: (context, index) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: colors.surface,
-                      borderRadius: BorderRadius.circular(KaipaRadius.lg),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Chart segment data ─────────────────────────────────────────────
-
-class _ChartSegment {
-  final String label;
-  final double value;
-  final Color color;
-
-  const _ChartSegment({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
 }
 
 // ─── Donut chart painter ────────────────────────────────────────────
 
 class _DonutChartPainter extends CustomPainter {
-  final List<_ChartSegment> segments;
+  final List<_DonutSegment> segments;
   final Color centerTextColor;
   final Color centerSubTextColor;
-  final int totalCount;
 
   _DonutChartPainter({
     required this.segments,
     required this.centerTextColor,
     required this.centerSubTextColor,
-    required this.totalCount,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+    // SVG viewBox 0 0 136 136, cx=68 cy=68 r=48 strokeWidth=15
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 12;
-    const strokeWidth = 18.0;
-    const gapAngle = 0.04; // small gap between segments
+    const radius = 48.0;
+    const strokeWidth = 15.0;
+    // 2px gap between segments, converted to angle
+    // circumference = 2 * pi * r = ~301.6
+    // 2px gap = 2 / 301.6 radians ~ 0.00663
+    const gapAngle = 2.0 / (2 * math.pi * radius) * (2 * math.pi); // 2px / circumference * full circle
 
     if (segments.isEmpty) {
-      // Draw empty ring
       final paint = Paint()
         ..color = colorWithOpacity(centerSubTextColor, 0.15)
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round;
+        ..strokeCap = StrokeCap.butt;
       canvas.drawCircle(center, radius, paint);
     } else {
       final total = segments.fold<double>(0, (s, seg) => s + seg.value);
@@ -701,7 +477,7 @@ class _DonutChartPainter extends CustomPainter {
           ..color = segment.color
           ..style = PaintingStyle.stroke
           ..strokeWidth = strokeWidth
-          ..strokeCap = StrokeCap.round;
+          ..strokeCap = StrokeCap.butt;
 
         canvas.drawArc(
           Rect.fromCircle(center: center, radius: radius),
@@ -715,54 +491,54 @@ class _DonutChartPainter extends CustomPainter {
       }
     }
 
-    // Center text: total count
+    // Center text: "44" (30px bold, ink, letterSpacing -1)
     final countPainter = TextPainter(
       text: TextSpan(
-        text: '$totalCount',
+        text: '44',
         style: TextStyle(
-          fontSize: 22,
+          fontSize: 30,
           fontWeight: FontWeight.w700,
           color: centerTextColor,
-          letterSpacing: -0.5,
+          letterSpacing: -1,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
     countPainter.paint(
       canvas,
-      center - Offset(countPainter.width / 2, countPainter.height / 2 + 6),
+      center - Offset(countPainter.width / 2, countPainter.height / 2 + 7),
     );
 
-    // Sub-label
+    // Sub-label: "件装备" (10px, inkMuted, letterSpacing 0.3)
     final labelPainter = TextPainter(
       text: TextSpan(
         text: '件装备',
         style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
+          fontSize: 10,
+          fontWeight: FontWeight.w400,
           color: centerSubTextColor,
-          letterSpacing: -0.1,
+          letterSpacing: 0.3,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
     labelPainter.paint(
       canvas,
-      center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 10),
+      center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 11),
     );
   }
 
   @override
   bool shouldRepaint(_DonutChartPainter oldDelegate) {
-    return oldDelegate.totalCount != totalCount ||
-        oldDelegate.segments.length != segments.length;
+    return oldDelegate.segments.length != segments.length ||
+        oldDelegate.centerTextColor != centerTextColor;
   }
 }
 
 // ─── Legend item ────────────────────────────────────────────────────
 
 class _LegendItem extends StatelessWidget {
-  final _ChartSegment segment;
+  final _DonutSegment segment;
   final KaipaColors colors;
 
   const _LegendItem({required this.segment, required this.colors});
@@ -770,28 +546,34 @@ class _LegendItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 8,
-          height: 8,
+          width: 7,
+          height: 7,
           decoration: BoxDecoration(
             color: segment.color,
             shape: BoxShape.circle,
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 5),
         Flexible(
           child: Text(
             segment.label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 10.5,
               fontWeight: FontWeight.w500,
-              color: colors.inkMuted,
-              letterSpacing: -0.1,
+              color: colors.ink,
             ),
+          ),
+        ),
+        const Spacer(),
+        Text(
+          segment.price,
+          style: TextStyle(
+            fontSize: 10,
+            color: colors.inkDim,
           ),
         ),
       ],
@@ -803,11 +585,13 @@ class _LegendItem extends StatelessWidget {
 
 class _StatItem extends StatelessWidget {
   final String value;
+  final String unit;
   final String label;
   final KaipaColors colors;
 
   const _StatItem({
     required this.value,
+    required this.unit,
     required this.label,
     required this.colors,
   });
@@ -817,14 +601,29 @@ class _StatItem extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: colors.ink,
-            letterSpacing: -0.4,
-            height: 1,
+        RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: colors.ink,
+                  letterSpacing: -0.4,
+                  height: 1,
+                ),
+              ),
+              TextSpan(
+                text: unit,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: colors.inkMuted,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 4),
@@ -845,7 +644,7 @@ class _StatItem extends StatelessWidget {
 // ─── Preset card ────────────────────────────────────────────────────
 
 class _PresetCard extends StatelessWidget {
-  final _GearPreset preset;
+  final _DemoPreset preset;
   final KaipaColors colors;
 
   const _PresetCard({required this.preset, required this.colors});
@@ -853,60 +652,48 @@ class _PresetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 150,
+      constraints: const BoxConstraints(minWidth: 150),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: preset.gradientColors,
-        ),
-        borderRadius: BorderRadius.circular(KaipaRadius.lg),
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.line, width: 0.5),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            preset.name,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: -0.3,
-            ),
-          ),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                preset.description,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white.withAlpha(179), // 0.7 opacity
-                  letterSpacing: -0.1,
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: preset.dotColor,
+                  shape: BoxShape.circle,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(51), // 0.2 opacity
-                  borderRadius: BorderRadius.circular(KaipaRadius.pill),
-                ),
-                child: Text(
-                  '${preset.itemCount} 件',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+              const SizedBox(width: 8),
+              Text(
+                preset.name,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: colors.ink,
+                  letterSpacing: -0.3,
                 ),
               ),
             ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              preset.spec,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: colors.inkMuted,
+              ),
+            ),
           ),
         ],
       ),
@@ -917,15 +704,17 @@ class _PresetCard extends StatelessWidget {
 // ─── Category card ──────────────────────────────────────────────────
 
 class _CategoryCard extends StatelessWidget {
-  final GearCategoryModel category;
-  final int itemCount;
+  final String icon;
+  final String name;
+  final int count;
   final double weightKg;
   final KaipaColors colors;
   final VoidCallback onTap;
 
   const _CategoryCard({
-    required this.category,
-    required this.itemCount,
+    required this.icon,
+    required this.name,
+    required this.count,
     required this.weightKg,
     required this.colors,
     required this.onTap,
@@ -936,189 +725,55 @@ class _CategoryCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        constraints: const BoxConstraints(minHeight: 116),
         decoration: BoxDecoration(
           color: colors.surface,
-          borderRadius: BorderRadius.circular(KaipaRadius.lg),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: colors.line, width: 0.5),
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Icon container
+            // Icon container: 36x36, mossSoft bg, borderRadius 10, icon 18px mossDeep
             Container(
-              width: 42,
-              height: 42,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                color: colors.flareSoft,
-                borderRadius: BorderRadius.circular(KaipaRadius.md),
+                color: colors.mossSoft,
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Center(
-                child: category.iconType == 'emoji'
-                    ? Text(category.icon, style: const TextStyle(fontSize: 22))
-                    : KaipaIcon(
-                        name: category.icon,
-                        size: 22,
-                        color: colors.flare,
-                      ),
+                child: KaipaIcon(
+                  name: icon,
+                  size: 18,
+                  color: colors.mossDeep,
+                ),
               ),
             ),
-            const Spacer(),
-            // Category name
+            const SizedBox(height: 12),
+            // Category name: 14.5px bold, ink, letterSpacing -0.2
             Text(
-              category.name,
+              name,
               style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w700,
                 color: colors.ink,
                 letterSpacing: -0.2,
               ),
             ),
             const SizedBox(height: 4),
-            // Item count and weight
-            Row(
-              children: [
-                Text(
-                  '$itemCount 件',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.inkMuted,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-                if (weightKg > 0) ...[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Text(
-                      '·',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.inkDim,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${weightKg.toStringAsFixed(1)}kg',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colors.inkMuted,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                ],
-              ],
+            // Count + weight: 11.5px, muted
+            Text(
+              '$count 件 · ${weightKg.toStringAsFixed(1)}kg',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: colors.inkMuted,
+              ),
             ),
           ],
         ),
       ),
     );
   }
-}
-
-class _AddCategoryCard extends ConsumerWidget {
-  final KaipaColors colors;
-  final List<GearCategoryModel> categories;
-
-  const _AddCategoryCard({required this.colors, required this.categories});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final customCount = categories.where((c) => c.isCustom).length;
-    final isAtLimit = customCount >= 20;
-
-    return GestureDetector(
-      onTap: isAtLimit
-          ? () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('最多创建 20 个自定义分类')),
-              );
-            }
-          : () {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: colors.bg,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                builder: (_) => CreateCategorySheet(existingCategories: categories),
-              ).then((created) {
-                if (created == true) {
-                  ref.invalidate(gearCategoriesProvider);
-                }
-              });
-            },
-      child: CustomPaint(
-          painter: _DashedBorderPainter(
-            color: isAtLimit ? colors.inkDim : colors.inkMuted,
-            radius: KaipaRadius.lg,
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                KaipaIcon(
-                  name: KaipaIcons.plus,
-                  size: 28,
-                  color: isAtLimit ? colors.inkDim : colors.inkMuted,
-                  strokeWidth: 1.5,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '新建分类',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: isAtLimit ? colors.inkDim : colors.inkMuted,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-    );
-  }
-}
-
-class _DashedBorderPainter extends CustomPainter {
-  final Color color;
-  final double radius;
-
-  _DashedBorderPainter({required this.color, required this.radius});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Radius.circular(radius),
-    );
-
-    final path = Path()..addRRect(rrect);
-    final metrics = path.computeMetrics();
-
-    for (final metric in metrics) {
-      double distance = 0;
-      bool draw = true;
-      while (distance < metric.length) {
-        final len = draw ? 6.0 : 4.0;
-        final end = (distance + len).clamp(0.0, metric.length);
-        if (draw) {
-          final segment = metric.extractPath(distance, end);
-          canvas.drawPath(segment, paint);
-        }
-        distance = end;
-        draw = !draw;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedBorderPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.radius != radius;
 }
