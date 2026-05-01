@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../discover/data/route_repository.dart';
+import '../../trip/data/trip_repository.dart';
 import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
@@ -15,8 +16,9 @@ import '../../../core/widgets/kaipa_icons.dart';
 
 class NavigateScreen extends ConsumerStatefulWidget {
   final String routeId;
+  final String? tripId;
 
-  const NavigateScreen({super.key, required this.routeId});
+  const NavigateScreen({super.key, required this.routeId, this.tripId});
 
   @override
   ConsumerState<NavigateScreen> createState() => _NavigateScreenState();
@@ -50,6 +52,95 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
     final m = (seconds % 3600) ~/ 60;
     final s = seconds % 60;
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  void _showEndTripSheet() {
+    final tokens = ref.read(kaipaTokensProvider);
+    final colors = tokens.color;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '确定要结束行程吗？',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: colors.ink,
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _endTrip();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFC0392B),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('结束行程'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  '继续',
+                  style: TextStyle(color: colors.ink),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _endTrip() async {
+    final tripId = widget.tripId;
+    if (tripId == null) {
+      context.go('/discover');
+      return;
+    }
+
+    try {
+      final duration = Duration(seconds: _elapsedSeconds);
+      final tripRepo = ref.read(tripRepositoryProvider);
+      await tripRepo.completeTrip(
+        tripId,
+        distanceKm: 11.4,
+        elevationM: 680,
+        duration: duration,
+        avgSpeedKmh: 4.2,
+      );
+      if (mounted) {
+        context.go('/trip-complete/$tripId');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('结束行程失败: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -396,6 +487,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
               Expanded(
                 child: GestureDetector(
                   onTap: () => setState(() => _isPaused = !_isPaused),
+                  onLongPress: _showEndTripSheet,
                   child: Container(
                     height: 56,
                     decoration: BoxDecoration(
