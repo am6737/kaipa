@@ -6,6 +6,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../trip/data/departure_flow_provider.dart';
 
 // ─── Demo data models ───────────────────────────────────────────────
 
@@ -1054,8 +1055,14 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
           onTap: hasAlert
               ? null
               : () {
-                  // Navigate forward
-                  context.pop();
+                  final gearIds = ref
+                      .read(gearPickProvider)
+                      .selectedItemIds
+                      .toList();
+                  ref
+                      .read(departureFlowProvider(widget.routeId).notifier)
+                      .setGear(gearIds);
+                  context.push('/weather/${widget.routeId}');
                 },
           child: Container(
             height: 54,
