@@ -1532,7 +1532,7 @@ class _StickyCTA extends StatelessWidget {
       ),
       padding: EdgeInsets.fromLTRB(16, 12, 16, 32 + bottomPadding),
       child: GestureDetector(
-        onTap: () => context.push('/navigate/$routeId'),
+        onTap: () => context.push('/gear/pick/$routeId'),
         child: Container(
           height: 54,
           decoration: BoxDecoration(
