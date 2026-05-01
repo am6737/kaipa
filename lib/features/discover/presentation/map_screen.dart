@@ -12,7 +12,9 @@ import '../../../core/widgets/glass_container.dart';
 import '../../../core/widgets/diff_badge.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/circle_button.dart';
-import '../../../core/widgets/pill_widget.dart';
+import '../data/map_layer_provider.dart';
+import 'widgets/layer_picker.dart';
+import 'region_picker_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -25,31 +27,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   RouteModel? _activeRoute;
   int _zoomLevel = 1; // 0=globe, 1=region, 2=trail
-  String _activeFilter = '附近 12km';
-  static const _defaultCenter = LatLng(40.3, 116.5);
-  static const _defaultZoom = 9.5;
-
-  static const _filters = [
-    '附近 12km',
-    'T1—T2',
-    '一日往返',
-    '有水源',
-    '看日出',
-  ];
-
-  static const _filterToDifficulty = <String, String?>{
-    '附近 12km': null,
-    'T1—T2': null,
-    '一日往返': null,
-    '有水源': null,
-    '看日出': null,
-  };
-
-  static const _zoomLabels = [
-    '全球 · GLOBE',
-    '北京周边 · REGION',
-    '箭扣长城 · TRAIL',
-  ];
+  String _cityName = '北京';
+  LatLng _cityCenter = const LatLng(40.0, 116.4);
+  double _cityZoom = 9.5;
+  bool _showLayerPicker = false;
 
   static const _photoIds = [
     '1508804185872-d7badad00f7d',
@@ -71,6 +52,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final colors = tokens.color;
     final routesAsync = ref.watch(allRoutesProvider);
     final immersive = ref.watch(immersiveModeProvider);
+    final layerPrefs = ref.watch(mapLayerPrefsProvider);
+    final activeLayer = layerPrefs.activeLayer;
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -81,8 +64,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _defaultCenter,
-              initialZoom: _defaultZoom,
+              initialCenter: _cityCenter,
+              initialZoom: _cityZoom,
               onTap: (_, _) {
                 if (ref.read(immersiveModeProvider)) {
                   ref.read(immersiveModeProvider.notifier).state = false;
@@ -93,156 +76,110 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
+                urlTemplate: activeLayer.urlTemplate,
+                subdomains: activeLayer.subdomains,
                 userAgentPackageName: 'com.kaipa.app',
-                retinaMode: true,
+                retinaMode: activeLayer.retinaMode,
               ),
-              routesAsync.when(
-                data: (routes) {
-                  final filtered = _filterRoutes(routes);
-                  return MarkerLayer(
-                    markers: _buildMarkers(filtered, colors),
-                  );
-                },
-                loading: () => const MarkerLayer(markers: []),
-                error: (_, _) => const MarkerLayer(markers: []),
-              ),
+              if (layerPrefs.showRoutes)
+                routesAsync.when(
+                  data: (routes) {
+                    final filtered = _filterRoutes(routes);
+                    return MarkerLayer(
+                      markers: _buildMarkers(filtered, colors),
+                    );
+                  },
+                  loading: () => const MarkerLayer(markers: []),
+                  error: (_, _) => const MarkerLayer(markers: []),
+                ),
             ],
           ),
 
-          // ── Top: search bar + profile (y=56, left/right 16, zIndex 20) ──
-          AnimatedSlide(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            offset: immersive ? const Offset(0, -1) : Offset.zero,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-              opacity: immersive ? 0.0 : 1.0,
-              child: IgnorePointer(
-                ignoring: immersive,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 56, 16, 0),
-                  child: Row(
-                    children: [
-                      // Glass pill search bar (flex 1, height 46, borderRadius 999)
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => context.push('/discover/search'),
-                          child: GlassContainer(
-                            radius: KaipaRadius.pill,
-                            child: SizedBox(
-                              height: 46,
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16),
-                                child: Row(
-                                  children: [
-                                    KaipaIcon(
-                                      name: KaipaIcons.search,
-                                      size: 17,
-                                      color: colors.inkMuted,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        '搜索路线、山峰、地点',
-                                        style: TextStyle(
-                                          color: colors.inkMuted,
-                                          fontSize: 15,
-                                          letterSpacing: -0.2,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Profile CircleButton (46px, glass circle, user icon)
-                      CircleButton(
-                        icon: KaipaIcons.user,
-                        size: 46,
-                        iconSize: 18,
-                        onTap: () {
-                          final shell = StatefulNavigationShell.of(context);
-                          shell.goBranch(2);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Filter chips (y=116, left/right 16, horizontal scroll, gap 6) ──
-          AnimatedSlide(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            offset: immersive ? const Offset(0, -1) : Offset.zero,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-              opacity: immersive ? 0.0 : 1.0,
-              child: IgnorePointer(
-                ignoring: immersive,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 116),
-                  child: SizedBox(
-                    height: 34,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _filters.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 6),
-                      itemBuilder: (context, index) {
-                        final filter = _filters[index];
-                        final isActive = filter == _activeFilter;
-                        return PillWidget(
-                          active: isActive,
-                          onTap: () => setState(() {
-                            _activeFilter = filter;
-                            _activeRoute = null;
-                          }),
-                          child: Text(filter),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Zoom level label (top 200, left 16) ──
+          // ── Top: search bar + profile ──
           Positioned(
-            top: 200,
+            top: 56,
             left: 16,
+            right: 16,
             child: AnimatedSlide(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
-              offset: immersive ? const Offset(-1, 0) : Offset.zero,
+              offset: immersive ? const Offset(0, -1) : Offset.zero,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOut,
                 opacity: immersive ? 0.0 : 1.0,
                 child: IgnorePointer(
                   ignoring: immersive,
-                  child: Text(
-                    _zoomLabels[_zoomLevel],
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w500,
-                      color: colors.inkMuted,
-                      letterSpacing: 1.5,
-                    ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GlassContainer(
+                          radius: KaipaRadius.pill,
+                          child: SizedBox(
+                            height: 46,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4, right: 16),
+                              child: Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _openRegionPicker(context),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _cityName,
+                                            style: TextStyle(color: colors.ink, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.2),
+                                          ),
+                                          const SizedBox(width: 2),
+                                          KaipaIcon(name: KaipaIcons.forward, size: 12, color: colors.inkMuted),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Container(width: 1, height: 20, color: colors.line),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => context.push('/discover/search'),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: Row(
+                                        children: [
+                                          KaipaIcon(name: KaipaIcons.search, size: 17, color: colors.inkMuted),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              '搜索路线、山峰、地点',
+                                              style: TextStyle(color: colors.inkMuted, fontSize: 15, letterSpacing: -0.2),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      CircleButton(
+                        icon: KaipaIcons.upload,
+                        size: 46,
+                        iconSize: 18,
+                        onTap: () => context.push('/gpx-import'),
+                      ),
+                      const SizedBox(width: 8),
+                      CircleButton(
+                        icon: KaipaIcons.filter,
+                        size: 46,
+                        iconSize: 18,
+                        onTap: () => _showFilterSheet(context, colors),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -281,12 +218,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         },
                       ),
                       const SizedBox(height: 10),
-                      // Layers CircleButton (44px glass circle, layers icon)
                       CircleButton(
                         icon: KaipaIcons.layers,
                         size: 44,
                         iconSize: 18,
-                        onTap: () {},
+                        onTap: () => setState(() => _showLayerPicker = !_showLayerPicker),
                       ),
                       const SizedBox(height: 10),
                       // Navigate CircleButton (44px glass circle, navigate icon in flare)
@@ -296,7 +232,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         iconSize: 18,
                         color: colors.flare,
                         onTap: () =>
-                            _mapController.move(_defaultCenter, _defaultZoom),
+                            _mapController.move(_cityCenter, _cityZoom),
+                      ),
+                      const SizedBox(height: 10),
+                      CircleButton(
+                        icon: KaipaIcons.fullscreen,
+                        size: 44,
+                        iconSize: 18,
+                        onTap: () {
+                          setState(() {
+                            _activeRoute = null;
+                            _showLayerPicker = false;
+                          });
+                          ref.read(immersiveModeProvider.notifier).state = true;
+                        },
                       ),
                     ],
                   ),
@@ -305,75 +254,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
 
-          // ── GPX import FAB (region view only, right 16, bottom ~220) ──
-          if (_zoomLevel == 1 && !immersive)
-            Positioned(
-              right: 16,
-              bottom: 220,
+          // ── Layer picker popup ──
+          if (_showLayerPicker && !immersive) ...[
+            Positioned.fill(
               child: GestureDetector(
-                onTap: () {},
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: colors.flare,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorWithOpacity(colors.flare, 0.33),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: KaipaIcon(
-                      name: KaipaIcons.upload,
-                      size: 22,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
+                onTap: () => setState(() => _showLayerPicker = false),
+                behavior: HitTestBehavior.translucent,
+                child: const SizedBox.expand(),
               ),
             ),
+            Positioned(
+              right: 68,
+              top: 200,
+              child: LayerPicker(
+                colors: colors,
+                prefs: layerPrefs,
+                onBaseMapChanged: (key) {
+                  ref.read(mapLayerPrefsProvider.notifier).setBaseMap(key);
+                },
+                onToggleRoutes: () {
+                  ref.read(mapLayerPrefsProvider.notifier).toggleShowRoutes();
+                },
+                onClose: () => setState(() => _showLayerPicker = false),
+              ),
+            ),
+          ],
 
-          // ── Active route preview card (bottom ~102) ──
+          // ── Route preview card (shown when a pin is tapped) ──
           if (_activeRoute != null && !immersive)
             Positioned(
               left: 12,
               right: 12,
-              bottom: 102,
+              bottom: 110,
               child: _DismissibleCard(
                 onDismissed: () => setState(() => _activeRoute = null),
                 child: _RoutePreviewCard(
                   route: _activeRoute!,
                   colors: colors,
+                  photoUrl: routePhoto(_activeRoute!.name, w: 800, h: 400),
                   onTap: () =>
                       context.push('/discover/route/${_activeRoute!.id}'),
                   onClose: () => setState(() => _activeRoute = null),
                 ),
-              ),
-            ),
-
-          // ── Featured route card (when no active pin, bottom area) ──
-          if (_activeRoute == null && !immersive)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 102,
-              child: routesAsync.when(
-                data: (routes) {
-                  if (routes.isEmpty) return const SizedBox.shrink();
-                  final featured = routes.first;
-                  return _FeaturedRouteCard(
-                    route: featured,
-                    colors: colors,
-                    onTap: () =>
-                        context.push('/discover/route/${featured.id}'),
-                  );
-                },
-                loading: () => const SizedBox.shrink(),
-                error: (_, _) => const SizedBox.shrink(),
               ),
             ),
         ],
@@ -382,9 +304,204 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   List<RouteModel> _filterRoutes(List<RouteModel> routes) {
-    final difficulty = _filterToDifficulty[_activeFilter];
-    if (difficulty == null) return routes;
-    return routes.where((r) => r.difficulty == difficulty).toList();
+    return routes;
+  }
+
+  Future<void> _openRegionPicker(BuildContext context) async {
+    final result = await context.push<CityData>(
+      '/region-picker?city=${Uri.encodeComponent(_cityName)}',
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _cityName = result.name;
+        _cityCenter = LatLng(result.lat, result.lng);
+        _cityZoom = result.zoom;
+      });
+      _mapController.move(_cityCenter, _cityZoom);
+    }
+  }
+
+  void _showFilterSheet(BuildContext context, KaipaColors colors) {
+    final categories = [
+      _FilterCategory('难度', [
+        _FilterOption('全部难度', null),
+        _FilterOption('入门 T1', 'easy'),
+        _FilterOption('中等 T2', 'moderate'),
+        _FilterOption('困难 T3', 'hard'),
+        _FilterOption('专家 T4', 'expert'),
+      ]),
+      _FilterCategory('距离', [
+        _FilterOption('不限', null),
+        _FilterOption('5 km 以内', '5km'),
+        _FilterOption('5–15 km', '15km'),
+        _FilterOption('15–30 km', '30km'),
+        _FilterOption('30 km 以上', '30km+'),
+      ]),
+      _FilterCategory('时长', [
+        _FilterOption('不限', null),
+        _FilterOption('半日 (< 4h)', 'half'),
+        _FilterOption('一日 (4–8h)', 'day'),
+        _FilterOption('多日', 'multi'),
+      ]),
+      _FilterCategory('特征', [
+        _FilterOption('有水源', 'water'),
+        _FilterOption('看日出', 'sunrise'),
+        _FilterOption('可露营', 'camp'),
+        _FilterOption('亲子友好', 'family'),
+        _FilterOption('宠物友好', 'pet'),
+        _FilterOption('轮椅可达', 'accessible'),
+      ]),
+    ];
+
+    // Single-select for categories 0-2 (difficulty/distance/duration), multi-select for category 3 (features)
+    final selected = List<Set<String?>>.generate(categories.length, (i) => <String?>{});
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+          ),
+          decoration: BoxDecoration(
+            color: colors.bg,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 8),
+                child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(60, 52, 42, 0.18),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                child: Row(
+                  children: [
+                    Text('筛选路线', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.5)),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () {
+                        setSheetState(() {
+                          for (final s in selected) {
+                            s.clear();
+                          }
+                        });
+                      },
+                      child: Text('重置', style: TextStyle(fontSize: 13, color: colors.flare, fontWeight: FontWeight.w500)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              // Filter list
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
+                  itemCount: categories.length,
+                  itemBuilder: (ctx, ci) {
+                    final cat = categories[ci];
+                    final isMultiSelect = ci == 3;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            cat.name,
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.inkMuted, letterSpacing: 0.3),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: cat.options.map((opt) {
+                              final isSelected = selected[ci].contains(opt.value);
+                              return GestureDetector(
+                                onTap: () {
+                                  setSheetState(() {
+                                    if (isMultiSelect) {
+                                      if (isSelected) {
+                                        selected[ci].remove(opt.value);
+                                      } else {
+                                        selected[ci].add(opt.value);
+                                      }
+                                    } else {
+                                      selected[ci].clear();
+                                      if (opt.value != null) {
+                                        selected[ci].add(opt.value);
+                                      }
+                                    }
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? colors.flareSoft : colors.surface,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isSelected ? colors.flare : colors.line,
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    opt.label,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                      color: isSelected ? colors.flare : colors.ink,
+                                      letterSpacing: -0.1,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              // Apply button
+              Padding(
+                padding: EdgeInsets.fromLTRB(18, 0, 18, MediaQuery.of(ctx).padding.bottom + 18),
+                child: GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: Container(
+                    width: double.infinity,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: colors.flare,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [BoxShadow(color: colorWithOpacity(colors.flare, 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+                    ),
+                    child: const Center(
+                      child: Text('应用筛选', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   List<Marker> _buildMarkers(List<RouteModel> routes, KaipaColors colors) {
@@ -605,204 +722,19 @@ class _DismissibleCardState extends State<_DismissibleCard>
 class _RoutePreviewCard extends StatelessWidget {
   final RouteModel route;
   final KaipaColors colors;
+  final String photoUrl;
   final VoidCallback onTap;
   final VoidCallback onClose;
 
   const _RoutePreviewCard({
     required this.route,
     required this.colors,
+    required this.photoUrl,
     required this.onTap,
     required this.onClose,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    final diffColor = colors.diff[route.difficulty];
-
-    return GestureDetector(
-      onTap: onTap,
-      child: GlassContainer(
-        radius: 20,
-        padding: const EdgeInsets.all(14),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 4px difficulty color stripe (full height, borderRadius 4)
-              Container(
-                width: 4,
-                decoration: BoxDecoration(
-                  color: diffColor,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Content column (flex 1)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Title row: route name + close button
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            route.name,
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.4,
-                              color: colors.ink,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            maxLines: 1,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Close button (26px circle, surfaceHi bg, close icon 12px)
-                        GestureDetector(
-                          onTap: onClose,
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: BoxDecoration(
-                              color: colors.surfaceHi,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: KaipaIcon(
-                                name: KaipaIcons.close,
-                                size: 12,
-                                color: colors.inkMuted,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Badge row: DiffBadge + region + rating + user count
-                    Row(
-                      children: [
-                        DiffBadge(level: route.difficulty),
-                        if (route.region != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            route.region!,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.inkMuted,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(width: 8),
-                        // Rating (star icon in flare + number)
-                        KaipaIcon(
-                          name: KaipaIcons.star,
-                          size: 12,
-                          color: colors.flare,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          route.rating > 0
-                              ? route.rating.toStringAsFixed(1)
-                              : '4.5',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: colors.ink,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // User count (users icon + number)
-                        KaipaIcon(
-                          name: KaipaIcons.users,
-                          size: 12,
-                          color: colors.inkMuted,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          '${route.reviewCount > 0 ? route.reviewCount : 128}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: colors.inkMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Button row: "查看路线 →" + bookmark button
-                    Row(
-                      children: [
-                        // CTA button (flex 1, 38px, borderRadius 12, flare bg)
-                        Expanded(
-                          child: Container(
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: colors.flare,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Center(
-                              child: Text(
-                                '查看路线 →',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Bookmark button (38px square, borderRadius 12, surface bg, line border, bookmark icon in flare)
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: colors.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: colors.line,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Center(
-                            child: KaipaIcon(
-                              name: KaipaIcons.bookmark,
-                              size: 16,
-                              color: colors.flare,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Featured Route Card (no active pin, bottom area) ───────────────
-
-class _FeaturedRouteCard extends StatelessWidget {
-  final RouteModel route;
-  final KaipaColors colors;
-  final VoidCallback onTap;
-
-  const _FeaturedRouteCard({
-    required this.route,
-    required this.colors,
-    required this.onTap,
-  });
-
-  String _fmt(Duration d) {
+  String _fmtDuration(Duration d) {
     if (d.inHours > 0) {
       final m = d.inMinutes % 60;
       return m > 0 ? '约 ${d.inHours} 小时 $m 分' : '约 ${d.inHours} 小时';
@@ -814,160 +746,131 @@ class _FeaturedRouteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassContainer(
       radius: 24,
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle at top center
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color.fromRGBO(60, 52, 42, 0.2),
-                borderRadius: BorderRadius.circular(99),
+          // Hero photo with drag handle overlay
+          ClipRRect(
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 150,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    photoUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      color: colors.flareSoft,
+                      child: Center(
+                        child: KaipaIcon(name: KaipaIcons.mountain, size: 40, color: colors.flare),
+                      ),
+                    ),
+                  ),
+                  // Drag handle on top of photo
+                  Positioned(
+                    top: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color.fromRGBO(255, 255, 255, 0.6),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          // Title area with bookmark button
+          // Content area
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+          // Distance label
+          Text(
+            '距离你 2.3 公里',
+            style: TextStyle(fontSize: 11, color: colors.inkMuted),
+          ),
+          const SizedBox(height: 4),
+          // Route name
+          Text(
+            route.name,
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: -0.6, color: colors.ink),
+          ),
+          const SizedBox(height: 6),
+          // DiffBadge + stats
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              DiffBadge(level: route.difficulty),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Distance label
-                    Text(
-                      '距离你 2.3 公里',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.inkMuted,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    // Route name (26px bold)
-                    Text(
-                      route.name,
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.7,
-                        color: colors.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    // DiffBadge + stats
-                    Row(
-                      children: [
-                        DiffBadge(level: route.difficulty),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${route.distanceKm.toStringAsFixed(1)} 公里 · ↑ ${route.elevationGainM.toInt()} 米 · ${_fmt(route.estimatedDuration)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.inkMuted,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Bookmark glass button (44px, borderRadius 12, flareSoft bg + flare border)
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: colors.flareSoft,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: colorWithOpacity(colors.flare, 0.3),
-                    width: 0.5,
-                  ),
-                ),
-                child: Center(
-                  child: KaipaIcon(
-                    name: KaipaIcons.bookmark,
-                    size: 18,
-                    color: colors.flare,
-                  ),
+                child: Text(
+                  '${route.distanceKm.toStringAsFixed(1)} 公里 · ↑ ${route.elevationGainM.toInt()} 米 · ${_fmtDuration(route.estimatedDuration)}',
+                  style: TextStyle(fontSize: 12, color: colors.inkMuted),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          // Mini elevation strip (50px height, borderRadius 10, surfaceHi bg, line border)
+          const SizedBox(height: 10),
+          // Mini elevation strip
           if (route.elevationProfile.isNotEmpty)
             Container(
               width: double.infinity,
-              height: 50,
+              height: 44,
               decoration: BoxDecoration(
                 color: colors.surfaceHi,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: colors.line,
-                  width: 0.5,
-                ),
+                border: Border.all(color: colors.line, width: 0.5),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Padding(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(6),
                   child: CustomPaint(
-                    size: const Size(double.infinity, 34),
-                    painter: _MiniElevPainter(
-                      points: route.elevationProfile,
-                      flareColor: colors.flare,
-                      mossColor: colors.moss,
-                    ),
+                    size: const Size(double.infinity, 28),
+                    painter: _MiniElevPainter(points: route.elevationProfile, flareColor: colors.flare, mossColor: colors.moss),
                   ),
                 ),
               ),
             ),
-          if (route.elevationProfile.isNotEmpty) const SizedBox(height: 14),
-          // CTA button (full width, 50px, borderRadius 14, flare bg, navigate icon + text, shadow)
+          if (route.elevationProfile.isNotEmpty) const SizedBox(height: 10),
+          // CTA button
           GestureDetector(
             onTap: onTap,
             child: Container(
               width: double.infinity,
-              height: 50,
+              height: 46,
               decoration: BoxDecoration(
                 color: colors.flare,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorWithOpacity(colors.flare, 0.35),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                boxShadow: [BoxShadow(color: colorWithOpacity(colors.flare, 0.35), blurRadius: 14, offset: const Offset(0, 4))],
               ),
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const KaipaIcon(
-                    name: KaipaIcons.navigate,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '查看完整路线',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
+                  KaipaIcon(name: KaipaIcons.navigate, size: 16, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('查看完整路线', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
                 ],
               ),
+            ),
+          ),
+              ],
             ),
           ),
         ],
@@ -976,101 +879,62 @@ class _FeaturedRouteCard extends StatelessWidget {
   }
 }
 
-// ─── Mini Elevation Painter (with gradient fill, line, 3 marker circles) ──
-
 class _MiniElevPainter extends CustomPainter {
   final List<ElevationPoint> points;
   final Color flareColor;
   final Color mossColor;
-
-  _MiniElevPainter({
-    required this.points,
-    required this.flareColor,
-    required this.mossColor,
-  });
+  _MiniElevPainter({required this.points, required this.flareColor, required this.mossColor});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
-
-    double minE = double.infinity, maxE = double.negativeInfinity;
-    double maxD = 0;
+    double minE = double.infinity, maxE = double.negativeInfinity, maxD = 0;
     for (final p in points) {
       if (p.elevation < minE) minE = p.elevation;
       if (p.elevation > maxE) maxE = p.elevation;
       if (p.distance > maxD) maxD = p.distance;
     }
     if (maxD == 0 || maxE == minE) return;
-
     final range = maxE - minE;
-    final pts = points.map((p) {
-      final x = (p.distance / maxD) * size.width;
-      final y =
-          size.height - ((p.elevation - minE) / range) * size.height * 0.85;
-      return Offset(x, y);
-    }).toList();
+    final pts = points.map((p) => Offset(
+      (p.distance / maxD) * size.width,
+      size.height - ((p.elevation - minE) / range) * size.height * 0.85,
+    )).toList();
 
-    // Gradient fill
     final fillPath = Path()..moveTo(0, size.height);
-    for (final pt in pts) {
-      fillPath.lineTo(pt.dx, pt.dy);
-    }
+    for (final pt in pts) fillPath.lineTo(pt.dx, pt.dy);
     fillPath.lineTo(size.width, size.height);
     fillPath.close();
-    canvas.drawPath(
-      fillPath,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            colorWithOpacity(flareColor, 0.2),
-            colorWithOpacity(flareColor, 0.04),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
-    );
+    canvas.drawPath(fillPath, Paint()
+      ..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [colorWithOpacity(flareColor, 0.2), colorWithOpacity(flareColor, 0.04)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)));
 
-    // Line stroke
     final linePath = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (int i = 1; i < pts.length; i++) {
-      linePath.lineTo(pts[i].dx, pts[i].dy);
-    }
-    canvas.drawPath(
-      linePath,
-      Paint()
-        ..color = flareColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
+    for (int i = 1; i < pts.length; i++) linePath.lineTo(pts[i].dx, pts[i].dy);
+    canvas.drawPath(linePath, Paint()..color = flareColor..style = PaintingStyle.stroke
+      ..strokeWidth = 2..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round);
 
-    // 3 marker circles: moss start, flare peak, flare end
-    // Start marker (moss)
-    _drawMarker(canvas, pts.first, mossColor);
-
-    // Peak marker (flare)
-    double minY = double.infinity;
-    Offset? peakPt;
-    for (final pt in pts) {
-      if (pt.dy < minY) {
-        minY = pt.dy;
-        peakPt = pt;
-      }
-    }
-    if (peakPt != null) {
-      _drawMarker(canvas, peakPt, flareColor);
-    }
-
-    // End marker (flare)
-    _drawMarker(canvas, pts.last, flareColor);
-  }
-
-  void _drawMarker(Canvas canvas, Offset point, Color color) {
-    canvas.drawCircle(point, 4, Paint()..color = color);
-    canvas.drawCircle(point, 2.5, Paint()..color = const Color(0xFFFFFFFF));
+    canvas.drawCircle(pts.first, 3.5, Paint()..color = mossColor);
+    double minY = double.infinity; Offset? peak;
+    for (final pt in pts) { if (pt.dy < minY) { minY = pt.dy; peak = pt; } }
+    if (peak != null) canvas.drawCircle(peak, 3.5, Paint()..color = flareColor);
+    canvas.drawCircle(pts.last, 3.5, Paint()..color = flareColor);
   }
 
   @override
   bool shouldRepaint(_MiniElevPainter old) => false;
 }
+
+class _FilterCategory {
+  final String name;
+  final List<_FilterOption> options;
+  const _FilterCategory(this.name, this.options);
+}
+
+class _FilterOption {
+  final String label;
+  final String? value;
+  const _FilterOption(this.label, this.value);
+}
+
