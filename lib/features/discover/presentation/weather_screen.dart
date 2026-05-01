@@ -586,8 +586,7 @@ class WeatherScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         child: GestureDetector(
           onTap: () {
-            // Navigate to step 3 (safety confirmation)
-            // For now, just pop or navigate forward
+            context.push('/safety-confirm/$routeId');
           },
           child: Container(
             height: 54,
