@@ -1,125 +1,10 @@
-class AchievementModel {
-  final String id;
-  final String name;
-  final String? description;
-  final String icon;
-  final String conditionType;
-  final Map<String, dynamic> conditionValue;
-  final DateTime createdAt;
-
-  const AchievementModel({
-    required this.id,
-    required this.name,
-    this.description,
-    required this.icon,
-    required this.conditionType,
-    required this.conditionValue,
-    required this.createdAt,
-  });
-
-  factory AchievementModel.fromJson(Map<String, dynamic> json) {
-    return AchievementModel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      description: json['description'] as String?,
-      icon: json['icon'] as String,
-      conditionType: json['condition_type'] as String,
-      conditionValue: json['condition_value'] as Map<String, dynamic>? ?? {},
-      createdAt: DateTime.parse(json['created_at'] as String),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'description': description,
-      'icon': icon,
-      'condition_type': conditionType,
-      'condition_value': conditionValue,
-      'created_at': createdAt.toIso8601String(),
-    };
-  }
-
-  AchievementModel copyWith({
-    String? id,
-    String? name,
-    String? description,
-    String? icon,
-    String? conditionType,
-    Map<String, dynamic>? conditionValue,
-    DateTime? createdAt,
-  }) {
-    return AchievementModel(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      description: description ?? this.description,
-      icon: icon ?? this.icon,
-      conditionType: conditionType ?? this.conditionType,
-      conditionValue: conditionValue ?? this.conditionValue,
-      createdAt: createdAt ?? this.createdAt,
-    );
-  }
-}
-
-class UserAchievementModel {
-  final String id;
-  final String userId;
-  final String achievementId;
-  final DateTime earnedAt;
-  final String? tripId;
-
-  const UserAchievementModel({
-    required this.id,
-    required this.userId,
-    required this.achievementId,
-    required this.earnedAt,
-    this.tripId,
-  });
-
-  factory UserAchievementModel.fromJson(Map<String, dynamic> json) {
-    return UserAchievementModel(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      achievementId: json['achievement_id'] as String,
-      earnedAt: DateTime.parse(json['earned_at'] as String),
-      tripId: json['trip_id'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'user_id': userId,
-      'achievement_id': achievementId,
-      'earned_at': earnedAt.toIso8601String(),
-      'trip_id': tripId,
-    };
-  }
-
-  UserAchievementModel copyWith({
-    String? id,
-    String? userId,
-    String? achievementId,
-    DateTime? earnedAt,
-    String? tripId,
-  }) {
-    return UserAchievementModel(
-      id: id ?? this.id,
-      userId: userId ?? this.userId,
-      achievementId: achievementId ?? this.achievementId,
-      earnedAt: earnedAt ?? this.earnedAt,
-      tripId: tripId ?? this.tripId,
-    );
-  }
-}
-
 class ProfileModel {
   final String id;
   final String username;
   final String displayName;
   final String? avatarUrl;
   final String? bio;
+  final Map<String, dynamic>? emergencyContact;
   final String? difficultyPreference;
   final double totalDistanceKm;
   final double totalElevationM;
@@ -133,6 +18,7 @@ class ProfileModel {
     required this.displayName,
     this.avatarUrl,
     this.bio,
+    this.emergencyContact,
     this.difficultyPreference,
     this.totalDistanceKm = 0,
     this.totalElevationM = 0,
@@ -148,6 +34,7 @@ class ProfileModel {
       displayName: json['display_name'] as String,
       avatarUrl: json['avatar_url'] as String?,
       bio: json['bio'] as String?,
+      emergencyContact: json['emergency_contact'] as Map<String, dynamic>?,
       difficultyPreference: json['difficulty_preference'] as String?,
       totalDistanceKm: _parseDouble(json['total_distance_km']),
       totalElevationM: _parseDouble(json['total_elevation_m']),
@@ -164,6 +51,7 @@ class ProfileModel {
       'display_name': displayName,
       'avatar_url': avatarUrl,
       'bio': bio,
+      'emergency_contact': emergencyContact,
       'difficulty_preference': difficultyPreference,
       'total_distance_km': totalDistanceKm,
       'total_elevation_m': totalElevationM,
@@ -179,6 +67,7 @@ class ProfileModel {
     String? displayName,
     String? avatarUrl,
     String? bio,
+    Map<String, dynamic>? emergencyContact,
     String? difficultyPreference,
     double? totalDistanceKm,
     double? totalElevationM,
@@ -192,6 +81,7 @@ class ProfileModel {
       displayName: displayName ?? this.displayName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       bio: bio ?? this.bio,
+      emergencyContact: emergencyContact ?? this.emergencyContact,
       difficultyPreference: difficultyPreference ?? this.difficultyPreference,
       totalDistanceKm: totalDistanceKm ?? this.totalDistanceKm,
       totalElevationM: totalElevationM ?? this.totalElevationM,

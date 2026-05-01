@@ -15,10 +15,12 @@ class TripModel {
   final List<String> photos;
   final List<String> gearUsed;
   final Map<String, dynamic>? weatherSummary;
+  final Map<String, dynamic>? safetySettings;
   final String status;
   final int? rating;
   final String? notes;
   final DateTime createdAt;
+  final String? routeName;
 
   const TripModel({
     required this.id,
@@ -37,10 +39,12 @@ class TripModel {
     this.photos = const [],
     this.gearUsed = const [],
     this.weatherSummary,
+    this.safetySettings,
     this.status = 'in_progress',
     this.rating,
     this.notes,
     required this.createdAt,
+    this.routeName,
   });
 
   factory TripModel.fromJson(Map<String, dynamic> json) {
@@ -65,10 +69,12 @@ class TripModel {
       photos: _parseStringList(json['photos']),
       gearUsed: _parseStringList(json['gear_used']),
       weatherSummary: json['weather_summary'] as Map<String, dynamic>?,
+      safetySettings: json['safety_settings'] as Map<String, dynamic>?,
       status: json['status'] as String? ?? 'in_progress',
       rating: (json['rating'] as num?)?.toInt(),
       notes: json['notes'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
+      routeName: (json['routes'] as Map<String, dynamic>?)?['name'] as String?,
     );
   }
 
@@ -92,6 +98,7 @@ class TripModel {
       'photos': photos,
       'gear_used': gearUsed,
       'weather_summary': weatherSummary,
+      'safety_settings': safetySettings,
       'status': status,
       'rating': rating,
       'notes': notes,
@@ -116,10 +123,12 @@ class TripModel {
     List<String>? photos,
     List<String>? gearUsed,
     Map<String, dynamic>? weatherSummary,
+    Map<String, dynamic>? safetySettings,
     String? status,
     int? rating,
     String? notes,
     DateTime? createdAt,
+    String? routeName,
   }) {
     return TripModel(
       id: id ?? this.id,
@@ -138,10 +147,12 @@ class TripModel {
       photos: photos ?? this.photos,
       gearUsed: gearUsed ?? this.gearUsed,
       weatherSummary: weatherSummary ?? this.weatherSummary,
+      safetySettings: safetySettings ?? this.safetySettings,
       status: status ?? this.status,
       rating: rating ?? this.rating,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
+      routeName: routeName ?? this.routeName,
     );
   }
 
