@@ -8,9 +8,12 @@ import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/mini_map.dart';
 import '../../../core/widgets/diff_badge.dart';
+import '../data/route_repository.dart';
+import '../../trip/data/trip_repository.dart';
 
 class RoutePublishScreen extends ConsumerStatefulWidget {
-  const RoutePublishScreen({super.key});
+  final String? tripId;
+  const RoutePublishScreen({super.key, this.tripId});
 
   @override
   ConsumerState<RoutePublishScreen> createState() => _RoutePublishScreenState();
@@ -19,6 +22,45 @@ class RoutePublishScreen extends ConsumerStatefulWidget {
 class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
   int _selectedDifficulty = 2; // T3 selected by default (index 2)
   final List<bool> _toggles = [true, true, true];
+
+  String _title = '箭扣野长城日落穿越';
+  final String _story = '从将军关下车，沿着野长城往西，午后云开雾散，鹰飞倒仰段落比想象中陡。';
+  double? _distanceKm;
+  double? _elevationM;
+  Duration? _duration;
+  double? _latitude;
+  double? _longitude;
+  String? _region;
+  bool _isPublishing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTripData();
+  }
+
+  Future<void> _loadTripData() async {
+    if (widget.tripId == null) return;
+    try {
+      final tripRepo = ref.read(tripRepositoryProvider);
+      final trip = await tripRepo.fetchTripById(widget.tripId!);
+
+      final routeRepo = ref.read(routeRepositoryProvider);
+      final route = await routeRepo.getRouteById(trip.routeId);
+
+      if (mounted) {
+        setState(() {
+          _title = '${route.name} 穿越';
+          _distanceKm = trip.actualDistanceKm ?? route.distanceKm;
+          _elevationM = trip.actualElevationM ?? route.elevationGainM;
+          _duration = trip.actualDuration ?? route.estimatedDuration;
+          _latitude = route.latitude;
+          _longitude = route.longitude;
+          _region = route.region;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,15 +120,55 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
           ),
           const Spacer(),
           GestureDetector(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('路线发布成功！'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-              context.pop();
-            },
+            onTap: _isPublishing
+                ? null
+                : () async {
+                    setState(() => _isPublishing = true);
+                    try {
+                      final routeRepo = ref.read(routeRepositoryProvider);
+                      final difficultyMap = ['easy', 'easy', 'moderate', 'hard', 'expert'];
+                      final route = await routeRepo.publishRoute(
+                        name: _title,
+                        description: _story,
+                        distanceKm: _distanceKm ?? 11.4,
+                        elevationGainM: _elevationM ?? 680,
+                        estimatedDuration: _duration ?? const Duration(hours: 5),
+                        difficulty: difficultyMap[_selectedDifficulty],
+                        tags: ['野长城', '怀柔', '一日穿越'],
+                        isPublished: _toggles[0],
+                        latitude: _latitude ?? 40.45,
+                        longitude: _longitude ?? 116.56,
+                        region: _region,
+                      );
+
+                      await routeRepo.createFeedItem(
+                        type: 'route_published',
+                        content: {
+                          'route_name': _title,
+                          'distance_km': _distanceKm ?? 11.4,
+                        },
+                        routeId: route.id,
+                        tripId: widget.tripId,
+                      );
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('路线发布成功！'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                        context.go('/discover');
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        setState(() => _isPublishing = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('发布失败: $e')),
+                        );
+                      }
+                    }
+                  },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
@@ -157,7 +239,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                 ),
                 const SizedBox(height: 1),
                 Text(
-                  '箭扣长城  ·  04.27 周日  ·  5:42 出发',
+                  _title,
                   style: TextStyle(
                     fontSize: 11,
                     color: colors.inkMuted,
@@ -212,7 +294,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    '11.4 km  ·  ↑680 m',
+                    '${(_distanceKm ?? 11.4).toStringAsFixed(1)} km  ·  ↑${(_elevationM ?? 680).toInt()} m',
                     style: TextStyle(
                       fontSize: 10.5,
                       fontFamily: 'monospace',
