@@ -28,17 +28,6 @@ class ProfileRepository {
     return ProfileModel.fromJson(data);
   }
 
-  Future<List<AchievementModel>> fetchAchievements(String userId) async {
-    final data = await _client
-        .from('user_achievements')
-        .select('*, achievements(*)')
-        .eq('user_id', userId);
-    return (data as List).map((e) {
-      final achData = e['achievements'] as Map<String, dynamic>;
-      return AchievementModel.fromJson(achData);
-    }).toList();
-  }
-
   Future<void> updateProfile(String userId, Map<String, dynamic> updates) async {
     await _client.from('profiles').update(updates).eq('id', userId);
   }
@@ -47,6 +36,26 @@ class ProfileRepository {
     await _client
         .from('profiles')
         .update({'difficulty_preference': difficulty})
+        .eq('id', userId);
+  }
+
+  Future<Map<String, dynamic>?> getEmergencyContact() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final data = await _client
+        .from('profiles')
+        .select('emergency_contact')
+        .eq('id', userId)
+        .single();
+    return data['emergency_contact'] as Map<String, dynamic>?;
+  }
+
+  Future<void> updateEmergencyContact(Map<String, dynamic> contact) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    await _client
+        .from('profiles')
+        .update({'emergency_contact': contact})
         .eq('id', userId);
   }
 }
@@ -61,8 +70,7 @@ final currentProfileProvider = FutureProvider<ProfileModel>((ref) async {
   return repo.fetchCurrentProfile();
 });
 
-final profileAchievementsProvider =
-    FutureProvider.family<List<AchievementModel>, String>((ref, userId) async {
+final emergencyContactProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
   final repo = ref.watch(profileRepositoryProvider);
-  return repo.fetchAchievements(userId);
+  return repo.getEmergencyContact();
 });

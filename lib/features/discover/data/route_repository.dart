@@ -113,6 +113,69 @@ class RouteRepository {
         .map((row) => RouteModel.fromJson(row as Map<String, dynamic>))
         .toList();
   }
+
+  Future<RouteModel> publishRoute({
+    required String name,
+    String? description,
+    required double distanceKm,
+    required double elevationGainM,
+    required Duration estimatedDuration,
+    required String difficulty,
+    List<String> tags = const [],
+    bool isPublished = true,
+    required double latitude,
+    required double longitude,
+    String? region,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final data = await _client.from('routes').insert({
+      'creator_id': userId,
+      'name': name,
+      'description': description,
+      'distance_km': distanceKm,
+      'elevation_gain_m': elevationGainM,
+      'estimated_duration': _durationToInterval(estimatedDuration),
+      'difficulty': difficulty,
+      'tags': tags,
+      'is_published': isPublished,
+      'latitude': latitude,
+      'longitude': longitude,
+      'region': region,
+    }).select().single();
+    return RouteModel.fromJson(data);
+  }
+
+  Future<void> createFeedItem({
+    required String type,
+    required Map<String, dynamic> content,
+    String? routeId,
+    String? tripId,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    await _client.from('feed_items').insert({
+      'user_id': userId,
+      'type': type,
+      'content': content,
+      'route_id': routeId,
+      'trip_id': tripId,
+    });
+  }
+
+  static String _durationToInterval(Duration d) {
+    final parts = <String>[];
+    if (d.inDays > 0) parts.add('${d.inDays} ${d.inDays == 1 ? 'day' : 'days'}');
+    final hours = d.inHours % 24;
+    if (hours > 0) parts.add('$hours ${hours == 1 ? 'hour' : 'hours'}');
+    final minutes = d.inMinutes % 60;
+    if (minutes > 0) parts.add('$minutes ${minutes == 1 ? 'minute' : 'minutes'}');
+    if (parts.isEmpty) {
+      final seconds = d.inSeconds % 60;
+      parts.add('$seconds ${seconds == 1 ? 'second' : 'seconds'}');
+    }
+    return parts.join(' ');
+  }
 }
 
 final routeRepositoryProvider = Provider<RouteRepository>((ref) {
