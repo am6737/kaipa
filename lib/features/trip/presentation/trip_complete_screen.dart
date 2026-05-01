@@ -6,6 +6,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/section_title.dart';
+import '../data/trip_repository.dart';
 
 class TripCompleteScreen extends ConsumerStatefulWidget {
   final String tripId;
@@ -29,6 +30,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
   Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
+    final tripAsync = ref.watch(tripByIdProvider(widget.tripId));
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -46,7 +48,13 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                   offset: const Offset(0, -40),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildStatsCard(tokens, colors),
+                    child: _buildStatsCard(
+                      tokens, colors,
+                      distanceKm: tripAsync.valueOrNull?.actualDistanceKm,
+                      elevationM: tripAsync.valueOrNull?.actualElevationM,
+                      duration: tripAsync.valueOrNull?.actualDuration,
+                      avgSpeed: tripAsync.valueOrNull?.avgSpeedKmh,
+                    ),
                   ),
                 ),
 
@@ -56,11 +64,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 3. Achievements section
-                      _buildAchievementsSection(colors),
-                      const SizedBox(height: 20),
-
-                      // 4. Photo timeline
+                      // 3. Photo timeline
                       _buildPhotoTimeline(colors),
                       const SizedBox(height: 20),
 
@@ -211,7 +215,13 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
   }
 
   // ─── 2. Stats card ────────────────────────────────────────────────────
-  Widget _buildStatsCard(KaipaTokens tokens, KaipaColors colors) {
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    return '$h:${m.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildStatsCard(KaipaTokens tokens, KaipaColors colors, {double? distanceKm, double? elevationM, Duration? duration, double? avgSpeed}) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -231,10 +241,10 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
           // 4-column stat grid
           Row(
             children: [
-              _statColumn('11.4', 'km', colors),
-              _statColumn('680', 'm', colors),
-              _statColumn('5:18', null, colors),
-              _statColumn('4.2', 'km/h', colors),
+              _statColumn((distanceKm ?? 11.4).toStringAsFixed(1), 'km', colors),
+              _statColumn((elevationM ?? 680).toInt().toString(), 'm', colors),
+              _statColumn(_formatDuration(duration ?? const Duration(hours: 5, minutes: 18)), null, colors),
+              _statColumn((avgSpeed ?? 4.2).toStringAsFixed(1), 'km/h', colors),
             ],
           ),
           const SizedBox(height: 16),
@@ -350,97 +360,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
     );
   }
 
-  // ─── 3. Achievements section ──────────────────────────────────────────
-  Widget _buildAchievementsSection(KaipaColors colors) {
-    final achievements = [
-      _AchievementData('登顶 1410m', KaipaIcons.mountain, true),
-      _AchievementData('连续 3 周', KaipaIcons.flame, true),
-      _AchievementData('首条 T3', KaipaIcons.star, true),
-      _AchievementData('日出行者', KaipaIcons.moon, false),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionTitle(
-          title: '本次成就',
-          padding: EdgeInsets.zero,
-          trailing: Text(
-            '3 个解锁',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: colors.inkMuted,
-              letterSpacing: -0.1,
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: achievements.map((a) {
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: _achievementBadge(a.name, a.icon, a.unlocked, colors),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _achievementBadge(
-      String name, String iconName, bool unlocked, KaipaColors colors) {
-    return Opacity(
-      opacity: unlocked ? 1.0 : 0.4,
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: Container(
-          decoration: BoxDecoration(
-            color: unlocked ? colors.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: colors.line,
-              width: 0.5,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: unlocked ? colors.flareSoft : colors.lineSoft,
-                ),
-                child: Center(
-                  child: KaipaIcon(
-                    name: iconName,
-                    size: 18,
-                    color: unlocked ? colors.flare : colors.inkDim,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                name,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: unlocked ? colors.ink : colors.inkDim,
-                  letterSpacing: -0.1,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ─── 4. Photo timeline ────────────────────────────────────────────────
+  // ─── 3. Photo timeline ────────────────────────────────────────────────
   Widget _buildPhotoTimeline(KaipaColors colors) {
     final spots = [
       _PhotoSpot('06:42', '北京结', colors.moss, colors.flare),
@@ -805,38 +725,83 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
-      child: SizedBox(
-        width: double.infinity,
-        height: 54,
-        child: ElevatedButton(
-          onPressed: () => context.go('/discover'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: colors.ink,
-            foregroundColor: colors.bg,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: ElevatedButton(
+              onPressed: () async {
+                if (_rating > 0) {
+                  try {
+                    final tripRepo = ref.read(tripRepositoryProvider);
+                    await tripRepo.rateTrip(
+                      widget.tripId,
+                      _rating,
+                      _feedbackController.text.isEmpty
+                          ? null
+                          : _feedbackController.text,
+                    );
+                  } catch (_) {}
+                }
+                if (mounted) {
+                  context.push('/route-publish?tripId=${widget.tripId}');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.ink,
+                foregroundColor: colors.bg,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              child: const Text('发布路线'),
             ),
           ),
-          child: const Text('完成 · 返回首页'),
-        ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: TextButton(
+              onPressed: () async {
+                if (_rating > 0) {
+                  try {
+                    final tripRepo = ref.read(tripRepositoryProvider);
+                    await tripRepo.rateTrip(
+                      widget.tripId,
+                      _rating,
+                      _feedbackController.text.isEmpty
+                          ? null
+                          : _feedbackController.text,
+                    );
+                  } catch (_) {}
+                }
+                if (mounted) {
+                  context.go('/discover');
+                }
+              },
+              child: Text(
+                '跳过',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colors.inkMuted,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ─── Data classes ─────────────────────────────────────────────────────
-class _AchievementData {
-  final String name;
-  final String icon;
-  final bool unlocked;
-  const _AchievementData(this.name, this.icon, this.unlocked);
-}
-
 class _PhotoSpot {
   final String time;
   final String name;
