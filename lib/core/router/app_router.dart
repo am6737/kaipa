@@ -19,8 +19,11 @@ import '../../features/gear/presentation/preset_management_screen.dart';
 import '../../features/gear/presentation/preset_detail_screen.dart';
 import '../../features/navigation/presentation/navigate_screen.dart';
 import '../../features/navigation/presentation/navigate_hud_screen.dart';
+import '../../features/trip/presentation/safety_confirm_screen.dart';
 import '../../features/trip/presentation/trip_complete_screen.dart';
+import '../../features/trip/presentation/trip_history_screen.dart';
 import '../../features/gpx/presentation/gpx_import_screen.dart';
+import '../../features/discover/presentation/region_picker_screen.dart';
 import '../../features/social/presentation/feed_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
@@ -91,12 +94,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                   path: 'presets/manage',
                   builder: (_, _) => const PresetManagementScreen(),
                 ),
-                GoRoute(
-                  path: 'preset/:id',
-                  builder: (_, state) => PresetDetailScreen(
-                    presetId: state.pathParameters['id']!,
-                  ),
-                ),
               ],
             ),
           ]),
@@ -130,6 +127,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       // Modal routes (full-screen, no tab bar)
       GoRoute(
+        path: '/profile/trip-history',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, _) => const TripHistoryScreen(),
+      ),
+      GoRoute(
         path: '/feed',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, _) => const FeedScreen(),
@@ -146,6 +148,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => NavigateScreen(
           routeId: state.pathParameters['routeId']!,
+          tripId: state.uri.queryParameters['tripId'],
         ),
       ),
       GoRoute(
@@ -168,6 +171,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const GpxImportScreen(),
       ),
       GoRoute(
+        path: '/region-picker',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => RegionPickerScreen(
+          currentCity: state.uri.queryParameters['city'],
+        ),
+      ),
+      GoRoute(
         path: '/weather/:routeId',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => WeatherScreen(
@@ -175,9 +185,25 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: '/safety-confirm/:routeId',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => SafetyConfirmScreen(
+          routeId: state.pathParameters['routeId']!,
+        ),
+      ),
+      GoRoute(
         path: '/route-publish',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (_, _) => const RoutePublishScreen(),
+        builder: (_, state) => RoutePublishScreen(
+          tripId: state.uri.queryParameters['tripId'],
+        ),
+      ),
+      GoRoute(
+        path: '/gear/preset/:id',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => PresetDetailScreen(
+          presetId: state.pathParameters['id']!,
+        ),
       ),
       GoRoute(
         path: '/notifications',
