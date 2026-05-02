@@ -19,6 +19,7 @@ import '../../features/gear/presentation/preset_management_screen.dart';
 import '../../features/gear/presentation/preset_detail_screen.dart';
 import '../../features/navigation/presentation/navigate_screen.dart';
 import '../../features/navigation/presentation/navigate_hud_screen.dart';
+import '../../features/trip/presentation/manual_trip_entry_screen.dart';
 import '../../features/trip/presentation/safety_confirm_screen.dart';
 import '../../features/trip/presentation/trip_complete_screen.dart';
 import '../../features/trip/presentation/trip_history_screen.dart';
@@ -76,23 +77,34 @@ final routerProvider = Provider<GoRouter>((ref) {
               routes: [
                 GoRoute(
                   path: 'category/:id',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, state) => GearCategoryScreen(
                     categoryId: state.pathParameters['id']!,
                   ),
                 ),
                 GoRoute(
                   path: 'item/:id',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, state) => GearItemDetailScreen(
                     itemId: state.pathParameters['id']!,
                   ),
                 ),
                 GoRoute(
                   path: 'categories/manage',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, _) => const CategoryManagementScreen(),
                 ),
                 GoRoute(
                   path: 'presets/manage',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, _) => const PresetManagementScreen(),
+                ),
+                GoRoute(
+                  path: 'preset/:id',
+                  parentNavigatorKey: _rootNavigatorKey,
+                  builder: (_, state) => PresetDetailScreen(
+                    presetId: state.pathParameters['id']!,
+                  ),
                 ),
               ],
             ),
@@ -105,10 +117,12 @@ final routerProvider = Provider<GoRouter>((ref) {
               routes: [
                 GoRoute(
                   path: 'search',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, _) => const SearchScreen(),
                 ),
                 GoRoute(
                   path: 'route/:id',
+                  parentNavigatorKey: _rootNavigatorKey,
                   builder: (_, state) => RouteDetailScreen(
                     routeId: state.pathParameters['id']!,
                   ),
@@ -130,6 +144,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/profile/trip-history',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, _) => const TripHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/manual-trip-entry',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, _) => const ManualTripEntryScreen(),
       ),
       GoRoute(
         path: '/feed',
