@@ -16,6 +16,7 @@ import '../../../core/widgets/diff_badge.dart';
 import '../../../core/widgets/pill_widget.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../trip_plan/data/trip_plan_repository.dart';
 
 class RouteDetailScreen extends ConsumerWidget {
   final String routeId;
@@ -282,16 +283,16 @@ class _RouteDetailBody extends ConsumerWidget {
                   ),
 
                   // Bottom spacing for sticky bar
-                  SizedBox(height: 80 + bottomPadding),
+                  SizedBox(height: 100 + bottomPadding),
                 ]),
               ),
             ),
           ],
         ),
 
-        // Top chrome at y=56
+        // Top chrome
         Positioned(
-          top: 56,
+          top: MediaQuery.of(context).padding.top + 8,
           left: 16,
           right: 16,
           child: Row(
@@ -374,18 +375,51 @@ class _HeroSection extends StatelessWidget {
 
   const _HeroSection({required this.route, required this.colors});
 
+  LatLngBounds? _computeBounds(List<LatLng> points) {
+    if (points.length < 2) return null;
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    final latPad = (maxLat - minLat) * 0.15 + 0.002;
+    final lngPad = (maxLng - minLng) * 0.15 + 0.002;
+    return LatLngBounds(
+      LatLng(minLat - latPad, minLng - lngPad),
+      LatLng(maxLat + latPad, maxLng + lngPad),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasPath = route.waypoints.length >= 2;
+    final pathPoints = hasPath
+        ? route.waypoints.map((w) => LatLng(w.latitude, w.longitude)).toList()
+        : <LatLng>[];
+    final bounds = _computeBounds(pathPoints);
+
     return SizedBox(
       height: 360,
       child: Stack(
         children: [
-          // Full-bleed map
           Positioned.fill(
             child: FlutterMap(
               options: MapOptions(
-                initialCenter: LatLng(route.latitude, route.longitude),
+                initialCenter: hasPath
+                    ? LatLng(
+                        (pathPoints.first.latitude + pathPoints.last.latitude) / 2,
+                        (pathPoints.first.longitude + pathPoints.last.longitude) / 2,
+                      )
+                    : LatLng(route.latitude, route.longitude),
                 initialZoom: 13,
+                initialCameraFit: bounds != null
+                    ? CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.fromLTRB(32, 48, 32, 100))
+                    : null,
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.none,
                 ),
@@ -395,36 +429,94 @@ class _HeroSection extends StatelessWidget {
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.kaipa.app',
                 ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: LatLng(route.latitude, route.longitude),
-                      width: 32,
-                      height: 32,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: colors.flare,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: colors.flare.withAlpha(80),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: const Center(
-                          child: Icon(Icons.terrain, color: Colors.white, size: 16),
-                        ),
+                if (hasPath)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: pathPoints,
+                        color: colors.flare,
+                        strokeWidth: 3.5,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                MarkerLayer(
+                  markers: hasPath
+                      ? [
+                          // Start marker (green)
+                          Marker(
+                            point: pathPoints.first,
+                            width: 28,
+                            height: 28,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: colors.moss,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: colors.moss.withAlpha(80),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 14),
+                              ),
+                            ),
+                          ),
+                          // End marker (flare)
+                          Marker(
+                            point: pathPoints.last,
+                            width: 28,
+                            height: 28,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: colors.flare,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: colors.flare.withAlpha(80),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.flag_rounded, color: Colors.white, size: 14),
+                              ),
+                            ),
+                          ),
+                        ]
+                      : [
+                          Marker(
+                            point: LatLng(route.latitude, route.longitude),
+                            width: 32,
+                            height: 32,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: colors.flare,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: colors.flare.withAlpha(80),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.terrain, color: Colors.white, size: 16),
+                              ),
+                            ),
+                          ),
+                        ],
                 ),
               ],
             ),
           ),
-          // Gradient overlay: transparent 50% -> bg at 95%
           Positioned(
             bottom: 0,
             left: 0,
@@ -1208,6 +1300,22 @@ class _PhotoStripePainter extends CustomPainter {
   bool shouldRepaint(covariant _PhotoStripePainter oldDelegate) => false;
 }
 
+// ─── Rating Label ─────────────────────────────────────────────────────
+
+String _ratingLabel(num rating) {
+  if (rating >= 5) return '夯';
+  if (rating >= 4) return '顶级';
+  if (rating >= 3) return '人上人';
+  if (rating >= 2) return 'NPC';
+  return '拉完了';
+}
+
+Color _ratingLabelColor(num rating, KaipaColors colors) {
+  if (rating >= 4) return colors.flare;
+  if (rating >= 3) return colors.moss;
+  return colors.inkMuted;
+}
+
 // ─── Reviews Card ─────────────────────────────────────────────────────
 
 class _ReviewsCard extends StatelessWidget {
@@ -1373,21 +1481,41 @@ class _ReviewItem extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        // Star rating
+        // Star rating + label
         Row(
           mainAxisSize: MainAxisSize.min,
-          children: List.generate(5, (i) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 1),
-              child: Icon(
-                i < review.rating
-                    ? Icons.star_rounded
-                    : Icons.star_border_rounded,
-                color: colors.flare,
-                size: 14,
+          children: [
+            ...List.generate(5, (i) {
+              final IconData icon;
+              if (i < review.rating.floor()) {
+                icon = Icons.star_rounded;
+              } else if (i == review.rating.floor() && review.rating % 1 >= 0.5) {
+                icon = Icons.star_half_rounded;
+              } else {
+                icon = Icons.star_border_rounded;
+              }
+              return Padding(
+                padding: const EdgeInsets.only(right: 1),
+                child: Icon(icon, color: colors.flare, size: 14),
+              );
+            }),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: _ratingLabelColor(review.rating, colors).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
               ),
-            );
-          }),
+              child: Text(
+                _ratingLabel(review.rating),
+                style: TextStyle(
+                  color: _ratingLabelColor(review.rating, colors),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
         if (review.content != null && review.content!.isNotEmpty) ...[
           const SizedBox(height: 6),
@@ -1470,21 +1598,41 @@ class _FallbackReviewItem extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        // Star rating
+        // Star rating + label
         Row(
           mainAxisSize: MainAxisSize.min,
-          children: List.generate(5, (i) {
-            final filled = i < rating.floor() ||
-                (i == rating.floor() && rating % 1 >= 0.5);
-            return Padding(
-              padding: const EdgeInsets.only(right: 1),
-              child: Icon(
-                filled ? Icons.star_rounded : Icons.star_border_rounded,
-                color: colors.flare,
-                size: 14,
+          children: [
+            ...List.generate(5, (i) {
+              final IconData icon;
+              if (i < rating.floor()) {
+                icon = Icons.star_rounded;
+              } else if (i == rating.floor() && rating % 1 >= 0.5) {
+                icon = Icons.star_half_rounded;
+              } else {
+                icon = Icons.star_border_rounded;
+              }
+              return Padding(
+                padding: const EdgeInsets.only(right: 1),
+                child: Icon(icon, color: colors.flare, size: 14),
+              );
+            }),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: _ratingLabelColor(rating, colors).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
               ),
-            );
-          }),
+              child: Text(
+                _ratingLabel(rating),
+                style: TextStyle(
+                  color: _ratingLabelColor(rating, colors),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 6),
         Opacity(
@@ -1505,7 +1653,7 @@ class _FallbackReviewItem extends StatelessWidget {
 
 // ─── Sticky CTA ───────────────────────────────────────────────────────
 
-class _StickyCTA extends StatelessWidget {
+class _StickyCTA extends ConsumerWidget {
   final KaipaColors colors;
   final double bottomPadding;
   final String routeId;
@@ -1517,7 +1665,7 @@ class _StickyCTA extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1531,41 +1679,59 @@ class _StickyCTA extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.fromLTRB(16, 12, 16, 32 + bottomPadding),
-      child: GestureDetector(
-        onTap: () => context.push('/gear/pick/$routeId'),
-        child: Container(
-          height: 54,
-          decoration: BoxDecoration(
-            color: colors.flare,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: colors.flare.withAlpha(60),
-                offset: const Offset(0, 4),
-                blurRadius: 16,
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const KaipaIcon(
-                name: KaipaIcons.navigate,
-                size: 18,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                '准备出发 · 选择装备',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () async {
+                final repo = ref.read(tripPlanRepositoryProvider);
+                final plan = await repo.createPlan(
+                  routeId: routeId,
+                  plannedDate: DateTime.now().add(const Duration(days: 3)),
+                );
+                if (context.mounted) {
+                  context.push('/trip-plans/${plan.id}');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.flare,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-            ],
+              child: const Text('📋 规划此行程',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            ),
           ),
-        ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () async {
+                final repo = ref.read(tripPlanRepositoryProvider);
+                final plan = await repo.createPlan(
+                  routeId: routeId,
+                  plannedDate: DateTime.now(),
+                );
+                await repo.updatePlan(plan.id, {'status': 'ready'});
+                if (context.mounted) {
+                  context.push('/trip-plans/${plan.id}');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF22C55E),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text('🚀 立即出发',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
       ),
     );
   }
