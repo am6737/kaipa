@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/theme/theme_provider.dart';
+import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/diff_badge.dart';
+import '../../../core/widgets/kaipa_icons.dart';
+import '../../../core/widgets/stat_widget.dart';
 import '../../discover/domain/route_model.dart';
-import '../data/gear_recommendation_service.dart';
 import '../data/trip_plan_repository.dart';
 import '../data/weather_service.dart';
 import '../domain/trip_plan_model.dart';
@@ -33,75 +37,56 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     return Scaffold(
       backgroundColor: colors.bg,
       body: planAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => Center(
+          child: CircularProgressIndicator(color: colors.flare, strokeWidth: 2),
+        ),
         error: (e, _) => Center(
           child: Text('加载失败: $e',
-              style: TextStyle(color: colors.textSecondary)),
+              style: TextStyle(color: colors.inkMuted, fontSize: 14)),
         ),
         data: (plan) => _buildContent(plan, colors),
       ),
     );
   }
 
-  Widget _buildContent(TripPlanModel plan, dynamic colors) {
+  Widget _buildContent(TripPlanModel plan, KaipaColors colors) {
     final route = plan.route;
     final daysUntil = plan.plannedDate.difference(DateTime.now()).inDays;
 
     return Stack(
       children: [
         RefreshIndicator(
+          color: colors.flare,
           onRefresh: () async {
             ref.invalidate(tripPlanDetailProvider(widget.planId));
           },
           child: ListView(
             padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 16,
-              bottom: MediaQuery.of(context).padding.bottom + 100,
-              left: 20,
-              right: 20,
+              top: MediaQuery.of(context).padding.top + KaipaSpace.s4,
+              bottom: MediaQuery.of(context).padding.bottom + 110,
+              left: KaipaSpace.s4,
+              right: KaipaSpace.s4,
             ),
             children: [
               _buildHeader(plan, route, daysUntil, colors),
               if (route != null) ...[
-                const SizedBox(height: 20),
-                _buildStats(route, colors),
+                const SizedBox(height: KaipaSpace.s4),
+                _buildStatsCard(route, colors),
               ],
               if (route != null && route.elevationProfile.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                _buildSection('海拔剖面', colors),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceSecondary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: ElevationChart(
-                    profile: route.elevationProfile,
-                    lineColor: colors.flare,
-                    fillColor: colors.flare,
-                    textColor: colors.textTertiary,
-                  ),
-                ),
+                const SizedBox(height: KaipaSpace.s5),
+                _buildSectionHeader('海拔剖面', colors),
+                const SizedBox(height: KaipaSpace.s2),
+                _buildElevationCard(route, colors),
               ],
               if (route != null) ...[
-                const SizedBox(height: 20),
+                const SizedBox(height: KaipaSpace.s5),
                 _buildWeatherSection(plan, route, colors),
               ],
-              const SizedBox(height: 20),
-              GearChecklist(
-                planId: plan.id,
-                gearItems: plan.gearItems,
-                onChanged: () {
-                  ref.invalidate(tripPlanDetailProvider(widget.planId));
-                },
-              ),
-              if (plan.gearItems.isEmpty) ...[
-                const SizedBox(height: 12),
-                _buildAddGearButton(plan, colors),
-              ],
-              const SizedBox(height: 20),
-              _buildNotesField(plan, colors),
+              const SizedBox(height: KaipaSpace.s5),
+              _buildGearSection(plan, colors),
+              const SizedBox(height: KaipaSpace.s5),
+              _buildNotesCard(plan, colors),
             ],
           ),
         ),
@@ -110,16 +95,25 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     );
   }
 
+  // ─── Header ──────────────────────────────────────────────────────────
+
   Widget _buildHeader(
-      TripPlanModel plan, RouteModel? route, int daysUntil, dynamic colors) {
+      TripPlanModel plan, RouteModel? route, int daysUntil, KaipaColors colors) {
+    final dateStr = _formatPlannedDate(plan.plannedDate);
+    final daysStr = plan.isDepartureDay
+        ? '今天出发'
+        : daysUntil > 0
+            ? '$dateStr · $daysUntil天后'
+            : '$dateStr · 已过期';
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        GestureDetector(
+        CircleButton(
+          icon: KaipaIcons.chevronLeft,
           onTap: () => context.pop(),
-          child: Icon(Icons.arrow_back, color: colors.textPrimary),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: KaipaSpace.s3),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,108 +121,177 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
               Text(
                 route?.name ?? '行程计划',
                 style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 20,
+                  color: colors.ink,
+                  fontSize: 22,
                   fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
+                  height: 1.1,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
-                plan.isDepartureDay
-                    ? '今天出发'
-                    : daysUntil > 0
-                        ? '$daysUntil天后出发'
-                        : '已过出发日期',
+                daysStr,
                 style: TextStyle(
-                  color: plan.isDepartureDay
-                      ? const Color(0xFF22C55E)
-                      : colors.textSecondary,
-                  fontSize: 14,
+                  color: plan.isDepartureDay ? colors.moss : colors.inkMuted,
+                  fontSize: 13,
                   fontWeight:
-                      plan.isDepartureDay ? FontWeight.w600 : FontWeight.normal,
+                      plan.isDepartureDay ? FontWeight.w600 : FontWeight.w400,
+                  letterSpacing: -0.1,
                 ),
               ),
             ],
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: _statusColor(plan.status).withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            _statusLabel(plan.status),
-            style: TextStyle(
-              color: _statusColor(plan.status),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
+        const SizedBox(width: KaipaSpace.s2),
+        _buildStatusBadge(plan.status, colors),
       ],
     );
   }
 
-  Widget _buildStats(RouteModel route, dynamic colors) {
+  Widget _buildStatusBadge(TripPlanStatus status, KaipaColors colors) {
+    final color = _statusColor(status, colors);
+    final label = _statusLabel(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withAlpha(26),
+        borderRadius: BorderRadius.circular(KaipaRadius.pill),
+        border: Border.all(color: color.withAlpha(51), width: 0.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.1,
+        ),
+      ),
+    );
+  }
+
+  // ─── Stats card ──────────────────────────────────────────────────────
+
+  Widget _buildStatsCard(RouteModel route, KaipaColors colors) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: KaipaSpace.s4, vertical: KaipaSpace.s4),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: StatWidget(
+              value: route.distanceKm.toStringAsFixed(1),
+              unit: 'km',
+              label: '距离',
+            ),
+          ),
+          _buildStatDivider(colors),
+          Expanded(
+            child: StatWidget(
+              value: route.elevationGainM.toInt().toString(),
+              unit: 'm',
+              label: '爬升',
+            ),
+          ),
+          _buildStatDivider(colors),
+          Expanded(
+            child: StatWidget(
+              value: '${route.estimatedDuration.inHours}',
+              unit: 'h',
+              label: '预计时长',
+            ),
+          ),
+          _buildStatDivider(colors),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DiffBadge(level: route.difficulty),
+                const SizedBox(height: 4),
+                Text(
+                  '难度',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.inkMuted,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatDivider(KaipaColors colors) {
+    return Container(
+      width: 0.5,
+      height: 36,
+      color: colors.line,
+      margin: const EdgeInsets.symmetric(horizontal: KaipaSpace.s2),
+    );
+  }
+
+  // ─── Section header ──────────────────────────────────────────────────
+
+  Widget _buildSectionHeader(String title, KaipaColors colors,
+      {String? trailing}) {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildStatCard(route.distanceKm.toStringAsFixed(0), '公里', colors),
-        const SizedBox(width: 8),
-        _buildStatCard('${route.elevationGainM.toInt()}', '爬升m', colors),
-        const SizedBox(width: 8),
-        _buildStatCard('${route.estimatedDuration.inHours}h', '预计', colors),
-        const SizedBox(width: 8),
-        _buildStatCard(
-          _difficultyLabel(route.difficulty),
-          '难度',
-          colors,
-          valueColor: _difficultyColor(route.difficulty),
+        Text(
+          title,
+          style: TextStyle(
+            color: colors.ink,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+          ),
         ),
+        if (trailing != null)
+          Text(
+            trailing,
+            style: TextStyle(
+              color: colors.inkDim,
+              fontSize: 12,
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildStatCard(String value, String label, dynamic colors,
-      {Color? valueColor}) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: colors.surfaceSecondary,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                color: valueColor ?? colors.flare,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Text(label,
-                style: TextStyle(color: colors.textTertiary, fontSize: 10)),
-          ],
-        ),
+  // ─── Elevation card ──────────────────────────────────────────────────
+
+  Widget _buildElevationCard(RouteModel route, KaipaColors colors) {
+    return Container(
+      padding: const EdgeInsets.all(KaipaSpace.s4),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: ElevationChart(
+        profile: route.elevationProfile,
+        lineColor: colors.moss,
+        fillColor: colors.moss,
+        textColor: colors.inkDim,
       ),
     );
   }
 
-  Widget _buildSection(String title, dynamic colors) {
-    return Text(
-      title,
-      style: TextStyle(
-        color: colors.textPrimary,
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
+  // ─── Weather section ─────────────────────────────────────────────────
 
   Widget _buildWeatherSection(
-      TripPlanModel plan, RouteModel route, dynamic colors) {
+      TripPlanModel plan, RouteModel route, KaipaColors colors) {
     final weatherAsync = ref.watch(routeWeatherProvider((
       lat: route.latitude,
       lon: route.longitude,
@@ -238,43 +301,186 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     )));
 
     return weatherAsync.when(
-      loading: () => Container(
-        height: 80,
-        decoration: BoxDecoration(
-          color: colors.surfaceSecondary,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      ),
+      loading: () => _buildWeatherShimmer(colors),
       error: (e, st) => const SizedBox.shrink(),
-      data: (forecast) => WeatherPanel(
-        forecast: forecast,
-        targetDate: plan.plannedDate,
+      data: (forecast) => Container(
+        padding: const EdgeInsets.all(KaipaSpace.s4),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.line, width: 0.5),
+        ),
+        child: WeatherPanel(
+          forecast: forecast,
+          targetDate: plan.plannedDate,
+        ),
       ),
     );
   }
 
-  Widget _buildAddGearButton(TripPlanModel plan, dynamic colors) {
+  Widget _buildWeatherShimmer(KaipaColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('天气预报', colors),
+        const SizedBox(height: KaipaSpace.s2),
+        Container(
+          height: 88,
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(
+              4,
+              (i) => Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: colors.line,
+                      borderRadius: BorderRadius.circular(KaipaRadius.sm),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 24,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: colors.line,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 20,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: colors.lineSoft,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Gear section ────────────────────────────────────────────────────
+
+  Widget _buildGearSection(TripPlanModel plan, KaipaColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (plan.gearItems.isNotEmpty) ...[
+          // GearChecklist renders its own header + progress + list.
+          // Wrap in a card shell for visual consistency.
+          Container(
+            padding: const EdgeInsets.fromLTRB(
+              KaipaSpace.s4,
+              KaipaSpace.s4,
+              KaipaSpace.s4,
+              KaipaSpace.s1,
+            ),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colors.line, width: 0.5),
+            ),
+            child: GearChecklist(
+              planId: plan.id,
+              gearItems: plan.gearItems,
+              onChanged: () {
+                ref.invalidate(tripPlanDetailProvider(widget.planId));
+              },
+            ),
+          ),
+          const SizedBox(height: KaipaSpace.s3),
+        ],
+        _buildSelectGearButton(plan, colors),
+      ],
+    );
+  }
+
+  Widget _buildSelectGearButton(TripPlanModel plan, KaipaColors colors) {
     return GestureDetector(
-      onTap: () => _applyRecommendations(plan),
+      onTap: () async {
+        await context.push('/gear/pick/${plan.routeId}?planId=${plan.id}');
+        ref.invalidate(tripPlanDetailProvider(widget.planId));
+      },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(
+            vertical: KaipaSpace.s4, horizontal: KaipaSpace.s4),
         decoration: BoxDecoration(
-          border: Border.all(color: colors.flare, width: 1.5),
-          borderRadius: BorderRadius.circular(10),
+          gradient: LinearGradient(
+            begin: const Alignment(-0.5, -1),
+            end: const Alignment(0.5, 1),
+            stops: const [0.0, 0.7],
+            colors: [
+              colors.flareSoft,
+              colors.surface,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: colors.flare.withAlpha(77),
+            width: 0.5,
+          ),
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('✨', style: TextStyle(fontSize: 16)),
-            const SizedBox(width: 6),
-            Text(
-              '智能推荐装备',
-              style: TextStyle(
-                color: colors.flare,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: colors.flare.withAlpha(26),
+                borderRadius: BorderRadius.circular(KaipaRadius.sm),
               ),
+              child: Center(
+                child: KaipaIcon(
+                  name: KaipaIcons.sparkle,
+                  size: 18,
+                  color: colors.flare,
+                ),
+              ),
+            ),
+            const SizedBox(width: KaipaSpace.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plan.gearItems.isEmpty ? '选择装备' : '调整装备',
+                    style: TextStyle(
+                      color: colors.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  Text(
+                    plan.gearItems.isEmpty
+                        ? '根据路线推荐合适装备'
+                        : '从装备库重新选取',
+                    style: TextStyle(
+                      color: colors.inkMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            KaipaIcon(
+              name: KaipaIcons.chevronRight,
+              size: 16,
+              color: colors.inkDim,
             ),
           ],
         ),
@@ -282,51 +488,34 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     );
   }
 
-  Future<void> _applyRecommendations(TripPlanModel plan) async {
-    if (plan.route == null) return;
+  // ─── Notes card ──────────────────────────────────────────────────────
 
-    final recsAsync = ref.read(gearRecommendationsProvider((
-      route: plan.route!,
-      weather: null,
-    )));
-
-    final recs = recsAsync.valueOrNull ?? [];
-    if (recs.isEmpty) return;
-
-    final repo = ref.read(tripPlanRepositoryProvider);
-    for (final rec in recs) {
-      if (rec.gearItemId != null) {
-        await repo.addGearItem(
-          planId: plan.id,
-          gearItemId: rec.gearItemId!,
-          isRecommended: true,
-          recommendationReason: rec.reason,
-        );
-      }
-    }
-
-    ref.invalidate(tripPlanDetailProvider(widget.planId));
-  }
-
-  Widget _buildNotesField(TripPlanModel plan, dynamic colors) {
+  Widget _buildNotesCard(TripPlanModel plan, KaipaColors colors) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSection('备注', colors),
-        const SizedBox(height: 8),
+        _buildSectionHeader('备注', colors),
+        const SizedBox(height: KaipaSpace.s2),
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(KaipaSpace.s4),
           decoration: BoxDecoration(
-            color: colors.surfaceSecondary,
-            borderRadius: BorderRadius.circular(10),
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
           ),
           child: TextField(
             controller: TextEditingController(text: plan.notes ?? ''),
-            maxLines: 3,
-            style: TextStyle(color: colors.textPrimary, fontSize: 14),
+            maxLines: 4,
+            minLines: 2,
+            style: TextStyle(
+              color: colors.ink,
+              fontSize: 14,
+              letterSpacing: -0.1,
+              height: 1.5,
+            ),
             decoration: InputDecoration(
-              hintText: '添加备注...',
-              hintStyle: TextStyle(color: colors.textTertiary),
+              hintText: '添加备注、提醒或路线说明...',
+              hintStyle: TextStyle(color: colors.inkDim, fontSize: 14),
               border: InputBorder.none,
               isDense: true,
               contentPadding: EdgeInsets.zero,
@@ -343,62 +532,119 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     );
   }
 
-  Widget _buildBottomBar(TripPlanModel plan, dynamic colors) {
+  // ─── Bottom bar with gradient fade ───────────────────────────────────
+
+  Widget _buildBottomBar(TripPlanModel plan, KaipaColors colors) {
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
       child: Container(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 16,
-        ),
         decoration: BoxDecoration(
-          color: colors.bg,
-          border: Border(top: BorderSide(color: colors.line, width: 0.5)),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              colors.bg.withAlpha(0),
+              colors.bg.withAlpha(220),
+              colors.bg,
+            ],
+            stops: const [0.0, 0.35, 0.55],
+          ),
+        ),
+        padding: EdgeInsets.only(
+          left: KaipaSpace.s4,
+          right: KaipaSpace.s4,
+          top: KaipaSpace.s8,
+          bottom: MediaQuery.of(context).padding.bottom + KaipaSpace.s4,
         ),
         child: plan.isDepartureDay
-            ? ElevatedButton(
-                onPressed: () => _confirmDeparture(plan),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF22C55E),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  '确认出发',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-              )
-            : ElevatedButton(
-                onPressed: () async {
-                  await ref.read(tripPlanRepositoryProvider).updatePlan(
-                    plan.id,
-                    {'status': 'ready'},
-                  );
-                  ref.invalidate(tripPlanDetailProvider(widget.planId));
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.flare,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  '准备就绪',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-              ),
+            ? _buildDepartureCta(plan, colors)
+            : _buildReadyCta(plan, colors),
       ),
     );
   }
+
+  Widget _buildDepartureCta(TripPlanModel plan, KaipaColors colors) {
+    return GestureDetector(
+      onTap: () => _confirmDeparture(plan),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: KaipaSpace.s4),
+        decoration: BoxDecoration(
+          color: colors.moss,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: colors.moss.withAlpha(77),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              KaipaIcon(
+                name: KaipaIcons.navigate,
+                size: 18,
+                color: Colors.white,
+              ),
+              const SizedBox(width: KaipaSpace.s2),
+              const Text(
+                '确认出发',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReadyCta(TripPlanModel plan, KaipaColors colors) {
+    return GestureDetector(
+      onTap: () async {
+        await ref.read(tripPlanRepositoryProvider).updatePlan(
+          plan.id,
+          {'status': 'ready'},
+        );
+        ref.invalidate(tripPlanDetailProvider(widget.planId));
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: KaipaSpace.s4),
+        decoration: BoxDecoration(
+          color: colors.flare,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: colors.flare.withAlpha(64),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Center(
+          child: Text(
+            '准备就绪',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Departure confirmation ───────────────────────────────────────────
 
   Future<void> _confirmDeparture(TripPlanModel plan) async {
     final confirmed = await DepartureConfirmSheet.show(
@@ -417,18 +663,24 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
     }
   }
 
-  Color _statusColor(TripPlanStatus status) {
+  // ─── Helpers ─────────────────────────────────────────────────────────
+
+  String _formatPlannedDate(DateTime date) {
+    return '${date.month}月${date.day}日';
+  }
+
+  Color _statusColor(TripPlanStatus status, KaipaColors colors) {
     switch (status) {
       case TripPlanStatus.draft:
-        return const Color(0xFF1E90FF);
+        return colors.sky;
       case TripPlanStatus.ready:
-        return const Color(0xFF22C55E);
+        return colors.moss;
       case TripPlanStatus.departed:
-        return Colors.orange;
+        return colors.flare;
       case TripPlanStatus.completed:
-        return Colors.grey;
+        return colors.inkDim;
       case TripPlanStatus.cancelled:
-        return Colors.red;
+        return colors.diff.extreme;
     }
   }
 
@@ -444,36 +696,6 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         return '已完成';
       case TripPlanStatus.cancelled:
         return '已取消';
-    }
-  }
-
-  String _difficultyLabel(String difficulty) {
-    switch (difficulty) {
-      case 'easy':
-        return '简单';
-      case 'moderate':
-        return '中等';
-      case 'hard':
-        return '困难';
-      case 'expert':
-        return '专家';
-      default:
-        return difficulty;
-    }
-  }
-
-  Color _difficultyColor(String difficulty) {
-    switch (difficulty) {
-      case 'easy':
-        return const Color(0xFF22C55E);
-      case 'moderate':
-        return Colors.orange;
-      case 'hard':
-        return Colors.red;
-      case 'expert':
-        return Colors.purple;
-      default:
-        return Colors.grey;
     }
   }
 }
