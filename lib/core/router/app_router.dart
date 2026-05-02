@@ -30,6 +30,8 @@ import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
+import '../../features/trip_plan/presentation/trip_plan_list_screen.dart';
+import '../../features/trip_plan/presentation/trip_plan_detail_screen.dart';
 import '../widgets/bottom_nav_bar.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -222,6 +224,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => PresetDetailScreen(
           presetId: state.pathParameters['id']!,
+        ),
+      ),
+      GoRoute(
+        path: '/trip-plans',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, __) => const TripPlanListScreen(),
+      ),
+      GoRoute(
+        path: '/trip-plans/:planId',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => TripPlanDetailScreen(
+          planId: state.pathParameters['planId']!,
         ),
       ),
       GoRoute(
