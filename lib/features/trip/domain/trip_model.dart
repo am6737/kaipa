@@ -1,7 +1,8 @@
 class TripModel {
   final String id;
   final String userId;
-  final String routeId;
+  final String? routeId;
+  final String source; // 'tracked' | 'manual'
   final DateTime startedAt;
   final DateTime? finishedAt;
   final double? actualDistanceKm;
@@ -25,7 +26,8 @@ class TripModel {
   const TripModel({
     required this.id,
     required this.userId,
-    required this.routeId,
+    this.routeId,
+    this.source = 'tracked',
     required this.startedAt,
     this.finishedAt,
     this.actualDistanceKm,
@@ -51,7 +53,8 @@ class TripModel {
     return TripModel(
       id: json['id'] as String,
       userId: json['user_id'] as String,
-      routeId: json['route_id'] as String,
+      routeId: json['route_id'] as String?,
+      source: json['source'] as String? ?? 'tracked',
       startedAt: DateTime.parse(json['started_at'] as String),
       finishedAt: json['finished_at'] != null
           ? DateTime.parse(json['finished_at'] as String)
@@ -74,7 +77,8 @@ class TripModel {
       rating: (json['rating'] as num?)?.toInt(),
       notes: json['notes'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
-      routeName: (json['routes'] as Map<String, dynamic>?)?['name'] as String?,
+      routeName: (json['routes'] as Map<String, dynamic>?)?['name'] as String?
+          ?? json['route_name'] as String?,
     );
   }
 
@@ -103,6 +107,8 @@ class TripModel {
       'rating': rating,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
+      'source': source,
+      'route_name': routeName,
     };
   }
 
@@ -110,6 +116,7 @@ class TripModel {
     String? id,
     String? userId,
     String? routeId,
+    String? source,
     DateTime? startedAt,
     DateTime? finishedAt,
     double? actualDistanceKm,
@@ -134,6 +141,7 @@ class TripModel {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       routeId: routeId ?? this.routeId,
+      source: source ?? this.source,
       startedAt: startedAt ?? this.startedAt,
       finishedAt: finishedAt ?? this.finishedAt,
       actualDistanceKm: actualDistanceKm ?? this.actualDistanceKm,

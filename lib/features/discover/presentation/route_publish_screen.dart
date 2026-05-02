@@ -45,8 +45,9 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
       final tripRepo = ref.read(tripRepositoryProvider);
       final trip = await tripRepo.fetchTripById(widget.tripId!);
 
+      if (trip.routeId == null) return;
       final routeRepo = ref.read(routeRepositoryProvider);
-      final route = await routeRepo.getRouteById(trip.routeId);
+      final route = await routeRepo.getRouteById(trip.routeId!);
 
       if (mounted) {
         setState(() {
@@ -99,7 +100,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
   // ── Top bar ──────────────────────────────────────────────────────────
   Widget _buildTopBar(KaipaColors colors) {
     return Padding(
-      padding: const EdgeInsets.only(top: 54, left: 16, right: 16, bottom: 14),
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8, left: 16, right: 16, bottom: 14),
       child: Row(
         children: [
           CircleButton(
