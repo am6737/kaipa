@@ -13,7 +13,7 @@ class TripRepository {
     if (userId == null) throw Exception('Not authenticated');
     final data = await _client
         .from('trips')
-        .select('*, routes(name)')
+        .select('*, routes!left(name)')
         .eq('user_id', userId)
         .order('started_at', ascending: false)
         .limit(limit);
@@ -48,6 +48,44 @@ class TripRepository {
       'safety_settings': safetySettings,
       'status': 'in_progress',
     }).select().single();
+    return TripModel.fromJson(data);
+  }
+
+  Future<TripModel> createManualTrip({
+    required String routeName,
+    required DateTime date,
+    double? distanceKm,
+    double? elevationM,
+    Duration? duration,
+    int? rating,
+    String? notes,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+
+    final data = await _client.from('trips').insert({
+      'user_id': userId,
+      'route_name': routeName,
+      'started_at': date.toIso8601String(),
+      'finished_at': date.toIso8601String(),
+      'actual_distance_km': distanceKm,
+      'actual_elevation_m': elevationM,
+      'actual_duration': duration != null ? _durationToInterval(duration) : null,
+      'rating': rating,
+      'notes': notes,
+      'status': 'completed',
+      'source': 'manual',
+    }).select().single();
+
+    // Update profile stats
+    await _client.from('profiles').select('total_trips, total_distance_km, total_elevation_m').eq('id', userId).single().then((profile) async {
+      await _client.from('profiles').update({
+        'total_trips': ((profile['total_trips'] as num?)?.toInt() ?? 0) + 1,
+        'total_distance_km': ((profile['total_distance_km'] as num?)?.toDouble() ?? 0) + (distanceKm ?? 0),
+        'total_elevation_m': ((profile['total_elevation_m'] as num?)?.toDouble() ?? 0) + (elevationM ?? 0),
+      }).eq('id', userId);
+    });
+
     return TripModel.fromJson(data);
   }
 
