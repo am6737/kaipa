@@ -153,6 +153,12 @@ class KaipaColors {
     required this.glass,
     required this.glassDark,
   });
+
+  // ─── Semantic aliases ────────────────────────────────────────────────
+  Color get textPrimary => ink;
+  Color get textSecondary => inkMuted;
+  Color get textTertiary => inkDim;
+  Color get surfaceSecondary => surface;
 }
 
 // ─── Radius tokens ───────────────────────────────────────────────────
@@ -188,28 +194,20 @@ class KaipaSpace {
 
 // ─── Accent presets ──────────────────────────────────────────────────
 class KaipaAccents {
-  static const String moss = '#4A7C59';
-  static const String forest = '#2E5C3E';
-  static const String hunter = '#1F4030';
-  static const String pine = '#3A5F4A';
-  static const String juniper = '#5C7A65';
+  static const String meadow = '#4CAF50';
+  static const String moss = '#2E5C3E';
+  static const String citrus = '#E8742E';
   static const String ember = '#A84228';
-  static const String ochre = '#A8762B';
+  static const String peach = '#F48FB1';
   static const String lake = '#2C5D7E';
-  static const String midnight = '#26334D';
-  static const String ink = '#1F2A2D';
 
   static const Map<String, String> all = {
+    'meadow': meadow,
     'moss': moss,
-    'forest': forest,
-    'hunter': hunter,
-    'pine': pine,
-    'juniper': juniper,
+    'citrus': citrus,
     'ember': ember,
-    'ochre': ochre,
+    'peach': peach,
     'lake': lake,
-    'midnight': midnight,
-    'ink': ink,
   };
 }
 
