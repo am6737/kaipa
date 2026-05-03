@@ -49,6 +49,9 @@ class KaipaIcons {
   static const String knife = 'knife';
   static const String socks = 'socks';
   static const String shield = 'shield';
+  static const String down = 'down';
+  static const String tee = 'tee';
+  static const String fleece = 'fleece';
 
   // UI bits
   static const String layers2 = 'layers2';
@@ -92,6 +95,7 @@ class KaipaIcons {
   static const String pants = 'pants';
   static const String watch = 'watch';
   static const String radio = 'radio';
+  static const String fullscreen = 'fullscreen';
 
   /// All icon path data keyed by name.
   static const Map<String, String> pathData = {
@@ -135,6 +139,9 @@ class KaipaIcons {
     'knife': 'M3 17 17 3l4 4-2 2-12 12H3v-4Z',
     'socks': 'M9 2v9l-4 5a4 4 0 1 0 6 5l8-8V2H9Z',
     'shield': 'M12 2l8 4v6c0 5.5-3.8 9.7-8 11-4.2-1.3-8-5.5-8-11V6l8-4Z',
+    'down': 'M8 4h8l4 3-2 4-2-1v12H6V10L4 11l-2-4 4-3h2Zm-1 5h10m-10 4h10',
+    'tee': 'M8 4h8l4 4h-4v14H8V8H4l4-4Z',
+    'fleece': 'M8 4h8l3 3-1 2-2-1v14H8V8L6 9 5 7l3-3Zm4 0v16',
     'layers2': 'M12 2 2 7l10 5 10-5-10-5Z',
     'toggle3d': 'M3 12 12 7l9 5-9 5-9-5Z M3 17 12 22l9-5',
     'toggle2d': 'M3 5h18v14H3z M3 12h18M12 5v14',
@@ -176,6 +183,7 @@ class KaipaIcons {
     'pants': 'M6 2h12v7l-2 13h-3l-1-10-1 10H8L6 9V2Z',
     'watch': 'M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM12 6V2h4M12 18v4h4M12 9v3l2 1',
     'radio': 'M5 6h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Zm7 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM9 4l3-2 3 2',
+    'fullscreen': 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
   };
 
   /// Set of icon names that should be rendered filled rather than stroked.

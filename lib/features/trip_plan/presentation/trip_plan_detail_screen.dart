@@ -10,12 +10,12 @@ import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/stat_widget.dart';
 import '../../discover/domain/route_model.dart';
 import '../data/trip_plan_repository.dart';
-import '../data/weather_service.dart';
 import '../domain/trip_plan_model.dart';
 import 'widgets/departure_confirm_sheet.dart';
 import 'widgets/elevation_chart.dart';
 import 'widgets/gear_checklist.dart';
-import 'widgets/weather_panel.dart';
+
+const _kDanger = Color(0xFFD4645A);
 
 class TripPlanDetailScreen extends ConsumerStatefulWidget {
   final String planId;
@@ -79,10 +79,6 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
                 const SizedBox(height: KaipaSpace.s2),
                 _buildElevationCard(route, colors),
               ],
-              if (route != null) ...[
-                const SizedBox(height: KaipaSpace.s5),
-                _buildWeatherSection(plan, route, colors),
-              ],
               const SizedBox(height: KaipaSpace.s5),
               _buildGearSection(plan, colors),
               const SizedBox(height: KaipaSpace.s5),
@@ -134,7 +130,7 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
               Text(
                 daysStr,
                 style: TextStyle(
-                  color: plan.isDepartureDay ? colors.moss : colors.inkMuted,
+                  color: plan.isDepartureDay ? colors.flare : colors.inkMuted,
                   fontSize: 13,
                   fontWeight:
                       plan.isDepartureDay ? FontWeight.w600 : FontWeight.w400,
@@ -146,8 +142,108 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         ),
         const SizedBox(width: KaipaSpace.s2),
         _buildStatusBadge(plan.status, colors),
+        if (plan.status == TripPlanStatus.draft ||
+            plan.status == TripPlanStatus.ready) ...[
+          const SizedBox(width: KaipaSpace.s2),
+          _buildMoreMenu(plan, colors),
+        ],
       ],
     );
+  }
+
+  Widget _buildMoreMenu(TripPlanModel plan, KaipaColors colors) {
+    return PopupMenuButton<String>(
+      icon: KaipaIcon(name: KaipaIcons.more, size: 20, color: colors.inkMuted),
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colors.line, width: 0.5),
+      ),
+      offset: const Offset(0, 40),
+      onSelected: (value) {
+        if (value == 'cancel') {
+          _confirmCancel(plan, colors);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'cancel',
+          child: Row(
+            children: [
+              KaipaIcon(name: KaipaIcons.close, size: 16, color: _kDanger),
+              const SizedBox(width: 10),
+              Text(
+                '取消行程',
+                style: TextStyle(
+                  color: _kDanger,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmCancel(TripPlanModel plan, KaipaColors colors) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(
+          '取消行程',
+          style: TextStyle(
+            color: colors.ink,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          '确定要取消「${plan.route?.name ?? "此行程"}」吗？取消后可在行程列表中找回。',
+          style: TextStyle(
+            color: colors.inkMuted,
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              '再想想',
+              style: TextStyle(
+                color: colors.inkMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '确认取消',
+              style: TextStyle(
+                color: _kDanger,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await ref.read(tripPlanRepositoryProvider).updatePlan(
+        plan.id,
+        {'status': 'cancelled'},
+      );
+      ref.invalidate(tripPlanDetailProvider(widget.planId));
+      ref.invalidate(tripPlanListProvider);
+    }
   }
 
   Widget _buildStatusBadge(TripPlanStatus status, KaipaColors colors) {
@@ -281,95 +377,10 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
       ),
       child: ElevationChart(
         profile: route.elevationProfile,
-        lineColor: colors.moss,
-        fillColor: colors.moss,
+        lineColor: colors.flare,
+        fillColor: colors.flare,
         textColor: colors.inkDim,
       ),
-    );
-  }
-
-  // ─── Weather section ─────────────────────────────────────────────────
-
-  Widget _buildWeatherSection(
-      TripPlanModel plan, RouteModel route, KaipaColors colors) {
-    final weatherAsync = ref.watch(routeWeatherProvider((
-      lat: route.latitude,
-      lon: route.longitude,
-      planId: plan.id,
-      cache: plan.weatherCache,
-      cachedAt: plan.weatherUpdatedAt,
-    )));
-
-    return weatherAsync.when(
-      loading: () => _buildWeatherShimmer(colors),
-      error: (e, st) => const SizedBox.shrink(),
-      data: (forecast) => Container(
-        padding: const EdgeInsets.all(KaipaSpace.s4),
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: colors.line, width: 0.5),
-        ),
-        child: WeatherPanel(
-          forecast: forecast,
-          targetDate: plan.plannedDate,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWeatherShimmer(KaipaColors colors) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader('天气预报', colors),
-        const SizedBox(height: KaipaSpace.s2),
-        Container(
-          height: 88,
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colors.line, width: 0.5),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(
-              4,
-              (i) => Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: colors.line,
-                      borderRadius: BorderRadius.circular(KaipaRadius.sm),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: 24,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: colors.line,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 20,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: colors.lineSoft,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -436,22 +447,6 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: colors.flare.withAlpha(26),
-                borderRadius: BorderRadius.circular(KaipaRadius.sm),
-              ),
-              child: Center(
-                child: KaipaIcon(
-                  name: KaipaIcons.sparkle,
-                  size: 18,
-                  color: colors.flare,
-                ),
-              ),
-            ),
-            const SizedBox(width: KaipaSpace.s3),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,11 +566,11 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: KaipaSpace.s4),
         decoration: BoxDecoration(
-          color: colors.moss,
+          color: colors.flare,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: colors.moss.withAlpha(77),
+              color: colors.flare.withAlpha(77),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -674,7 +669,7 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
       case TripPlanStatus.draft:
         return colors.sky;
       case TripPlanStatus.ready:
-        return colors.moss;
+        return colors.flare;
       case TripPlanStatus.departed:
         return colors.flare;
       case TripPlanStatus.completed:

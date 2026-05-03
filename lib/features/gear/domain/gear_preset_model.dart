@@ -5,6 +5,8 @@ class GearPresetModel {
   final DateTime createdAt;
   final int itemCount;
   final double totalWeightG;
+  final double totalPrice;
+  final int categoryCount;
 
   const GearPresetModel({
     required this.id,
@@ -13,6 +15,8 @@ class GearPresetModel {
     required this.createdAt,
     this.itemCount = 0,
     this.totalWeightG = 0,
+    this.totalPrice = 0,
+    this.categoryCount = 0,
   });
 
   factory GearPresetModel.fromJson(Map<String, dynamic> json) {
@@ -23,6 +27,8 @@ class GearPresetModel {
       createdAt: DateTime.parse(json['created_at'] as String),
       itemCount: (json['item_count'] as num?)?.toInt() ?? 0,
       totalWeightG: (json['total_weight_g'] as num?)?.toDouble() ?? 0,
+      totalPrice: (json['total_price'] as num?)?.toDouble() ?? 0,
+      categoryCount: (json['category_count'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -33,6 +39,8 @@ class GearPresetModel {
     DateTime? createdAt,
     int? itemCount,
     double? totalWeightG,
+    double? totalPrice,
+    int? categoryCount,
   }) {
     return GearPresetModel(
       id: id ?? this.id,
@@ -41,6 +49,8 @@ class GearPresetModel {
       createdAt: createdAt ?? this.createdAt,
       itemCount: itemCount ?? this.itemCount,
       totalWeightG: totalWeightG ?? this.totalWeightG,
+      totalPrice: totalPrice ?? this.totalPrice,
+      categoryCount: categoryCount ?? this.categoryCount,
     );
   }
 }

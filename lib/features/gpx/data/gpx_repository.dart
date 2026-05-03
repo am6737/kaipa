@@ -178,6 +178,17 @@ class GpxRepository {
 
   double _toRadians(double degrees) => degrees * math.pi / 180.0;
 
+  List<GpxPoint> _downsamplePoints(List<GpxPoint> points, int maxPoints) {
+    if (points.length <= maxPoints) return points;
+    final step = points.length / maxPoints;
+    final result = <GpxPoint>[];
+    for (int i = 0; i < maxPoints; i++) {
+      result.add(points[(i * step).floor()]);
+    }
+    if (result.last != points.last) result.add(points.last);
+    return result;
+  }
+
   /// Save a parsed GPX route to the database as a new route.
   Future<void> saveRoute({
     required GpxRouteModel gpxRoute,
@@ -200,6 +211,10 @@ class GpxRepository {
             })
         .toList();
 
+    final waypoints = _downsamplePoints(gpxRoute.points, 200)
+        .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+        .toList();
+
     final routeData = {
       'creator_id': userId,
       'name': name,
@@ -214,6 +229,7 @@ class GpxRepository {
       'region': region,
       'max_altitude_m': gpxRoute.stats.maxElevationM,
       'elevation_profile': elevationProfile,
+      'waypoints': waypoints,
       'tags': <String>[],
     };
 

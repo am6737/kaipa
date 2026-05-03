@@ -70,6 +70,30 @@ class PhotoSpot {
   }
 }
 
+class RouteWaypoint {
+  final double latitude;
+  final double longitude;
+
+  const RouteWaypoint({required this.latitude, required this.longitude});
+
+  factory RouteWaypoint.fromJson(Map<String, dynamic> json) {
+    return RouteWaypoint(
+      latitude: _parseDouble(json['lat'] ?? json['latitude']),
+      longitude: _parseDouble(json['lng'] ?? json['longitude']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'lat': latitude, 'lng': longitude};
+
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
+  }
+}
+
 class RouteModel {
   final String id;
   final String creatorId;
@@ -91,6 +115,7 @@ class RouteModel {
   final String? gpxFileUrl;
   final List<ElevationPoint> elevationProfile;
   final List<PhotoSpot> photoSpots;
+  final List<RouteWaypoint> waypoints;
   final List<String> tags;
   final bool isPublished;
   final DateTime createdAt;
@@ -117,6 +142,7 @@ class RouteModel {
     this.gpxFileUrl,
     this.elevationProfile = const [],
     this.photoSpots = const [],
+    this.waypoints = const [],
     this.tags = const [],
     this.isPublished = true,
     required this.createdAt,
@@ -147,6 +173,7 @@ class RouteModel {
       gpxFileUrl: json['gpx_file_url'] as String?,
       elevationProfile: _parseElevationProfile(json['elevation_profile']),
       photoSpots: _parsePhotoSpots(json['photo_spots']),
+      waypoints: _parseWaypoints(json['waypoints']),
       tags: _parseStringList(json['tags']),
       isPublished: json['is_published'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
@@ -177,6 +204,7 @@ class RouteModel {
       'elevation_profile':
           elevationProfile.map((e) => e.toJson()).toList(),
       'photo_spots': photoSpots.map((s) => s.toJson()).toList(),
+      'waypoints': waypoints.map((w) => w.toJson()).toList(),
       'tags': tags,
       'is_published': isPublished,
       'created_at': createdAt.toIso8601String(),
@@ -205,6 +233,7 @@ class RouteModel {
     String? gpxFileUrl,
     List<ElevationPoint>? elevationProfile,
     List<PhotoSpot>? photoSpots,
+    List<RouteWaypoint>? waypoints,
     List<String>? tags,
     bool? isPublished,
     DateTime? createdAt,
@@ -231,6 +260,7 @@ class RouteModel {
       gpxFileUrl: gpxFileUrl ?? this.gpxFileUrl,
       elevationProfile: elevationProfile ?? this.elevationProfile,
       photoSpots: photoSpots ?? this.photoSpots,
+      waypoints: waypoints ?? this.waypoints,
       tags: tags ?? this.tags,
       isPublished: isPublished ?? this.isPublished,
       createdAt: createdAt ?? this.createdAt,
@@ -261,6 +291,16 @@ class RouteModel {
     if (value is List) {
       return value
           .map((s) => PhotoSpot.fromJson(s as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  static List<RouteWaypoint> _parseWaypoints(dynamic value) {
+    if (value == null) return [];
+    if (value is List) {
+      return value
+          .map((w) => RouteWaypoint.fromJson(w as Map<String, dynamic>))
           .toList();
     }
     return [];

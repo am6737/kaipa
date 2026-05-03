@@ -126,7 +126,7 @@ class _NavigateHudScreenState extends ConsumerState<NavigateHudScreen> {
 
         // Top ribbon
         Positioned(
-          top: 56,
+          top: MediaQuery.of(context).padding.top + 8,
           left: 16,
           right: 16,
           child: GlassContainer(

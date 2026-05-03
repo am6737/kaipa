@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/theme/kaipa_theme.dart';
@@ -65,7 +66,7 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
 
     final updatedIds = list.map((c) => c.id).toList();
     setState(() {
-      _categories = [...list, if (_uncategorized != null) _uncategorized!];
+      _categories = [...list, ?_uncategorized];
     });
 
     try {
@@ -151,31 +152,44 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
 
   Future<void> _deleteCategory(GearCategoryModel category) async {
     final repo = ref.read(gearRepositoryProvider);
-    final itemCount = await repo.getItemCountForCategory(category.id);
+    final itemCount = await repo.getItemCountForCategory(
+      category.id,
+      builtinRef: category.builtinRef,
+    );
 
     if (!mounted) return;
 
+    final colors = context.kaipaTokens.color;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final colors = context.kaipaTokens.color;
         return AlertDialog(
           backgroundColor: colors.surface,
-          title: Text('删除分类', style: TextStyle(color: colors.ink)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('删除分类', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: colors.ink)),
           content: Text(
             itemCount > 0
                 ? '该分类下的 $itemCount 件装备将移至「未分类」'
                 : '确定要删除「${category.name}」吗？',
-            style: TextStyle(color: colors.inkMuted),
+            style: TextStyle(fontSize: 14, color: colors.inkMuted, height: 1.4),
           ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text('取消', style: TextStyle(color: colors.inkMuted)),
+              style: TextButton.styleFrom(
+                foregroundColor: colors.inkMuted,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('取消'),
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text('删除', style: TextStyle(color: colors.diff.extreme)),
+              style: TextButton.styleFrom(
+                foregroundColor: colors.diff.extreme,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('删除', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
           ],
         );
@@ -208,6 +222,7 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
 
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: context.kaipaTokens.color.bg,
       shape: const RoundedRectangleBorder(
@@ -219,229 +234,493 @@ class _CategoryManagementScreenState extends ConsumerState<CategoryManagementScr
     });
   }
 
+  void _showCategoryActions(GearCategoryModel cat) {
+    final colors = context.kaipaTokens.color;
+
+    showModalBottomSheet(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(color: colors.inkDim, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 20),
+              _ActionTile(
+                icon: KaipaIcons.ellipsis,
+                label: '重命名',
+                color: colors.ink,
+                colors: colors,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startEditing(cat);
+                },
+              ),
+              if (cat.isOverride && cat.isRenamed)
+                _ActionTile(
+                  icon: KaipaIcons.clock,
+                  label: '恢复默认名称',
+                  color: colors.sky,
+                  colors: colors,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _resetBuiltin(cat);
+                  },
+                ),
+              if (cat.isCustom)
+                _ActionTile(
+                  icon: KaipaIcons.close,
+                  label: '删除分类',
+                  color: colors.diff.extreme,
+                  colors: colors,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _deleteCategory(cat);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.kaipaTokens;
     final colors = tokens.color;
+    final topPadding = MediaQuery.of(context).padding.top;
 
     return Scaffold(
       backgroundColor: colors.bg,
-      appBar: AppBar(
-        backgroundColor: colors.bg,
-        elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          icon: KaipaIcon(name: KaipaIcons.back, size: 22, color: colors.ink),
-        ),
-        title: Text(
-          '管理分类',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: colors.ink,
-            letterSpacing: -0.4,
-          ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: _showCreateSheet,
-            icon: KaipaIcon(name: KaipaIcons.plus, size: 22, color: colors.flare),
-          ),
-        ],
-      ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildList(colors),
+          ? _buildShimmer(colors, topPadding)
+          : _buildBody(colors, topPadding),
     );
   }
 
-  Widget _buildList(KaipaColors colors) {
+  Widget _buildBody(KaipaColors colors, double topPadding) {
     final reorderable = _reorderableCategories;
     final uncategorized = _uncategorized;
+    final customCount = _categories.where((c) => c.isCustom).length;
 
-    return Column(
+    return Stack(
       children: [
-        Expanded(
-          child: ReorderableListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: reorderable.length,
-            onReorder: _onReorder,
-            proxyDecorator: (child, index, animation) {
-              return Material(
-                elevation: 4,
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(12),
-                child: child,
-              );
-            },
-            itemBuilder: (context, index) {
-              final cat = reorderable[index];
-              return _buildCategoryTile(cat, colors, key: ValueKey(cat.id));
-            },
-          ),
+        CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: SizedBox(height: topPadding + 56)),
+
+            // Info bar
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: colors.flareSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      KaipaIcon(name: KaipaIcons.layers, size: 15, color: colors.flare),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${reorderable.length} 个分类',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: colors.flare),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '自定义 $customCount/20',
+                        style: TextStyle(fontSize: 11.5, color: colors.flare),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Hint
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  '长按拖动调整顺序，点击右侧按钮编辑',
+                  style: TextStyle(fontSize: 12, color: colors.inkDim),
+                ),
+              ),
+            ),
+
+            // Category list
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverReorderableList(
+                itemCount: reorderable.length,
+                onReorder: _onReorder,
+                itemBuilder: (context, index) {
+                  final cat = reorderable[index];
+                  return _buildCategoryTile(cat, colors, index, key: ValueKey(cat.id));
+                },
+              ),
+            ),
+
+            // Uncategorized
+            if (uncategorized != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(height: 0.5, color: colors.lineSoft),
+                      const SizedBox(height: 12),
+                      _buildUncategorizedTile(uncategorized, colors),
+                    ],
+                  ),
+                ),
+              ),
+
+            SliverToBoxAdapter(child: SizedBox(height: MediaQuery.of(context).padding.bottom + 32)),
+          ],
         ),
-        if (uncategorized != null) ...[
-          Divider(height: 1, color: colors.line),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: _buildUncategorizedTile(uncategorized, colors),
-          ),
-        ],
+
+        // Sticky header
+        Positioned(
+          top: 0, left: 0, right: 0,
+          child: _buildHeader(colors, topPadding),
+        ),
+
       ],
     );
   }
 
-  Widget _buildCategoryTile(GearCategoryModel cat, KaipaColors colors, {Key? key}) {
-    final isEditing = _editingId == cat.id;
-
+  Widget _buildHeader(KaipaColors colors, double topPadding) {
     return Container(
-      key: key,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.line, width: 0.5),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [colors.bg.withAlpha(240), colors.bg.withAlpha(0)],
+          stops: const [0.75, 1.0],
+        ),
       ),
+      padding: EdgeInsets.only(top: topPadding + 10, left: 16, right: 16, bottom: 12),
       child: Row(
         children: [
-          Icon(Icons.drag_handle, size: 20, color: colors.inkDim),
-          const SizedBox(width: 10),
-          _buildCategoryIcon(cat, colors),
+          GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: colors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: colors.line, width: 0.5),
+              ),
+              child: Center(child: KaipaIcon(name: KaipaIcons.chevronLeft, size: 16, color: colors.ink)),
+            ),
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: isEditing
-                ? TextField(
-                    controller: _editController,
-                    autofocus: true,
-                    maxLength: 10,
-                    style: TextStyle(fontSize: 15, color: colors.ink),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      counterText: '',
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: colors.flare),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: colors.flare, width: 1.5),
-                      ),
-                    ),
-                    onSubmitted: (_) => _saveEdit(cat),
-                    onEditingComplete: () => _saveEdit(cat),
-                  )
-                : Text(
-                    cat.name,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: colors.ink,
-                      letterSpacing: -0.2,
-                    ),
-                  ),
+            child: Text(
+              '管理分类',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.4),
+            ),
           ),
-          if (!isEditing) ..._buildActions(cat, colors),
+          GestureDetector(
+            onTap: _showCreateSheet,
+            child: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: colors.flare, shape: BoxShape.circle),
+              child: const Center(child: KaipaIcon(name: KaipaIcons.plus, size: 16, color: Colors.white, strokeWidth: 2.0)),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCategoryTile(GearCategoryModel cat, KaipaColors colors, int index, {Key? key}) {
+    final isEditing = _editingId == cat.id;
+
+    return ReorderableDragStartListener(
+      key: key,
+      index: index,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colors.line, width: 0.5),
+          boxShadow: const [BoxShadow(color: Color.fromRGBO(40, 30, 20, 0.03), offset: Offset(0, 1), blurRadius: 2)],
+        ),
+        child: Row(
+          children: [
+            // Drag grip
+            Container(
+              width: 24, height: 36,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildGripDot(colors),
+                  const SizedBox(height: 3),
+                  _buildGripDot(colors),
+                  const SizedBox(height: 3),
+                  _buildGripDot(colors),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Icon
+            _buildCategoryIcon(cat, colors),
+            const SizedBox(width: 12),
+
+            // Name / Edit field
+            Expanded(
+              child: isEditing
+                  ? _buildEditField(cat, colors)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          cat.name,
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.2),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          cat.isCustom ? '自定义' : (cat.isRenamed ? '已重命名' : '内置'),
+                          style: TextStyle(fontSize: 11, color: colors.inkDim),
+                        ),
+                      ],
+                    ),
+            ),
+
+            // Actions
+            if (!isEditing)
+              GestureDetector(
+                onTap: () => _showCategoryActions(cat),
+                child: Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: colors.surfaceHi,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(child: KaipaIcon(name: KaipaIcons.ellipsis, size: 14, color: colors.inkMuted)),
+                ),
+              ),
+            if (isEditing)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _editingId = null),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(color: colors.surfaceHi, borderRadius: BorderRadius.circular(8)),
+                      child: Center(child: KaipaIcon(name: KaipaIcons.close, size: 12, color: colors.inkMuted)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => _saveEdit(cat),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(color: colors.mossSoft, borderRadius: BorderRadius.circular(8)),
+                      child: Center(child: KaipaIcon(name: KaipaIcons.check, size: 13, color: colors.mossDeep)),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGripDot(KaipaColors colors) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 4, height: 4, decoration: BoxDecoration(color: colors.inkDim, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 3),
+        Container(width: 4, height: 4, decoration: BoxDecoration(color: colors.inkDim, borderRadius: BorderRadius.circular(2))),
+      ],
+    );
+  }
+
+  Widget _buildEditField(GearCategoryModel cat, KaipaColors colors) {
+    return TextField(
+      controller: _editController,
+      autofocus: true,
+      maxLength: 10,
+      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: colors.ink),
+      decoration: InputDecoration(
+        isDense: true,
+        counterText: '',
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        filled: true,
+        fillColor: colors.surfaceHi,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colors.flare, width: 1.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colors.flare, width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: colors.flare, width: 1.5),
+        ),
+      ),
+      onSubmitted: (_) => _saveEdit(cat),
     );
   }
 
   Widget _buildCategoryIcon(GearCategoryModel cat, KaipaColors colors) {
     if (cat.iconType == 'emoji') {
       return Container(
-        width: 32,
-        height: 32,
+        width: 36, height: 36,
         decoration: BoxDecoration(
           color: colors.flareSoft,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
         ),
-        child: Center(
-          child: Text(cat.icon, style: const TextStyle(fontSize: 18)),
-        ),
+        child: Center(child: Text(cat.icon, style: const TextStyle(fontSize: 18))),
       );
     }
     return Container(
-      width: 32,
-      height: 32,
+      width: 36, height: 36,
       decoration: BoxDecoration(
-        color: colors.flareSoft,
-        borderRadius: BorderRadius.circular(8),
+        color: colors.mossSoft,
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Center(
-        child: KaipaIcon(name: cat.icon, size: 18, color: colors.flare),
-      ),
+      child: Center(child: KaipaIcon(name: cat.icon, size: 18, color: colors.mossDeep)),
     );
-  }
-
-  List<Widget> _buildActions(GearCategoryModel cat, KaipaColors colors) {
-    final actions = <Widget>[];
-
-    actions.add(
-      IconButton(
-        onPressed: () => _startEditing(cat),
-        icon: Icon(Icons.edit_outlined, size: 18, color: colors.inkMuted),
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-        padding: EdgeInsets.zero,
-        tooltip: '重命名',
-      ),
-    );
-
-    if (cat.isOverride && cat.isRenamed) {
-      actions.add(
-        IconButton(
-          onPressed: () => _resetBuiltin(cat),
-          icon: Icon(Icons.restore, size: 18, color: colors.sky),
-          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          padding: EdgeInsets.zero,
-          tooltip: '恢复默认',
-        ),
-      );
-    }
-
-    if (cat.isCustom) {
-      actions.add(
-        IconButton(
-          onPressed: () => _deleteCategory(cat),
-          icon: Icon(Icons.delete_outline, size: 18, color: colors.diff.extreme),
-          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          padding: EdgeInsets.zero,
-          tooltip: '删除',
-        ),
-      );
-    }
-
-    return actions;
   }
 
   Widget _buildUncategorizedTile(GearCategoryModel cat, KaipaColors colors) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
       decoration: BoxDecoration(
-        color: colorWithOpacity(colors.surface, 0.5),
-        borderRadius: BorderRadius.circular(12),
+        color: colorWithOpacity(colors.surface, 0.6),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.lineSoft, width: 0.5),
       ),
       child: Row(
         children: [
-          const SizedBox(width: 30),
-          _buildCategoryIcon(cat, colors),
+          const SizedBox(width: 32),
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: colors.surfaceHi,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Center(child: KaipaIcon(name: cat.icon, size: 18, color: colors.inkDim)),
+          ),
           const SizedBox(width: 12),
-          Text(
-            cat.name,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              color: colors.inkDim,
-              letterSpacing: -0.2,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(cat.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: colors.inkDim, letterSpacing: -0.2)),
+                const SizedBox(height: 2),
+                Text('不可编辑或删除', style: TextStyle(fontSize: 11, color: colors.inkDim)),
+              ],
             ),
           ),
-          const Spacer(),
-          Text(
-            '固定',
-            style: TextStyle(fontSize: 12, color: colors.inkDim),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: colors.surfaceHi,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text('固定', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: colors.inkDim)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildShimmer(KaipaColors colors, double topPadding) {
+    return Shimmer.fromColors(
+      baseColor: colors.surface,
+      highlightColor: colors.surfaceHi,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, topPadding + 68, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(height: 40, width: double.infinity, decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12))),
+            const SizedBox(height: 16),
+            for (int i = 0; i < 6; i++) ...[
+              Container(height: 60, width: double.infinity, decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(14))),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final String icon;
+  final String label;
+  final Color color;
+  final KaipaColors colors;
+  final VoidCallback onTap;
+
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.colors,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: colors.surfaceHi,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32, height: 32,
+                decoration: BoxDecoration(
+                  color: colorWithOpacity(color, 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(child: KaipaIcon(name: icon, size: 14, color: color)),
+              ),
+              const SizedBox(width: 12),
+              Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: color)),
+            ],
+          ),
+        ),
       ),
     );
   }

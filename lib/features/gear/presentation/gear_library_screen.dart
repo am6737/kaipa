@@ -169,30 +169,29 @@ class GearLibraryScreen extends ConsumerWidget {
             ),
           )
         else
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: SizedBox(
-                height: 96,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: presets.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    final preset = presets[index];
-                    final dotColors = [colors.moss, colors.flare, colors.sky, colors.sand, colors.inkMuted];
-                    return GestureDetector(
-                      onTap: () => context.go('/gear/preset/${preset.id}'),
-                      child: _PresetCard(
-                        name: preset.name,
-                        spec: '${preset.itemCount} 件 · ${(preset.totalWeightG / 1000).toStringAsFixed(1)}kg',
-                        dotColor: dotColors[index % dotColors.length],
-                        colors: colors,
-                      ),
-                    );
-                  },
-                ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 1.45,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final preset = presets[index];
+                  return _PresetCard(
+                    name: preset.name,
+                    itemCount: preset.itemCount,
+                    weightKg: preset.totalWeightG / 1000,
+                    totalPrice: preset.totalPrice,
+                    categoryCount: preset.categoryCount,
+                    colors: colors,
+                    onTap: () => context.go('/gear/preset/${preset.id}'),
+                  );
+                },
+                childCount: presets.length,
               ),
             ),
           ),
@@ -241,14 +240,14 @@ class GearLibraryScreen extends ConsumerWidget {
           ),
         ),
 
-        const SliverToBoxAdapter(child: SizedBox(height: 120)),
+        const SliverToBoxAdapter(child: SizedBox(height: 140)),
       ],
     );
   }
 
   Widget _buildHeader(BuildContext context, KaipaColors colors, WidgetRef ref) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 60, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Row(
@@ -259,6 +258,7 @@ class GearLibraryScreen extends ConsumerWidget {
               onTap: () {
                 showModalBottomSheet(
                   context: context,
+                  useRootNavigator: true,
                   isScrollControlled: true,
                   backgroundColor: colors.bg,
                   shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -733,32 +733,51 @@ class _StatItem extends StatelessWidget {
 
 class _PresetCard extends StatelessWidget {
   final String name;
-  final String spec;
-  final Color dotColor;
+  final int itemCount;
+  final double weightKg;
+  final double totalPrice;
+  final int categoryCount;
   final KaipaColors colors;
+  final VoidCallback onTap;
 
-  const _PresetCard({required this.name, required this.spec, required this.dotColor, required this.colors});
+  const _PresetCard({
+    required this.name,
+    required this.itemCount,
+    required this.weightKg,
+    required this.totalPrice,
+    required this.categoryCount,
+    required this.colors,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 150),
-      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.line, width: 0.5)),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(children: [
-            Container(width: 10, height: 10, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            Text(name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.3)),
-          ]),
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(spec, style: TextStyle(fontSize: 11.5, color: colors.inkMuted)),
-          ),
-        ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 116),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.line, width: 0.5),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.2)),
+            const SizedBox(height: 6),
+            Text('$itemCount 件 · $categoryCount 分类', style: TextStyle(fontSize: 11.5, color: colors.inkMuted)),
+            const Spacer(),
+            Row(
+              children: [
+                Text('${weightKg.toStringAsFixed(1)}kg', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.2)),
+                const Spacer(),
+                Text(totalPrice >= 1000 ? '¥${(totalPrice / 1000).toStringAsFixed(1)}k' : '¥${totalPrice.toStringAsFixed(0)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.inkMuted, letterSpacing: -0.2)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

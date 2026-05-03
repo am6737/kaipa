@@ -101,18 +101,18 @@ class _RouteDetailBody extends ConsumerWidget {
   String get _difficultyGrade {
     switch (route.difficulty) {
       case 'easy':
-        return 'T1';
+        return 'T4';
       case 'mod':
       case 'moderate':
-        return 'T2';
-      case 'hard':
         return 'T3';
-      case 'expert':
-        return 'T4';
-      case 'extreme':
-        return 'T5';
-      default:
+      case 'hard':
         return 'T2';
+      case 'expert':
+        return 'T1';
+      case 'extreme':
+        return 'T0';
+      default:
+        return 'T3';
     }
   }
 
@@ -1684,10 +1684,21 @@ class _StickyCTA extends ConsumerWidget {
           Expanded(
             child: ElevatedButton(
               onPressed: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: now.add(const Duration(days: 1)),
+                  firstDate: now,
+                  lastDate: now.add(const Duration(days: 365)),
+                  helpText: '选择出发日期',
+                  cancelText: '取消',
+                  confirmText: '确定',
+                );
+                if (picked == null || !context.mounted) return;
                 final repo = ref.read(tripPlanRepositoryProvider);
                 final plan = await repo.createPlan(
                   routeId: routeId,
-                  plannedDate: DateTime.now().add(const Duration(days: 3)),
+                  plannedDate: picked,
                 );
                 if (context.mounted) {
                   context.push('/trip-plans/${plan.id}');
@@ -1701,7 +1712,7 @@ class _StickyCTA extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: const Text('📋 规划此行程',
+              child: const Text('规划行程',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             ),
           ),
@@ -1727,7 +1738,7 @@ class _StickyCTA extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: const Text('🚀 立即出发',
+              child: const Text('立即出发',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             ),
           ),

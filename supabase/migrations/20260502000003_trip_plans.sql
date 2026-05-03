@@ -149,7 +149,7 @@ BEGIN
       status
     )
     SELECT
-      'tp000000-0000-0000-0000-000000000001',
+      'e0000000-0000-0000-0000-000000000001',
       v_demo_user_id,
       r.id,
       CURRENT_DATE + INTERVAL '3 days',

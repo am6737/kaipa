@@ -5,10 +5,10 @@ import '../theme/kaipa_theme.dart';
 /// Difficulty badge matching DiffBadge from screen-map.jsx.
 ///
 /// Shows a colored dot and a difficulty label. Labels:
-/// - easy  -> '入门 T1'
-/// - mod   -> '中等 T2'
-/// - hard  -> '困难 T3'
-/// - expert -> '专家 T4'
+/// - easy  -> '入门 T4'
+/// - mod   -> '中等 T3'
+/// - hard  -> '困难 T2'
+/// - expert -> '专家 T1'
 class DiffBadge extends StatelessWidget {
   final String level;
   final KaipaTokens? tokens;
@@ -20,10 +20,12 @@ class DiffBadge extends StatelessWidget {
   });
 
   static const Map<String, String> _labels = {
-    'easy': '入门 T1',
-    'mod': '中等 T2',
-    'hard': '困难 T3',
-    'expert': '专家 T4',
+    'easy': '入门 T4',
+    'mod': '中等 T3',
+    'moderate': '中等 T3',
+    'hard': '困难 T2',
+    'expert': '专家 T1',
+    'extreme': '极限 T0',
   };
 
   @override

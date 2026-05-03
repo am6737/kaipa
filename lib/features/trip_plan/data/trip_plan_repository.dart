@@ -108,6 +108,20 @@ class TripPlanRepository {
         .eq('gear_item_id', gearItemId);
   }
 
+  Future<void> syncGearItems({
+    required String planId,
+    required Set<String> gearItemIds,
+  }) async {
+    await _client.from('trip_plan_gear').delete().eq('plan_id', planId);
+    if (gearItemIds.isEmpty) return;
+    await _client.from('trip_plan_gear').insert(
+      gearItemIds.map((id) => {
+        'plan_id': planId,
+        'gear_item_id': id,
+      }).toList(),
+    );
+  }
+
   Future<void> togglePacked({
     required String planId,
     required String gearItemId,
@@ -118,6 +132,18 @@ class TripPlanRepository {
         .update({'is_packed': isPacked})
         .eq('plan_id', planId)
         .eq('gear_item_id', gearItemId);
+  }
+
+  Future<void> batchTogglePacked({
+    required String planId,
+    required List<String> gearItemIds,
+    required bool isPacked,
+  }) async {
+    await _client
+        .from('trip_plan_gear')
+        .update({'is_packed': isPacked})
+        .eq('plan_id', planId)
+        .inFilter('gear_item_id', gearItemIds);
   }
 
   Future<void> updateWeatherCache({

@@ -1,0 +1,5 @@
+Demo Account (remote Supabase)
+
+Email:    demo@kaipa.app
+Password: demo123456
+Display:  山野探索者

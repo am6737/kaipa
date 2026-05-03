@@ -10,16 +10,12 @@ class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const _presets = [
-    {'id': 'moss', 'label': '苔藓', 'hex': '#4A7C59'},
-    {'id': 'forest', 'label': '森林', 'hex': '#2E5C3E'},
-    {'id': 'hunter', 'label': '猎人', 'hex': '#1F4030'},
-    {'id': 'pine', 'label': '松柏', 'hex': '#3A5F4A'},
-    {'id': 'juniper', 'label': '杜松', 'hex': '#5C7A65'},
+    {'id': 'meadow', 'label': '草地绿', 'hex': '#4CAF50'},
+    {'id': 'moss', 'label': '苔藓', 'hex': '#2E5C3E'},
+    {'id': 'citrus', 'label': '柑橘', 'hex': '#E8742E'},
     {'id': 'ember', 'label': '砖红', 'hex': '#A84228'},
-    {'id': 'ochre', 'label': '赭石', 'hex': '#A8762B'},
+    {'id': 'peach', 'label': '桃粉', 'hex': '#F48FB1'},
     {'id': 'lake', 'label': '湖蓝', 'hex': '#2C5D7E'},
-    {'id': 'midnight', 'label': '暗夜', 'hex': '#26334D'},
-    {'id': 'ink', 'label': '墨色', 'hex': '#1F2A2D'},
   ];
 
   @override
@@ -70,44 +66,37 @@ class SettingsScreen extends ConsumerWidget {
                     colors: colors,
                     children: [
                       _SettingRow(
-                        iconData: Icons.language,
+                        iconName: KaipaIcons.globe,
                         title: '语言',
                         detail: '简体中文',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.straighten,
+                        iconName: KaipaIcons.ruler,
                         title: '单位',
-                        detail: '公制(km,m)',
+                        detail: '公制 (km, m)',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.location_on,
+                        iconName: KaipaIcons.pin,
                         title: '离线地图',
-                        detail: '已下载3个区域·1.2GB',
+                        detail: '已下载 3 个区域 · 1.2GB',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.notifications,
+                        iconName: KaipaIcons.bell,
                         title: '通知',
                         detail: '天气预警、好友动态',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.security,
+                        iconName: KaipaIcons.lock,
                         title: '隐私',
                         detail: '仅好友可见轨迹',
-                        colors: colors,
-                        onTap: () {},
-                      ),
-                      _SettingRow(
-                        iconData: Icons.cloud,
-                        title: '数据同步',
-                        detail: 'iCloud·最近同步2分钟前',
                         colors: colors,
                         onTap: () {},
                         isLast: true,
@@ -123,19 +112,19 @@ class SettingsScreen extends ConsumerWidget {
                     colors: colors,
                     children: [
                       _SettingRow(
-                        iconData: Icons.chat_bubble,
+                        iconName: KaipaIcons.chat,
                         title: '反馈与帮助',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.star,
-                        title: '给Kaipa评分',
+                        iconName: KaipaIcons.star,
+                        title: '给 Kaipa 评分',
                         colors: colors,
                         onTap: () {},
                       ),
                       _SettingRow(
-                        iconData: Icons.lock,
+                        iconName: KaipaIcons.lock,
                         title: '用户协议与隐私',
                         colors: colors,
                         onTap: () {},
@@ -175,9 +164,9 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 60, left: 16, right: 16),
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 12, left: 16, right: 16),
       child: Padding(
-        padding: const EdgeInsets.only(top: 4, bottom: 24),
+        padding: const EdgeInsets.only(bottom: 24),
         child: Row(
           children: [
             CircleButton(
@@ -244,7 +233,7 @@ class _AppearanceModeSelector extends StatelessWidget {
       children: [
         Expanded(
           child: _ModeCard(
-            iconData: Icons.wb_sunny_outlined,
+            iconName: KaipaIcons.sun,
             label: '浅色',
             modeKey: 'light',
             isSelected: currentMode == 'light',
@@ -255,7 +244,7 @@ class _AppearanceModeSelector extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _ModeCard(
-            iconData: Icons.dark_mode,
+            iconName: KaipaIcons.moon,
             label: '深色',
             modeKey: 'dark',
             isSelected: currentMode == 'dark',
@@ -266,7 +255,7 @@ class _AppearanceModeSelector extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _ModeCard(
-            iconData: Icons.phone_iphone,
+            iconName: KaipaIcons.phone,
             label: '跟随系统',
             modeKey: 'system',
             isSelected: currentMode == 'system',
@@ -280,7 +269,7 @@ class _AppearanceModeSelector extends StatelessWidget {
 }
 
 class _ModeCard extends StatelessWidget {
-  final IconData iconData;
+  final String iconName;
   final String label;
   final String modeKey;
   final bool isSelected;
@@ -288,7 +277,7 @@ class _ModeCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const _ModeCard({
-    required this.iconData,
+    required this.iconName,
     required this.label,
     required this.modeKey,
     required this.isSelected,
@@ -315,8 +304,8 @@ class _ModeCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              iconData,
+            KaipaIcon(
+              name: iconName,
               size: 24,
               color: isSelected ? colors.mossDeep : colors.inkMuted,
             ),
@@ -542,9 +531,9 @@ class _ColorPreviewStrip extends StatelessWidget {
               color: colors.flare,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Center(
-              child: Icon(
-                Icons.terrain,
+            child: Center(
+              child: KaipaIcon(
+                name: KaipaIcons.mountain,
                 size: 20,
                 color: Colors.white,
               ),
@@ -565,7 +554,7 @@ class _ColorPreviewStrip extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '当前主题色的预览展示',
+                  '按钮、标签和高亮将使用此颜色',
                   style: TextStyle(
                     fontSize: 11,
                     color: colors.inkMuted,
@@ -606,7 +595,7 @@ class _SettingsGroup extends StatelessWidget {
 
 // ─── Setting row ────────────────────────────────────────────────────────
 class _SettingRow extends StatelessWidget {
-  final IconData iconData;
+  final String iconName;
   final String title;
   final String? detail;
   final KaipaColors colors;
@@ -614,7 +603,7 @@ class _SettingRow extends StatelessWidget {
   final bool isLast;
 
   const _SettingRow({
-    required this.iconData,
+    required this.iconName,
     required this.title,
     required this.colors,
     this.detail,
@@ -638,7 +627,6 @@ class _SettingRow extends StatelessWidget {
               ),
         child: Row(
           children: [
-            // 34x34 icon circle with mossSoft bg
             Container(
               width: 34,
               height: 34,
@@ -647,15 +635,14 @@ class _SettingRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Center(
-                child: Icon(
-                  iconData,
+                child: KaipaIcon(
+                  name: iconName,
                   size: 16,
                   color: colors.mossDeep,
                 ),
               ),
             ),
             const SizedBox(width: 12),
-            // Title + optional detail
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -681,9 +668,8 @@ class _SettingRow extends StatelessWidget {
                 ],
               ),
             ),
-            // Forward icon
-            Icon(
-              Icons.chevron_right,
+            KaipaIcon(
+              name: KaipaIcons.forward,
               size: 14,
               color: colors.inkDim,
             ),

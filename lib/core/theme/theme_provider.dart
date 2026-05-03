@@ -14,14 +14,14 @@ final sharedPrefsProvider = Provider<SharedPreferences>((ref) {
 // ─── Theme preferences model ────────────────────────────────────────
 class ThemePrefs {
   final String mode; // 'light' | 'dark' | 'system'
-  final String preset; // 'moss' | 'forest' | 'hunter' | 'pine' | 'juniper' | 'ember' | 'ochre' | 'lake' | 'midnight' | 'ink'
+  final String preset; // 'meadow' | 'moss' | 'citrus' | 'ember' | 'peach' | 'lake'
   final String customAccent; // hex string e.g. '#FF0000'
   final bool useCustom;
 
   const ThemePrefs({
     this.mode = 'light',
     this.preset = 'moss',
-    this.customAccent = '#4A7C59',
+    this.customAccent = '#2E5C3E',
     this.useCustom = false,
   });
 
@@ -53,7 +53,7 @@ class ThemePrefs {
     return ThemePrefs(
       mode: json['mode'] as String? ?? 'light',
       preset: json['preset'] as String? ?? 'moss',
-      customAccent: json['customAccent'] as String? ?? '#4A7C59',
+      customAccent: json['customAccent'] as String? ?? '#2E5C3E',
       useCustom: json['useCustom'] as bool? ?? false,
     );
   }

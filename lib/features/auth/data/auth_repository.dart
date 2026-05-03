@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -61,6 +63,34 @@ class AuthRepository {
     final profile =
         await _client.from('profiles').select().eq('id', user.id).single();
 
+    return UserModel.fromJson(profile);
+  }
+
+  /// Sign in as an anonymous guest user.
+  Future<UserModel> signInAsGuest() async {
+    final response = await _client.auth.signInAnonymously();
+    final user = response.user;
+    if (user == null) throw Exception('Anonymous sign-in failed');
+
+    final rng = Random();
+    final id = List.generate(6, (_) => rng.nextInt(36).toRadixString(36)).join();
+    const nicknames = [
+      '山间行者', '云端旅人', '林中探路', '溪谷漫步', '峰顶守望',
+      '野径骑士', '星空露营', '雾中寻路', '岩壁攀者', '草原风行',
+    ];
+    final nickname = nicknames[rng.nextInt(nicknames.length)];
+
+    final now = DateTime.now().toIso8601String();
+    await _client.from('profiles').insert({
+      'id': user.id,
+      'username': 'guest_$id',
+      'display_name': '$nickname$id',
+      'joined_at': now,
+      'updated_at': now,
+    });
+
+    final profile =
+        await _client.from('profiles').select().eq('id', user.id).single();
     return UserModel.fromJson(profile);
   }
 

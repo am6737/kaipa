@@ -5,7 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../discover/data/route_repository.dart';
+import '../../discover/data/immersive_provider.dart';
+import '../../discover/data/map_layer_provider.dart';
+import '../../discover/presentation/widgets/layer_picker.dart';
 import '../../trip/data/trip_repository.dart';
+import '../../trip/data/active_trip_provider.dart';
 import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
@@ -25,9 +29,12 @@ class NavigateScreen extends ConsumerStatefulWidget {
 }
 
 class _NavigateScreenState extends ConsumerState<NavigateScreen> {
+  final MapController _mapController = MapController();
   Timer? _timer;
   int _elapsedSeconds = 0;
   bool _isPaused = false;
+  int _zoomLevel = 2;
+  bool _showLayerPicker = false;
 
   @override
   void initState() {
@@ -115,6 +122,8 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
   }
 
   Future<void> _endTrip() async {
+    ref.read(activeTripProvider.notifier).state = null;
+
     final tripId = widget.tripId;
     if (tripId == null) {
       context.go('/discover');
@@ -153,7 +162,19 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
       body: routeAsync.when(
         loading: () => _buildLoading(colors),
         error: (error, stack) => _buildError(context, colors, error),
-        data: (route) => _buildContent(context, tokens, colors, route),
+        data: (route) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ref.read(activeTripProvider) == null) {
+              ref.read(activeTripProvider.notifier).state = ActiveTrip(
+                routeId: widget.routeId,
+                tripId: widget.tripId,
+                routeName: route.name,
+                startedAt: DateTime.now(),
+              );
+            }
+          });
+          return _buildContent(context, tokens, colors, route);
+        },
       ),
     );
   }
@@ -236,23 +257,33 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
     RouteModel route,
   ) {
     final center = LatLng(route.latitude, route.longitude);
+    final immersive = ref.watch(immersiveModeProvider);
+    final layerPrefs = ref.watch(mapLayerPrefsProvider);
+    final activeLayer = layerPrefs.activeLayer;
+    final topPadding = MediaQuery.of(context).padding.top;
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Stack(
       children: [
         // Full-bleed map
         Positioned.fill(
           child: FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: center,
               initialZoom: 13.5,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all,
               ),
+              onTap: (_, _) {
+                if (immersive) {
+                  ref.read(immersiveModeProvider.notifier).state = false;
+                }
+              },
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: activeLayer.urlTemplate,
                 userAgentPackageName: 'com.kaipa.app',
               ),
               MarkerLayer(
@@ -267,20 +298,10 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2.5),
                         boxShadow: [
-                          BoxShadow(
-                            color: colors.flare.withAlpha(80),
-                            blurRadius: 12,
-                            spreadRadius: 2,
-                          ),
+                          BoxShadow(color: colors.flare.withAlpha(80), blurRadius: 12, spreadRadius: 2),
                         ],
                       ),
-                      child: Center(
-                        child: KaipaIcon(
-                          name: KaipaIcons.flag,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: const Center(child: KaipaIcon(name: KaipaIcons.flag, size: 14, color: Colors.white)),
                     ),
                   ),
                 ],
@@ -289,254 +310,310 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
           ),
         ),
 
+        // Back button
+        Positioned(
+          top: topPadding + 10,
+          left: 16,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(-1, 0) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: CircleButton(
+                  icon: KaipaIcons.chevronLeft,
+                  size: 40,
+                  iconSize: 16,
+                  tokens: tokens,
+                  onTap: () => context.go('/discover'),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Right-side controls (same as explore page)
+        Positioned(
+          right: 16,
+          top: 200,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(1, 0) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ZoomLevelSelector(
+                      selected: _zoomLevel,
+                      colors: colors,
+                      onSelect: (level) {
+                        setState(() => _zoomLevel = level);
+                        final zooms = [4.0, 9.5, 14.0];
+                        _mapController.move(_mapController.camera.center, zooms[level]);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    CircleButton(
+                      icon: KaipaIcons.layers,
+                      size: 44,
+                      iconSize: 18,
+                      onTap: () => setState(() => _showLayerPicker = !_showLayerPicker),
+                    ),
+                    const SizedBox(height: 10),
+                    CircleButton(
+                      icon: KaipaIcons.navigate,
+                      size: 44,
+                      iconSize: 18,
+                      color: colors.flare,
+                      onTap: () => _mapController.move(center, 14.0),
+                    ),
+                    const SizedBox(height: 10),
+                    CircleButton(
+                      icon: KaipaIcons.fullscreen,
+                      size: 44,
+                      iconSize: 18,
+                      onTap: () {
+                        setState(() => _showLayerPicker = false);
+                        ref.read(immersiveModeProvider.notifier).state = true;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Layer picker popup
+        if (_showLayerPicker && !immersive) ...[
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => setState(() => _showLayerPicker = false),
+              behavior: HitTestBehavior.translucent,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Positioned(
+            right: 68,
+            top: 200,
+            child: LayerPicker(
+              colors: colors,
+              prefs: layerPrefs,
+              onBaseMapChanged: (key) => ref.read(mapLayerPrefsProvider.notifier).setBaseMap(key),
+              onToggleRoutes: () => ref.read(mapLayerPrefsProvider.notifier).toggleShowRoutes(),
+              onClose: () => setState(() => _showLayerPicker = false),
+            ),
+          ),
+        ],
+
         // Top HUD
         Positioned(
-          top: 56,
+          top: topPadding + 58,
           left: 16,
           right: 16,
-          child: GlassContainer(
-            tokens: tokens,
-            radius: 20,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Status row
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: colors.flare,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(0, -1) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: GlassContainer(
+                  tokens: tokens,
+                  radius: 20,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: colors.flare)),
+                          const SizedBox(width: 6),
+                          Text(
+                            '进行中 · ${_formatTime(_elapsedSeconds)}',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: colors.flare, letterSpacing: -0.1),
+                          ),
+                          const Spacer(),
+                          Flexible(child: Text(route.name, style: TextStyle(fontSize: 12, color: colors.inkMuted), overflow: TextOverflow.ellipsis)),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '进行中 · ${_formatTime(_elapsedSeconds)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: colors.flare,
-                        letterSpacing: -0.1,
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(height: 0.5, color: colors.line),
                       ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '箭扣长城',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.inkMuted,
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(child: StatWidget(value: '4.7', unit: 'km', label: '已走', tokens: tokens)),
+                          const SizedBox(width: 8),
+                          Expanded(child: StatWidget(value: '312', unit: 'm', label: '爬升', tokens: tokens)),
+                          const SizedBox(width: 8),
+                          Expanded(child: StatWidget(value: '2.1', unit: 'km/h', label: '均速', tokens: tokens)),
+                          const SizedBox(width: 8),
+                          Expanded(child: StatWidget(value: '6.7', unit: 'km', label: '剩余', tokens: tokens)),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                // Divider
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Container(
-                    height: 0.5,
-                    color: colors.line,
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                // 4-column stats grid
-                Row(
-                  children: [
-                    Expanded(
-                      child: StatWidget(
-                        value: '4.7',
-                        unit: 'km',
-                        label: '已走',
-                        tokens: tokens,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: StatWidget(
-                        value: '312',
-                        unit: 'm',
-                        label: '爬升',
-                        tokens: tokens,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: StatWidget(
-                        value: '2.1',
-                        unit: 'km/h',
-                        label: '均速',
-                        tokens: tokens,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: StatWidget(
-                        value: '6.7',
-                        unit: 'km',
-                        label: '剩余',
-                        tokens: tokens,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ),
 
         // Next waypoint card
         Positioned(
-          bottom: 200,
+          bottom: bottomPadding + 90,
           left: 16,
           right: 16,
-          child: GlassContainer(
-            tokens: tokens,
-            radius: 16,
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                // Icon box
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: colors.flareSoft,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: colors.flare.withAlpha(77),
-                      width: 0.5,
-                    ),
-                  ),
-                  child: Center(
-                    child: KaipaIcon(
-                      name: KaipaIcons.camera,
-                      size: 22,
-                      color: colors.flare,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Info column
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(0, 1) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: GlassContainer(
+                  tokens: tokens,
+                  radius: 16,
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
                     children: [
-                      Text(
-                        '下一个 · 340 米',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colors.inkMuted,
-                          letterSpacing: -0.1,
+                      Container(
+                        width: 50, height: 50,
+                        decoration: BoxDecoration(
+                          color: colors.flareSoft,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: colors.flare.withAlpha(77), width: 0.5),
+                        ),
+                        child: Center(child: KaipaIcon(name: KaipaIcons.camera, size: 22, color: colors.flare)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('下一个 · 340 米', style: TextStyle(fontSize: 11, color: colors.inkMuted, letterSpacing: -0.1)),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Text('鹰飞倒仰 · 打卡点', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.3)),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Text('海拔 1410m · ↑ 98m', style: TextStyle(fontSize: 11.5, color: colors.inkMuted)),
+                            ),
+                          ],
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: Text(
-                          '鹰飞倒仰 · 打卡点',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: colors.ink,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: Text(
-                          '海拔 1410m · ↑ 98m',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: colors.inkMuted,
-                          ),
-                        ),
-                      ),
+                      KaipaIcon(name: KaipaIcons.forward, size: 14, color: colors.inkMuted),
                     ],
                   ),
                 ),
-                // Forward icon
-                KaipaIcon(
-                  name: KaipaIcons.forward,
-                  size: 14,
-                  color: colors.inkMuted,
-                ),
-              ],
+              ),
             ),
           ),
         ),
 
         // Bottom action bar
         Positioned(
-          bottom: 50,
+          bottom: bottomPadding + 16,
           left: 16,
           right: 16,
-          child: Row(
-            children: [
-              // Camera button
-              CircleButton(
-                icon: KaipaIcons.camera,
-                size: 56,
-                iconSize: 22,
-                tokens: tokens,
-              ),
-              const SizedBox(width: 10),
-              // Pause button
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _isPaused = !_isPaused),
-                  onLongPress: _showEndTripSheet,
-                  child: Container(
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: colors.flare,
-                      borderRadius: BorderRadius.circular(999),
-                      boxShadow: [
-                        BoxShadow(
-                          color: colors.flare.withAlpha(128),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        KaipaIcon(
-                          name: _isPaused ? KaipaIcons.play : KaipaIcons.pause,
-                          size: 16,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _isPaused ? '继续' : '暂停',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            letterSpacing: -0.2,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            offset: immersive ? const Offset(0, 1) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: immersive ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: immersive,
+                child: Row(
+                  children: [
+                    CircleButton(icon: KaipaIcons.camera, size: 56, iconSize: 22, tokens: tokens),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _isPaused = !_isPaused),
+                        onLongPress: _showEndTripSheet,
+                        child: Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: colors.flare,
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [BoxShadow(color: colors.flare.withAlpha(128), blurRadius: 16, offset: const Offset(0, 4))],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              KaipaIcon(name: _isPaused ? KaipaIcons.play : KaipaIcons.pause, size: 16, color: Colors.white),
+                              const SizedBox(width: 8),
+                              Text(_isPaused ? '继续' : '暂停', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2)),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    CircleButton(icon: KaipaIcons.bell, size: 56, iconSize: 22, color: colors.flare, tokens: tokens),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              // Bell button
-              CircleButton(
-                icon: KaipaIcons.bell,
-                size: 56,
-                iconSize: 22,
-                color: colors.flare,
-                tokens: tokens,
-              ),
-            ],
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ZoomLevelSelector extends StatelessWidget {
+  final int selected;
+  final KaipaColors colors;
+  final ValueChanged<int> onSelect;
+
+  const _ZoomLevelSelector({required this.selected, required this.colors, required this.onSelect});
+
+  static const _icons = [KaipaIcons.compass, KaipaIcons.layers2, KaipaIcons.mountain];
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassContainer(
+      radius: 14,
+      padding: const EdgeInsets.all(4),
+      child: SizedBox(
+        width: 44,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final isActive = i == selected;
+            return GestureDetector(
+              onTap: () => onSelect(i),
+              child: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: isActive ? colors.flare : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(child: KaipaIcon(name: _icons[i], size: 18, color: isActive ? Colors.white : colors.ink)),
+              ),
+            );
+          }),
+        ),
+      ),
     );
   }
 }

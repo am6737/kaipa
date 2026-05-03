@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
-import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 
 // ─── Demo notification data model ────────────────────────────────────
@@ -14,7 +12,6 @@ class _DemoNotif {
   final bool unread;
   final String icon;
   final Color Function(KaipaColors) iconColor;
-  final String type; // for filtering: weather, social, system, achievement
 
   const _DemoNotif({
     required this.title,
@@ -23,7 +20,6 @@ class _DemoNotif {
     this.unread = false,
     required this.icon,
     required this.iconColor,
-    required this.type,
   });
 }
 
@@ -43,16 +39,6 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
-  String _filter = '';
-
-  // ─── Filter chip definitions ─────────────────────────────────────
-  static const List<Map<String, String>> _filters = [
-    {'id': '', 'label': '全部', 'icon': ''},
-    {'id': 'weather', 'label': '天气', 'icon': 'weather'},
-    {'id': 'social', 'label': '好友', 'icon': 'users'},
-    {'id': 'system', 'label': '系统', 'icon': 'bell'},
-  ];
-
   // ─── Hardcoded demo data ─────────────────────────────────────────
   static List<_DemoSection> _buildDemoData() {
     return [
@@ -66,7 +52,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: true,
             icon: KaipaIcons.weather,
             iconColor: (c) => c.sky,
-            type: 'weather',
           ),
           _DemoNotif(
             title: 'Sara K. 赞了你的路线',
@@ -75,7 +60,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: true,
             icon: KaipaIcons.heart,
             iconColor: (c) => c.flare,
-            type: 'social',
           ),
           _DemoNotif(
             title: '离线地图已更新',
@@ -84,7 +68,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: false,
             icon: KaipaIcons.download,
             iconColor: (c) => c.moss,
-            type: 'system',
           ),
         ],
       ),
@@ -98,16 +81,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: false,
             icon: KaipaIcons.users,
             iconColor: (c) => c.sand,
-            type: 'social',
-          ),
-          _DemoNotif(
-            title: '新成就解锁!',
-            detail: '「百公里」— 累计徒步超过 100km',
-            time: '昨天 11:30',
-            unread: false,
-            icon: KaipaIcons.flag,
-            iconColor: (c) => c.flare,
-            type: 'system',
           ),
         ],
       ),
@@ -121,7 +94,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: false,
             icon: KaipaIcons.sun,
             iconColor: (c) => c.sky,
-            type: 'weather',
           ),
           _DemoNotif(
             title: '陈明 评论了你的路线',
@@ -130,7 +102,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: false,
             icon: KaipaIcons.chat,
             iconColor: (c) => c.moss,
-            type: 'social',
           ),
           _DemoNotif(
             title: 'Kaipa 周报',
@@ -139,38 +110,17 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             unread: false,
             icon: KaipaIcons.sparkle,
             iconColor: (c) => c.flare,
-            type: 'system',
           ),
         ],
       ),
     ];
   }
 
-  List<_DemoSection> _getFilteredData() {
-    final allData = _buildDemoData();
-    if (_filter.isEmpty) return allData;
-
-    // Filter items within each section; keep sections that still have items
-    final filtered = <_DemoSection>[];
-    for (final section in allData) {
-      final items = section.items.where((n) {
-        if (_filter == 'social') {
-          return n.type == 'social';
-        }
-        return n.type == _filter;
-      }).toList();
-      if (items.isNotEmpty) {
-        filtered.add(_DemoSection(label: section.label, items: items));
-      }
-    }
-    return filtered;
-  }
-
   @override
   Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
-    final sections = _getFilteredData();
+    final sections = _buildDemoData();
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -179,10 +129,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           children: [
             // --- Header ---
             _buildHeader(colors),
-            const SizedBox(height: 12),
-
-            // --- Filter chips ---
-            _buildFilterChips(colors),
             const SizedBox(height: 8),
 
             // --- Notification list ---
@@ -190,10 +136,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               child: sections.isEmpty
                   ? _buildEmptyState(colors)
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 140),
                       itemCount: sections.length,
                       itemBuilder: (_, i) => _buildSection(
                         sections[i],
@@ -210,18 +153,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   // ─── Header: GlassContainer back + title + "全部已读" ──────────────
   Widget _buildHeader(KaipaColors colors) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
         children: [
-          CircleButton(
-            icon: KaipaIcons.back,
-            onTap: () => context.pop(),
-          ),
-          const Spacer(),
           Text(
-            '通知',
+            '消息',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 24,
               fontWeight: FontWeight.w700,
               color: colors.ink,
               letterSpacing: -0.5,
@@ -242,61 +180,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ─── Filter chips: 4 horizontal pills ──────────────────────────────
-  Widget _buildFilterChips(KaipaColors colors) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: _filters.map((f) {
-          final isActive = _filter == f['id'];
-          final hasIcon = f['icon']!.isNotEmpty;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => setState(() => _filter = f['id']!),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: isActive ? colors.ink : colors.surface,
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(
-                    color: isActive ? colors.ink : colors.line,
-                    width: 0.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (hasIcon) ...[
-                      KaipaIcon(
-                        name: f['icon']!,
-                        size: 13,
-                        color: isActive ? colors.bg : colors.ink,
-                      ),
-                      const SizedBox(width: 5),
-                    ],
-                    Text(
-                      f['label']!,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                        color: isActive ? colors.bg : colors.ink,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }).toList(),
       ),
     );
   }

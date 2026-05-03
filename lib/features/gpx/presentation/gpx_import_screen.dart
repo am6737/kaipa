@@ -1103,7 +1103,7 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
         children: [
           Row(
             children: [
-              // T2 badge
+              // T3 badge
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -1114,7 +1114,7 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
-                  'T2 · 中等',
+                  'T3 · 中等',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1135,10 +1135,10 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // T1-T5 progress bar
+          // T4-T0 progress bar
           Row(
             children: List.generate(5, (i) {
-              const labels = ['T1', 'T2', 'T3', 'T4', 'T5'];
+              const labels = ['T4', 'T3', 'T2', 'T1', 'T0'];
               final filled = i < 2;
               return Expanded(
                 child: Column(

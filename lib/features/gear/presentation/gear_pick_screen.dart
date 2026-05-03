@@ -6,7 +6,10 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../discover/data/route_repository.dart';
 import '../../trip/data/departure_flow_provider.dart';
+import '../../trip_plan/data/trip_plan_repository.dart';
+import '../data/gear_repository.dart';
 
 // ─── Demo data models ───────────────────────────────────────────────
 
@@ -41,50 +44,50 @@ const _kAlertColor = Color(0xFFC0392B);
 const _kWarnColor = Color(0xFFC97A1F);
 
 final _demoCategories = <_DemoCategory>[
-  _DemoCategory(title: '鞋履·Footwear', items: [
+  _DemoCategory(title: '鞋履', items: [
     _DemoGearItem(
       id: 'shoe1',
-      name: 'Salomon X Ultra 4',
+      name: '萨洛蒙 防水低帮徒步鞋',
       icon: KaipaIcons.boot,
-      specs: 'Gore-Tex · 395g',
+      specs: '防水 · 395g',
       recommended: true,
     ),
     _DemoGearItem(
       id: 'sock1',
-      name: 'Smartwool 羊毛袜',
+      name: '中厚羊毛户外袜',
       icon: KaipaIcons.socks,
-      specs: 'Merino · 中厚',
+      specs: '美利奴 · 中厚',
     ),
   ]),
-  _DemoCategory(title: '背包·Pack', items: [
+  _DemoCategory(title: '背包', items: [
     _DemoGearItem(
       id: 'pack1',
-      name: 'Osprey Talon 33',
+      name: '鱼鹰 日用徒步背包',
       icon: KaipaIcons.backpack,
       specs: '33L · 890g',
       recommended: true,
     ),
   ]),
-  _DemoCategory(title: '衣物·Clothing', items: [
+  _DemoCategory(title: '衣物', items: [
     _DemoGearItem(
       id: 'cloth1',
-      name: 'Patagonia 冲锋衣',
+      name: '巴塔哥尼亚 轻量防水冲锋衣',
       icon: KaipaIcons.jacket,
-      specs: 'H2No · 460g',
+      specs: '三层防水 · 460g',
       recommended: true,
     ),
     _DemoGearItem(
       id: 'cloth2',
-      name: "Arc'teryx 棉服",
+      name: '始祖鸟 合成棉服',
       icon: KaipaIcons.jacket,
-      specs: 'Coreloft · 380g',
+      specs: '保暖层 · 380g',
       status: _GearStatus.off,
     ),
   ]),
-  _DemoCategory(title: '水补·Water&Fuel', items: [
+  _DemoCategory(title: '水补给', items: [
     _DemoGearItem(
       id: 'water1',
-      name: 'Nalgene 1L×2',
+      name: '广口水壶 1L×2',
       icon: KaipaIcons.bottle,
       specs: '2L 总量',
     ),
@@ -92,15 +95,15 @@ final _demoCategories = <_DemoCategory>[
       id: 'fuel1',
       name: '能量胶×4',
       icon: KaipaIcons.food,
-      specs: 'GU · 128kcal/支',
+      specs: '128kcal/支',
     ),
   ]),
-  _DemoCategory(title: '安全·Safety', items: [
+  _DemoCategory(title: '安全装备', items: [
     _DemoGearItem(
       id: 'safe1',
-      name: 'Petzl 头灯',
+      name: '攀索 充电式头灯',
       icon: KaipaIcons.light,
-      specs: '350lm · 82g',
+      specs: '350流明 · 82g',
       recommended: true,
     ),
     _DemoGearItem(
@@ -163,10 +166,11 @@ class GearPickNotifier extends StateNotifier<GearPickState> {
     state = state.copyWith(selectedItemIds: current);
   }
 
-  void applyAiPick() {
+  void applyAiPick([List<_DemoCategory>? categories]) {
+    final cats = categories ?? _demoCategories;
     if (state.aiApplied) {
       state = state.copyWith(
-        selectedItemIds: _demoCategories
+        selectedItemIds: cats
             .expand((c) => c.items)
             .where((i) => i.status == _GearStatus.on)
             .map((i) => i.id)
@@ -176,9 +180,8 @@ class GearPickNotifier extends StateNotifier<GearPickState> {
       return;
     }
 
-    // AI smart pick: select all non-missing items
     final selected = <String>{};
-    for (final cat in _demoCategories) {
+    for (final cat in cats) {
       for (final item in cat.items) {
         if (item.status != _GearStatus.missing) {
           selected.add(item.id);
@@ -227,10 +230,12 @@ const _demoWarnings = <_WarningData>[
 
 class GearPickScreen extends ConsumerStatefulWidget {
   final String routeId;
+  final String? planId;
 
   const GearPickScreen({
     super.key,
     required this.routeId,
+    this.planId,
   });
 
   @override
@@ -238,16 +243,72 @@ class GearPickScreen extends ConsumerStatefulWidget {
 }
 
 class _GearPickScreenState extends ConsumerState<GearPickScreen> {
+  bool get _isForPlan => widget.planId != null;
+  List<_DemoCategory>? _realCategories;
+  bool _realDataLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isForPlan) _loadRealData();
+  }
+
+  Future<void> _loadRealData() async {
+    final categories = await ref.read(gearCategoriesProvider.future);
+    final allItems = await ref.read(allGearItemsProvider.future);
+
+    final result = <_DemoCategory>[];
+    for (final cat in categories) {
+      final items = allItems.where((i) =>
+          i.categoryId == cat.id || i.categoryId == cat.builtinRef).toList();
+      if (items.isEmpty) continue;
+      result.add(_DemoCategory(
+        title: cat.name,
+        items: items.map((i) => _DemoGearItem(
+          id: i.id,
+          name: i.name,
+          icon: KaipaIcons.backpack,
+          specs: [
+            if (i.brand != null) i.brand!,
+            if (i.weightG != null) '${i.weightG!.toInt()}g',
+          ].join(' · '),
+          recommended: i.isFavorite,
+        )).toList(),
+      ));
+    }
+
+    if (mounted) {
+      setState(() {
+        _realCategories = result;
+        _realDataLoaded = true;
+      });
+      ref.read(gearPickProvider.notifier).state = const GearPickState(
+        selectedItemIds: {},
+        aiApplied: false,
+      );
+    }
+  }
+
+  List<_DemoCategory> get _activeCategories =>
+      _isForPlan ? (_realCategories ?? []) : _demoCategories;
+
   @override
   Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
     final pickState = ref.watch(gearPickProvider);
 
+    if (_isForPlan && !_realDataLoaded) {
+      return Scaffold(
+        backgroundColor: colors.bg,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     // Count alerts
-    final alertCount =
+    final alertCount = _isForPlan ? 0 :
         _demoWarnings.where((w) => w.level == _WarnLevel.alert).length;
-    final warnCount =
+    final warnCount = _isForPlan ? 0 :
         _demoWarnings.where((w) => w.level == _WarnLevel.warn).length;
     final hasAlert = alertCount > 0;
     final hasWarn = warnCount > 0;
@@ -270,7 +331,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
               _buildAiCard(colors, pickState),
 
               // Warning stack
-              _buildWarnings(colors),
+              if (!_isForPlan) _buildWarnings(colors),
 
               // Gear categories
               _buildGearCategories(colors, pickState),
@@ -290,7 +351,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
     final topPadding = MediaQuery.of(context).padding.top;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, topPadding + 60, 16, 0),
+      padding: EdgeInsets.fromLTRB(16, topPadding + 8, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -302,14 +363,15 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                 onTap: () => context.pop(),
               ),
               const Spacer(),
-              Text(
-                '第 1 步 / 共 3 步',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.inkMuted,
-                  letterSpacing: -0.1,
+              if (!_isForPlan)
+                Text(
+                  '第 1 步 / 共 3 步',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.inkMuted,
+                    letterSpacing: -0.1,
+                  ),
                 ),
-              ),
               const Spacer(),
               CircleButton(
                 icon: KaipaIcons.ellipsis,
@@ -320,21 +382,11 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
           const SizedBox(height: 12),
 
           // Route context
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              '箭扣长城 · 困难 T3 · 11.4 公里',
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.inkMuted,
-                letterSpacing: -0.1,
-              ),
-            ),
-          ),
+          _buildRouteContext(ref, colors),
 
           // Title
           Text(
-            '选择今天带哪些装备',
+            _isForPlan ? '选择携带装备' : '选择今天带哪些装备',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w700,
@@ -344,6 +396,34 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRouteContext(WidgetRef ref, KaipaColors colors) {
+    final routeAsync = ref.watch(routeByIdProvider(widget.routeId));
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: routeAsync.when(
+        loading: () => const SizedBox(height: 16),
+        error: (_, _) => const SizedBox.shrink(),
+        data: (route) {
+          final parts = <String>[route.name];
+          if (route.difficultyGrade != null) {
+            parts.add('${route.difficulty} ${route.difficultyGrade}');
+          } else {
+            parts.add(route.difficulty);
+          }
+          parts.add('${route.distanceKm.toStringAsFixed(1)} 公里');
+          return Text(
+            parts.join(' · '),
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.inkMuted,
+              letterSpacing: -0.1,
+            ),
+          );
+        },
       ),
     );
   }
@@ -558,7 +638,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
-                              ref.read(gearPickProvider.notifier).applyAiPick();
+                              ref.read(gearPickProvider.notifier).applyAiPick(_activeCategories);
                             },
                             child: Container(
                               height: 40,
@@ -732,7 +812,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Column(
-        children: _demoCategories.map((category) {
+        children: _activeCategories.map((category) {
           return _buildCategorySection(colors, category, pickState);
         }).toList(),
       ),
@@ -1009,17 +1089,12 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
     Border? ctaBorder;
     List<BoxShadow>? ctaShadow;
 
-    if (hasAlert) {
-      ctaText = '请先解决 $alertCount 个红色警告';
-      ctaBg = colors.surfaceHi;
-      ctaTextColor = colors.inkMuted;
-      ctaBorder = Border.all(color: colors.line, width: 0.5);
-    } else if (hasWarn) {
+    if (hasAlert || hasWarn) {
       ctaText = '了解风险，仍要继续 →';
       ctaBg = colors.flare;
       ctaTextColor = Colors.white;
     } else {
-      ctaText = '下一步 · 天气与时间';
+      ctaText = _isForPlan ? '确认选择' : '下一步 · 天气与时间  ›';
       ctaBg = colors.flare;
       ctaTextColor = Colors.white;
       ctaShadow = [
@@ -1052,18 +1127,23 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
         ),
         padding: EdgeInsets.fromLTRB(16, 24, 16, bottomPadding + 16),
         child: GestureDetector(
-          onTap: hasAlert
-              ? null
-              : () {
-                  final gearIds = ref
-                      .read(gearPickProvider)
-                      .selectedItemIds
-                      .toList();
-                  ref
-                      .read(departureFlowProvider(widget.routeId).notifier)
-                      .setGear(gearIds);
-                  context.push('/weather/${widget.routeId}');
-                },
+          onTap: () async {
+            final gearIds = ref.read(gearPickProvider).selectedItemIds;
+            if (widget.planId != null) {
+              await ref.read(tripPlanRepositoryProvider).syncGearItems(
+                planId: widget.planId!,
+                gearItemIds: gearIds,
+              );
+              if (context.mounted) {
+                ref.invalidate(tripPlanDetailProvider(widget.planId!));
+                ref.invalidate(tripPlanListProvider);
+                context.pop();
+              }
+              return;
+            }
+            ref.read(departureFlowProvider(widget.routeId).notifier).setGear(gearIds.toList());
+            context.push('/weather/${widget.routeId}');
+          },
           child: Container(
             height: 54,
             decoration: BoxDecoration(
@@ -1084,14 +1164,12 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                     letterSpacing: -0.2,
                   ),
                 ),
-                if (!hasAlert) ...[
-                  const SizedBox(width: 6),
-                  KaipaIcon(
-                    name: KaipaIcons.forward,
-                    size: 16,
-                    color: ctaTextColor,
-                  ),
-                ],
+                const SizedBox(width: 6),
+                KaipaIcon(
+                  name: KaipaIcons.forward,
+                  size: 16,
+                  color: ctaTextColor,
+                ),
               ],
             ),
           ),

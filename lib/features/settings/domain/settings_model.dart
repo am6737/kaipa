@@ -18,7 +18,7 @@ class SettingsModel {
 
   const SettingsModel({
     this.mode = 'system',
-    this.preset = 'forest',
+    this.preset = 'moss',
     this.customAccent,
     this.useCustom = false,
     this.language = 'zh',
@@ -41,7 +41,7 @@ class SettingsModel {
   factory SettingsModel.fromJson(Map<String, dynamic> json) {
     return SettingsModel(
       mode: json['mode'] as String? ?? 'system',
-      preset: json['preset'] as String? ?? 'forest',
+      preset: json['preset'] as String? ?? 'moss',
       customAccent: json['custom_accent'] as int?,
       useCustom: json['use_custom'] as bool? ?? false,
       language: json['language'] as String? ?? 'zh',

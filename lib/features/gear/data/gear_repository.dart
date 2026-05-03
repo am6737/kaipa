@@ -279,14 +279,23 @@ class GearRepository {
 
   // ─── Gear item queries ─────────────────────────────────────────────
 
-  Future<List<GearItemModel>> getItemsByCategory(String categoryId) async {
+  Future<List<GearItemModel>> getItemsByCategory(
+    String categoryId, {
+    String? builtinRef,
+  }) async {
     final uid = _userId;
-    final data = await _client
-        .from('gear_items')
-        .select()
-        .eq('user_id', uid)
-        .eq('category_id', categoryId)
-        .order('created_at', ascending: false);
+    final query = _client.from('gear_items').select().eq('user_id', uid);
+
+    final dynamic data;
+    if (builtinRef != null) {
+      data = await query
+          .or('category_id.eq.$categoryId,category_id.eq.$builtinRef')
+          .order('created_at', ascending: false);
+    } else {
+      data = await query
+          .eq('category_id', categoryId)
+          .order('created_at', ascending: false);
+    }
 
     return (data as List).map((row) => GearItemModel.fromJson(row)).toList();
   }
@@ -374,13 +383,20 @@ class GearRepository {
         .eq('user_id', uid);
   }
 
-  Future<int> getItemCountForCategory(String categoryId) async {
+  Future<int> getItemCountForCategory(
+    String categoryId, {
+    String? builtinRef,
+  }) async {
     final uid = _userId;
-    final data = await _client
-        .from('gear_items')
-        .select('id')
-        .eq('user_id', uid)
-        .eq('category_id', categoryId);
+    final query = _client.from('gear_items').select('id').eq('user_id', uid);
+
+    final dynamic data;
+    if (builtinRef != null) {
+      data = await query
+          .or('category_id.eq.$categoryId,category_id.eq.$builtinRef');
+    } else {
+      data = await query.eq('category_id', categoryId);
+    }
     return (data as List).length;
   }
 
@@ -404,20 +420,26 @@ class GearRepository {
     final uid = _userId;
     final data = await _client
         .from('gear_presets')
-        .select('*, gear_preset_items(item_id, gear_items(weight_g))')
+        .select('*, gear_preset_items(item_id, gear_items(weight_g, price, category_id))')
         .eq('user_id', uid)
         .order('created_at', ascending: false);
 
     return (data as List).map((row) {
       final items = (row['gear_preset_items'] as List?) ?? [];
-      final totalWeight = items.fold<double>(0, (sum, item) {
+      double totalWeight = 0;
+      double totalPrice = 0;
+      final categoryIds = <String>{};
+
+      for (final item in items) {
         final gear = item['gear_items'] as Map<String, dynamic>?;
-        if (gear == null) return sum;
+        if (gear == null) continue;
         final w = gear['weight_g'];
-        if (w == null) return sum;
-        if (w is num) return sum + w.toDouble();
-        return sum;
-      });
+        if (w is num) totalWeight += w.toDouble();
+        final p = gear['price'];
+        if (p is num) totalPrice += p.toDouble();
+        final catId = gear['category_id'];
+        if (catId is String) categoryIds.add(catId);
+      }
 
       return GearPresetModel(
         id: row['id'] as String,
@@ -426,6 +448,8 @@ class GearRepository {
         createdAt: DateTime.parse(row['created_at'] as String),
         itemCount: items.length,
         totalWeightG: totalWeight,
+        totalPrice: totalPrice,
+        categoryCount: categoryIds.length,
       );
     }).toList();
   }
@@ -517,7 +541,11 @@ final allGearItemsProvider = FutureProvider<List<GearItemModel>>((ref) async {
 final gearItemsByCategoryProvider =
     FutureProvider.family<List<GearItemModel>, String>((ref, categoryId) async {
   final repo = ref.watch(gearRepositoryProvider);
-  return repo.getItemsByCategory(categoryId);
+  final categories = await ref.watch(gearCategoriesProvider.future);
+  final category =
+      categories.where((c) => c.id == categoryId).firstOrNull;
+  return repo.getItemsByCategory(categoryId,
+      builtinRef: category?.builtinRef);
 });
 
 final gearItemByIdProvider =

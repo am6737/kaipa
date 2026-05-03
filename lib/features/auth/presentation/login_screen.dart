@@ -15,6 +15,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _isGuestLoading = false;
   bool _obscurePassword = true;
 
   @override
@@ -48,6 +49,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _handleGuestLogin() async {
+    setState(() => _isGuestLoading = true);
+
+    try {
+      final authRepo = ref.read(authRepositoryProvider);
+      await authRepo.signInAsGuest();
+      if (mounted) {
+        context.go('/discover');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError('游客登录失败：${e.toString()}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGuestLoading = false);
       }
     }
   }
@@ -236,17 +257,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Skip link
+                // Guest login
                 TextButton(
-                  onPressed: () => context.go('/discover'),
-                  child: Text(
-                    '跳过，使用体验模式',
-                    style: textTheme.bodySmall?.copyWith(
-                      color: colors.inkDim,
-                      decoration: TextDecoration.underline,
-                      decorationColor: colors.inkDim,
-                    ),
-                  ),
+                  onPressed: _isGuestLoading ? null : _handleGuestLogin,
+                  child: _isGuestLoading
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: colors.inkDim,
+                          ),
+                        )
+                      : Text(
+                          '游客登录',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colors.inkDim,
+                            decoration: TextDecoration.underline,
+                            decorationColor: colors.inkDim,
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 48),
               ],

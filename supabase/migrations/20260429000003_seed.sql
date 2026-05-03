@@ -26,6 +26,9 @@ DECLARE
   v_cat_knife     uuid := 'b0000000-0000-0000-0000-000000000008';
   v_cat_socks     uuid := 'b0000000-0000-0000-0000-000000000009';
   v_cat_shield    uuid := 'b0000000-0000-0000-0000-000000000010';
+  v_cat_down      uuid := 'b0000000-0000-0000-0000-000000000011';
+  v_cat_tee       uuid := 'b0000000-0000-0000-0000-000000000012';
+  v_cat_fleece    uuid := 'b0000000-0000-0000-0000-000000000013';
 
   -- Gear item UUIDs
   v_gear1  uuid := 'c0000000-0000-0000-0000-000000000001';
@@ -67,6 +70,13 @@ DECLARE
   v_gear37 uuid := 'c0000000-0000-0000-0000-000000000037';
   v_gear38 uuid := 'c0000000-0000-0000-0000-000000000038';
   v_gear39 uuid := 'c0000000-0000-0000-0000-000000000039';
+  v_gear40 uuid := 'c0000000-0000-0000-0000-000000000040';
+  v_gear41 uuid := 'c0000000-0000-0000-0000-000000000041';
+  v_gear42 uuid := 'c0000000-0000-0000-0000-000000000042';
+  v_gear43 uuid := 'c0000000-0000-0000-0000-000000000043';
+  v_gear44 uuid := 'c0000000-0000-0000-0000-000000000044';
+  v_gear45 uuid := 'c0000000-0000-0000-0000-000000000045';
+  v_gear46 uuid := 'c0000000-0000-0000-0000-000000000046';
 
   -- Achievement UUIDs
   v_ach1 uuid := 'd0000000-0000-0000-0000-000000000001';
@@ -247,82 +257,99 @@ BEGIN
   );
 
   -- ==========================================================
-  -- Gear categories (10)
+  -- Gear categories (13)
   -- ==========================================================
   INSERT INTO gear_categories (id, name, icon, sort_order) VALUES
     (v_cat_boot,     '登山鞋', 'boot',     1),
     (v_cat_backpack, '背包',   'backpack', 2),
     (v_cat_jacket,   '冲锋衣', 'jacket',   3),
-    (v_cat_tent,     '帐篷',   'tent',     4),
-    (v_cat_bottle,   '水壶',   'bottle',   5),
-    (v_cat_battery,  '充电宝', 'battery',  6),
-    (v_cat_light,    '头灯',   'light',    7),
-    (v_cat_knife,    '刀具',   'knife',    8),
-    (v_cat_socks,    '袜子',   'socks',    9),
-    (v_cat_shield,   '护具',   'shield',  10);
+    (v_cat_down,     '羽绒服', 'down',     4),
+    (v_cat_fleece,   '抓绒衣', 'fleece',   5),
+    (v_cat_tee,      '速干衣', 'tee',      6),
+    (v_cat_tent,     '帐篷',   'tent',     7),
+    (v_cat_bottle,   '水壶',   'bottle',   8),
+    (v_cat_battery,  '充电宝', 'battery',  9),
+    (v_cat_light,    '头灯',   'light',   10),
+    (v_cat_knife,    '刀具',   'knife',   11),
+    (v_cat_socks,    '袜子',   'socks',   12),
+    (v_cat_shield,   '护具',   'shield',  13);
 
   -- ==========================================================
-  -- Gear items (39)
+  -- Gear items (47)
   -- ==========================================================
   INSERT INTO gear_items (id, user_id, category_id, name, brand, weight_g, price, condition, photo_url, notes, is_favorite, purchased_at) VALUES
     -- ── 登山鞋 (5) ──────────────────────────────────────────
-    (v_gear1,  v_demo_user, v_cat_boot,     'Speedgoat 5',          'HOKA',          292, 1299, 'good',  'https://example.com/gear/hoka-speedgoat5.jpg',       '缓震出色，适合长距离越野',               true,  '2024-03-15T00:00:00Z'),
-    (v_gear2,  v_demo_user, v_cat_boot,     'X Ultra 4 GTX',        'Salomon',       385, 1099, 'good',  'https://example.com/gear/salomon-xultra4.jpg',       '防水性能优秀，适合雨季',                 false, '2023-11-20T00:00:00Z'),
-    (v_gear14, v_demo_user, v_cat_boot,     'TX4 Mid GTX',          'La Sportiva',   635, 1699, 'good',  'https://example.com/gear/lasportiva-tx4mid.jpg',     '攀爬性能强，箭扣鹰飞倒仰穿这双',         true,  '2024-01-08T00:00:00Z'),
-    (v_gear15, v_demo_user, v_cat_boot,     'Zodiac Plus GTX',      'Scarpa',        760, 2899, 'new',   'https://example.com/gear/scarpa-zodiac.jpg',         '重装徒步靴，海坨山纵走首选',             false, '2025-03-20T00:00:00Z'),
-    (v_gear16, v_demo_user, v_cat_boot,     'FUGA EX 2',            '凯乐石',        260,  799, 'fair',  'https://example.com/gear/kailas-fugaex2.jpg',        '越野跑鞋，轻量但鞋底磨得差不多了',       false, '2023-05-01T00:00:00Z'),
+    (v_gear1,  v_demo_user, v_cat_boot,     '轻量越野跑鞋',         'HOKA',          292, 1299, 'good',  'https://shoecity.com/cdn/shop/files/0775724_01_1445x.jpg?v=1695856091',       '缓震出色，适合长距离越野',               true,  '2024-03-15T00:00:00Z'),
+    (v_gear2,  v_demo_user, v_cat_boot,     '防水低帮徒步鞋',       '萨洛蒙',        385, 1099, 'good',  'https://cdn.media.amplience.net/i/scheelspoc/19312852123?w=1200&h=1200&fmt=auto&v=1',       '防水性能优秀，适合雨季',                 false, '2023-11-20T00:00:00Z'),
+    (v_gear14, v_demo_user, v_cat_boot,     '中帮技术攀爬靴',       '拉思珀蒂瓦',    635, 1699, 'good',  'https://cdn11.bigcommerce.com/s-b7293/images/stencil/original/products/16082/81239/ZFAS047_G00G09_TX4_EVO_MID_GTX_CARBON_CLAY_1__45450.1736465990.jpg?c=2',     '攀爬性能强，箭扣鹰飞倒仰穿这双',         true,  '2024-01-08T00:00:00Z'),
+    (v_gear15, v_demo_user, v_cat_boot,     '重装高帮徒步靴',       '思卡帕',        760, 2899, 'new',   'https://shop.gohunt.com/cdn/shop/products/eCommerce-Image-template-_2_4770bfbe-d7d2-4fd7-9624-70abf72541fd.jpg?v=1579761318&width=1500',         '重装徒步靴，海坨山纵走首选',             false, '2025-03-20T00:00:00Z'),
+    (v_gear16, v_demo_user, v_cat_boot,     '竞速越野跑鞋',         '凯乐石',        260,  799, 'fair',  'https://maxsportstore.com/cdn/shop/files/P24---kailas---KS231311821871.jpg?v=1735657019&width=1214',        '越野跑鞋，轻量但鞋底磨得差不多了',       false, '2023-05-01T00:00:00Z'),
 
     -- ── 背包 (5) ────────────────────────────────────────────
-    (v_gear3,  v_demo_user, v_cat_backpack, 'Atmos AG 65',          'Osprey',       2100, 2299, 'new',   'https://example.com/gear/osprey-atmos65.jpg',        '大容量，背负系统舒适',                   true,  '2024-05-01T00:00:00Z'),
-    (v_gear4,  v_demo_user, v_cat_backpack, 'Stratos 36',           'Osprey',       1450, 1199, 'good',  'https://example.com/gear/osprey-stratos36.jpg',      '日常徒步首选',                           false, '2023-08-10T00:00:00Z'),
-    (v_gear17, v_demo_user, v_cat_backpack, 'Baltoro 75',           'Gregory',      2360, 2899, 'fair',  'https://example.com/gear/gregory-baltoro75.jpg',     '海坨山两日线用过，腰带有点磨损',         false, '2022-10-15T00:00:00Z'),
-    (v_gear18, v_demo_user, v_cat_backpack, 'Speed Lite 20',        'Deuter',        450,  599, 'good',  'https://example.com/gear/deuter-speedlite20.jpg',    '轻量日用包，香山十三陵这种线路够用',     false, '2024-04-10T00:00:00Z'),
-    (v_gear19, v_demo_user, v_cat_backpack, 'FUGA PRO 越野跑背心',  '凯乐石',        280,  699, 'new',   'https://example.com/gear/kailas-fugapro-vest.jpg',   '贴身设计不晃，带两个软水壶',             false, '2025-02-28T00:00:00Z'),
+    (v_gear3,  v_demo_user, v_cat_backpack, '大容量重装背包 65L',   '鱼鹰',         2100, 2299, 'new',   'https://cdn.media.amplience.net/i/scheelspoc/84382013591_1?w=1200&h=1200&fmt=auto&v=1',        '大容量，背负系统舒适',                   true,  '2024-05-01T00:00:00Z'),
+    (v_gear4,  v_demo_user, v_cat_backpack, '日用徒步背包 36L',     '鱼鹰',         1450, 1199, 'good',  'https://everythingsummercamp.com/cdn/shop/files/osprey-stratos-36-seaweed-matcha-green-front.jpg?v=1706730317',      '日常徒步首选',                           false, '2023-08-10T00:00:00Z'),
+    (v_gear17, v_demo_user, v_cat_backpack, '重装登山包 75L',       '格里高利',      2360, 2899, 'fair',  'https://cdn.shopify.com/s/files/1/0787/3708/0642/files/VPO_Gregory_Baltoro_75__Mens_Alaska_Blue_7_5fa3aab5-4d20-4b83-9be5-c7adb59f6210.jpg?v=1773955724&width=1100&crop=center',     '海坨山两日线用过，腰带有点磨损',         false, '2022-10-15T00:00:00Z'),
+    (v_gear18, v_demo_user, v_cat_backpack, '轻量速攻包 20L',       '多特',          450,  599, 'good',  'https://bigbeargearnj.com/cdn/shop/products/speedlite201.png?v=1589639966&width=1946',    '轻量日用包，香山十三陵这种线路够用',     false, '2024-04-10T00:00:00Z'),
+    (v_gear19, v_demo_user, v_cat_backpack, '越野跑背心',           '凯乐石',        280,  699, 'new',   'https://www.kailasfuga.com/cdn/shop/files/gjgw_1_.FUGA_56d8005a-743c-4282-b9eb-6edabd62743a.webp?v=1776145834&width=800',   '贴身设计不晃，带两个软水壶',             false, '2025-02-28T00:00:00Z'),
 
-    -- ── 冲锋衣 (5) ──────────────────────────────────────────
-    (v_gear5,  v_demo_user, v_cat_jacket,   'Beta AR Jacket',       'Arc''teryx',    455, 4599, 'new',   'https://example.com/gear/arcteryx-beta-ar.jpg',      'Gore-Tex Pro面料，三季通用',              true,  '2024-04-20T00:00:00Z'),
-    (v_gear6,  v_demo_user, v_cat_jacket,   'Torrentshell 3L',      'Patagonia',     394, 1299, 'fair',  'https://example.com/gear/patagonia-torrent.jpg',     '轻便防水，日常通勤也可用',               false, '2022-09-15T00:00:00Z'),
-    (v_gear20, v_demo_user, v_cat_jacket,   'ThermoBall Eco Hoodie', 'The North Face', 380, 1799, 'good', 'https://example.com/gear/tnf-thermoball.jpg',        '潮湿环境也保暖，秋冬中间层',             false, '2024-09-05T00:00:00Z'),
-    (v_gear21, v_demo_user, v_cat_jacket,   'Mont X 轻量羽绒服',     '凯乐石',        320, 1299, 'new',   'https://example.com/gear/kailas-montx-down.jpg',     '800蓬鹅绒，压缩后拳头大小',              true,  '2025-01-15T00:00:00Z'),
-    (v_gear22, v_demo_user, v_cat_jacket,   'Kento HS Hooded',      'Mammut',        480, 3499, 'good',  'https://example.com/gear/mammut-kento.jpg',          '硬壳，灵山大风天穿这件',                 false, '2024-06-20T00:00:00Z'),
+    -- ── 冲锋衣 (3) ──────────────────────────────────────────
+    (v_gear5,  v_demo_user, v_cat_jacket,   '三层硬壳冲锋衣',       '始祖鸟',        455, 4599, 'new',   'https://ridgeandriver.com/cdn/shop/files/MainImage-4_1a1f52de-eecd-4c40-a85f-50323ac44cc1_1024x.jpg?v=1758304016',      'Gore-Tex Pro面料，三季通用',              true,  '2024-04-20T00:00:00Z'),
+    (v_gear6,  v_demo_user, v_cat_jacket,   '轻量防水冲锋衣',       '巴塔哥尼亚',    394, 1299, 'fair',  'https://www.halfmoonoutfitters.com/cdn/shop/files/Patagonia_Torrentshell_3L_Jacket_for_Men_Aquatic_Blue.webp?v=1775088787',     '轻便防水，日常通勤也可用',               false, '2022-09-15T00:00:00Z'),
+    (v_gear22, v_demo_user, v_cat_jacket,   '专业硬壳冲锋衣',       '猛犸象',        480, 3499, 'good',  'https://s3.amazonaws.com/syncpigeon/alti_prod/images/mam-1010-23100_titanium.jpg',          '硬壳，灵山大风天穿这件',                 false, '2024-06-20T00:00:00Z'),
+
+    -- ── 羽绒服 (4) ──────────────────────────────────────────
+    (v_gear21, v_demo_user, v_cat_down,     '轻量羽绒服 800蓬',     '凯乐石',        320, 1299, 'new',   'https://cdn.shopify.com/s/files/1/0535/8433/0946/files/jdz_1_._fef4eae8-cede-42bb-9985-7044957360ed.jpg?v=1737204754',     '800蓬鹅绒，压缩后拳头大小',              true,  '2025-01-15T00:00:00Z'),
+    (v_gear20, v_demo_user, v_cat_down,     '合成棉保暖外套',       '北面',          380, 1799, 'good',  'https://m.media-amazon.com/images/I/717+gvx3YrL._AC_SR736,920_.jpg',        '潮湿环境也保暖，秋冬中间层',             false, '2024-09-05T00:00:00Z'),
+    (v_gear40, v_demo_user, v_cat_down,     '厚款羽绒服 700蓬',     '北面',          580, 2299, 'good',  'https://www.rboutique.com/cdn/shop/files/ab31xnf0a4qy005-a_6cc4c77e-b2e5-473a-a5b7-85cedc742b3f.jpg?v=1735680034&width=1000',        '700蓬厚款，冬季海坨山零下20度穿',        false, '2024-11-01T00:00:00Z'),
+    (v_gear41, v_demo_user, v_cat_down,     '超轻羽绒马甲',         '优衣库',        180,  399, 'fair',  'https://image.uniqlo.com/UQ/ST3/AsianCommon/imagesgoods/472294/sub/goods_472294_sub14.jpg',       '日线中间层，轻薄不占空间',               false, '2023-10-20T00:00:00Z'),
+
+    -- ── 抓绒衣 (3) ──────────────────────────────────────────
+    (v_gear42, v_demo_user, v_cat_fleece,   'R1抓绒衣',             '巴塔哥尼亚',    350,  999, 'good',  'https://www.bobssportschalet.com/prodimages/109251-BLACK-L.jpg',          '网格抓绒，透气排汗，三季中间层',          true,  '2024-02-10T00:00:00Z'),
+    (v_gear43, v_demo_user, v_cat_fleece,   '全拉链厚抓绒',         '北面',          420,  799, 'good',  'https://threadfellows.com/cdn/shop/files/north-face-fleece-s-new-taupe-green-black-the-north-face-men-s-glacier-1-4-zip-fleece-31046752600087.jpg?v=1706368560&width=803',    '厚实保暖，冬季营地穿',                   false, '2023-12-01T00:00:00Z'),
+    (v_gear44, v_demo_user, v_cat_fleece,   '轻量网格抓绒',         '凯乐石',        220,  499, 'new',   'https://cdn.shopify.com/s/files/1/0535/8433/0946/files/jdz_2_._da1c6bc6-4d26-429f-8b7f-239746ffa863.jpg?v=1737358371',    '超轻网格款，速干透气',                   false, '2025-03-10T00:00:00Z'),
+
+    -- ── 速干衣 (3) ──────────────────────────────────────────
+    (v_gear45, v_demo_user, v_cat_tee,      '速干短袖T恤',          '凯乐石',        120,  299, 'good',  'https://cdn.shopify.com/s/files/1/0535/8433/0946/files/2_1715bc90-45fe-4712-a61f-ed9ef541aa60.webp?v=1776414638',   '夏季日线首选，速干不贴身',               false, '2024-05-15T00:00:00Z'),
+    (v_gear46, v_demo_user, v_cat_tee,      '长袖防晒速干衣',       '迪卡侬',        150,  199, 'good',  'https://contents.mediadecathlon.com/p2397043/sq/men-s-anti-uv-long-sleeved-hiking-t-shirt-mh500.jpg',       'UPF40+防晒，夏天灵山穿',                 true,  '2024-06-01T00:00:00Z'),
+    (v_gear47, v_demo_user, v_cat_tee,      '速干徒步裤',           '始祖鸟',        280, 1599, 'new',   'https://m.media-amazon.com/images/I/713XKaUZvsL._AC_SR768,1024_.jpg',     '弹力速干面料，四季通用徒步裤',           false, '2025-04-10T00:00:00Z'),
 
     -- ── 帐篷 (3) ────────────────────────────────────────────
-    (v_gear7,  v_demo_user, v_cat_tent,     'Hubba Hubba NX 2',     'MSR',          1540, 3299, 'good',  'https://example.com/gear/msr-hubba2.jpg',            '双人帐，重量和空间的平衡',                true,  '2024-01-10T00:00:00Z'),
-    (v_gear23, v_demo_user, v_cat_tent,     'Cloud Up 2 升级版',     'Naturehike',   1280,  569, 'good',  'https://example.com/gear/nh-cloudup2.jpg',            '性价比之王，带朋友入门就用这顶',          false, '2023-04-20T00:00:00Z'),
-    (v_gear24, v_demo_user, v_cat_tent,     'Anjan 2 GT',           'Hilleberg',    1900, 7999, 'new',   'https://example.com/gear/hilleberg-anjan2.jpg',      '四季帐，冬季海坨山扎营抗风暴级别',        false, '2025-11-01T00:00:00Z'),
+    (v_gear7,  v_demo_user, v_cat_tent,     '双人三季帐',           'MSR',          1540, 3299, 'good',  'https://cascadedesigns.com/cdn/shop/files/13937_msr_hubba_LT_2P_body_angled.jpg?v=1725608857&width=1946',            '双人帐，重量和空间的平衡',                true,  '2024-01-10T00:00:00Z'),
+    (v_gear23, v_demo_user, v_cat_tent,     '超轻双人帐',           '挪客',         1280,  569, 'good',  'https://www.naturehike.com/cdn/shop/files/naturehike_cloud_up_2_person_ultralight_backpacking_tent_main_white.jpg?v=1764660123',            '性价比之王，带朋友入门就用这顶',          false, '2023-04-20T00:00:00Z'),
+    (v_gear24, v_demo_user, v_cat_tent,     '双人四季帐',           '希尔伯格',     1900, 7999, 'new',   'https://sandsarchery.com/cdn/shop/products/Hilleberg-Anjan-2-Backpacking-Tent.jpg?v=1740716867&width=800',      '四季帐，冬季海坨山扎营抗风暴级别',        false, '2025-11-01T00:00:00Z'),
 
     -- ── 水壶 (4) ────────────────────────────────────────────
-    (v_gear8,  v_demo_user, v_cat_bottle,   'Wide Mouth 32oz',      'Hydro Flask',   390,  329, 'good',  'https://example.com/gear/hydroflask-32.jpg',         '保温效果优秀',                           false, '2023-06-01T00:00:00Z'),
-    (v_gear25, v_demo_user, v_cat_bottle,   'Tritan Wide Mouth 1L', 'Nalgene',       180,   99, 'good',  'https://example.com/gear/nalgene-1l.jpg',            '耐摔，刻度方便看水量',                   false, '2022-03-10T00:00:00Z'),
-    (v_gear26, v_demo_user, v_cat_bottle,   'Vecto 3L 水袋',        'CNOC',          170,  179, 'new',   'https://example.com/gear/cnoc-vecto3l.jpg',          '可折叠，配Sawyer滤水器用',               false, '2025-04-01T00:00:00Z'),
-    (v_gear27, v_demo_user, v_cat_bottle,   'FJM-500 真空保温杯',    '膳魔师',        300,  269, 'worn',  'https://example.com/gear/thermos-fjm500.jpg',        '冬天山顶喝口热水续命，杯盖有点松了',      false, '2021-12-20T00:00:00Z'),
+    (v_gear8,  v_demo_user, v_cat_bottle,   '保温水壶 1L',          'Hydro Flask',   390,  329, 'good',  'https://skipro.com/cdn/shop/files/hydro-flask-32oz-wide-mouth-water-bottle_9574e63f-e1f7-41dd-a766-757663d4964f.jpg',         '保温效果优秀',                           false, '2023-06-01T00:00:00Z'),
+    (v_gear25, v_demo_user, v_cat_bottle,   '广口水壶 1L',          '乐基因',        180,   99, 'good',  'https://nalgene.com/wp-content/uploads/2024/01/32oz-WM-Periwinkle-Front-1-505x757.jpg',            '耐摔，刻度方便看水量',                   false, '2022-03-10T00:00:00Z'),
+    (v_gear26, v_demo_user, v_cat_bottle,   '可折叠水袋 3L',        'CNOC',          170,  179, 'new',   'https://hilltoppacks.com/cdn/shop/products/vecto-water-container-cnoc-6542303.webp?v=1761107737',          '可折叠，配滤水器用',                     false, '2025-04-01T00:00:00Z'),
+    (v_gear27, v_demo_user, v_cat_bottle,   '真空保温杯 500ml',     '膳魔师',        300,  269, 'worn',  'https://japanwithlovestore.com/cdn/shop/files/Thermos-Fjn500T-Vacuum-Insulated-Titanium-Bottle-500Ml-Titanium-Gray-Tgy-Thermos-4562344382472-0.jpg?v=1713228842&width=1200',        '冬天山顶喝口热水续命，杯盖有点松了',      false, '2021-12-20T00:00:00Z'),
 
     -- ── 充电宝 (3) ──────────────────────────────────────────
-    (v_gear9,  v_demo_user, v_cat_battery,  'Anker 737 Power Bank', 'Anker',         500,  599, 'new',   'https://example.com/gear/anker-737.jpg',             '24000mAh大容量，支持快充',               false, '2024-07-01T00:00:00Z'),
-    (v_gear28, v_demo_user, v_cat_battery,  'NB10000',              'Nitecore',      150,  299, 'new',   'https://example.com/gear/nitecore-nb10000.jpg',      '超轻碳纤外壳，日线够用',                 true,  '2025-03-15T00:00:00Z'),
-    (v_gear29, v_demo_user, v_cat_battery,  '移动电源 3 20000mAh',   '小米',          405,  149, 'good',  'https://example.com/gear/xiaomi-20000.jpg',          '两日线备用，便宜耐造',                   false, '2023-11-11T00:00:00Z'),
+    (v_gear9,  v_demo_user, v_cat_battery,  '大容量移动电源 24000mAh', '安克',       500,  599, 'new',   'https://cdn.shopify.com/s/files/1/0493/9834/9974/products/A1289011-Anker_737_Power_Bank_PowerCore_24K_1_3840x.png?v=1775967275',             '24000mAh大容量，支持快充',               false, '2024-07-01T00:00:00Z'),
+    (v_gear28, v_demo_user, v_cat_battery,  '超轻碳纤移动电源',     '奈特科尔',      150,  299, 'new',   'https://nitecorestore.com/cdn/shop/files/BAT-NITE-NB10000.png?v=1723483084&width=1500',      '超轻碳纤外壳，日线够用',                 true,  '2025-03-15T00:00:00Z'),
+    (v_gear29, v_demo_user, v_cat_battery,  '移动电源 20000mAh',    '小米',          405,  149, 'good',  'https://mi-home-kenya.myshopify.com/cdn/shop/products/xiaomi-20000mah-redmi-18w-fast-charge-power-bank-xiaomi-home-kenya-official-authorized-store-2.jpg?v=1746507355&width=1946',          '两日线备用，便宜耐造',                   false, '2023-11-11T00:00:00Z'),
 
     -- ── 头灯 (3) ────────────────────────────────────────────
-    (v_gear10, v_demo_user, v_cat_light,    'Actik Core',           'Petzl',          75,  399, 'good',  'https://example.com/gear/petzl-actik.jpg',           '450流明，充电式',                        true,  '2024-02-28T00:00:00Z'),
-    (v_gear30, v_demo_user, v_cat_light,    'Storm 500-R',          'Black Diamond', 120,  549, 'good',  'https://example.com/gear/bd-storm500r.jpg',          '500流明防水，大雨里用过没问题',           false, '2024-08-10T00:00:00Z'),
-    (v_gear31, v_demo_user, v_cat_light,    'NU25 UL',              'Nitecore',       28,  239, 'new',   'https://example.com/gear/nitecore-nu25ul.jpg',       '28克超轻，越野跑戴着不晃',               false, '2025-05-20T00:00:00Z'),
+    (v_gear10, v_demo_user, v_cat_light,    '充电式头灯 450流明',   '攀索',           75,  399, 'good',  'https://hownot2.com/cdn/shop/files/E065AB02-ACTIK-CORE_LowRes.webp?v=1754608497',           '450流明，充电式',                        true,  '2024-02-28T00:00:00Z'),
+    (v_gear30, v_demo_user, v_cat_light,    '防水头灯 500流明',     '黑钻',          120,  549, 'good',  'https://www.bearvalleyoutfitters.com/cdn/shop/files/bdstormr500headlampazul2.jpg?v=1729455604&width=1946',          '500流明防水，大雨里用过没问题',           false, '2024-08-10T00:00:00Z'),
+    (v_gear31, v_demo_user, v_cat_light,    '超轻头灯 28g',         '奈特科尔',       28,  239, 'new',   'https://cdn11.bigcommerce.com/s-japp2/images/stencil/1280x1280/products/23809/34934/NU25UL_OI__03648.1731001372.png?c=2',       '28克超轻，越野跑戴着不晃',               false, '2025-05-20T00:00:00Z'),
 
     -- ── 刀具 (3) ────────────────────────────────────────────
-    (v_gear11, v_demo_user, v_cat_knife,    'Spartan',              'Victorinox',     58,  249, 'good',  'https://example.com/gear/victorinox-spartan.jpg',    '经典瑞士军刀，日常够用',                 false, '2022-12-25T00:00:00Z'),
-    (v_gear32, v_demo_user, v_cat_knife,    'Companion Heavy Duty', 'Morakniv',      116,  149, 'good',  'https://example.com/gear/morakniv-companion.jpg',    '碳钢刀刃，劈柴削棍都好使',               false, '2023-07-14T00:00:00Z'),
-    (v_gear33, v_demo_user, v_cat_knife,    'Signal',               'Leatherman',    213, 1099, 'new',   'https://example.com/gear/leatherman-signal.jpg',     '户外款多功能钳，带打火石和求生哨',        true,  '2025-06-18T00:00:00Z'),
+    (v_gear11, v_demo_user, v_cat_knife,    '经典瑞士军刀',         '维氏',           58,  249, 'good',  'https://www.swissknifeshop.com/cdn/shop/files/SAK_1_3603_S1-tif.jpg?v=1731442207&width=1946',    '经典瑞士军刀，日常够用',                 false, '2022-12-25T00:00:00Z'),
+    (v_gear32, v_demo_user, v_cat_knife,    '碳钢直刀',             '莫拉',          116,  149, 'good',  'https://moracompanion.com/wp-content/uploads/2025/10/Mora-Companion-Outdoor-4-1-Inch-Military.jpg',    '碳钢刀刃，劈柴削棍都好使',               false, '2023-07-14T00:00:00Z'),
+    (v_gear33, v_demo_user, v_cat_knife,    '户外多功能工具钳',     '莱泽曼',        213, 1099, 'new',   'https://mkeblades.com/cdn/shop/files/832262_LTHMN__EA1__60001.jpg?v=1769846523&width=1500',     '户外款多功能钳，带打火石和求生哨',        true,  '2025-06-18T00:00:00Z'),
 
     -- ── 袜子 (4) ────────────────────────────────────────────
-    (v_gear12, v_demo_user, v_cat_socks,    'Hiker Micro Crew',     'Darn Tough',     85,  199, 'new',   'https://example.com/gear/darntough-hiker.jpg',       '美利奴羊毛，透气排汗',                   false, '2024-06-10T00:00:00Z'),
-    (v_gear34, v_demo_user, v_cat_socks,    'PhD Outdoor Medium Crew', 'Smartwool',   78,  179, 'good',  'https://example.com/gear/smartwool-phd.jpg',         '穿了两年还没破，冬天保暖首选',           true,  '2023-01-05T00:00:00Z'),
-    (v_gear35, v_demo_user, v_cat_socks,    'Hike+ Medium Crew',    'Icebreaker',     82,  219, 'new',   'https://example.com/gear/icebreaker-hike.jpg',       '新西兰美利奴，脚感比Smartwool软',        false, '2025-04-22T00:00:00Z'),
-    (v_gear36, v_demo_user, v_cat_socks,    '速干徒步袜 3双装',      '凯乐石',         65,   99, 'fair',  'https://example.com/gear/kailas-socks-3pack.jpg',    '性价比高，夏天日线穿',                   false, '2023-06-18T00:00:00Z'),
+    (v_gear12, v_demo_user, v_cat_socks,    '美利奴羊毛徒步袜',     'Darn Tough',     85,  199, 'new',   'https://darntough.com/cdn/shop/files/1466_Spruce.png?v=1767203457',       '美利奴羊毛，透气排汗',                   false, '2024-06-10T00:00:00Z'),
+    (v_gear34, v_demo_user, v_cat_socks,    '中厚羊毛户外袜',       'Smartwool',      78,  179, 'good',  'https://paragonsports.com/cdn/shop/files/Smartwool-PHDOUTDOORLIGHTCREW-400037523082_main_image.jpg?v=1757097151&width=670',         '穿了两年还没破，冬天保暖首选',           true,  '2023-01-05T00:00:00Z'),
+    (v_gear35, v_demo_user, v_cat_socks,    '美利奴中厚徒步袜',     'Icebreaker',     82,  219, 'new',   'https://na.icebreaker.com/cdn/shop/files/IB0A578O0FB-1.jpg?v=1756208248&width=1200',       '新西兰美利奴，脚感比Smartwool软',        false, '2025-04-22T00:00:00Z'),
+    (v_gear36, v_demo_user, v_cat_socks,    '速干徒步袜 3双装',     '凯乐石',         65,   99, 'fair',  'https://www.kailasfuga.com/cdn/shop/files/dwz_1_._647f4731-8e1a-4adf-bbb1-1721ed6f32bd.jpg?v=1761213986&width=800',    '性价比高，夏天日线穿',                   false, '2023-06-18T00:00:00Z'),
 
     -- ── 护具 (4) ────────────────────────────────────────────
-    (v_gear13, v_demo_user, v_cat_shield,   'Distance Carbon Z',    'Black Diamond', 510,  799, 'good',  'https://example.com/gear/bd-poles.jpg',              'Z-Pole折叠式，下山护膝',                 true,  '2023-10-05T00:00:00Z'),
-    (v_gear37, v_demo_user, v_cat_shield,   'Half Dome 攀岩头盔',    'Black Diamond', 350,  549, 'good',  'https://example.com/gear/bd-halfdome.jpg',           '箭扣落石区必戴，调节系统舒服',           false, '2024-03-01T00:00:00Z'),
-    (v_gear38, v_demo_user, v_cat_shield,   'MH500 登山护膝',        '迪卡侬',        240,  149, 'worn',  'https://example.com/gear/decathlon-kneebrace.jpg',   '下山长陡坡绑上，弹簧片有点变形了',       false, '2022-08-20T00:00:00Z'),
-    (v_gear39, v_demo_user, v_cat_shield,   'Stalker 通用冰爪',      'Camp',          920,  899, 'new',   'https://example.com/gear/camp-stalker.jpg',          '12齿全卡式，冬季灵山海坨必备',           false, '2025-12-01T00:00:00Z');
+    (v_gear13, v_demo_user, v_cat_shield,   '碳纤折叠登山杖',       '黑钻',          510,  799, 'good',  'https://blackdiamondequipment.com/cdn/shop/files/112554_4007_Distance_Carbon_Z_Poles_Desert_Sky_01.jpg?v=1742402418',              'Z-Pole折叠式，下山护膝',                 true,  '2023-10-05T00:00:00Z'),
+    (v_gear37, v_demo_user, v_cat_shield,   '攀岩头盔',             '黑钻',          350,  549, 'good',  'https://hownot2.com/cdn/shop/files/27cf4e75725a9e995a84dbd8a35f02e8e3bf6649__50635.webp?v=1756773701',           '箭扣落石区必戴，调节系统舒服',           false, '2024-03-01T00:00:00Z'),
+    (v_gear38, v_demo_user, v_cat_shield,   '登山护膝',             '迪卡侬',        240,  149, 'worn',  'https://5.imimg.com/data5/SELLER/Default/2021/6/TK/RR/KI/26489940/1-1000x1000.jpg',   '下山长陡坡绑上，弹簧片有点变形了',       false, '2022-08-20T00:00:00Z'),
+    (v_gear39, v_demo_user, v_cat_shield,   '通用冰爪 12齿',        'Camp',          920,  899, 'new',   'https://cdn.shoplightspeed.com/shops/634685/files/71391231/900x660x2/camp-camp-stalker-universal-crampon.jpg',          '12齿全卡式，冬季灵山海坨必备',           false, '2025-12-01T00:00:00Z');
 
   -- ==========================================================
   -- Reviews (2 for 箭扣长城)
@@ -551,8 +578,8 @@ BEGIN
     (v_preset2, v_demo_user, '过夜重装',   '2025-04-15T10:00:00Z'),
     (v_preset3, v_demo_user, '雪线攀登',   '2025-11-01T10:00:00Z');
 
-  -- Preset 1: 一日徒步 (8 items, ~5.2kg)
-  -- Speedgoat 5, Stratos 36, Torrentshell, Nalgene 1L, Nitecore NB10000, Actik Core, 瑞士军刀, 凯乐石速干袜
+  -- 预设1: 一日徒步 (8件, 约5.2kg)
+  -- 轻量越野跑鞋, 日用徒步背包, 轻量防水冲锋衣, 广口水壶, 超轻碳纤移动电源, 充电式头灯, 经典瑞士军刀, 速干徒步袜
   INSERT INTO gear_preset_items (preset_id, item_id) VALUES
     (v_preset1, v_gear1),
     (v_preset1, v_gear4),
@@ -563,9 +590,9 @@ BEGIN
     (v_preset1, v_gear11),
     (v_preset1, v_gear36);
 
-  -- Preset 2: 过夜重装 (14 items, ~12.1kg)
-  -- Zodiac Plus, Atmos AG 65, Beta AR, ThermoBall, MSR帐篷, Hydro Flask, CNOC水袋, Anker充电宝,
-  -- Storm 500-R, Leatherman Signal, Darn Tough袜, Distance Carbon Z, Smartwool袜, 小米充电宝
+  -- 预设2: 过夜重装 (14件, 约12.1kg)
+  -- 重装高帮徒步靴, 大容量重装背包, 三层硬壳冲锋衣, 合成棉保暖外套, 双人三季帐, 保温水壶,
+  -- 可折叠水袋, 大容量移动电源, 防水头灯, 户外多功能工具钳, 美利奴羊毛徒步袜, 碳纤折叠登山杖, 中厚羊毛户外袜, 移动电源
   INSERT INTO gear_preset_items (preset_id, item_id) VALUES
     (v_preset2, v_gear15),
     (v_preset2, v_gear3),
@@ -582,9 +609,9 @@ BEGIN
     (v_preset2, v_gear34),
     (v_preset2, v_gear29);
 
-  -- Preset 3: 雪线攀登 (12 items, ~9.4kg)
-  -- Zodiac Plus, Atmos AG 65, Mammut硬壳, 凯乐石羽绒, 保温杯, Anker充电宝, Storm头灯,
-  -- Leatherman Signal, Smartwool袜, 登山杖, 头盔, 冰爪
+  -- 预设3: 雪线攀登 (12件, 约9.4kg)
+  -- 重装高帮徒步靴, 大容量重装背包, 专业硬壳冲锋衣, 轻量羽绒服, 真空保温杯, 大容量移动电源, 防水头灯,
+  -- 户外多功能工具钳, 中厚羊毛户外袜, 碳纤折叠登山杖, 攀岩头盔, 通用冰爪
   INSERT INTO gear_preset_items (preset_id, item_id) VALUES
     (v_preset3, v_gear15),
     (v_preset3, v_gear3),

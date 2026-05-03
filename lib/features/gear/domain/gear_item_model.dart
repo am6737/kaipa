@@ -12,6 +12,8 @@ class GearItemModel {
   final bool isFavorite;
   final DateTime? purchasedAt;
   final DateTime createdAt;
+  final int useCount;
+  final double totalDistanceKm;
 
   const GearItemModel({
     required this.id,
@@ -27,6 +29,8 @@ class GearItemModel {
     this.isFavorite = false,
     this.purchasedAt,
     required this.createdAt,
+    this.useCount = 0,
+    this.totalDistanceKm = 0,
   });
 
   factory GearItemModel.fromJson(Map<String, dynamic> json) {
@@ -46,6 +50,8 @@ class GearItemModel {
           ? DateTime.parse(json['purchased_at'] as String)
           : null,
       createdAt: DateTime.parse(json['created_at'] as String),
+      useCount: (json['use_count'] as num?)?.toInt() ?? 0,
+      totalDistanceKm: _parseNullableDouble(json['total_distance_km']) ?? 0,
     );
   }
 
@@ -64,6 +70,8 @@ class GearItemModel {
       'is_favorite': isFavorite,
       'purchased_at': purchasedAt?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
+      'use_count': useCount,
+      'total_distance_km': totalDistanceKm,
     };
   }
 
@@ -81,6 +89,8 @@ class GearItemModel {
     bool? isFavorite,
     DateTime? purchasedAt,
     DateTime? createdAt,
+    int? useCount,
+    double? totalDistanceKm,
   }) {
     return GearItemModel(
       id: id ?? this.id,
@@ -96,6 +106,8 @@ class GearItemModel {
       isFavorite: isFavorite ?? this.isFavorite,
       purchasedAt: purchasedAt ?? this.purchasedAt,
       createdAt: createdAt ?? this.createdAt,
+      useCount: useCount ?? this.useCount,
+      totalDistanceKm: totalDistanceKm ?? this.totalDistanceKm,
     );
   }
 

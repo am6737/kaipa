@@ -76,7 +76,7 @@ const _demoPosts = [
     authorInitial: '张',
     time: '昨天',
     location: '云蒙山主峰',
-    text: '带儿子第一次徒步，T2 难度刚刚好。山顶云海超治愈。',
+    text: '带儿子第一次徒步，T3 难度刚刚好。山顶云海超治愈。',
     distance: '7.3km',
     elevation: '↑620m',
     duration: '4:15',

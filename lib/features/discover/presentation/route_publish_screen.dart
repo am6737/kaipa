@@ -21,6 +21,7 @@ class RoutePublishScreen extends ConsumerStatefulWidget {
 
 class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
   int _selectedDifficulty = 2; // T3 selected by default (index 2)
+  int _selectedRating = 2; // middle of 5-point scale
   final List<bool> _toggles = [true, true, true];
 
   String _title = '箭扣野长城日落穿越';
@@ -87,6 +88,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                   _buildStoryCard(colors),
                   _buildPhotosSection(colors, tokens),
                   _buildDifficultyCard(colors),
+                  _buildRatingCard(colors),
                   _buildPrivacyCard(colors),
                 ],
               ),
@@ -127,7 +129,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                     setState(() => _isPublishing = true);
                     try {
                       final routeRepo = ref.read(routeRepositoryProvider);
-                      final difficultyMap = ['easy', 'easy', 'moderate', 'hard', 'expert'];
+                      final difficultyMap = _diffKeys;
                       final route = await routeRepo.publishRoute(
                         name: _title,
                         description: _story,
@@ -484,8 +486,12 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
   }
 
   // ── Difficulty card ──────────────────────────────────────────────────
+  static const _diffKeys = ['easy', 'moderate', 'hard', 'expert', 'extreme'];
+
   Widget _buildDifficultyCard(KaipaColors colors) {
-    final tiers = ['T1', 'T2', 'T3', 'T4', 'T5'];
+    final tiers = ['T4', 'T3', 'T2', 'T1', 'T0'];
+    final selectedKey = _diffKeys[_selectedDifficulty];
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -509,11 +515,11 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                   letterSpacing: -0.2,
                 ),
               ),
-              const DiffBadge(level: 'hard'),
+              DiffBadge(level: selectedKey),
             ],
           ),
           const SizedBox(height: 10),
-          // T1-T5 segmented selector
+          // T4-T0 segmented selector
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
@@ -523,13 +529,14 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
             child: Row(
               children: List.generate(tiers.length, (i) {
                 final selected = i == _selectedDifficulty;
+                final tierColor = colors.diff[_diffKeys[i]];
                 return Expanded(
                   child: GestureDetector(
                     onTap: () => setState(() => _selectedDifficulty = i),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 7),
                       decoration: BoxDecoration(
-                        color: selected ? colors.flare : Colors.transparent,
+                        color: selected ? tierColor : Colors.transparent,
                         borderRadius: BorderRadius.circular(7),
                       ),
                       alignment: Alignment.center,
@@ -554,7 +561,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '初学',
+                '入门',
                 style: TextStyle(
                   fontSize: 10.5,
                   color: colors.inkMuted,
@@ -562,7 +569,7 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                 ),
               ),
               Text(
-                '挑战',
+                '极限',
                 style: TextStyle(
                   fontSize: 10.5,
                   color: colors.inkMuted,
@@ -570,6 +577,110 @@ class _RoutePublishScreenState extends ConsumerState<RoutePublishScreen> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Rating card (夯 → 拉) ─────────────────────────────────────────────
+  Widget _buildRatingCard(KaipaColors colors) {
+    final labels = ['夯', '顶级', '人上人', 'npc', '拉完了'];
+    final label = labels[_selectedRating];
+    final isPositive = _selectedRating <= 2;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '体验评分',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colors.ink,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: colorWithOpacity(
+                    isPositive ? colors.mossDeep : colors.flare,
+                    0.10,
+                  ),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: isPositive ? colors.mossDeep : colors.flare,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isPositive ? colors.mossDeep : colors.flare,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: colors.surfaceHi,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: List.generate(labels.length, (i) {
+                final selected = i == _selectedRating;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedRating = i),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? (i <= 2 ? colors.mossDeep : colors.flare)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        labels[i],
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: selected ? Colors.white : colors.inkMuted,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
           ),
         ],
       ),

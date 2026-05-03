@@ -13,6 +13,7 @@ import '../../../core/widgets/diff_badge.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../data/map_layer_provider.dart';
+import '../../trip/data/active_trip_provider.dart';
 import 'widgets/layer_picker.dart';
 import 'region_picker_screen.dart';
 
@@ -97,7 +98,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
           // ── Top: search bar + profile ──
           Positioned(
-            top: 56,
+            top: MediaQuery.of(context).padding.top + 8,
             left: 16,
             right: 16,
             child: AnimatedSlide(
@@ -280,6 +281,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ],
 
+          // ── Active trip card ──
+          if (ref.watch(activeTripProvider) != null && !immersive)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: _activeRoute != null ? 210 : 110,
+              child: _ActiveTripCard(
+                trip: ref.watch(activeTripProvider)!,
+                colors: colors,
+                onTap: () => context.push('/navigate/${ref.read(activeTripProvider)!.routeId}'),
+              ),
+            ),
+
           // ── Route preview card (shown when a pin is tapped) ──
           if (_activeRoute != null && !immersive)
             Positioned(
@@ -325,10 +339,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final categories = [
       _FilterCategory('难度', [
         _FilterOption('全部难度', null),
-        _FilterOption('入门 T1', 'easy'),
-        _FilterOption('中等 T2', 'moderate'),
-        _FilterOption('困难 T3', 'hard'),
-        _FilterOption('专家 T4', 'expert'),
+        _FilterOption('入门 T4', 'easy'),
+        _FilterOption('中等 T3', 'moderate'),
+        _FilterOption('困难 T2', 'hard'),
+        _FilterOption('专家 T1', 'expert'),
       ]),
       _FilterCategory('距离', [
         _FilterOption('不限', null),
@@ -711,6 +725,72 @@ class _DismissibleCardState extends State<_DismissibleCard>
         child: Opacity(
           opacity: opacity,
           child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Active Trip Card ──────────────────────────────────────────────
+
+class _ActiveTripCard extends StatelessWidget {
+  final ActiveTrip trip;
+  final KaipaColors colors;
+  final VoidCallback onTap;
+
+  const _ActiveTripCard({required this.trip, required this.colors, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed = DateTime.now().difference(trip.startedAt);
+    final mm = elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final hh = elapsed.inHours.toString().padLeft(2, '0');
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: colors.flare,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: colors.flare.withAlpha(80), blurRadius: 12, offset: const Offset(0, 4))],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 8, height: 8,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    trip.routeName,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '进行中 · $hh:$mm',
+                    style: TextStyle(fontSize: 11.5, color: Colors.white.withAlpha(200)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(38),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: const Text('返回导航', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+            ),
+          ],
         ),
       ),
     );

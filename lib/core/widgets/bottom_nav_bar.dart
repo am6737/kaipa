@@ -25,77 +25,64 @@ class BottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = tokens ?? context.kaipaTokens;
     final c = t.color;
-    final isDeparture = currentIndex == 1;
+    final isDeparture = currentIndex == 2;
 
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 32),
-        child: Center(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        child: GlassContainer(
+          dark: dark,
+          radius: 24,
+          tokens: t,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: SizedBox(
-            width: 280,
-            height: 90,
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.bottomCenter,
+            height: 56,
+            child: Row(
               children: [
-                // Glass pill container
-                Positioned(
-                  bottom: 0,
-                  child: GlassContainer(
-                    dark: dark,
-                    radius: 999,
-                    tokens: t,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 0),
-                    child: SizedBox(
-                      width: 280,
-                      height: 60,
-                      child: Row(
-                        children: [
-                          // Left: 装备
-                          _SideTab(
-                            icon: KaipaIcons.backpack,
-                            label: '装备',
-                            isActive: currentIndex == 0,
-                            colors: c,
-                            dark: dark,
-                            onTap: () => onTap(0),
-                          ),
-                          const Spacer(),
-                          // Center spacer for FAB
-                          const SizedBox(width: 64),
-                          const Spacer(),
-                          // Right: 我
-                          _SideTab(
-                            icon: KaipaIcons.user,
-                            label: '我',
-                            isActive: currentIndex == 2,
-                            colors: c,
-                            dark: dark,
-                            onTap: () => onTap(2),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                _NavItem(
+                  icon: KaipaIcons.backpack,
+                  label: '装备',
+                  isActive: currentIndex == 0,
+                  colors: c,
+                  dark: dark,
+                  onTap: () => onTap(0),
                 ),
-                // Center FAB (elevated above the pill)
-                Positioned(
-                  bottom: isDeparture ? 46 : 36,
-                  child: _CenterFab(
-                    isDeparture: isDeparture,
-                    colors: c,
-                    onTap: () {
-                      if (isDeparture) {
-                        // Already on explore tab -- show departure sheet
-                        showDepartureSheet(context, t);
-                      } else {
-                        onTap(1);
-                      }
-                    },
-                    onLongPress: onCenterLongPress,
-                  ),
+                _NavItem(
+                  icon: KaipaIcons.route,
+                  label: '行程',
+                  isActive: currentIndex == 1,
+                  colors: c,
+                  dark: dark,
+                  onTap: () => onTap(1),
+                ),
+                _CenterNavItem(
+                  isDeparture: isDeparture,
+                  colors: c,
+                  onTap: () {
+                    if (isDeparture) {
+                      showDepartureSheet(context, t);
+                    } else {
+                      onTap(2);
+                    }
+                  },
+                  onLongPress: onCenterLongPress,
+                ),
+                _NavItem(
+                  icon: KaipaIcons.bell,
+                  label: '消息',
+                  isActive: currentIndex == 3,
+                  colors: c,
+                  dark: dark,
+                  onTap: () => onTap(3),
+                ),
+                _NavItem(
+                  icon: KaipaIcons.user,
+                  label: '我',
+                  isActive: currentIndex == 4,
+                  colors: c,
+                  dark: dark,
+                  onTap: () => onTap(4),
                 ),
               ],
             ),
@@ -106,7 +93,7 @@ class BottomNavBar extends StatelessWidget {
   }
 }
 
-class _SideTab extends StatelessWidget {
+class _NavItem extends StatelessWidget {
   final String icon;
   final String label;
   final bool isActive;
@@ -114,7 +101,7 @@ class _SideTab extends StatelessWidget {
   final bool dark;
   final VoidCallback onTap;
 
-  const _SideTab({
+  const _NavItem({
     required this.icon,
     required this.label,
     required this.isActive,
@@ -128,47 +115,49 @@ class _SideTab extends StatelessWidget {
     final fg = isActive
         ? colors.flare
         : (dark
-            ? const Color.fromRGBO(255, 255, 255, 0.6)
+            ? const Color.fromRGBO(255, 255, 255, 0.55)
             : colors.inkMuted);
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isActive ? colors.flareSoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(99),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            KaipaIcon(name: icon, size: 20, color: fg),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: fg,
-                letterSpacing: -0.1,
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: isActive ? colors.flareSoft : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              KaipaIcon(name: icon, size: 21, color: fg),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                  color: fg,
+                  letterSpacing: -0.1,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _CenterFab extends StatelessWidget {
+class _CenterNavItem extends StatelessWidget {
   final bool isDeparture;
   final KaipaColors colors;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
-  const _CenterFab({
+  const _CenterNavItem({
     required this.isDeparture,
     required this.colors,
     required this.onTap,
@@ -176,78 +165,52 @@ class _CenterFab extends StatelessWidget {
   });
 
   static const _curve = Cubic(0.34, 1.56, 0.64, 1);
-  static const _duration = Duration(milliseconds: 450);
 
   @override
   Widget build(BuildContext context) {
-    final size = isDeparture ? 54.0 : 50.0;
-
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: AnimatedScale(
-        scale: isDeparture ? 1.1 : 1.0,
-        duration: _duration,
-        curve: _curve,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedContainer(
-              duration: _duration,
-              curve: _curve,
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                color: isDeparture ? colors.flare : colors.surface,
-                shape: BoxShape.circle,
-                boxShadow: isDeparture
-                    ? [
-                        BoxShadow(
-                          color: colorWithOpacity(colors.flare, 0.66),
-                          blurRadius: 18,
-                          spreadRadius: 0,
-                          offset: const Offset(0, 6),
-                        ),
-                        BoxShadow(
-                          color: colorWithOpacity(colors.flare, 0.20),
-                          blurRadius: 0,
-                          spreadRadius: 3,
-                        ),
-                      ]
-                    : [
-                        const BoxShadow(
-                          color: Color.fromRGBO(40, 30, 20, 0.16),
-                          blurRadius: 14,
-                          spreadRadius: 0,
-                          offset: Offset(0, 4),
-                        ),
-                        const BoxShadow(
-                          color: Color.fromRGBO(40, 30, 20, 0.08),
-                          blurRadius: 0,
-                          spreadRadius: 0.5,
-                        ),
-                      ],
-              ),
-              child: Center(
-                child: KaipaIcon(
-                  name: isDeparture ? KaipaIcons.hiker : KaipaIcons.compass,
-                  size: 22,
-                  color: isDeparture ? Colors.white : colors.flare,
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 350),
+            curve: _curve,
+            width: isDeparture ? 44 : 42,
+            height: isDeparture ? 44 : 42,
+            decoration: BoxDecoration(
+              color: colors.flare,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: colorWithOpacity(colors.flare, isDeparture ? 0.35 : 0.25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: TextStyle(
-                fontSize: 8.5,
-                fontWeight: FontWeight.w700,
-                color: isDeparture ? colors.flare : colors.inkMuted,
-                letterSpacing: 0.3,
-              ),
-              child: Text(isDeparture ? '出发' : '探索'),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                KaipaIcon(
+                  name: KaipaIcons.compass,
+                  size: 18,
+                  color: Colors.white,
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  isDeparture ? '出发' : '探索',
+                  style: const TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

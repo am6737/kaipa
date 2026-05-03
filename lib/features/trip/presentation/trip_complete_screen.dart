@@ -7,6 +7,7 @@ import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/section_title.dart';
 import '../data/trip_repository.dart';
+import '../domain/trip_model.dart';
 
 class TripCompleteScreen extends ConsumerStatefulWidget {
   final String tripId;
@@ -31,6 +32,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
     final tripAsync = ref.watch(tripByIdProvider(widget.tripId));
+    final trip = tripAsync.valueOrNull;
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -40,49 +42,27 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Hero gradient header
-                _buildHeroHeader(colors),
-
-                // 2. Stats card (overlapping hero by -40px)
+                _buildHeroHeader(colors, trip),
                 Transform.translate(
                   offset: const Offset(0, -40),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildStatsCard(
-                      tokens, colors,
-                      distanceKm: tripAsync.valueOrNull?.actualDistanceKm,
-                      elevationM: tripAsync.valueOrNull?.actualElevationM,
-                      duration: tripAsync.valueOrNull?.actualDuration,
-                      avgSpeed: tripAsync.valueOrNull?.avgSpeedKmh,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildStatsCard(tokens, colors, trip),
+                        const SizedBox(height: 20),
+                        _buildPhotoTimeline(colors, trip),
+                        const SizedBox(height: 20),
+                        _buildShareSection(tokens, colors, trip),
+                        const SizedBox(height: 260),
+                      ],
                     ),
-                  ),
-                ),
-
-                // Remaining sections with normal padding
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 3. Photo timeline
-                      _buildPhotoTimeline(colors),
-                      const SizedBox(height: 20),
-
-                      // 5. Share section
-                      _buildShareSection(tokens, colors),
-                      const SizedBox(height: 20),
-
-                      // 6. Rate route
-                      _buildRateRouteSection(tokens, colors),
-                      const SizedBox(height: 100),
-                    ],
                   ),
                 ),
               ],
             ),
           ),
-
-          // Bottom CTA (sticky)
           Positioned(
             left: 0,
             right: 0,
@@ -95,7 +75,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
   }
 
   // ─── 1. Hero gradient header ──────────────────────────────────────────
-  Widget _buildHeroHeader(KaipaColors colors) {
+  Widget _buildHeroHeader(KaipaColors colors, TripModel? trip) {
     return SizedBox(
       height: 300,
       child: Stack(
@@ -150,16 +130,15 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Check icon in 52px glass circle
                   ClipOval(
                     child: BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                       child: Container(
                         width: 52,
                         height: 52,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Color.fromRGBO(255, 255, 255, 0.2),
+                          color: colorWithOpacity(Colors.white, 0.2),
                         ),
                         child: const Center(
                           child: Icon(
@@ -173,22 +152,20 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // "行程完成" label
-                  const Text(
+                  Text(
                     '行程完成',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Color.fromRGBO(255, 255, 255, 0.7),
+                      color: colorWithOpacity(Colors.white, 0.7),
                       letterSpacing: 1,
                     ),
                   ),
                   const SizedBox(height: 6),
 
-                  // Route name "箭扣长城"
-                  const Text(
-                    '箭扣长城',
-                    style: TextStyle(
+                  Text(
+                    trip?.routeName ?? '--',
+                    style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
@@ -197,12 +174,11 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                   ),
                   const SizedBox(height: 6),
 
-                  // Date: "2026.04.26 · 周六 · 06:12 — 11:30"
-                  const Text(
-                    '2026.04.26 · 周六 · 06:12 — 11:30',
+                  Text(
+                    _formatTripDateRange(trip),
                     style: TextStyle(
                       fontSize: 13,
-                      color: Color.fromRGBO(255, 255, 255, 0.65),
+                      color: colorWithOpacity(Colors.white, 0.65),
                     ),
                   ),
                 ],
@@ -215,24 +191,61 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
   }
 
   // ─── 2. Stats card ────────────────────────────────────────────────────
+  static const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
   String _formatDuration(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes % 60;
     return '$h:${m.toString().padLeft(2, '0')}';
   }
 
-  Widget _buildStatsCard(KaipaTokens tokens, KaipaColors colors, {double? distanceKm, double? elevationM, Duration? duration, double? avgSpeed}) {
+  String _formatDate(DateTime dt) {
+    return '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatTime(DateTime dt) {
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatTripDateRange(TripModel? trip) {
+    if (trip == null) return '--';
+    final date = _formatDate(trip.startedAt);
+    final weekday = _weekdays[trip.startedAt.weekday - 1];
+    final start = _formatTime(trip.startedAt);
+    final end = trip.finishedAt != null ? _formatTime(trip.finishedAt!) : '--:--';
+    return '$date · $weekday · $start — $end';
+  }
+
+  String _formatDurationChinese(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    if (h > 0 && m > 0) return '$h 小时 $m 分';
+    if (h > 0) return '$h 小时';
+    return '$m 分钟';
+  }
+
+  String _formatShareSubtitle(TripModel? trip) {
+    if (trip == null) return '--';
+    final date = _formatDate(trip.startedAt);
+    final duration = trip.actualDuration != null
+        ? _formatDurationChinese(trip.actualDuration!)
+        : '--';
+    final elevation = trip.actualElevationM?.toInt().toString() ?? '--';
+    return '$date · $duration · ↑${elevation}m';
+  }
+
+  Widget _buildStatsCard(KaipaTokens tokens, KaipaColors colors, TripModel? trip) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: colors.line, width: 0.5),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Color.fromRGBO(0, 0, 0, 0.08),
+            color: colorWithOpacity(colors.ink, 0.08),
             blurRadius: 20,
-            offset: Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -241,10 +254,10 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
           // 4-column stat grid
           Row(
             children: [
-              _statColumn((distanceKm ?? 11.4).toStringAsFixed(1), 'km', colors),
-              _statColumn((elevationM ?? 680).toInt().toString(), 'm', colors),
-              _statColumn(_formatDuration(duration ?? const Duration(hours: 5, minutes: 18)), null, colors),
-              _statColumn((avgSpeed ?? 4.2).toStringAsFixed(1), 'km/h', colors),
+              _statColumn(trip?.actualDistanceKm?.toStringAsFixed(1) ?? '--', 'km', colors),
+              _statColumn(trip?.actualElevationM?.toInt().toString() ?? '--', 'm', colors),
+              _statColumn(trip?.actualDuration != null ? _formatDuration(trip!.actualDuration!) : '--', null, colors),
+              _statColumn(trip?.avgSpeedKmh?.toStringAsFixed(1) ?? '--', 'km/h', colors),
             ],
           ),
           const SizedBox(height: 16),
@@ -288,34 +301,20 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
           ),
           const SizedBox(height: 6),
 
-          // Range labels
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '730m 起点',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: colors.inkMuted,
+          if (trip?.maxAltitudeM != null)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${trip!.maxAltitudeM!.toInt()}m 最高',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: colors.flare,
+                  ),
                 ),
-              ),
-              Text(
-                '1410m 最高',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: colors.flare,
-                ),
-              ),
-              Text(
-                '1180m 终点',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: colors.inkMuted,
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
@@ -361,12 +360,15 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
   }
 
   // ─── 3. Photo timeline ────────────────────────────────────────────────
-  Widget _buildPhotoTimeline(KaipaColors colors) {
-    final spots = [
-      _PhotoSpot('06:42', '北京结', colors.moss, colors.flare),
-      _PhotoSpot('08:15', '鹰飞倒仰', colors.flare, colors.sand),
-      _PhotoSpot('09:33', '天梯', colors.sky, colors.moss),
-      _PhotoSpot('11:01', '九眼楼', colors.sand, colors.flare),
+  Widget _buildPhotoTimeline(KaipaColors colors, TripModel? trip) {
+    final photos = trip?.photos ?? [];
+    if (photos.isEmpty) return const SizedBox.shrink();
+
+    final colorPairs = [
+      (colors.moss, colors.flare),
+      (colors.flare, colors.sand),
+      (colors.sky, colors.moss),
+      (colors.sand, colors.flare),
     ];
 
     return Column(
@@ -376,7 +378,7 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
           title: '沿途记录',
           padding: EdgeInsets.zero,
           trailing: Text(
-            '4 张',
+            '${photos.length} 张',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
@@ -391,11 +393,11 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             clipBehavior: Clip.none,
-            itemCount: spots.length,
+            itemCount: photos.length,
             separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
-              final spot = spots[index];
-              return _buildPhotoCard(spot, colors);
+              final pair = colorPairs[index % colorPairs.length];
+              return _buildPhotoCard(photos[index], pair.$1, pair.$2);
             },
           ),
         ),
@@ -403,89 +405,46 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
     );
   }
 
-  Widget _buildPhotoCard(_PhotoSpot spot, KaipaColors colors) {
+  Widget _buildPhotoCard(String photoUrl, Color colorA, Color colorB) {
     return SizedBox(
       width: 130,
       height: 170,
-      child: Stack(
-        children: [
-          // Terrain gradient background
-          Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(KaipaRadius.lg),
-              child: CustomPaint(
-                painter: _TerrainCardPainter(spot.colorA, spot.colorB),
-              ),
-            ),
-          ),
-
-          // Dark gradient overlay: transparent 40% -> rgba(0,0,0,0.6) 100%
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(KaipaRadius.lg),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.4, 1.0],
-                  colors: [
-                    Colors.transparent,
-                    Color.fromRGBO(0, 0, 0, 0.6),
-                  ],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(KaipaRadius.lg),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.network(
+                photoUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => CustomPaint(
+                  painter: _TerrainCardPainter(colorA, colorB),
                 ),
               ),
             ),
-          ),
-
-          // Time badge at top-left: glass dark bg
-          Positioned(
-            top: 8,
-            left: 8,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color.fromRGBO(0, 0, 0, 0.35),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Text(
-                    spot.time,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.4, 1.0],
+                    colors: [
+                      Colors.transparent,
+                      colorWithOpacity(Colors.black, 0.4),
+                    ],
                   ),
                 ),
               ),
             ),
-          ),
-
-          // Spot name at bottom-left
-          Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Text(
-              spot.name,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   // ─── 5. Share section ─────────────────────────────────────────────────
-  Widget _buildShareSection(KaipaTokens tokens, KaipaColors colors) {
+  Widget _buildShareSection(KaipaTokens tokens, KaipaColors colors, TripModel? trip) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -526,14 +485,14 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: Colors.white.withAlpha(191), // 0.75
+                        color: colorWithOpacity(Colors.white, 0.75),
                         letterSpacing: 0.5,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '箭扣长城 · 11.4km',
-                      style: TextStyle(
+                    Text(
+                      '${trip?.routeName ?? '--'} · ${trip?.actualDistanceKm?.toStringAsFixed(1) ?? '--'}km',
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
@@ -542,10 +501,10 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '2026.04.26 · 5 小时 18 分 · ↑680m',
+                      _formatShareSubtitle(trip),
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.white.withAlpha(179), // 0.7
+                        color: colorWithOpacity(Colors.white, 0.7),
                       ),
                     ),
                   ],
@@ -623,111 +582,68 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
     );
   }
 
-  // ─── 6. Rate route ────────────────────────────────────────────────────
-  Widget _buildRateRouteSection(KaipaTokens tokens, KaipaColors colors) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.line, width: 0.5),
-      ),
-      child: Column(
-        children: [
-          Text(
-            '给这条路线评分',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: colors.ink,
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // 5 star circles (36px, gap 8)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (i) {
-              final filled = i < _rating;
-              return GestureDetector(
-                onTap: () => setState(() => _rating = i + 1),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: filled ? colors.flareSoft : colors.lineSoft,
-                    ),
-                    child: Center(
-                      child: KaipaIcon(
-                        name: KaipaIcons.star,
-                        size: 18,
-                        color: filled ? colors.flare : colors.inkDim,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 14),
-
-          // Textarea
-          SizedBox(
-            height: 68,
-            child: TextField(
-              controller: _feedbackController,
-              maxLines: 3,
-              minLines: 2,
-              style: TextStyle(fontSize: 12.5, color: colors.ink),
-              decoration: InputDecoration(
-                hintText: '留下一句话给后来的人…',
-                hintStyle: TextStyle(fontSize: 12.5, color: colors.inkDim),
-                filled: true,
-                fillColor: colors.bg,
-                contentPadding: const EdgeInsets.all(12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: colors.flare, width: 1),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ─── Bottom CTA (sticky) ─────────────────────────────────────────────
   Widget _buildBottomCta(KaipaColors colors) {
+    final labels = ['夯', '顶级', '人上人', 'npc', '拉完了'];
+    final ratingIndex = _rating.clamp(1, 5) - 1;
+
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const [0.0, 0.5, 1.0],
-          colors: [
-            colors.bg.withAlpha(0),
-            colors.bg,
-            colors.bg,
-          ],
-        ),
+        color: colors.bg,
+        border: Border(top: BorderSide(color: colors.line, width: 0.5)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 34),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Rating selector
+          Text(
+            '给这条路线评分',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: colors.ink,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: colors.surfaceHi,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: List.generate(labels.length, (i) {
+                final selected = i == ratingIndex;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _rating = i + 1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? (i <= 2 ? colors.mossDeep : colors.flare)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        labels[i],
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: selected ? Colors.white : colors.inkMuted,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             height: 54,
@@ -799,15 +715,6 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
       ),
     );
   }
-}
-
-// ─── Data classes ─────────────────────────────────────────────────────
-class _PhotoSpot {
-  final String time;
-  final String name;
-  final Color colorA;
-  final Color colorB;
-  const _PhotoSpot(this.time, this.name, this.colorA, this.colorB);
 }
 
 // ─── Custom painters ──────────────────────────────────────────────────

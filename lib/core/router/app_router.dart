@@ -56,7 +56,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loggedIn = Supabase.instance.client.auth.currentUser != null;
       final path = state.matchedLocation;
 
-      const authRequired = ['/gear', '/profile'];
+      const authRequired = ['/gear', '/trips', '/profile'];
       final needsAuth = authRequired.any((p) => path.startsWith(p));
 
       if (!loggedIn && needsAuth) {
@@ -111,7 +111,14 @@ final routerProvider = Provider<GoRouter>((ref) {
               ],
             ),
           ]),
-          // Branch 1: Discover (map — center tab)
+          // Branch 1: Trips
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/trips',
+              builder: (_, _) => const TripPlanListScreen(),
+            ),
+          ]),
+          // Branch 2: Discover (map — center tab)
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/discover',
@@ -132,7 +139,14 @@ final routerProvider = Provider<GoRouter>((ref) {
               ],
             ),
           ]),
-          // Branch 2: Profile (me)
+          // Branch 3: Notifications
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/notifications',
+              builder: (_, _) => const NotificationsScreen(),
+            ),
+          ]),
+          // Branch 4: Profile (me)
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/profile',
@@ -162,6 +176,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => GearPickScreen(
           routeId: state.pathParameters['routeId']!,
+          planId: state.uri.queryParameters['planId'],
         ),
       ),
       GoRoute(
@@ -237,11 +252,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => TripPlanDetailScreen(
           planId: state.pathParameters['planId']!,
         ),
-      ),
-      GoRoute(
-        path: '/notifications',
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (_, _) => const NotificationsScreen(),
       ),
       GoRoute(
         path: '/settings',
