@@ -20,11 +20,11 @@ import '../../features/gear/presentation/preset_detail_screen.dart';
 import '../../features/navigation/presentation/navigate_screen.dart';
 import '../../features/navigation/presentation/navigate_hud_screen.dart';
 import '../../features/trip/presentation/manual_trip_entry_screen.dart';
-import '../../features/trip/presentation/safety_confirm_screen.dart';
 import '../../features/trip/presentation/trip_complete_screen.dart';
 import '../../features/trip/presentation/trip_history_screen.dart';
 import '../../features/gpx/presentation/gpx_import_screen.dart';
 import '../../features/discover/presentation/region_picker_screen.dart';
+import '../../features/footprint/presentation/footprint_detail_screen.dart';
 import '../../features/social/presentation/feed_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
@@ -185,6 +185,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => NavigateScreen(
           routeId: state.pathParameters['routeId']!,
           tripId: state.uri.queryParameters['tripId'],
+          planId: state.uri.queryParameters['planId'],
         ),
       ),
       GoRoute(
@@ -198,6 +199,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/trip-complete/:tripId',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => TripCompleteScreen(
+          tripId: state.pathParameters['tripId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/footprint/:tripId',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => FootprintDetailScreen(
           tripId: state.pathParameters['tripId']!,
         ),
       ),
@@ -217,13 +225,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/weather/:routeId',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => WeatherScreen(
-          routeId: state.pathParameters['routeId']!,
-        ),
-      ),
-      GoRoute(
-        path: '/safety-confirm/:routeId',
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (_, state) => SafetyConfirmScreen(
           routeId: state.pathParameters['routeId']!,
         ),
       ),
