@@ -52,6 +52,8 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
                       children: [
                         _buildStatsCard(tokens, colors, trip),
                         const SizedBox(height: 20),
+                        _buildNotesInput(colors),
+                        const SizedBox(height: 20),
                         _buildPhotoTimeline(colors, trip),
                         const SizedBox(height: 20),
                         _buildShareSection(tokens, colors, trip),
@@ -359,7 +361,39 @@ class _TripCompleteScreenState extends ConsumerState<TripCompleteScreen> {
     );
   }
 
-  // ─── 3. Photo timeline ────────────────────────────────────────────────
+  // ─── 3. Notes input ────────────────────────────────────────────────────
+  Widget _buildNotesInput(KaipaColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(title: '记录笔记', padding: EdgeInsets.zero),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _feedbackController,
+          maxLines: 4,
+          minLines: 2,
+          style: TextStyle(fontSize: 13, color: colors.ink),
+          decoration: InputDecoration(
+            hintText: '记录这次徒步的感受、见闻…',
+            hintStyle: TextStyle(fontSize: 13, color: colors.inkDim),
+            filled: true,
+            fillColor: colors.surface,
+            contentPadding: const EdgeInsets.all(12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: colors.flare, width: 1),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── 4. Photo timeline ────────────────────────────────────────────────
   Widget _buildPhotoTimeline(KaipaColors colors, TripModel? trip) {
     final photos = trip?.photos ?? [];
     if (photos.isEmpty) return const SizedBox.shrink();
