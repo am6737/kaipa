@@ -817,10 +817,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: diffColor, width: 2.5),
+                  border: Border.all(
+                    color: isActive ? diffColor : Colors.white,
+                    width: 2.5,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: diffColor.withAlpha(isActive ? 60 : 25),
+                      color: (isActive ? diffColor : Colors.black)
+                          .withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
                     ),
@@ -906,10 +910,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: markerColor, width: 2.5),
+                  border: Border.all(
+                    color: isActive ? markerColor : Colors.white,
+                    width: 2.5,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: markerColor.withAlpha(isActive ? 60 : 25),
+                      color: (isActive ? markerColor : Colors.black)
+                          .withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
                     ),
