@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,7 +14,10 @@ import '../../../core/widgets/diff_badge.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../data/map_layer_provider.dart';
+import '../data/map_perspective_provider.dart';
 import '../../trip/data/active_trip_provider.dart';
+import '../../navigation/data/navigation_repository.dart';
+import '../../navigation/data/location_service.dart';
 import 'widgets/layer_picker.dart';
 import 'region_picker_screen.dart';
 
@@ -24,7 +28,8 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen>
+    with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
   RouteModel? _activeRoute;
   int _zoomLevel = 1; // 0=globe, 1=region, 2=trail
@@ -32,6 +37,107 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   LatLng _cityCenter = const LatLng(40.0, 116.4);
   double _cityZoom = 9.5;
   bool _showLayerPicker = false;
+  bool _isLocating = false;
+  bool _isAtCurrentLocation = false;
+  double _userLat = 0;
+  double _userLng = 0;
+  bool _ignoreNextMapEvent = false;
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _pulseAnim = Tween<double>(begin: 1.0, end: 0.3).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+    _locateMe();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _locateMe() async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+    _pulseController.repeat(reverse: true);
+
+    final locationService = ref.read(locationServiceProvider);
+    try {
+      // Android: must request permission first to show system dialog.
+      // Web: requestPermission doesn't trigger browser prompt, so skip it
+      // and let getCurrentPosition trigger it.
+      if (!kIsWeb) {
+        final permission = await locationService.requestPermission();
+        if (permission == LocationPermissionStatus.deniedForever) {
+          _showLocationError('deniedForever');
+          return;
+        }
+        if (permission != LocationPermissionStatus.granted) {
+          _showLocationError('permission');
+          return;
+        }
+
+        final enabled = await locationService.isServiceEnabled;
+        if (!enabled) {
+          _showLocationError('service');
+          return;
+        }
+      }
+
+      final position = await locationService.getCurrentPosition(
+        timeLimit: const Duration(seconds: 15),
+      );
+      if (mounted) {
+        _ignoreNextMapEvent = true;
+        setState(() {
+          _userLat = position.latitude;
+          _userLng = position.longitude;
+          _cityCenter = LatLng(_userLat, _userLng);
+          _cityName = '当前位置';
+          _isAtCurrentLocation = true;
+        });
+        _mapController.move(_cityCenter, _cityZoom);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showLocationError(e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLocating = false);
+        _pulseController.stop();
+        _pulseController.reset();
+      }
+    }
+  }
+
+  void _showLocationError(String error) {
+    String message;
+    if (error.contains('deniedForever')) {
+      message = '定位权限已被永久拒绝，请到系统设置中开启';
+    } else if (error.contains('permission') || error.contains('Permission')) {
+      message = '定位权限被拒绝';
+    } else if (error.contains('service') || error.contains('disabled')) {
+      message = '请先开启手机定位服务';
+    } else {
+      message = '定位失败，请检查网络与定位服务';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
 
   static const _photoIds = [
     '1508804185872-d7badad00f7d',
@@ -54,6 +160,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final routesAsync = ref.watch(allRoutesProvider);
     final immersive = ref.watch(immersiveModeProvider);
     final layerPrefs = ref.watch(mapLayerPrefsProvider);
+    final perspective = ref.watch(mapPerspectiveProvider);
     final activeLayer = layerPrefs.activeLayer;
 
     return Scaffold(
@@ -72,6 +179,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ref.read(immersiveModeProvider.notifier).state = false;
                 } else if (_activeRoute != null) {
                   setState(() => _activeRoute = null);
+                }
+              },
+              onMapEvent: (event) {
+                if (event is MapEventMoveEnd) {
+                  if (_ignoreNextMapEvent) {
+                    _ignoreNextMapEvent = false;
+                    return;
+                  }
+                  if (_isAtCurrentLocation) {
+                    setState(() => _isAtCurrentLocation = false);
+                  }
                 }
               },
             ),
@@ -167,19 +285,58 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      CircleButton(
-                        icon: KaipaIcons.upload,
-                        size: 46,
-                        iconSize: 18,
-                        onTap: () => context.push('/gpx-import'),
+                      // Perspective toggle pill
+                      GestureDetector(
+                        onTap: () {
+                          final next = perspective == MapPerspective.discover
+                              ? MapPerspective.footprint
+                              : MapPerspective.discover;
+                          ref.read(mapPerspectiveProvider.notifier).state = next;
+                          setState(() {
+                            _activeRoute = null;
+                          });
+                        },
+                        child: Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(color: colors.line, width: 0.5),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _PerspectiveTab(
+                                label: '发现',
+                                active: perspective == MapPerspective.discover,
+                                colors: colors,
+                              ),
+                              _PerspectiveTab(
+                                label: '足迹',
+                                active: perspective == MapPerspective.footprint,
+                                colors: colors,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      CircleButton(
-                        icon: KaipaIcons.filter,
-                        size: 46,
-                        iconSize: 18,
-                        onTap: () => _showFilterSheet(context, colors),
-                      ),
+                      if (perspective == MapPerspective.discover) ...[
+                        const SizedBox(width: 8),
+                        CircleButton(
+                          icon: KaipaIcons.upload,
+                          size: 46,
+                          iconSize: 18,
+                          onTap: () => context.push('/gpx-import'),
+                        ),
+                        const SizedBox(width: 8),
+                        CircleButton(
+                          icon: KaipaIcons.filter,
+                          size: 46,
+                          iconSize: 18,
+                          onTap: () => _showFilterSheet(context, colors),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -226,14 +383,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         onTap: () => setState(() => _showLayerPicker = !_showLayerPicker),
                       ),
                       const SizedBox(height: 10),
-                      // Navigate CircleButton (44px glass circle, navigate icon in flare)
-                      CircleButton(
-                        icon: KaipaIcons.navigate,
-                        size: 44,
-                        iconSize: 18,
-                        color: colors.flare,
-                        onTap: () =>
-                            _mapController.move(_cityCenter, _cityZoom),
+                      // Locate me button
+                      // grey = not at current location, flare = at current location
+                      // pulses while actively locating
+                      AnimatedBuilder(
+                        animation: _pulseAnim,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _isLocating ? _pulseAnim.value : 1.0,
+                            child: CircleButton(
+                              icon: KaipaIcons.navigate,
+                              size: 44,
+                              iconSize: 18,
+                              color: _isAtCurrentLocation ? colors.flare : colors.inkMuted,
+                              onTap: _isLocating ? null : () => _locateMe(),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 10),
                       CircleButton(
@@ -1004,6 +1170,35 @@ class _MiniElevPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_MiniElevPainter old) => false;
+}
+
+// ─── Perspective Tab ────────────────────────────────────────────────
+
+class _PerspectiveTab extends StatelessWidget {
+  final String label;
+  final bool active;
+  final KaipaColors colors;
+
+  const _PerspectiveTab({required this.label, required this.active, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: active ? colors.flare : Colors.transparent,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: active ? Colors.white : colors.inkMuted,
+        ),
+      ),
+    );
+  }
 }
 
 class _FilterCategory {
