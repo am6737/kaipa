@@ -359,13 +359,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       // Perspective toggle button
                       CircleButton(
                         icon: perspective == MapPerspective.discover
-                            ? KaipaIcons.flag
-                            : KaipaIcons.compass,
+                            ? KaipaIcons.compass
+                            : KaipaIcons.flag,
                         size: 44,
                         iconSize: 18,
-                        color: perspective == MapPerspective.footprint
-                            ? colors.flare
-                            : colors.inkMuted,
                         onTap: () {
                           final next = perspective == MapPerspective.discover
                               ? MapPerspective.footprint
