@@ -15,14 +15,10 @@ fi
 # Kill existing server on the port
 kill $(lsof -t -i:"$PORT") 2>/dev/null || true
 
-# Build
-echo "Building Flutter web..."
+echo "Starting Flutter web-server on http://0.0.0.0:$PORT (hot reload enabled)..."
 cd "$DIR"
-"$FLUTTER" build web --release --quiet \
+exec "$FLUTTER" run -d web-server \
+  --web-port "$PORT" \
+  --web-hostname 0.0.0.0 \
   --dart-define="SUPABASE_URL=${SUPABASE_URL}" \
   --dart-define="SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
-
-# Serve
-echo "Serving on http://0.0.0.0:$PORT"
-cd "$DIR/build/web"
-exec python3 -m http.server "$PORT" --bind 0.0.0.0
