@@ -419,22 +419,20 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       // Divider
                       Container(width: 20, height: 1, color: colors.line),
                       const SizedBox(height: 16),
-                      // Upload + Filter (discover mode only)
-                      if (perspective == MapPerspective.discover) ...[
-                        CircleButton(
-                          icon: KaipaIcons.upload,
-                          size: 44,
-                          iconSize: 18,
-                          onTap: () => context.push('/gpx-import'),
-                        ),
-                        const SizedBox(height: 10),
-                        CircleButton(
-                          icon: KaipaIcons.filter,
-                          size: 44,
-                          iconSize: 18,
-                          onTap: () => _showFilterSheet(context, colors),
-                        ),
-                      ],
+                      // Upload + Filter
+                      CircleButton(
+                        icon: KaipaIcons.upload,
+                        size: 44,
+                        iconSize: 18,
+                        onTap: () => context.push('/gpx-import'),
+                      ),
+                      const SizedBox(height: 10),
+                      CircleButton(
+                        icon: KaipaIcons.filter,
+                        size: 44,
+                        iconSize: 18,
+                        onTap: () => _showFilterSheet(context, colors),
+                      ),
                     ],
                   ),
                 ),
@@ -544,36 +542,60 @@ class _MapScreenState extends ConsumerState<MapScreen>
   }
 
   void _showFilterSheet(BuildContext context, KaipaColors colors) {
-    final categories = [
-      _FilterCategory('难度', [
-        _FilterOption('全部难度', null),
-        _FilterOption('入门 T4', 'easy'),
-        _FilterOption('中等 T3', 'moderate'),
-        _FilterOption('困难 T2', 'hard'),
-        _FilterOption('专家 T1', 'expert'),
-      ]),
-      _FilterCategory('距离', [
-        _FilterOption('不限', null),
-        _FilterOption('5 km 以内', '5km'),
-        _FilterOption('5–15 km', '15km'),
-        _FilterOption('15–30 km', '30km'),
-        _FilterOption('30 km 以上', '30km+'),
-      ]),
-      _FilterCategory('时长', [
-        _FilterOption('不限', null),
-        _FilterOption('半日 (< 4h)', 'half'),
-        _FilterOption('一日 (4–8h)', 'day'),
-        _FilterOption('多日', 'multi'),
-      ]),
-      _FilterCategory('特征', [
-        _FilterOption('有水源', 'water'),
-        _FilterOption('看日出', 'sunrise'),
-        _FilterOption('可露营', 'camp'),
-        _FilterOption('亲子友好', 'family'),
-        _FilterOption('宠物友好', 'pet'),
-        _FilterOption('轮椅可达', 'accessible'),
-      ]),
-    ];
+    final perspective = ref.read(mapPerspectiveProvider);
+    final isDiscover = perspective == MapPerspective.discover;
+
+    final categories = isDiscover
+        ? [
+            _FilterCategory('难度', [
+              _FilterOption('全部难度', null),
+              _FilterOption('入门 T4', 'easy'),
+              _FilterOption('中等 T3', 'moderate'),
+              _FilterOption('困难 T2', 'hard'),
+              _FilterOption('专家 T1', 'expert'),
+            ]),
+            _FilterCategory('距离', [
+              _FilterOption('不限', null),
+              _FilterOption('5 km 以内', '5km'),
+              _FilterOption('5–15 km', '15km'),
+              _FilterOption('15–30 km', '30km'),
+              _FilterOption('30 km 以上', '30km+'),
+            ]),
+            _FilterCategory('时长', [
+              _FilterOption('不限', null),
+              _FilterOption('半日 (< 4h)', 'half'),
+              _FilterOption('一日 (4–8h)', 'day'),
+              _FilterOption('多日', 'multi'),
+            ]),
+            _FilterCategory('特征', [
+              _FilterOption('有水源', 'water'),
+              _FilterOption('看日出', 'sunrise'),
+              _FilterOption('可露营', 'camp'),
+              _FilterOption('亲子友好', 'family'),
+              _FilterOption('宠物友好', 'pet'),
+              _FilterOption('轮椅可达', 'accessible'),
+            ]),
+          ]
+        : [
+            _FilterCategory('来源', [
+              _FilterOption('全部', null),
+              _FilterOption('真实记录', 'tracked'),
+              _FilterOption('手动录入', 'manual'),
+            ]),
+            _FilterCategory('时间', [
+              _FilterOption('不限', null),
+              _FilterOption('最近一个月', 'month'),
+              _FilterOption('最近三个月', 'quarter'),
+              _FilterOption('最近一年', 'year'),
+            ]),
+            _FilterCategory('距离', [
+              _FilterOption('不限', null),
+              _FilterOption('5 km 以内', '5km'),
+              _FilterOption('5–15 km', '15km'),
+              _FilterOption('15–30 km', '30km'),
+              _FilterOption('30 km 以上', '30km+'),
+            ]),
+          ];
 
     // Single-select for categories 0-2 (difficulty/distance/duration), multi-select for category 3 (features)
     final selected = List<Set<String?>>.generate(categories.length, (i) => <String?>{});
@@ -614,7 +636,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                 child: Row(
                   children: [
-                    Text('筛选路线', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.5)),
+                    Text(isDiscover ? '筛选路线' : '筛选足迹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.5)),
                     const Spacer(),
                     GestureDetector(
                       onTap: () {
@@ -638,7 +660,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   itemCount: categories.length,
                   itemBuilder: (ctx, ci) {
                     final cat = categories[ci];
-                    final isMultiSelect = ci == 3;
+                    final isMultiSelect = isDiscover && ci == 3;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 20),
                       child: Column(
