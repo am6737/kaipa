@@ -96,6 +96,21 @@ class FootprintRepository {
     return null;
   }
 
+  /// Fetch all completed trips for a specific route (for trip switcher).
+  Future<List<TripModel>> fetchTripsByRouteId(String routeId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final data = await _client
+        .from('trips')
+        .select()
+        .eq('user_id', userId)
+        .eq('route_id', routeId)
+        .eq('status', 'completed')
+        .order('started_at', ascending: false)
+        .limit(20);
+    return (data as List).map((e) => TripModel.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   /// Extract the first coordinate from a GeoJSON object.
   static (double, double)? _firstCoordFromGeojson(Map<String, dynamic> geojson) {
     try {
@@ -131,4 +146,9 @@ final footprintRepositoryProvider = Provider<FootprintRepository>((ref) {
 final footprintMemoriesProvider = FutureProvider<List<FootprintMemory>>((ref) async {
   final repo = ref.watch(footprintRepositoryProvider);
   return repo.fetchMemories();
+});
+
+final tripsByRouteProvider = FutureProvider.family<List<TripModel>, String>((ref, routeId) async {
+  final repo = ref.watch(footprintRepositoryProvider);
+  return repo.fetchTripsByRouteId(routeId);
 });

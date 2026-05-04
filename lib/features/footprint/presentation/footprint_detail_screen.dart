@@ -11,6 +11,7 @@ import '../../trip/domain/trip_model.dart';
 import '../data/footprint_repository.dart';
 import 'widgets/photo_wall.dart';
 import 'widgets/track_replay_map.dart';
+import 'widgets/trip_switcher.dart';
 
 class FootprintDetailScreen extends ConsumerStatefulWidget {
   final String tripId;
@@ -71,6 +72,8 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen> {
                   children: [
                     const SizedBox(height: 16),
                     _buildTitle(trip, colors),
+                    if (trip.routeId != null)
+                      _buildSwitcherIfNeeded(trip, colors),
                     const SizedBox(height: 16),
                     _buildStatsCard(trip, colors),
                     const SizedBox(height: 16),
@@ -139,6 +142,31 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen> {
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
         ]),
       ),
+    );
+  }
+
+  // ─── Trip Switcher ─────────────────────────────────────────────────
+  Widget _buildSwitcherIfNeeded(TripModel trip, KaipaColors colors) {
+    final tripsAsync = ref.watch(tripsByRouteProvider(trip.routeId!));
+    return tripsAsync.when(
+      data: (trips) {
+        if (trips.length <= 1) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: TripSwitcher(
+            trips: trips,
+            selected: trip,
+            colors: colors,
+            onSelect: (selected) {
+              if (selected.id != trip.id) {
+                context.pushReplacement('/footprint/${selected.id}');
+              }
+            },
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 
