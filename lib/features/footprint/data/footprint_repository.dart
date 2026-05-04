@@ -20,7 +20,7 @@ class FootprintRepository {
         .eq('user_id', userId)
         .eq('status', 'completed')
         .order('started_at', ascending: false)
-        .limit(200);
+        .limit(5);
 
     final memories = <FootprintMemory>[];
     for (final row in (data as List)) {

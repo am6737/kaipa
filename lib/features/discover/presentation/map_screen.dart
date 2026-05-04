@@ -206,7 +206,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 userAgentPackageName: 'com.kaipa.app',
                 retinaMode: activeLayer.retinaMode,
               ),
-              if (layerPrefs.showRoutes)
+              // Discover perspective: community route markers
+              if (perspective == MapPerspective.discover && layerPrefs.showRoutes)
                 routesAsync.when(
                   data: (routes) {
                     final filtered = _filterRoutes(routes);
@@ -217,6 +218,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   loading: () => const MarkerLayer(markers: []),
                   error: (_, _) => const MarkerLayer(markers: []),
                 ),
+              // Footprint perspective: personal trip markers
               if (perspective == MapPerspective.footprint)
                 footprintMemoriesAsync.when(
                   data: (memories) => MarkerLayer(
