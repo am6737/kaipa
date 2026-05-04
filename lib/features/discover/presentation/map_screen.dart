@@ -40,6 +40,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
   LatLng _cityCenter = const LatLng(40.0, 116.4);
   double _cityZoom = 9.5;
   bool _showLayerPicker = false;
+  bool _showMoreActions = false;
   bool _isLocating = false;
   bool _isAtCurrentLocation = false;
   double _userLat = 0;
@@ -185,6 +186,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   setState(() => _activeRoute = null);
                 } else if (_activeFootprint != null) {
                   setState(() => _activeFootprint = null);
+                }
+                if (_showMoreActions) {
+                  setState(() => _showMoreActions = false);
                 }
               },
               onMapEvent: (event) {
@@ -441,19 +445,39 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       // Divider
                       Container(width: 20, height: 1, color: colors.line),
                       const SizedBox(height: 16),
-                      // Upload + Filter
+                      // More button
                       CircleButton(
-                        icon: KaipaIcons.upload,
+                        icon: KaipaIcons.ellipsis,
                         size: 44,
                         iconSize: 18,
-                        onTap: () => context.push('/gpx-import'),
+                        onTap: () => setState(() => _showMoreActions = !_showMoreActions),
                       ),
-                      const SizedBox(height: 10),
-                      CircleButton(
-                        icon: KaipaIcons.filter,
-                        size: 44,
-                        iconSize: 18,
-                        onTap: () => _showFilterSheet(context, colors),
+                      // Expanded actions
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOut,
+                        alignment: Alignment.topCenter,
+                        child: _showMoreActions
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(height: 10),
+                                  CircleButton(
+                                    icon: KaipaIcons.upload,
+                                    size: 44,
+                                    iconSize: 18,
+                                    onTap: () => context.push('/gpx-import'),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  CircleButton(
+                                    icon: KaipaIcons.filter,
+                                    size: 44,
+                                    iconSize: 18,
+                                    onTap: () => _showFilterSheet(context, colors),
+                                  ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ],
                   ),
