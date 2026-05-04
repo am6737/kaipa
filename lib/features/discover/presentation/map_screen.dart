@@ -225,6 +225,35 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   loading: () => const MarkerLayer(markers: []),
                   error: (_, _) => const MarkerLayer(markers: []),
                 ),
+              if (_userLat != 0 && _userLng != 0)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: LatLng(_userLat, _userLng),
+                      width: 22,
+                      height: 22,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: colors.flare.withAlpha(30),
+                          border: Border.all(color: colors.flare, width: 2.5),
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
 
@@ -343,10 +372,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
           ),
 
-          // ── Right-side controls (right 16, top ~200, column, gap 10) ──
+          // ── Right-side controls ──
           Positioned(
             right: 16,
-            top: MediaQuery.of(context).padding.top + 70,
+            top: MediaQuery.of(context).padding.top + 100,
             child: AnimatedSlide(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
