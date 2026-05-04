@@ -818,12 +818,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isActive ? diffColor : Colors.white,
+                    color: isActive ? colors.flare : Colors.white,
                     width: 2.5,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: (isActive ? diffColor : Colors.black)
+                      color: (isActive ? colors.flare : Colors.black)
                           .withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
@@ -885,7 +885,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
   List<Marker> _buildFootprintMarkers(List<FootprintMemory> memories, KaipaColors colors) {
     return memories.map((memory) {
       final isActive = _activeFootprint?.trip.id == memory.trip.id;
-      final markerColor = memory.isManual ? colors.sand : colors.moss;
 
       return Marker(
         point: LatLng(memory.latitude, memory.longitude),
@@ -911,12 +910,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isActive ? markerColor : Colors.white,
+                    color: isActive ? colors.flare : Colors.white,
                     width: 2.5,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: (isActive ? markerColor : Colors.black)
+                      color: (isActive ? colors.flare : Colors.black)
                           .withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
