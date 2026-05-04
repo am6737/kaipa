@@ -20,6 +20,9 @@ import '../../navigation/data/navigation_repository.dart';
 import '../../navigation/data/location_service.dart';
 import 'widgets/layer_picker.dart';
 import 'region_picker_screen.dart';
+import '../../footprint/data/footprint_repository.dart';
+import '../../footprint/domain/footprint_memory.dart';
+import '../../footprint/presentation/widgets/footprint_preview_card.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -32,6 +35,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
   RouteModel? _activeRoute;
+  FootprintMemory? _activeFootprint;
   int _zoomLevel = 1; // 0=globe, 1=region, 2=trail
   String _cityName = '北京';
   LatLng _cityCenter = const LatLng(40.0, 116.4);
@@ -161,6 +165,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final immersive = ref.watch(immersiveModeProvider);
     final layerPrefs = ref.watch(mapLayerPrefsProvider);
     final perspective = ref.watch(mapPerspectiveProvider);
+    final footprintMemoriesAsync = ref.watch(footprintMemoriesProvider);
     final activeLayer = layerPrefs.activeLayer;
 
     return Scaffold(
@@ -179,6 +184,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   ref.read(immersiveModeProvider.notifier).state = false;
                 } else if (_activeRoute != null) {
                   setState(() => _activeRoute = null);
+                } else if (_activeFootprint != null) {
+                  setState(() => _activeFootprint = null);
                 }
               },
               onMapEvent: (event) {
@@ -208,6 +215,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       markers: _buildMarkers(filtered, colors),
                     );
                   },
+                  loading: () => const MarkerLayer(markers: []),
+                  error: (_, _) => const MarkerLayer(markers: []),
+                ),
+              if (perspective == MapPerspective.footprint)
+                footprintMemoriesAsync.when(
+                  data: (memories) => MarkerLayer(
+                    markers: _buildFootprintMarkers(memories, colors),
+                  ),
                   loading: () => const MarkerLayer(markers: []),
                   error: (_, _) => const MarkerLayer(markers: []),
                 ),
@@ -475,6 +490,27 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   onTap: () =>
                       context.push('/discover/route/${_activeRoute!.id}'),
                   onClose: () => setState(() => _activeRoute = null),
+                ),
+              ),
+            ),
+
+          // ── Footprint preview card ──
+          if (_activeFootprint != null && !immersive && perspective == MapPerspective.footprint)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 110,
+              child: _DismissibleCard(
+                onDismissed: () => setState(() => _activeFootprint = null),
+                child: FootprintPreviewCard(
+                  memory: _activeFootprint!,
+                  colors: colors,
+                  photoUrl: _activeFootprint!.isManual
+                      ? ''
+                      : routePhoto(_activeFootprint!.displayName, w: 800, h: 400),
+                  onTap: () =>
+                      context.push('/footprint/${_activeFootprint!.trip.id}'),
+                  onClose: () => setState(() => _activeFootprint = null),
                 ),
               ),
             ),
@@ -762,6 +798,107 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   route.name.length > 6
                       ? '${route.name.substring(0, 6)}…'
                       : route.name,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: colors.ink,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  List<Marker> _buildFootprintMarkers(List<FootprintMemory> memories, KaipaColors colors) {
+    return memories.map((memory) {
+      final isActive = _activeFootprint?.trip.id == memory.trip.id;
+      final markerColor = memory.isManual ? colors.sand : colors.moss;
+
+      return Marker(
+        point: LatLng(memory.latitude, memory.longitude),
+        width: 130,
+        height: 56,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              _activeRoute = null;
+              _activeFootprint = memory;
+            });
+            _mapController.move(
+              LatLng(memory.latitude, memory.longitude),
+              _mapController.camera.zoom.clamp(10, 14),
+            );
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: isActive ? 48 : 40,
+                height: isActive ? 48 : 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isActive ? markerColor : Colors.white,
+                    width: isActive ? 3 : 2.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isActive ? markerColor : Colors.black).withAlpha(isActive ? 60 : 25),
+                      blurRadius: isActive ? 12 : 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: memory.isManual
+                      ? Container(
+                          color: colors.sand,
+                          child: Center(
+                            child: KaipaIcon(
+                              name: KaipaIcons.flag,
+                              size: isActive ? 20 : 16,
+                              color: colors.ink,
+                            ),
+                          ),
+                        )
+                      : Image.network(
+                          routePhoto(memory.displayName, w: 100, h: 100),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            color: colors.moss.withAlpha(40),
+                            child: Center(
+                              child: KaipaIcon(
+                                name: KaipaIcons.mountain,
+                                size: isActive ? 20 : 16,
+                                color: colors.moss,
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(15),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  memory.displayName.length > 6
+                      ? '${memory.displayName.substring(0, 6)}…'
+                      : memory.displayName,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
