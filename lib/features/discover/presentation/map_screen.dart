@@ -397,7 +397,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── Right-side controls ──
           Positioned(
             right: 16,
-            top: MediaQuery.of(context).padding.top + 140,
+            top: MediaQuery.of(context).padding.top + 200,
             child: AnimatedSlide(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
@@ -503,7 +503,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
             Positioned(
               right: 68,
-              top: 240,
+              top: 300,
               child: LayerPicker(
                 colors: colors,
                 prefs: layerPrefs,
