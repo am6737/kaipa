@@ -101,11 +101,20 @@ class _MapScreenState extends ConsumerState<MapScreen>
       );
       if (mounted) {
         _ignoreNextMapEvent = true;
+        // Reverse geocode to get actual place name
+        String placeName;
+        try {
+          placeName = await locationService.reverseGeocode(
+                position.latitude, position.longitude) ??
+            '当前位置';
+        } catch (_) {
+          placeName = '当前位置';
+        }
         setState(() {
           _userLat = position.latitude;
           _userLng = position.longitude;
           _cityCenter = LatLng(_userLat, _userLng);
-          _cityName = '当前位置';
+          _cityName = placeName;
           _isAtCurrentLocation = true;
         });
         _mapController.move(_cityCenter, _cityZoom);
@@ -388,7 +397,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── Right-side controls ──
           Positioned(
             right: 16,
-            top: MediaQuery.of(context).padding.top + 100,
+            top: MediaQuery.of(context).padding.top + 140,
             child: AnimatedSlide(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
@@ -441,10 +450,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                           ref.read(immersiveModeProvider.notifier).state = true;
                         },
                       ),
-                      const SizedBox(height: 16),
-                      // Divider
-                      Container(width: 20, height: 1, color: colors.line),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       // More button
                       CircleButton(
                         icon: KaipaIcons.ellipsis,
@@ -497,7 +503,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
             Positioned(
               right: 68,
-              top: 200,
+              top: 240,
               child: LayerPicker(
                 colors: colors,
                 prefs: layerPrefs,
