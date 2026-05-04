@@ -356,8 +356,16 @@ class _MapScreenState extends ConsumerState<MapScreen>
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Perspective toggle pill
-                      GestureDetector(
+                      // Perspective toggle button
+                      CircleButton(
+                        icon: perspective == MapPerspective.discover
+                            ? KaipaIcons.flag
+                            : KaipaIcons.compass,
+                        size: 44,
+                        iconSize: 18,
+                        color: perspective == MapPerspective.footprint
+                            ? colors.flare
+                            : colors.inkMuted,
                         onTap: () {
                           final next = perspective == MapPerspective.discover
                               ? MapPerspective.footprint
@@ -368,30 +376,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
                             _activeFootprint = null;
                           });
                         },
-                        child: Container(
-                          height: 46,
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: colors.surface,
-                            borderRadius: BorderRadius.circular(99),
-                            border: Border.all(color: colors.line, width: 0.5),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _PerspectiveTab(
-                                label: '发现',
-                                active: perspective == MapPerspective.discover,
-                                colors: colors,
-                              ),
-                              _PerspectiveTab(
-                                label: '足迹',
-                                active: perspective == MapPerspective.footprint,
-                                colors: colors,
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                     ],
                   ),
@@ -1327,33 +1311,6 @@ class _MiniElevPainter extends CustomPainter {
 }
 
 // ─── Perspective Tab ────────────────────────────────────────────────
-
-class _PerspectiveTab extends StatelessWidget {
-  final String label;
-  final bool active;
-  final KaipaColors colors;
-
-  const _PerspectiveTab({required this.label, required this.active, required this.colors});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: active ? colors.flare : Colors.transparent,
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: active ? Colors.white : colors.inkMuted,
-        ),
-      ),
-    );
-  }
-}
 
 class _FilterCategory {
   final String name;
