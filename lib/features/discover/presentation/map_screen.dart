@@ -252,14 +252,13 @@ class _MapScreenState extends ConsumerState<MapScreen>
                                   ),
                                 ),
                               ),
-                              // Core — white border for map contrast + flare fill + shadow
+                              // Core — flare fill + shadow
                               Container(
                                 width: 28,
                                 height: 28,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: colors.flare,
-                                  border: Border.all(color: Colors.white, width: 3),
                                   boxShadow: [
                                     BoxShadow(
                                       color: colors.flare.withAlpha(50),
@@ -814,18 +813,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
             children: [
               // Pin circle with photo
               Container(
-                width: isActive ? 48 : 40,
-                height: isActive ? 48 : 40,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isActive ? diffColor : Colors.white,
-                    width: isActive ? 3 : 2.5,
-                  ),
+                  border: Border.all(color: diffColor, width: 2.5),
                   boxShadow: [
                     BoxShadow(
-                      color: (isActive ? diffColor : Colors.black)
-                          .withAlpha(isActive ? 60 : 25),
+                      color: diffColor.withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
                     ),
@@ -840,7 +835,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       child: Center(
                         child: KaipaIcon(
                           name: KaipaIcons.mountain,
-                          size: isActive ? 20 : 16,
+                          size: 16,
                           color: diffColor,
                         ),
                       ),
@@ -907,17 +902,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: isActive ? 48 : 40,
-                height: isActive ? 48 : 40,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isActive ? markerColor : Colors.white,
-                    width: isActive ? 3 : 2.5,
-                  ),
+                  border: Border.all(color: markerColor, width: 2.5),
                   boxShadow: [
                     BoxShadow(
-                      color: (isActive ? markerColor : Colors.black).withAlpha(isActive ? 60 : 25),
+                      color: markerColor.withAlpha(isActive ? 60 : 25),
                       blurRadius: isActive ? 12 : 6,
                       offset: const Offset(0, 3),
                     ),
@@ -930,7 +922,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                           child: Center(
                             child: KaipaIcon(
                               name: KaipaIcons.flag,
-                              size: isActive ? 20 : 16,
+                              size: 16,
                               color: colors.ink,
                             ),
                           ),
@@ -943,7 +935,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                             child: Center(
                               child: KaipaIcon(
                                 name: KaipaIcons.mountain,
-                                size: isActive ? 20 : 16,
+                                size: 16,
                                 color: colors.moss,
                               ),
                             ),
