@@ -230,26 +230,53 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   markers: [
                     Marker(
                       point: LatLng(_userLat, _userLng),
-                      width: 22,
-                      height: 22,
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: colors.flare.withAlpha(30),
-                          border: Border.all(color: colors.flare, width: 2.5),
-                        ),
-                        child: Center(
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
+                      width: 56,
+                      height: 56,
+                      child: AnimatedBuilder(
+                        animation: _pulseAnim,
+                        builder: (context, child) {
+                          final pulse = _isLocating ? _pulseAnim.value : 1.0;
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Outer glow — pulses when locating, subtle static ring otherwise
+                              Container(
+                                width: 36 + (_isLocating ? (1.0 - pulse) * 18 : 0),
+                                height: 36 + (_isLocating ? (1.0 - pulse) * 18 : 0),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: colors.flare.withAlpha(
+                                    (_isLocating ? (pulse * 25).round() : 12),
+                                  ),
+                                ),
+                              ),
+                              // Core — white border for map contrast + flare fill + shadow
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: colors.flare,
+                                  border: Border.all(color: Colors.white, width: 3),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: colors.flare.withAlpha(50),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: const Center(
+                                  child: KaipaIcon(
+                                    name: KaipaIcons.navigate,
+                                    size: 13,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ],
