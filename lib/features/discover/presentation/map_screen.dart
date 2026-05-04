@@ -244,118 +244,96 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 opacity: immersive ? 0.0 : 1.0,
                 child: IgnorePointer(
                   ignoring: immersive,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
                     children: [
-                      // Row 1: Search bar + action buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: GlassContainer(
-                              radius: KaipaRadius.pill,
-                              child: SizedBox(
-                                height: 46,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 4, right: 16),
-                                  child: Row(
-                                    children: [
-                                      GestureDetector(
-                                        onTap: () => _openRegionPicker(context),
-                                        behavior: HitTestBehavior.opaque,
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                _cityName,
-                                                style: TextStyle(color: colors.ink, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.2),
-                                              ),
-                                              const SizedBox(width: 2),
-                                              KaipaIcon(name: KaipaIcons.forward, size: 12, color: colors.inkMuted),
-                                            ],
+                      Expanded(
+                        child: GlassContainer(
+                          radius: KaipaRadius.pill,
+                          child: SizedBox(
+                            height: 46,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4, right: 16),
+                              child: Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _openRegionPicker(context),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _cityName,
+                                            style: TextStyle(color: colors.ink, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.2),
                                           ),
-                                        ),
+                                          const SizedBox(width: 2),
+                                          KaipaIcon(name: KaipaIcons.forward, size: 12, color: colors.inkMuted),
+                                        ],
                                       ),
-                                      Container(width: 1, height: 20, color: colors.line),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () => context.push('/discover/search'),
-                                          behavior: HitTestBehavior.opaque,
-                                          child: Row(
-                                            children: [
-                                              KaipaIcon(name: KaipaIcons.search, size: 17, color: colors.inkMuted),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Text(
-                                                  '搜索路线、山峰、地点',
-                                                  style: TextStyle(color: colors.inkMuted, fontSize: 15, letterSpacing: -0.2),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                  Container(width: 1, height: 20, color: colors.line),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => context.push('/discover/search'),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: Row(
+                                        children: [
+                                          KaipaIcon(name: KaipaIcons.search, size: 17, color: colors.inkMuted),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              '搜索路线、山峰、地点',
+                                              style: TextStyle(color: colors.inkMuted, fontSize: 15, letterSpacing: -0.2),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          CircleButton(
-                            icon: KaipaIcons.upload,
-                            size: 46,
-                            iconSize: 18,
-                            onTap: () => context.push('/gpx-import'),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleButton(
-                            icon: KaipaIcons.filter,
-                            size: 46,
-                            iconSize: 18,
-                            onTap: () => _showFilterSheet(context, colors),
-                          ),
-                        ],
+                        ),
                       ),
-                      const SizedBox(height: 10),
-                      // Row 2: Centered perspective toggle
-                      Center(
-                        child: GestureDetector(
-                          onTap: () {
-                            final next = perspective == MapPerspective.discover
-                                ? MapPerspective.footprint
-                                : MapPerspective.discover;
-                            ref.read(mapPerspectiveProvider.notifier).state = next;
-                            setState(() {
-                              _activeRoute = null;
-                              _activeFootprint = null;
-                            });
-                          },
-                          child: Container(
-                            height: 38,
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: colors.surface,
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(color: colors.line, width: 0.5),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _PerspectiveTab(
-                                  label: '发现',
-                                  active: perspective == MapPerspective.discover,
-                                  colors: colors,
-                                ),
-                                _PerspectiveTab(
-                                  label: '足迹',
-                                  active: perspective == MapPerspective.footprint,
-                                  colors: colors,
-                                ),
-                              ],
-                            ),
+                      const SizedBox(width: 8),
+                      // Perspective toggle pill
+                      GestureDetector(
+                        onTap: () {
+                          final next = perspective == MapPerspective.discover
+                              ? MapPerspective.footprint
+                              : MapPerspective.discover;
+                          ref.read(mapPerspectiveProvider.notifier).state = next;
+                          setState(() {
+                            _activeRoute = null;
+                            _activeFootprint = null;
+                          });
+                        },
+                        child: Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(color: colors.line, width: 0.5),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _PerspectiveTab(
+                                label: '发现',
+                                active: perspective == MapPerspective.discover,
+                                colors: colors,
+                              ),
+                              _PerspectiveTab(
+                                label: '足迹',
+                                active: perspective == MapPerspective.footprint,
+                                colors: colors,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -366,10 +344,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
           ),
 
-          // ── Right-side controls (right 16, column, gap 10) ──
+          // ── Right-side controls (right 16, top ~200, column, gap 10) ──
           Positioned(
             right: 16,
-            top: MediaQuery.of(context).padding.top + 120,
+            top: MediaQuery.of(context).padding.top + 70,
             child: AnimatedSlide(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
@@ -431,11 +409,32 @@ class _MapScreenState extends ConsumerState<MapScreen>
                         onTap: () {
                           setState(() {
                             _activeRoute = null;
+                            _activeFootprint = null;
                             _showLayerPicker = false;
                           });
                           ref.read(immersiveModeProvider.notifier).state = true;
                         },
                       ),
+                      const SizedBox(height: 16),
+                      // Divider
+                      Container(width: 20, height: 1, color: colors.line),
+                      const SizedBox(height: 16),
+                      // Upload + Filter (discover mode only)
+                      if (perspective == MapPerspective.discover) ...[
+                        CircleButton(
+                          icon: KaipaIcons.upload,
+                          size: 44,
+                          iconSize: 18,
+                          onTap: () => context.push('/gpx-import'),
+                        ),
+                        const SizedBox(height: 10),
+                        CircleButton(
+                          icon: KaipaIcons.filter,
+                          size: 44,
+                          iconSize: 18,
+                          onTap: () => _showFilterSheet(context, colors),
+                        ),
+                      ],
                     ],
                   ),
                 ),
