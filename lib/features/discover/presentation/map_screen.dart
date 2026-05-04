@@ -36,7 +36,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
   final MapController _mapController = MapController();
   RouteModel? _activeRoute;
   FootprintMemory? _activeFootprint;
-  int _zoomLevel = 1; // 0=globe, 1=region, 2=trail
   String _cityName = '北京';
   LatLng _cityCenter = const LatLng(40.0, 116.4);
   double _cityZoom = 9.5;
@@ -361,21 +360,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Zoom level selector: Glass container
-                      _ZoomLevelSelector(
-                        selected: _zoomLevel,
-                        colors: colors,
-                        onSelect: (level) {
-                          setState(() => _zoomLevel = level);
-                          // Adjust map zoom based on level
-                          final zooms = [4.0, 9.5, 14.0];
-                          _mapController.move(
-                            _mapController.camera.center,
-                            zooms[level],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 10),
                       CircleButton(
                         icon: KaipaIcons.layers,
                         size: 44,
@@ -942,62 +926,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
     }).toList();
   }
 }
-
-// ─── Zoom Level Selector ────────────────────────────────────────────
-
-class _ZoomLevelSelector extends StatelessWidget {
-  final int selected;
-  final KaipaColors colors;
-  final ValueChanged<int> onSelect;
-
-  const _ZoomLevelSelector({
-    required this.selected,
-    required this.colors,
-    required this.onSelect,
-  });
-
-  static const _icons = [
-    KaipaIcons.compass,
-    KaipaIcons.layers2,
-    KaipaIcons.mountain,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassContainer(
-      radius: 14,
-      padding: const EdgeInsets.all(4),
-      child: SizedBox(
-        width: 44,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (i) {
-            final isActive = i == selected;
-            return GestureDetector(
-              onTap: () => onSelect(i),
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: isActive ? colors.flare : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: KaipaIcon(
-                    name: _icons[i],
-                    size: 18,
-                    color: isActive ? Colors.white : colors.ink,
-                  ),
-                ),
-              ),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-}
-
 // ─── Swipe-down dismissible wrapper ──────────────────────────────────
 
 class _DismissibleCard extends StatefulWidget {
