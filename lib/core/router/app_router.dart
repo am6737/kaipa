@@ -245,7 +245,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/trip-plans',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (_, __) => const TripPlanListScreen(),
+        builder: (_, _) => const TripPlanListScreen(),
       ),
       GoRoute(
         path: '/trip-plans/:planId',

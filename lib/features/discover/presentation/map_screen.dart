@@ -1285,7 +1285,9 @@ class _MiniElevPainter extends CustomPainter {
     )).toList();
 
     final fillPath = Path()..moveTo(0, size.height);
-    for (final pt in pts) fillPath.lineTo(pt.dx, pt.dy);
+    for (final pt in pts) {
+      fillPath.lineTo(pt.dx, pt.dy);
+    }
     fillPath.lineTo(size.width, size.height);
     fillPath.close();
     canvas.drawPath(fillPath, Paint()
@@ -1294,7 +1296,9 @@ class _MiniElevPainter extends CustomPainter {
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)));
 
     final linePath = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (int i = 1; i < pts.length; i++) linePath.lineTo(pts[i].dx, pts[i].dy);
+    for (int i = 1; i < pts.length; i++) {
+      linePath.lineTo(pts[i].dx, pts[i].dy);
+    }
     canvas.drawPath(linePath, Paint()..color = flareColor..style = PaintingStyle.stroke
       ..strokeWidth = 2..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round);
 
