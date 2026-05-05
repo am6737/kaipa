@@ -37,17 +37,20 @@ class TripRepository {
     List<String> gearUsed = const [],
     Map<String, dynamic>? weatherSummary,
     Map<String, dynamic>? safetySettings,
+    String? planId,
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('Not authenticated');
-    final data = await _client.from('trips').insert({
+    final insert = <String, dynamic>{
       'user_id': userId,
       'route_id': routeId,
       'gear_used': gearUsed,
       'weather_summary': weatherSummary,
       'safety_settings': safetySettings,
       'status': 'in_progress',
-    }).select().single();
+    };
+    if (planId != null) insert['plan_id'] = planId;
+    final data = await _client.from('trips').insert(insert).select().single();
     return TripModel.fromJson(data);
   }
 
@@ -128,6 +131,10 @@ class TripRepository {
       'rating': rating,
       'notes': notes,
     }).eq('id', tripId);
+  }
+
+  Future<void> deleteTrip(String tripId) async {
+    await _client.from('trips').delete().eq('id', tripId);
   }
 
   static String _durationToInterval(Duration d) {

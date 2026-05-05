@@ -1,18 +1,29 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../domain/navigation_state_model.dart';
+import 'location_service.dart';
+
+final locationServiceProvider = Provider<LocationService>((ref) {
+  return LocationService();
+});
 
 final navigationRepositoryProvider =
     Provider<NavigationRepository>((ref) {
-  return NavigationRepository();
+  return NavigationRepository(ref.watch(locationServiceProvider));
 });
 
 class NavigationRepository {
+  final LocationService _locationService;
+
+  NavigationRepository(this._locationService);
+
   StreamController<NavigationPosition>? _positionController;
-  Timer? _timer;
+  StreamSubscription<Position>? _positionSubscription;
   DateTime? _startTime;
   DateTime? _pauseTime;
   Duration _pausedDuration = Duration.zero;
@@ -21,9 +32,10 @@ class NavigationRepository {
   double _totalElevationGainM = 0;
   NavigationStatus _status = NavigationStatus.idle;
 
-  /// Start tracking the user's position.
+  /// Start tracking the user's position with real device GPS.
   ///
   /// Returns a stream of [NavigationPosition] updates.
+  /// Checks and requests location permission before starting.
   Stream<NavigationPosition> startTracking() {
     _positionController?.close();
     _positionController = StreamController<NavigationPosition>.broadcast();
@@ -34,23 +46,56 @@ class NavigationRepository {
     _pausedDuration = Duration.zero;
     _status = NavigationStatus.tracking;
 
-    // Poll position at regular intervals.
-    // In production this would use a platform location plugin.
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (_status != NavigationStatus.tracking) return;
-      _emitCurrentPosition();
-    });
-
-    // Emit an initial position immediately
-    _emitCurrentPosition();
+    _startPositionStream();
 
     return _positionController!.stream;
   }
 
+  Future<void> _startPositionStream() async {
+    // On Android, pre-check permission and GPS before subscribing.
+    // On web, skip pre-checks — the browser prompts only when the stream
+    // is actually subscribed.
+    if (!kIsWeb) {
+      var permission = await _locationService.checkPermission();
+      if (permission == LocationPermissionStatus.denied ||
+          permission == LocationPermissionStatus.unableToDetermine) {
+        permission = await _locationService.requestPermission();
+      }
+
+      if (permission != LocationPermissionStatus.granted) {
+        _positionController?.addError(
+          Exception('Location permission not granted'),
+        );
+        return;
+      }
+
+      final enabled = await _locationService.isServiceEnabled;
+      if (!enabled) {
+        _positionController?.addError(
+          Exception('Location service is disabled'),
+        );
+        return;
+      }
+    }
+
+    // Subscribe to real GPS position stream
+    _positionSubscription = _locationService
+        .getPositionStream(distanceFilterMeters: 5)
+        .listen(
+      (position) {
+        if (_status != NavigationStatus.tracking) return;
+        _onPositionUpdate(position);
+      },
+      onError: (error) {
+        _positionController?.addError(error);
+      },
+    );
+  }
+
   /// Stop tracking and clean up resources.
   NavigationStateModel stopTracking() {
-    _timer?.cancel();
-    _timer = null;
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
     _status = NavigationStatus.finished;
 
     final state = buildCurrentState(distanceRemainingKm: 0);
@@ -80,17 +125,8 @@ class NavigationRepository {
 
   /// Get the current position once without starting continuous tracking.
   Future<NavigationPosition> getCurrentPosition() async {
-    // In production, this would use a platform location plugin.
-    // Returning a placeholder Beijing-area position for development.
-    return NavigationPosition(
-      latitude: 40.0 + _randomOffset(),
-      longitude: 116.0 + _randomOffset(),
-      altitude: 500 + _randomOffset() * 100,
-      accuracy: 5.0,
-      heading: 0,
-      speed: 0,
-      timestamp: DateTime.now(),
-    );
+    final position = await _locationService.getCurrentPosition();
+    return _toNavigationPosition(position);
   }
 
   /// Build a [NavigationStateModel] snapshot from current tracking data.
@@ -113,10 +149,7 @@ class NavigationRepository {
     final currentAltitude =
         _trackPoints.isNotEmpty ? (_trackPoints.last.altitude ?? 0) : 0.0;
 
-    // Rough calorie estimate: ~60 cal per km for hiking
     final calories = _totalDistanceKm * 60;
-
-    // Rough step estimate: ~1300 steps per km
     final steps = (_totalDistanceKm * 1300).toInt();
 
     return NavigationStateModel(
@@ -138,37 +171,39 @@ class NavigationRepository {
     );
   }
 
-  void _emitCurrentPosition() {
-    // Development stub: generates a simulated position.
-    // In production, replace with platform location service calls.
-    final position = NavigationPosition(
-      latitude: 40.0 + _randomOffset(),
-      longitude: 116.0 + _randomOffset(),
-      altitude: 500 + _randomOffset() * 100,
-      accuracy: 5.0 + _randomOffset(),
-      heading: _randomOffset() * 360,
-      speed: 1.0 + _randomOffset(),
-      timestamp: DateTime.now(),
-    );
+  void _onPositionUpdate(Position position) {
+    final navPosition = _toNavigationPosition(position);
 
     if (_trackPoints.isNotEmpty) {
       final prev = _trackPoints.last;
       final dist = _haversineDistance(
         prev.latitude,
         prev.longitude,
-        position.latitude,
-        position.longitude,
+        navPosition.latitude,
+        navPosition.longitude,
       );
       _totalDistanceKm += dist;
 
-      if (position.altitude != null && prev.altitude != null) {
-        final elevDiff = position.altitude! - prev.altitude!;
+      if (navPosition.altitude != null && prev.altitude != null) {
+        final elevDiff = navPosition.altitude! - prev.altitude!;
         if (elevDiff > 0) _totalElevationGainM += elevDiff;
       }
     }
 
-    _trackPoints.add(position);
-    _positionController?.add(position);
+    _trackPoints.add(navPosition);
+    _positionController?.add(navPosition);
+  }
+
+  NavigationPosition _toNavigationPosition(Position position) {
+    return NavigationPosition(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      altitude: position.altitude,
+      accuracy: position.accuracy,
+      heading: position.heading,
+      speed: position.speed,
+      timestamp: position.timestamp,
+    );
   }
 
   double _haversineDistance(
@@ -192,9 +227,4 @@ class NavigationRepository {
   }
 
   double _toRadians(double degrees) => degrees * math.pi / 180.0;
-
-  double _randomOffset() {
-    // Small random jitter for development simulation
-    return (DateTime.now().microsecond % 100) / 10000.0;
-  }
 }

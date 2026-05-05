@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,8 @@ import '../../discover/data/map_layer_provider.dart';
 import '../../discover/presentation/widgets/layer_picker.dart';
 import '../../trip/data/trip_repository.dart';
 import '../../trip/data/active_trip_provider.dart';
+import '../../trip_plan/data/trip_plan_repository.dart';
+import '../../trip_plan/domain/trip_plan_model.dart';
 import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
@@ -21,8 +24,9 @@ import '../../../core/widgets/kaipa_icons.dart';
 class NavigateScreen extends ConsumerStatefulWidget {
   final String routeId;
   final String? tripId;
+  final String? planId;
 
-  const NavigateScreen({super.key, required this.routeId, this.tripId});
+  const NavigateScreen({super.key, required this.routeId, this.tripId, this.planId});
 
   @override
   ConsumerState<NavigateScreen> createState() => _NavigateScreenState();
@@ -32,7 +36,6 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
   final MapController _mapController = MapController();
   Timer? _timer;
   int _elapsedSeconds = 0;
-  bool _isPaused = false;
   int _zoomLevel = 2;
   bool _showLayerPicker = false;
 
@@ -44,7 +47,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_isPaused) setState(() => _elapsedSeconds++);
+      setState(() => _elapsedSeconds++);
     });
   }
 
@@ -133,13 +136,25 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
     try {
       final duration = Duration(seconds: _elapsedSeconds);
       final tripRepo = ref.read(tripRepositoryProvider);
+      final route = ref.read(routeByIdProvider(widget.routeId)).valueOrNull;
+      final distanceKm = route?.distanceKm ?? 0;
+      final elevationM = route?.elevationGainM ?? 0;
+      final avgSpeed = duration.inMinutes > 0
+          ? distanceKm / (duration.inMinutes / 60.0)
+          : 0.0;
       await tripRepo.completeTrip(
         tripId,
-        distanceKm: 11.4,
-        elevationM: 680,
+        distanceKm: distanceKm,
+        elevationM: elevationM,
         duration: duration,
-        avgSpeedKmh: 4.2,
+        avgSpeedKmh: avgSpeed,
       );
+      if (widget.planId != null) {
+        await ref.read(tripPlanRepositoryProvider).updatePlan(
+          widget.planId!,
+          {'status': 'completed'},
+        );
+      }
       if (mounted) {
         context.go('/trip-complete/$tripId');
       }
@@ -150,6 +165,31 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
         );
       }
     }
+  }
+
+  void _showTripInfoSheet() {
+    final tokens = ref.read(kaipaTokensProvider);
+    final colors = tokens.color;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.bg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (ctx, scrollController) => _TripInfoContent(
+          planId: widget.planId!,
+          colors: colors,
+          scrollController: scrollController,
+        ),
+      ),
+    );
   }
 
   @override
@@ -335,6 +375,32 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
           ),
         ),
 
+        // Gear & notes button
+        if (widget.planId != null)
+          Positioned(
+            top: topPadding + 10,
+            right: 16,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              offset: immersive ? const Offset(1, 0) : Offset.zero,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: immersive ? 0.0 : 1.0,
+                child: IgnorePointer(
+                  ignoring: immersive,
+                  child: CircleButton(
+                    icon: KaipaIcons.backpack,
+                    size: 40,
+                    iconSize: 18,
+                    tokens: tokens,
+                    onTap: _showTripInfoSheet,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
         // Right-side controls (same as explore page)
         Positioned(
           right: 16,
@@ -454,13 +520,11 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: StatWidget(value: '4.7', unit: 'km', label: '已走', tokens: tokens)),
+                          Expanded(child: StatWidget(value: route.distanceKm.toStringAsFixed(1), unit: 'km', label: '总距离', tokens: tokens)),
                           const SizedBox(width: 8),
-                          Expanded(child: StatWidget(value: '312', unit: 'm', label: '爬升', tokens: tokens)),
+                          Expanded(child: StatWidget(value: route.elevationGainM.toInt().toString(), unit: 'm', label: '爬升', tokens: tokens)),
                           const SizedBox(width: 8),
-                          Expanded(child: StatWidget(value: '2.1', unit: 'km/h', label: '均速', tokens: tokens)),
-                          const SizedBox(width: 8),
-                          Expanded(child: StatWidget(value: '6.7', unit: 'km', label: '剩余', tokens: tokens)),
+                          Expanded(child: StatWidget(value: '${route.estimatedDuration.inHours}h${route.estimatedDuration.inMinutes % 60 > 0 ? "${route.estimatedDuration.inMinutes % 60}m" : ""}', unit: '', label: '预计时长', tokens: tokens)),
                         ],
                       ),
                     ],
@@ -471,7 +535,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
           ),
         ),
 
-        // Next waypoint card
+        // Route info card
         Positioned(
           bottom: bottomPadding + 90,
           left: 16,
@@ -498,7 +562,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: colors.flare.withAlpha(77), width: 0.5),
                         ),
-                        child: Center(child: KaipaIcon(name: KaipaIcons.camera, size: 22, color: colors.flare)),
+                        child: Center(child: KaipaIcon(name: KaipaIcons.route, size: 22, color: colors.flare)),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -506,19 +570,17 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('下一个 · 340 米', style: TextStyle(fontSize: 11, color: colors.inkMuted, letterSpacing: -0.1)),
+                            Text(route.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.3)),
                             Padding(
-                              padding: const EdgeInsets.only(top: 1),
-                              child: Text('鹰飞倒仰 · 打卡点', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.3)),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 1),
-                              child: Text('海拔 1410m · ↑ 98m', style: TextStyle(fontSize: 11.5, color: colors.inkMuted)),
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                '${route.distanceKm.toStringAsFixed(1)}km · ${route.elevationGainM.toInt()}m↑ · ${route.difficulty}',
+                                style: TextStyle(fontSize: 12, color: colors.inkMuted),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      KaipaIcon(name: KaipaIcons.forward, size: 14, color: colors.inkMuted),
                     ],
                   ),
                 ),
@@ -541,41 +603,265 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
               opacity: immersive ? 0.0 : 1.0,
               child: IgnorePointer(
                 ignoring: immersive,
-                child: Row(
-                  children: [
-                    CircleButton(icon: KaipaIcons.camera, size: 56, iconSize: 22, tokens: tokens),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _isPaused = !_isPaused),
-                        onLongPress: _showEndTripSheet,
-                        child: Container(
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: colors.flare,
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: [BoxShadow(color: colors.flare.withAlpha(128), blurRadius: 16, offset: const Offset(0, 4))],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              KaipaIcon(name: _isPaused ? KaipaIcons.play : KaipaIcons.pause, size: 16, color: Colors.white),
-                              const SizedBox(width: 8),
-                              Text(_isPaused ? '继续' : '暂停', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2)),
-                            ],
-                          ),
-                        ),
-                      ),
+                child: GestureDetector(
+                  onTap: _showEndTripSheet,
+                  child: Container(
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: colors.flare,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: colors.flare.withAlpha(80), blurRadius: 16, offset: const Offset(0, 4))],
                     ),
-                    const SizedBox(width: 10),
-                    CircleButton(icon: KaipaIcons.bell, size: 56, iconSize: 22, color: colors.flare, tokens: tokens),
-                  ],
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        KaipaIcon(name: KaipaIcons.check, size: 18, color: Colors.white),
+                        const SizedBox(width: 8),
+                        const Text('结束行程', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.3)),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TripInfoContent extends ConsumerWidget {
+  final String planId;
+  final KaipaColors colors;
+  final ScrollController scrollController;
+
+  const _TripInfoContent({
+    required this.planId,
+    required this.colors,
+    required this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final planAsync = ref.watch(tripPlanDetailProvider(planId));
+
+    return planAsync.when(
+      loading: () => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: CircularProgressIndicator(color: colors.flare, strokeWidth: 2),
+        ),
+      ),
+      error: (e, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text('加载失败', style: TextStyle(color: colors.inkMuted)),
+        ),
+      ),
+      data: (plan) => _buildContent(plan),
+    );
+  }
+
+  Widget _buildContent(TripPlanModel plan) {
+    final gearItems = plan.gearItems;
+    final notes = plan.notes;
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+      children: [
+        // Drag handle
+        Center(
+          child: Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: colors.line,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          '行程信息',
+          style: TextStyle(
+            color: colors.ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
+          ),
+        ),
+
+        // Gear section
+        if (gearItems.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
+              const SizedBox(width: 8),
+              Text(
+                '携带装备 · ${gearItems.length}件',
+                style: TextStyle(
+                  color: colors.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: colors.line, width: 0.5),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < gearItems.length; i++) ...[
+                  if (i > 0)
+                    Divider(height: 0.5, thickness: 0.5, color: colors.line, indent: 56),
+                  _GearItemTile(
+                    item: gearItems[i],
+                    colors: colors,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+
+        // Notes section
+        if (notes != null && notes.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              KaipaIcon(name: KaipaIcons.chat, size: 16, color: colors.flare),
+              const SizedBox(width: 8),
+              Text(
+                '备注',
+                style: TextStyle(
+                  color: colors.ink,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: colors.line, width: 0.5),
+            ),
+            child: Text(
+              notes,
+              style: TextStyle(
+                color: colors.ink,
+                fontSize: 14,
+                height: 1.5,
+                letterSpacing: -0.1,
+              ),
+            ),
+          ),
+        ],
+
+        // Empty state
+        if (gearItems.isEmpty && (notes == null || notes.isEmpty))
+          Padding(
+            padding: const EdgeInsets.only(top: 40),
+            child: Center(
+              child: Text(
+                '暂无装备和备注信息',
+                style: TextStyle(color: colors.inkMuted, fontSize: 14),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _GearItemTile extends StatelessWidget {
+  final TripPlanGearItem item;
+  final KaipaColors colors;
+
+  const _GearItemTile({required this.item, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    final gear = item.gearItem;
+    final photoUrl = gear?.photoUrl;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).pop();
+        context.push('/gear/item/${item.gearItemId}');
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: colors.flareSoft,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: colors.line, width: 0.5),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: photoUrl != null && photoUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: photoUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (_, _) => Center(
+                        child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
+                      ),
+                      errorWidget: (_, _, _) => Center(
+                        child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
+                      ),
+                    )
+                  : Center(
+                      child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    gear?.name ?? '装备',
+                    style: TextStyle(
+                      color: colors.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                  if ((gear?.weightG ?? 0) > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '${gear!.weightG!.toInt()}g',
+                        style: TextStyle(color: colors.inkDim, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            KaipaIcon(name: KaipaIcons.chevronRight, size: 14, color: colors.inkDim),
+          ],
+        ),
+      ),
     );
   }
 }

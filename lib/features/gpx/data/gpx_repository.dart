@@ -16,13 +16,16 @@ class GpxRepository {
 
   GpxRepository(this._client);
 
-  /// Parse a GPX file from [filePath] into a [GpxRouteModel].
+  /// Parse a GPX or KML file from [filePath] into a [GpxRouteModel].
   ///
-  /// Extracts track points, calculates distance, elevation gain/loss,
-  /// and speed statistics.
+  /// Detects format by file extension. Extracts track points, calculates
+  /// distance, elevation gain/loss, and speed statistics.
   Future<GpxRouteModel> parseGpxFile(String filePath) async {
     final file = File(filePath);
     final content = await file.readAsString();
+    if (filePath.toLowerCase().endsWith('.kml')) {
+      return _parseKmlString(content);
+    }
     return _parseGpxString(content);
   }
 
@@ -73,6 +76,72 @@ class GpxRepository {
         elevation: elevation,
         timestamp: timestamp,
       ));
+    }
+
+    final stats = _calculateStats(points);
+
+    return GpxRouteModel(
+      name: name,
+      description: description,
+      points: points,
+      stats: stats,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  /// Parse KML XML content into a [GpxRouteModel].
+  GpxRouteModel _parseKmlString(String kmlContent) {
+    String? name;
+    String? description;
+    final points = <GpxPoint>[];
+
+    // Extract Document name
+    final docNameMatch =
+        RegExp(r'<Document>.*?<name>(.*?)</name>', dotAll: true)
+            .firstMatch(kmlContent);
+    if (docNameMatch != null) {
+      name = docNameMatch.group(1);
+    }
+
+    // Extract description
+    final descMatch =
+        RegExp(r'<description>(.*?)</description>', dotAll: true)
+            .firstMatch(kmlContent);
+    if (descMatch != null) {
+      description = descMatch.group(1);
+    }
+
+    // Try Placemark name as fallback
+    name ??= RegExp(r'<Placemark>.*?<name>(.*?)</name>', dotAll: true)
+        .firstMatch(kmlContent)
+        ?.group(1);
+
+    // Extract coordinates from all LineString elements
+    // KML format: lon,lat,elev space lon,lat,elev ...
+    final coordsPattern =
+        RegExp(r'<coordinates>(.*?)</coordinates>', dotAll: true);
+
+    for (final match in coordsPattern.allMatches(kmlContent)) {
+      final coordBlock = match.group(1)?.trim() ?? '';
+      final coordLines = coordBlock.split(RegExp(r'\s+'));
+
+      for (final line in coordLines) {
+        final parts = line.trim().split(',');
+        if (parts.length < 2) continue;
+
+        final lon = double.tryParse(parts[0]);
+        final lat = double.tryParse(parts[1]);
+        if (lat == null || lon == null) continue;
+
+        final elevation =
+            parts.length >= 3 ? double.tryParse(parts[2]) : null;
+
+        points.add(GpxPoint(
+          latitude: lat,
+          longitude: lon,
+          elevation: elevation,
+        ));
+      }
     }
 
     final stats = _calculateStats(points);

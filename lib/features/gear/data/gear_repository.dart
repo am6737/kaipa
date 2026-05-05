@@ -357,6 +357,17 @@ class GearRepository {
     return GearItemModel.fromJson(data);
   }
 
+  Future<List<GearItemModel>> getItemsByIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+    final uid = _userId;
+    final data = await _client
+        .from('gear_items')
+        .select()
+        .eq('user_id', uid)
+        .filter('id', 'in', '(${ids.join(',')})');
+    return (data as List).map((row) => GearItemModel.fromJson(row)).toList();
+  }
+
   Future<GearItemModel> updateItem(String itemId, Map<String, dynamic> updates) async {
     final uid = _userId;
     final updated = await _client
@@ -411,6 +422,29 @@ class GearRepository {
 
     return (data as List)
         .map((row) => GearTripSummary.fromJson(row))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getUserTripGearHistory() async {
+    final uid = _userId;
+    final data = await _client
+        .from('trips')
+        .select('gear_used')
+        .eq('user_id', uid)
+        .not('gear_used', 'is', null);
+
+    final counts = <String, int>{};
+    for (final row in (data as List)) {
+      final gearList = (row['gear_used'] as List?) ?? [];
+      for (final gearId in gearList) {
+        if (gearId is String) {
+          counts[gearId] = (counts[gearId] ?? 0) + 1;
+        }
+      }
+    }
+
+    return counts.entries
+        .map((e) => {'gear_item_id': e.key, 'use_count': e.value})
         .toList();
   }
 
@@ -558,6 +592,13 @@ final tripsForGearItemProvider =
     FutureProvider.family<List<GearTripSummary>, String>((ref, itemId) async {
   final repo = ref.watch(gearRepositoryProvider);
   return repo.getTripsForGearItem(itemId);
+});
+
+final gearItemsByIdsProvider =
+    FutureProvider.family<List<GearItemModel>, List<String>>((ref, ids) async {
+  if (ids.isEmpty) return [];
+  final repo = ref.watch(gearRepositoryProvider);
+  return repo.getItemsByIds(ids);
 });
 
 final gearPresetsProvider = FutureProvider<List<GearPresetModel>>((ref) async {

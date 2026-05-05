@@ -9,13 +9,44 @@ import '../../../core/widgets/diff_badge.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/stat_widget.dart';
 import '../../discover/domain/route_model.dart';
+import '../../trip/data/trip_repository.dart';
+import '../data/gear_recommendation_service.dart';
 import '../data/trip_plan_repository.dart';
+import '../data/weather_service.dart';
 import '../domain/trip_plan_model.dart';
+import '../domain/weather_models.dart';
 import 'widgets/departure_confirm_sheet.dart';
 import 'widgets/elevation_chart.dart';
 import 'widgets/gear_checklist.dart';
+import 'widgets/task_timeline.dart';
+import '../data/trip_task_service.dart';
+import '../domain/trip_plan_task.dart';
 
 const _kDanger = Color(0xFFD4645A);
+
+String _iconForCategory(String categoryId) {
+  switch (categoryId) {
+    case 'b0000000-0000-0000-0000-000000000001': return KaipaIcons.boot;
+    case 'b0000000-0000-0000-0000-000000000002': return KaipaIcons.backpack;
+    case 'b0000000-0000-0000-0000-000000000003': return KaipaIcons.jacket;
+    case 'b0000000-0000-0000-0000-000000000004': return KaipaIcons.tent;
+    case 'b0000000-0000-0000-0000-000000000005': return KaipaIcons.bottle;
+    case 'b0000000-0000-0000-0000-000000000006': return KaipaIcons.battery;
+    case 'b0000000-0000-0000-0000-000000000007': return KaipaIcons.light;
+    case 'b0000000-0000-0000-0000-000000000008': return KaipaIcons.knife;
+    case 'b0000000-0000-0000-0000-000000000009': return KaipaIcons.socks;
+    case 'b0000000-0000-0000-0000-000000000010': return KaipaIcons.shield;
+    case 'b0000000-0000-0000-0000-000000000011': return KaipaIcons.down;
+    case 'b0000000-0000-0000-0000-000000000012': return KaipaIcons.tee;
+    case 'b0000000-0000-0000-0000-000000000013': return KaipaIcons.fleece;
+    case 'b0000000-0000-0000-0000-000000000014': return KaipaIcons.shield;
+    case 'b0000000-0000-0000-0000-000000000015': return KaipaIcons.sleeping;
+    case 'b0000000-0000-0000-0000-000000000016': return KaipaIcons.firstAid;
+    case 'b0000000-0000-0000-0000-000000000017': return KaipaIcons.gloves;
+    case 'b0000000-0000-0000-0000-000000000018': return KaipaIcons.flame;
+    default: return KaipaIcons.backpack;
+  }
+}
 
 class TripPlanDetailScreen extends ConsumerStatefulWidget {
   final String planId;
@@ -73,12 +104,28 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
                 const SizedBox(height: KaipaSpace.s4),
                 _buildStatsCard(route, colors),
               ],
+              if (route != null) ...[
+                const SizedBox(height: KaipaSpace.s5),
+                _buildWeatherCard(
+                  route: route,
+                  planId: plan.id,
+                  plannedDate: plan.plannedDate,
+                ),
+              ],
               if (route != null && route.elevationProfile.isNotEmpty) ...[
                 const SizedBox(height: KaipaSpace.s5),
                 _buildSectionHeader('海拔剖面', colors),
                 const SizedBox(height: KaipaSpace.s2),
                 _buildElevationCard(route, colors),
               ],
+              const SizedBox(height: KaipaSpace.s5),
+              _buildSectionHeader('行程时间线', colors),
+              const SizedBox(height: KaipaSpace.s2),
+              TaskTimeline(planId: plan.id, onChanged: () {
+                ref.invalidate(tripPlanDetailProvider(widget.planId));
+              }),
+              const SizedBox(height: 8),
+              _buildGenerateTimelineButton(plan, colors),
               const SizedBox(height: KaipaSpace.s5),
               _buildGearSection(plan, colors),
               const SizedBox(height: KaipaSpace.s5),
@@ -387,12 +434,11 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
   // ─── Gear section ────────────────────────────────────────────────────
 
   Widget _buildGearSection(TripPlanModel plan, KaipaColors colors) {
+    final route = plan.route;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (plan.gearItems.isNotEmpty) ...[
-          // GearChecklist renders its own header + progress + list.
-          // Wrap in a card shell for visual consistency.
           Container(
             padding: const EdgeInsets.fromLTRB(
               KaipaSpace.s4,
@@ -415,9 +461,106 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
           ),
           const SizedBox(height: KaipaSpace.s3),
         ],
+        if (route != null)
+          _GearPreRecommend(route: route, colors: colors),
+        const SizedBox(height: KaipaSpace.s3),
         _buildSelectGearButton(plan, colors),
       ],
     );
+  }
+
+  Widget _buildGenerateTimelineButton(TripPlanModel plan, KaipaColors colors) {
+    return Consumer(
+      builder: (context, ref, _) {
+        final tasksAsync = ref.watch(tripTasksProvider(widget.planId));
+        final hasTasks = tasksAsync.valueOrNull?.isNotEmpty == true;
+
+        return GestureDetector(
+          onTap: hasTasks ? null : () => _generateTimeline(plan, ref),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line, width: 0.5),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              KaipaIcon(
+                name: hasTasks ? KaipaIcons.check : KaipaIcons.light,
+                size: 14,
+                color: hasTasks ? colors.moss : colors.flare,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                hasTasks ? 'AI 时间线已生成' : 'AI 生成行程时间线',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                    color: hasTasks ? colors.moss : colors.flare),
+              ),
+              if (!hasTasks) ...[
+                const SizedBox(width: 4),
+                Text('(基于天气+路线)', style: TextStyle(fontSize: 11, color: colors.inkDim)),
+              ],
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _generateTimeline(TripPlanModel plan, WidgetRef ref) async {
+    final route = plan.route;
+    if (route == null) return;
+
+    try {
+      // Get weather first
+      final weatherService = ref.read(weatherServiceProvider);
+      final weather = await weatherService.getForecast(
+        lat: route.latitude,
+        lon: route.longitude,
+        forDate: plan.plannedDate,
+      );
+
+      final taskService = ref.read(tripTaskServiceProvider);
+
+      // Delete old tasks
+      await taskService.deleteTasks(plan.id);
+
+      // Generate via AI
+      final dayCount = (route.estimatedDuration.inHours / 8).ceil().clamp(1, 14);
+      final result = await taskService.generateTimeline(
+        route: route,
+        weather: weather,
+        plannedDate: plan.plannedDate,
+        dayCount: dayCount,
+      );
+
+      // Save tasks
+      final tasks = result.tasks.asMap().entries.map((e) => {
+        'category': e.value.category.jsonValue,
+        'title': e.value.title,
+        'description': e.value.description,
+        'suggested_time': e.value.suggestedTime,
+        'sort_order': e.key,
+        'ai_generated': true,
+      }).toList();
+
+      await taskService.insertTasks(plan.id, tasks);
+
+      // Show summary
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ ${result.summary}')),
+        );
+      }
+
+      ref.invalidate(tripTasksProvider(widget.planId));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('生成失败: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildSelectGearButton(TripPlanModel plan, KaipaColors colors) {
@@ -530,6 +673,11 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
   // ─── Bottom bar with gradient fade ───────────────────────────────────
 
   Widget _buildBottomBar(TripPlanModel plan, KaipaColors colors) {
+    if (plan.status == TripPlanStatus.completed ||
+        plan.status == TripPlanStatus.cancelled) {
+      return const SizedBox.shrink();
+    }
+
     return Positioned(
       left: 0,
       right: 0,
@@ -653,7 +801,23 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         {'status': 'departed'},
       );
       if (mounted) {
-        context.push('/safety-confirm/${plan.routeId}');
+        try {
+          final tripRepo = ref.read(tripRepositoryProvider);
+          final trip = await tripRepo.createTrip(
+            routeId: plan.routeId,
+            gearUsed: plan.gearItems.map((g) => g.gearItemId).toList(),
+            planId: plan.id,
+          );
+          if (mounted) {
+            context.go('/navigate/${plan.routeId}?tripId=${trip.id}&planId=${plan.id}');
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('创建行程失败: $e')),
+            );
+          }
+        }
       }
     }
   }
@@ -693,4 +857,230 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         return '已取消';
     }
   }
+
+  // ─── Weather Card ──────────────────────────────────────────────────────
+
+  Widget _buildWeatherCard({
+    required RouteModel route,
+    required String planId,
+    required DateTime plannedDate,
+  }) {
+    final tokens = ref.watch(kaipaTokensProvider);
+    final colors = tokens.color;
+
+    final weatherAsync = ref.watch(weatherForTripPlanProvider(
+      (lat: route.latitude, lon: route.longitude, planId: planId, forDate: plannedDate),
+    ));
+
+    return weatherAsync.when(
+      loading: () => _buildSectionHeader('天气预报', colors),
+      error: (e, s) => const SizedBox.shrink(),
+      data: (weather) => _buildWeatherContent(weather, colors),
+    );
+  }
+
+  Widget _buildWeatherContent(WeatherForecast weather, KaipaColors colors) {
+    final minT = weather.minTempC;
+    final maxT = weather.maxTempC;
+    final pop = weather.maxPop;
+    final wind = weather.maxWindSpeedMs;
+
+    String summary;
+    if (pop > 0.5) {
+      summary = '有较高降雨概率';
+    } else if (pop > 0.2) {
+      summary = '可能有小雨';
+    } else {
+      summary = '天气良好';
+    }
+    if (minT < 0) {
+      summary += '，注意防寒';
+    } else if (minT < 5) {
+      summary += '，天气偏冷';
+    } else if (maxT > 30) {
+      summary += '，注意防暑';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('天气预报', colors),
+        const SizedBox(height: KaipaSpace.s2),
+        Container(
+          padding: const EdgeInsets.all(KaipaSpace.s4),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              // Summary
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      summary,
+                      style: TextStyle(
+                        color: colors.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${minT.round()}°C ~ ${maxT.round()}°C',
+                      style: TextStyle(
+                        color: colors.inkMuted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Stats column
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _WeatherStat(
+                    icon: KaipaIcons.drop,
+                    value: '${(pop * 100).round()}%',
+                    label: '降雨',
+                    colors: colors,
+                  ),
+                  const SizedBox(height: 6),
+                  _WeatherStat(
+                    icon: KaipaIcons.weather,
+                    value: '${wind.toStringAsFixed(1)} m/s',
+                    label: '风速',
+                    colors: colors,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
+
+class _WeatherStat extends StatelessWidget {
+  final String icon, value, label;
+  final KaipaColors colors;
+
+  const _WeatherStat({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.colors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        KaipaIcon(name: icon, size: 12, color: colors.inkMuted),
+        const SizedBox(width: 4),
+        Text(value,
+            style: TextStyle(
+                color: colors.ink, fontSize: 12, fontWeight: FontWeight.w500)),
+        const SizedBox(width: 2),
+        Text(label,
+            style: TextStyle(color: colors.inkMuted, fontSize: 11)),
+      ],
+    );
+  }
+}
+
+// ─── Gear Pre-Recommend ────────────────────────────────────────────────
+
+class _GearPreRecommend extends ConsumerWidget {
+  final RouteModel route;
+  final KaipaColors colors;
+
+  const _GearPreRecommend({required this.route, required this.colors});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recsAsync = ref.watch(gearRecommendationsProvider(
+      (route: route, weather: null),
+    ));
+
+    return recsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (e, s) => const SizedBox.shrink(),
+      data: (recs) {
+        if (recs.isEmpty) return const SizedBox.shrink();
+        final top = recs.take(6).toList();
+        return Container(
+          padding: const EdgeInsets.all(KaipaSpace.s4),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '路线推荐携带',
+                style: TextStyle(
+                    color: colors.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: top
+                    .map((rec) => Chip(
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: colors.surfaceHi,
+                          side: BorderSide.none,
+                          label: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              KaipaIcon(
+                                name: _iconForCategory(rec.categoryId),
+                                size: 13,
+                                color: colors.moss,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(rec.categoryName,
+                                  style: TextStyle(
+                                      color: colors.ink, fontSize: 12)),
+                            ],
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Weather Provider ───────────────────────────────────────────────────
+
+final weatherForTripPlanProvider = FutureProvider.family<WeatherForecast, ({
+  double lat,
+  double lon,
+  String planId,
+  DateTime forDate,
+})>((ref, params) async {
+  final service = ref.watch(weatherServiceProvider);
+  return service.getForecast(
+    lat: params.lat,
+    lon: params.lon,
+    planId: params.planId,
+    forDate: params.forDate,
+  );
+});

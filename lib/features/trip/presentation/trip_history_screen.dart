@@ -8,11 +8,16 @@ import '../../../core/widgets/section_title.dart';
 import '../data/trip_repository.dart';
 import '../domain/trip_model.dart';
 
-class TripHistoryScreen extends ConsumerWidget {
+class TripHistoryScreen extends ConsumerStatefulWidget {
   const TripHistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TripHistoryScreen> createState() => _TripHistoryScreenState();
+}
+
+class _TripHistoryScreenState extends ConsumerState<TripHistoryScreen> {
+  @override
+  Widget build(BuildContext context) {
     final tokens = ref.watch(kaipaTokensProvider);
     final colors = tokens.color;
     final tripsAsync = ref.watch(allTripsProvider);
@@ -67,6 +72,7 @@ class TripHistoryScreen extends ConsumerWidget {
                 trips: entry.trips,
                 colors: colors,
                 tokens: tokens,
+                onDelete: (trip) => _confirmDelete(context, trip, colors),
               );
             },
           );
@@ -80,6 +86,31 @@ class TripHistoryScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, TripModel trip, KaipaColors colors) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: colors.surface,
+        title: const Text('删除行程'),
+        content: Text('确定要永久删除「${trip.routeName ?? "此行程"}」吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('取消', style: TextStyle(color: colors.inkMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await ref.read(tripRepositoryProvider).deleteTrip(trip.id);
+      ref.invalidate(allTripsProvider);
+    }
   }
 
   List<_MonthGroup> _groupByMonth(List<TripModel> trips) {
@@ -115,6 +146,7 @@ class _MonthSection extends StatelessWidget {
   final List<TripModel> trips;
   final KaipaColors colors;
   final KaipaTokens tokens;
+  final void Function(TripModel) onDelete;
 
   const _MonthSection({
     required this.label,
@@ -122,6 +154,7 @@ class _MonthSection extends StatelessWidget {
     required this.trips,
     required this.colors,
     required this.tokens,
+    required this.onDelete,
   });
 
   @override
@@ -140,7 +173,25 @@ class _MonthSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        ...trips.map((t) => _TripCard(trip: t, colors: colors)),
+        ...trips.map((t) => Dismissible(
+          key: Key(t.id),
+          direction: DismissDirection.endToStart,
+          confirmDismiss: (_) async {
+            onDelete(t);
+            return false;
+          },
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text('删除', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+          ),
+          child: _TripCard(trip: t, colors: colors),
+        )),
         const SizedBox(height: 8),
       ],
     );

@@ -22,6 +22,8 @@ class TripModel {
   final String? notes;
   final DateTime createdAt;
   final String? routeName;
+  final String? planId;
+  final String? coverPhotoUrl;
 
   const TripModel({
     required this.id,
@@ -47,6 +49,8 @@ class TripModel {
     this.notes,
     required this.createdAt,
     this.routeName,
+    this.planId,
+    this.coverPhotoUrl,
   });
 
   factory TripModel.fromJson(Map<String, dynamic> json) {
@@ -79,6 +83,8 @@ class TripModel {
       createdAt: DateTime.parse(json['created_at'] as String),
       routeName: (json['routes'] as Map<String, dynamic>?)?['name'] as String?
           ?? json['route_name'] as String?,
+      planId: json['plan_id'] as String?,
+      coverPhotoUrl: json['cover_photo_url'] as String?,
     );
   }
 
@@ -109,6 +115,8 @@ class TripModel {
       'created_at': createdAt.toIso8601String(),
       'source': source,
       'route_name': routeName,
+      'plan_id': planId,
+      'cover_photo_url': coverPhotoUrl,
     };
   }
 
@@ -136,6 +144,8 @@ class TripModel {
     String? notes,
     DateTime? createdAt,
     String? routeName,
+    String? planId,
+    String? coverPhotoUrl,
   }) {
     return TripModel(
       id: id ?? this.id,
@@ -161,6 +171,8 @@ class TripModel {
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       routeName: routeName ?? this.routeName,
+      planId: planId ?? this.planId,
+      coverPhotoUrl: coverPhotoUrl ?? this.coverPhotoUrl,
     );
   }
 

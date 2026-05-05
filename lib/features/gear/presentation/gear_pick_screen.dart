@@ -9,6 +9,8 @@ import '../../../core/widgets/kaipa_icons.dart';
 import '../../discover/data/route_repository.dart';
 import '../../trip/data/departure_flow_provider.dart';
 import '../../trip_plan/data/trip_plan_repository.dart';
+import '../../trip_plan/data/weather_service.dart';
+import '../data/ai_gear_service.dart';
 import '../data/gear_repository.dart';
 
 // ─── Demo data models ───────────────────────────────────────────────
@@ -128,19 +130,33 @@ final _demoCategories = <_DemoCategory>[
 class GearPickState {
   final Set<String> selectedItemIds;
   final bool aiApplied;
+  final bool aiLoading;
+  final AiGearResult? aiResult;
+  final String? aiError;
 
   const GearPickState({
     this.selectedItemIds = const {},
     this.aiApplied = false,
+    this.aiLoading = false,
+    this.aiResult,
+    this.aiError,
   });
 
   GearPickState copyWith({
     Set<String>? selectedItemIds,
     bool? aiApplied,
+    bool? aiLoading,
+    AiGearResult? aiResult,
+    String? aiError,
+    bool clearAiResult = false,
+    bool clearAiError = false,
   }) {
     return GearPickState(
       selectedItemIds: selectedItemIds ?? this.selectedItemIds,
       aiApplied: aiApplied ?? this.aiApplied,
+      aiLoading: aiLoading ?? this.aiLoading,
+      aiResult: clearAiResult ? null : (aiResult ?? this.aiResult),
+      aiError: clearAiError ? null : (aiError ?? this.aiError),
     );
   }
 }
@@ -148,7 +164,6 @@ class GearPickState {
 class GearPickNotifier extends StateNotifier<GearPickState> {
   GearPickNotifier()
       : super(GearPickState(
-          // Start with all "on" items selected
           selectedItemIds: _demoCategories
               .expand((c) => c.items)
               .where((i) => i.status == _GearStatus.on)
@@ -166,20 +181,48 @@ class GearPickNotifier extends StateNotifier<GearPickState> {
     state = state.copyWith(selectedItemIds: current);
   }
 
-  void applyAiPick([List<_DemoCategory>? categories]) {
+  void applyAiResult(AiGearResult result) {
+    state = state.copyWith(
+      selectedItemIds: result.selectedItemIds,
+      aiApplied: true,
+      aiLoading: false,
+      aiResult: result,
+      clearAiError: true,
+    );
+  }
+
+  void setAiLoading() {
+    state = state.copyWith(aiLoading: true, clearAiError: true);
+  }
+
+  void setAiError(String error) {
+    state = state.copyWith(aiLoading: false, aiError: error);
+  }
+
+  void reset() {
+    state = const GearPickState();
+  }
+
+  void clearAi([List<_DemoCategory>? categories]) {
     final cats = categories ?? _demoCategories;
+    state = state.copyWith(
+      selectedItemIds: cats
+          .expand((c) => c.items)
+          .where((i) => i.status == _GearStatus.on)
+          .map((i) => i.id)
+          .toSet(),
+      aiApplied: false,
+      clearAiResult: true,
+      clearAiError: true,
+    );
+  }
+
+  void applyAiPick([List<_DemoCategory>? categories]) {
     if (state.aiApplied) {
-      state = state.copyWith(
-        selectedItemIds: cats
-            .expand((c) => c.items)
-            .where((i) => i.status == _GearStatus.on)
-            .map((i) => i.id)
-            .toSet(),
-        aiApplied: false,
-      );
+      clearAi(categories);
       return;
     }
-
+    final cats = categories ?? _demoCategories;
     final selected = <String>{};
     for (final cat in cats) {
       for (final item in cat.items) {
@@ -282,10 +325,57 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
         _realCategories = result;
         _realDataLoaded = true;
       });
-      ref.read(gearPickProvider.notifier).state = const GearPickState(
-        selectedItemIds: {},
-        aiApplied: false,
+      ref.read(gearPickProvider.notifier).reset();
+    }
+  }
+
+  Future<void> _callAiRecommend() async {
+    final notifier = ref.read(gearPickProvider.notifier);
+    notifier.setAiLoading();
+
+    try {
+      final route = await ref.read(routeByIdProvider(widget.routeId).future);
+      final categories = await ref.read(gearCategoriesProvider.future);
+      final allItems = await ref.read(allGearItemsProvider.future);
+
+      if (allItems.isEmpty) {
+        notifier.setAiError('装备库为空，请先添加装备');
+        return;
+      }
+
+      final weatherService = ref.read(weatherServiceProvider);
+
+      // Use planned date for weather if available, otherwise current date
+      DateTime forDate = DateTime.now();
+      if (widget.planId != null) {
+        final planRepo = ref.read(tripPlanRepositoryProvider);
+        try {
+          final plan = await planRepo.getPlanById(widget.planId!);
+          forDate = plan.plannedDate;
+        } catch (_) {}
+      }
+
+      final weather = await weatherService.getForecast(
+        lat: route.latitude,
+        lon: route.longitude,
+        forDate: forDate,
       );
+
+      final aiService = ref.read(aiGearServiceProvider);
+      final result = await aiService.getRecommendations(
+        route: route,
+        gearItems: allItems,
+        categories: categories,
+        weather: weather,
+      );
+
+      if (mounted) {
+        notifier.applyAiResult(result);
+      }
+    } catch (e) {
+      if (mounted) {
+        notifier.setAiError('AI 推荐失败: $e');
+      }
     }
   }
 
@@ -330,8 +420,11 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
               // AI Smart Pack card
               _buildAiCard(colors, pickState),
 
-              // Warning stack
-              if (!_isForPlan) _buildWarnings(colors),
+              // Warning stack (AI-generated or demo)
+              if (pickState.aiResult != null && pickState.aiResult!.warnings.isNotEmpty)
+                _buildAiWarnings(colors, pickState.aiResult!)
+              else if (!_isForPlan)
+                _buildWarnings(colors),
 
               // Gear categories
               _buildGearCategories(colors, pickState),
@@ -365,7 +458,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
               const Spacer(),
               if (!_isForPlan)
                 Text(
-                  '第 1 步 / 共 3 步',
+                  '第 1 步 / 共 2 步',
                   style: TextStyle(
                     fontSize: 12,
                     color: colors.inkMuted,
@@ -431,6 +524,10 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
   // ─── AI Smart Pack card ─────────────────────────────────────────────
 
   Widget _buildAiCard(KaipaColors colors, GearPickState pickState) {
+    final isLoading = pickState.aiLoading;
+    final hasResult = pickState.aiResult != null;
+    final hasError = pickState.aiError != null;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Container(
@@ -440,15 +537,13 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
             end: Alignment(0.3, 1),
             stops: [0.0, 0.7],
             colors: [
-              // flareSoft at 0%, surface at 70%
-              // We approximate with the gradient below
-              Color(0x1E5C8A4A), // flareSoft placeholder
-              Color(0xFFFFFFFF), // surface placeholder
+              Color(0x1E5C8A4A),
+              Color(0xFFFFFFFF),
             ],
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: colors.flare.withAlpha(77), // flare+30
+            color: colors.flare.withAlpha(77),
             width: 0.5,
           ),
         ),
@@ -456,7 +551,6 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
           borderRadius: BorderRadius.circular(18),
           child: Stack(
             children: [
-              // Actual gradient background
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -472,8 +566,6 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                   ),
                 ),
               ),
-
-              // Decorative glow overlay (radial gradient, top-right)
               Positioned(
                 top: -20,
                 right: -20,
@@ -487,7 +579,7 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                         center: Alignment.center,
                         radius: 0.7,
                         colors: [
-                          colors.flare.withAlpha(102), // 0.4 opacity
+                          colors.flare.withAlpha(102),
                           colors.flare.withAlpha(0),
                         ],
                       ),
@@ -495,18 +587,15 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                   ),
                 ),
               ),
-
-              // Content
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Sparkle icon circle + text row
+                    // Header row
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 32x32 sparkle icon circle
                         Container(
                           width: 32,
                           height: 32,
@@ -515,18 +604,27 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: colors.flare.withAlpha(140), // flare+55
+                                color: colors.flare.withAlpha(140),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
-                          child: const Center(
-                            child: KaipaIcon(
-                              name: KaipaIcons.sparkle,
-                              size: 16,
-                              color: Colors.white,
-                            ),
+                          child: Center(
+                            child: isLoading
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const KaipaIcon(
+                                    name: KaipaIcons.sparkle,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -534,7 +632,6 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Title + BETA badge
                               Row(
                                 children: [
                                   Text(
@@ -556,12 +653,14 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(99),
                                       border: Border.all(
-                                        color: colors.flare.withAlpha(102), // flare+40
+                                        color: colors.flare.withAlpha(102),
                                         width: 0.5,
                                       ),
                                     ),
                                     child: Text(
-                                      'BETA',
+                                      hasResult
+                                          ? pickState.aiResult!.providerLabel
+                                          : 'BETA',
                                       style: TextStyle(
                                         fontSize: 9,
                                         fontWeight: FontWeight.w700,
@@ -573,7 +672,6 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                                 ],
                               ),
                               const SizedBox(height: 2),
-                              // Subtitle
                               Text(
                                 '基于路线 + 天气 + 你的装备库',
                                 style: TextStyle(
@@ -590,124 +688,25 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
 
                     const SizedBox(height: 12),
 
-                    // Reasoning bullet
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Dot indicator: 14px circle
-                        Container(
-                          width: 14,
-                          height: 14,
-                          margin: const EdgeInsets.only(top: 2),
-                          decoration: BoxDecoration(
-                            color: colors.mossDeep.withAlpha(51), // mossDeep+20
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: colors.mossDeep,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '点下方按钮，AI 根据路线难度、天气与你的装备库自动勾选',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.ink,
-                              height: 1.55,
-                              letterSpacing: -0.1,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    // Content area: loading / error / result / default
+                    if (isLoading)
+                      _buildAiLoadingContent(colors)
+                    else if (hasError)
+                      _buildAiErrorContent(colors, pickState.aiError!)
+                    else if (hasResult)
+                      _buildAiResultContent(colors, pickState.aiResult!)
+                    else
+                      _buildAiDefaultContent(colors),
 
                     const SizedBox(height: 14),
 
-                    // Buttons row
-                    Row(
-                      children: [
-                        // Primary: "一键智能搭配"
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              ref.read(gearPickProvider.notifier).applyAiPick(_activeCategories);
-                            },
-                            child: Container(
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: colors.flare,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: colors.flare.withAlpha(77),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const KaipaIcon(
-                                    name: KaipaIcons.sparkle,
-                                    size: 14,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  const Text(
-                                    '一键智能搭配',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                      letterSpacing: -0.1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Secondary: "手动选"
-                        GestureDetector(
-                          onTap: () {
-                            // Already in manual mode, just scroll down
-                          },
-                          child: Container(
-                            height: 40,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: colors.line,
-                                width: 0.5,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                '手动选',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: colors.ink,
-                                  letterSpacing: -0.1,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    // Buttons
+                    if (isLoading)
+                      _buildAiLoadingButton(colors)
+                    else if (hasResult)
+                      _buildAiResultButtons(colors)
+                    else
+                      _buildAiDefaultButtons(colors, hasError),
                   ],
                 ),
               ),
@@ -715,6 +714,364 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAiLoadingContent(KaipaColors colors) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          margin: const EdgeInsets.only(top: 2),
+          decoration: BoxDecoration(
+            color: colors.flare.withAlpha(51),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.flare,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'AI 正在分析路线、天气和你的装备库...',
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.ink,
+              height: 1.55,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiErrorContent(KaipaColors colors, String error) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          margin: const EdgeInsets.only(top: 2),
+          decoration: BoxDecoration(
+            color: _kAlertColor.withAlpha(51),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: _kAlertColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            error,
+            style: TextStyle(
+              fontSize: 12,
+              color: _kAlertColor,
+              height: 1.55,
+              letterSpacing: -0.1,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiResultContent(KaipaColors colors, AiGearResult result) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 14,
+              height: 14,
+              margin: const EdgeInsets.only(top: 2),
+              decoration: BoxDecoration(
+                color: colors.mossDeep.withAlpha(51),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: colors.mossDeep,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                result.summary,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.ink,
+                  height: 1.55,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        // Item count
+        Padding(
+          padding: const EdgeInsets.only(left: 22, top: 4),
+          child: Text(
+            '已为你选择 ${result.selectedItems.length} 件装备',
+            style: TextStyle(
+              fontSize: 11,
+              color: colors.flare,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiDefaultContent(KaipaColors colors) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          margin: const EdgeInsets.only(top: 2),
+          decoration: BoxDecoration(
+            color: colors.mossDeep.withAlpha(51),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.mossDeep,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '点下方按钮，AI 根据路线难度、天气与你的装备库自动勾选',
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.ink,
+              height: 1.55,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiLoadingButton(KaipaColors colors) {
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: colors.flare.withAlpha(180),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'AI 分析中...',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiResultButtons(KaipaColors colors) {
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: () => _callAiRecommend(),
+            child: Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: colors.flare,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: colors.flare.withAlpha(77),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  KaipaIcon(
+                    name: KaipaIcons.sparkle,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    '重新推荐',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () {
+            ref.read(gearPickProvider.notifier).clearAi(_activeCategories);
+          },
+          child: Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: colors.line,
+                width: 0.5,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                '清除',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colors.ink,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiDefaultButtons(KaipaColors colors, bool hasError) {
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: () => _callAiRecommend(),
+            child: Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: colors.flare,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: colors.flare.withAlpha(77),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const KaipaIcon(
+                    name: KaipaIcons.sparkle,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    hasError ? '重试' : '一键智能搭配',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () {},
+          child: Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: colors.line,
+                width: 0.5,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                '手动选',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colors.ink,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -747,6 +1104,89 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Alert circle with "!"
+                  Container(
+                    width: 24,
+                    height: 24,
+                    margin: const EdgeInsets.only(top: 1),
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: Text(
+                        '!',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          w.title,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Opacity(
+                          opacity: 0.75,
+                          child: Text(
+                            w.body,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colors.ink,
+                              letterSpacing: -0.1,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildAiWarnings(KaipaColors colors, AiGearResult result) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        children: result.warnings.map((w) {
+          final isAlert = w.isAlert;
+          final color = isAlert ? _kAlertColor : _kWarnColor;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+              decoration: BoxDecoration(
+                color: color.withAlpha(18),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: color.withAlpha(77),
+                  width: 0.5,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Container(
                     width: 24,
                     height: 24,
@@ -881,6 +1321,10 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
   ) {
     final isSelected = pickState.selectedItemIds.contains(item.id);
     final isMissing = item.status == _GearStatus.missing;
+    final aiReason = pickState.aiResult?.selectedItems
+        .where((s) => s.itemId == item.id)
+        .map((s) => s.reason)
+        .firstOrNull;
 
     // Icon background color
     Color iconBg;
@@ -999,6 +1443,20 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                         color: colors.inkMuted,
                         letterSpacing: -0.1,
                       ),
+                    ),
+                  ],
+                  if (aiReason != null && isSelected) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'AI: $aiReason',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: colors.flare,
+                        letterSpacing: -0.1,
+                        height: 1.3,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ],

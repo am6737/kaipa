@@ -7,6 +7,8 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../trip/data/departure_flow_provider.dart';
+import '../../trip/data/trip_repository.dart';
 
 // ─── Demo forecast data ─────────────────────────────────────────────
 
@@ -210,7 +212,7 @@ class WeatherScreen extends ConsumerWidget {
               ],
             ),
           ),
-          _buildCta(context, colors),
+          _buildCta(context, ref, colors),
         ],
       ),
     );
@@ -233,7 +235,7 @@ class WeatherScreen extends ConsumerWidget {
               ),
               const Spacer(),
               Text(
-                '第 2 步 / 共 3 步',
+                '第 2 步 / 共 2 步',
                 style: TextStyle(
                   fontSize: 12,
                   color: colors.inkMuted,
@@ -566,7 +568,7 @@ class WeatherScreen extends ConsumerWidget {
 
   // ─── CTA button ─────────────────────────────────────────────────────
 
-  Widget _buildCta(BuildContext context, KaipaColors colors) {
+  Widget _buildCta(BuildContext context, WidgetRef ref, KaipaColors colors) {
     return Positioned(
       left: 0,
       right: 0,
@@ -585,8 +587,32 @@ class WeatherScreen extends ConsumerWidget {
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         child: GestureDetector(
-          onTap: () {
-            context.push('/safety-confirm/$routeId');
+          onTap: () async {
+            try {
+              final flow = ref.read(departureFlowProvider(routeId));
+              final tripRepo = ref.read(tripRepositoryProvider);
+              final trip = await tripRepo.createTrip(
+                routeId: routeId,
+                gearUsed: flow.selectedGearIds,
+                weatherSummary: flow.selectedDate != null
+                    ? {
+                        'date': flow.selectedDate,
+                        'departure_time': flow.departureTime,
+                      }
+                    : null,
+              );
+              ref.read(departureFlowProvider(routeId).notifier)
+                  .setTripId(trip.id);
+              if (context.mounted) {
+                context.go('/navigate/$routeId?tripId=${trip.id}');
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('创建行程失败: $e')),
+                );
+              }
+            }
           },
           child: Container(
             height: 54,
@@ -605,7 +631,7 @@ class WeatherScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
-                  '下一步 · 安全确认',
+                  '一切就绪 · 开始导航',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -614,7 +640,7 @@ class WeatherScreen extends ConsumerWidget {
                 ),
                 const SizedBox(width: 6),
                 KaipaIcon(
-                  name: KaipaIcons.forward,
+                  name: KaipaIcons.navigate,
                   size: 16,
                   color: Colors.white,
                 ),

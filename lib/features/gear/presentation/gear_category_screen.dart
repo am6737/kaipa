@@ -122,7 +122,7 @@ class _GearCategoryScreenState extends ConsumerState<GearCategoryScreen> {
                             delegate: SliverChildBuilderDelegate(
                               (context, index) {
                                 return GestureDetector(
-                                  onTap: () => context.go('/gear/item/${filteredItems[index].id}'),
+                                  onTap: () => context.push('/gear/item/${filteredItems[index].id}'),
                                   child: _buildGridCard(colors, filteredItems[index]),
                                 );
                               },
@@ -135,7 +135,7 @@ class _GearCategoryScreenState extends ConsumerState<GearCategoryScreen> {
                                 return Padding(
                                   padding: EdgeInsets.only(bottom: index < filteredItems.length - 1 ? 10 : 32),
                                   child: GestureDetector(
-                                    onTap: () => context.go('/gear/item/${filteredItems[index].id}'),
+                                    onTap: () => context.push('/gear/item/${filteredItems[index].id}'),
                                     child: _buildItemCard(colors, filteredItems[index]),
                                   ),
                                 );

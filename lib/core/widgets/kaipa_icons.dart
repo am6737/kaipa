@@ -95,6 +95,7 @@ class KaipaIcons {
   static const String pants = 'pants';
   static const String watch = 'watch';
   static const String radio = 'radio';
+  static const String trash = 'trash';
   static const String fullscreen = 'fullscreen';
 
   /// All icon path data keyed by name.
@@ -123,6 +124,7 @@ class KaipaIcons {
     'camera': 'M3 7h4l2-3h6l2 3h4v12H3V7Z M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
     'binoc': 'M3 17a3 3 0 0 0 6 0v-7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7Zm12 0a3 3 0 0 0 6 0v-7a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v7ZM9 8h6',
     'tree': 'M12 2c-3 4-5 5-5 8a5 5 0 0 0 4 4.9V22h2v-7.1A5 5 0 0 0 17 10c0-3-2-4-5-8Z',
+    'trash': 'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 10v7M14 10v7',
     'weather': 'M7 17a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1A4.5 4.5 0 0 1 17 17H7Z',
     'sun': 'M12 5V2M12 22v-3M5 12H2M22 12h-3M6 6l-2-2M20 20l-2-2M6 18l-2 2M20 4l-2 2 M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z',
     'moon': 'M21 13A9 9 0 0 1 11 3a8 8 0 1 0 10 10Z',

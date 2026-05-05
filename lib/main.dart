@@ -17,6 +17,9 @@ Future<void> main() async {
       'SUPABASE_ANON_KEY',
       defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyYWx2aGp1ZWJpYnZ4Y2JpY3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0Njg4ODEsImV4cCI6MjA5MzA0NDg4MX0.mD7KAcTO0LoNoRQ5j5qdOVPvrJ6hvtVqb1J9FOxysNI',
     ),
+    authOptions: const FlutterAuthClientOptions(
+      detectSessionInUri: false,
+    ),
   );
 
   final prefs = await SharedPreferences.getInstance();
@@ -30,3 +33,11 @@ Future<void> main() async {
     ),
   );
 }
+
+
+
+
+// test hot reload Mon May  4 12:19:48 PM UTC 2026
+// test hot reload Mon May  4 12:21:20 PM UTC 2026
+// test 12:22:07
+// test 12:27:43

@@ -17,6 +17,10 @@ import '../../../core/widgets/pill_widget.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../trip_plan/data/trip_plan_repository.dart';
+import '../../trip_plan/data/gear_recommendation_service.dart';
+import '../../trip_plan/domain/gear_recommendation.dart';
+import '../../gpx/data/gpx_repository.dart';
+import 'package:file_picker/file_picker.dart';
 
 class RouteDetailScreen extends ConsumerWidget {
   final String routeId;
@@ -218,20 +222,23 @@ class _RouteDetailBody extends ConsumerWidget {
                   _GettingThereCard(colors: colors),
                   const SizedBox(height: 22),
 
-                  // Gear section
-                  _SectionHeader(
-                    title: '推荐装备',
-                    colors: colors,
-                    trailing: Text(
-                      '14 件 · 5.6kg',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.inkMuted,
-                      ),
+                  // Gear section — rule-based recommendations
+                  ref.watch(gearRecommendationsProvider(
+                    (route: route, weather: null),
+                  )).when(
+                    data: (recs) => _GearRecommendSection(
+                      recommendations: recs,
+                      colors: colors,
+                    ),
+                    loading: () => _SectionHeader(
+                      title: '推荐装备',
+                      colors: colors,
+                    ),
+                    error: (e, s) => _SectionHeader(
+                      title: '推荐装备',
+                      colors: colors,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  _GearCard(colors: colors),
                   const SizedBox(height: 22),
 
                   // Photo spots section
@@ -303,8 +310,14 @@ class _RouteDetailBody extends ConsumerWidget {
               ),
               const Spacer(),
               CircleButton(
-                icon: KaipaIcons.heart,
+                icon: KaipaIcons.upload,
                 color: colors.flare,
+                onTap: () =>
+                    _handleUploadTrack(context, ref, routeId, route.name),
+              ),
+              const SizedBox(width: 8),
+              CircleButton(
+                icon: KaipaIcons.heart,
                 onTap: () {},
               ),
               const SizedBox(width: 8),
@@ -364,6 +377,69 @@ class _SectionHeader extends StatelessWidget {
         ?trailing,
       ],
     );
+  }
+}
+
+Future<void> _handleUploadTrack(
+    BuildContext context, WidgetRef ref, String routeId, String routeName) async {
+  try {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['gpx', 'kml'],
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final filePath = result.files.single.path;
+    if (filePath == null) return;
+
+    final gpxRepo = ref.read(gpxRepositoryProvider);
+    final parsed = await gpxRepo.parseGpxFile(filePath);
+
+    if (parsed.points.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文件中没有找到轨迹点')),
+        );
+      }
+      return;
+    }
+
+    final waypoints = parsed.points
+        .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+        .toList();
+
+    double cumDist = 0;
+    final elevationProfile = <Map<String, dynamic>>[];
+    for (int i = 0; i < parsed.points.length; i++) {
+      final p = parsed.points[i];
+      elevationProfile.add({
+        'distance': cumDist,
+        'elevation': p.elevation ?? 0,
+      });
+    }
+
+    final routeRepo = ref.read(routeRepositoryProvider);
+    await routeRepo.contributeTrack(
+      routeId: routeId,
+      waypoints: waypoints,
+      elevationProfile: elevationProfile,
+    );
+
+    ref.invalidate(routeByIdProvider(routeId));
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已为「$routeName」上传轨迹 (${parsed.points.length} 点)'),
+        ),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('上传失败: $e')),
+      );
+    }
   }
 }
 
@@ -858,29 +934,38 @@ class _GettingThereCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.line, width: 0.5),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
-          _AccessRow(
-            icon: KaipaIcons.navigate,
-            title: '自驾',
-            detail: '国贸 → 西栅子村 · 2h10m · 92km',
-            badge: '推荐',
-            colors: colors,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _AccessRow(
+              icon: KaipaIcons.navigate,
+              title: '自驾',
+              detail: '国贸 → 西栅子村 · 2h10m · 92km',
+              badge: '推荐',
+              colors: colors,
+            ),
           ),
           _accessDivider(),
-          _AccessRow(
-            icon: KaipaIcons.users,
-            title: '拼车',
-            detail: '周末徒步群拼车 · ¥80/人',
-            colors: colors,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _AccessRow(
+              icon: KaipaIcons.users,
+              title: '拼车',
+              detail: '周末徒步群拼车 · ¥80/人',
+              colors: colors,
+            ),
           ),
           _accessDivider(),
-          _AccessRow(
-            icon: KaipaIcons.route,
-            title: '公交+打车',
-            detail: '916快 → 怀柔 → 黑山寨 · 3h+',
-            colors: colors,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _AccessRow(
+              icon: KaipaIcons.route,
+              title: '公交+打车',
+              detail: '916快 → 怀柔 → 黑山寨 · 3h+',
+              colors: colors,
+            ),
           ),
         ],
       ),
@@ -890,7 +975,6 @@ class _GettingThereCard extends StatelessWidget {
   Widget _accessDivider() {
     return Container(
       height: 0.5,
-      margin: const EdgeInsets.symmetric(horizontal: -16),
       color: colors.line,
     );
   }
@@ -994,58 +1078,112 @@ class _AccessRow extends StatelessWidget {
   }
 }
 
-// ─── Gear Card ────────────────────────────────────────────────────────
+// ─── Gear Recommend Section ─────────────────────────────────────────────
 
-class _GearCard extends StatelessWidget {
+String _iconForCategory(String categoryId) {
+  switch (categoryId) {
+    case BuiltinCategories.boot:
+      return KaipaIcons.boot;
+    case BuiltinCategories.backpack:
+      return KaipaIcons.backpack;
+    case BuiltinCategories.jacket:
+      return KaipaIcons.jacket;
+    case BuiltinCategories.tent:
+      return KaipaIcons.tent;
+    case BuiltinCategories.bottle:
+      return KaipaIcons.bottle;
+    case BuiltinCategories.battery:
+      return KaipaIcons.battery;
+    case BuiltinCategories.light:
+      return KaipaIcons.light;
+    case BuiltinCategories.knife:
+      return KaipaIcons.knife;
+    case BuiltinCategories.socks:
+      return KaipaIcons.socks;
+    case BuiltinCategories.shield:
+      return KaipaIcons.shield;
+    case BuiltinCategories.down:
+      return KaipaIcons.down;
+    case BuiltinCategories.tee:
+      return KaipaIcons.tee;
+    case BuiltinCategories.fleece:
+      return KaipaIcons.fleece;
+    case BuiltinCategories.trekkingPole:
+      return KaipaIcons.shield;
+    case BuiltinCategories.sleepingBag:
+      return KaipaIcons.sleeping;
+    case BuiltinCategories.firstAid:
+      return KaipaIcons.firstAid;
+    case BuiltinCategories.gloves:
+      return KaipaIcons.gloves;
+    case BuiltinCategories.cooking:
+      return KaipaIcons.flame;
+    default:
+      return KaipaIcons.backpack;
+  }
+}
+
+class _GearRecommendSection extends StatelessWidget {
+  final List<GearRecommendation> recommendations;
   final KaipaColors colors;
 
-  const _GearCard({required this.colors});
-
-  static const _gearItems = [
-    (icon: KaipaIcons.boot, label: '高帮鞋'),
-    (icon: KaipaIcons.backpack, label: '30L 包'),
-    (icon: KaipaIcons.jacket, label: '冲锋衣'),
-    (icon: KaipaIcons.bottle, label: '2L 水'),
-    (icon: KaipaIcons.light, label: '头灯'),
-    (icon: KaipaIcons.gloves, label: '手套'),
-    (icon: KaipaIcons.compass, label: '指南针'),
-  ];
+  const _GearRecommendSection({
+    required this.recommendations,
+    required this.colors,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.line, width: 0.5),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: GridView.count(
-        crossAxisCount: 4,
-        mainAxisSpacing: 14,
-        crossAxisSpacing: 14,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: 0.85,
-        children: [
-          ..._gearItems.map((item) => _GearItem(
-                icon: item.icon,
-                label: item.label,
-                colors: colors,
-              )),
-          _GearItemMore(colors: colors),
-        ],
-      ),
+    final display = recommendations.take(7).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(
+          title: '推荐装备',
+          colors: colors,
+          trailing: Text(
+            '${recommendations.length} 类装备',
+            style: TextStyle(fontSize: 12, color: colors.inkMuted),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.line, width: 0.5),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: GridView.count(
+            crossAxisCount: 4,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            childAspectRatio: 0.85,
+            children: [
+              ...display.map((rec) => _GearRecItem(
+                    icon: _iconForCategory(rec.categoryId),
+                    label: rec.categoryName,
+                    colors: colors,
+                  )),
+              if (display.length >= 7)
+                _GearRecMore(count: recommendations.length - 7, colors: colors),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _GearItem extends StatelessWidget {
+class _GearRecItem extends StatelessWidget {
   final String icon;
   final String label;
   final KaipaColors colors;
 
-  const _GearItem({
+  const _GearRecItem({
     required this.icon,
     required this.label,
     required this.colors,
@@ -1065,20 +1203,13 @@ class _GearItem extends StatelessWidget {
             border: Border.all(color: colors.line, width: 0.5),
           ),
           child: Center(
-            child: KaipaIcon(
-              name: icon,
-              size: 22,
-              color: colors.moss,
-            ),
+            child: KaipaIcon(name: icon, size: 22, color: colors.moss),
           ),
         ),
         const SizedBox(height: 6),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
-            color: colors.inkMuted,
-          ),
+          style: TextStyle(fontSize: 11, color: colors.inkMuted),
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -1088,10 +1219,11 @@ class _GearItem extends StatelessWidget {
   }
 }
 
-class _GearItemMore extends StatelessWidget {
+class _GearRecMore extends StatelessWidget {
+  final int count;
   final KaipaColors colors;
 
-  const _GearItemMore({required this.colors});
+  const _GearRecMore({required this.count, required this.colors});
 
   @override
   Widget build(BuildContext context) {
@@ -1110,20 +1242,20 @@ class _GearItemMore extends StatelessWidget {
             ),
           ),
           child: Center(
-            child: KaipaIcon(
-              name: KaipaIcons.plus,
-              size: 22,
-              color: colors.inkMuted,
+            child: Text(
+              '+$count',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: colors.inkMuted,
+              ),
             ),
           ),
         ),
         const SizedBox(height: 6),
         Text(
           '更多',
-          style: TextStyle(
-            fontSize: 11,
-            color: colors.inkMuted,
-          ),
+          style: TextStyle(fontSize: 11, color: colors.inkMuted),
           textAlign: TextAlign.center,
         ),
       ],

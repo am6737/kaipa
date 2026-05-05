@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,6 +31,11 @@ class _DonutSegment {
     required this.weightKg,
     required this.itemCount,
   });
+}
+
+String _formatPrice(double yuan) {
+  if (yuan >= 10000) return '¥${(yuan / 10000).toStringAsFixed(1)}万';
+  return '¥${yuan.toStringAsFixed(0)}';
 }
 
 // ─── Main screen ────────────────────────────────────────────────────
@@ -77,16 +83,16 @@ class GearLibraryScreen extends ConsumerWidget {
     final visibleCategories = categories.where((c) => !c.isUncategorized).toList();
 
     final segmentColors = [
-      colors.flare,
-      colors.sky,
-      colors.sand,
-      const Color(0xFFC47D5A),
-      colors.moss,
-      const Color(0xFF7BAFC8),
-      const Color(0xFFA89070),
-      colors.inkDim,
-      const Color(0xFF8B6E5A),
-      const Color(0xFF6B8E7B),
+      const Color(0xFFE07A5F),
+      const Color(0xFF4A9B8E),
+      const Color(0xFFE8B44D),
+      const Color(0xFF7BAE7F),
+      const Color(0xFFCC7B8B),
+      const Color(0xFF6B97C2),
+      const Color(0xFFB58B6E),
+      const Color(0xFF9583B4),
+      const Color(0xFFD4936A),
+      const Color(0xFF5E9E7E),
     ];
 
     final segments = <_DonutSegment>[];
@@ -100,7 +106,9 @@ class GearLibraryScreen extends ConsumerWidget {
           label: cat.name,
           value: totalPrice / 1000,
           color: segmentColors[i % segmentColors.length],
-          price: '¥${(totalPrice / 1000).toStringAsFixed(1)}k',
+          price: totalPrice >= 10000
+              ? '¥${(totalPrice / 10000).toStringAsFixed(1)}万'
+              : '¥${totalPrice.toStringAsFixed(0)}',
           weightKg: catWeight,
           itemCount: catItems.length,
         ));
@@ -396,8 +404,8 @@ class _OverviewCardState extends State<_OverviewCard>
     final dy = localPosition.dy - center.dy;
     final distance = math.sqrt(dx * dx + dy * dy);
 
-    const radius = 48.0;
-    const strokeWidth = 15.0;
+    const radius = 58.0;
+    const strokeWidth = 18.0;
     const hitPadding = 8.0;
     if (distance < radius - strokeWidth / 2 - hitPadding ||
         distance > radius + strokeWidth / 2 + hitPadding) {
@@ -409,7 +417,7 @@ class _OverviewCardState extends State<_OverviewCard>
 
     final segments = widget.segments;
     final total = segments.fold<double>(0, (s, seg) => s + seg.value);
-    const gapAngle = 2.0 / (2 * math.pi * radius) * (2 * math.pi);
+    const gapAngle = 3.0 / (2 * math.pi * radius) * (2 * math.pi);
     final availableAngle = 2 * math.pi - gapAngle * segments.length;
 
     double accumulated = 0;
@@ -427,96 +435,105 @@ class _OverviewCardState extends State<_OverviewCard>
   Widget build(BuildContext context) {
     final segments = widget.segments;
     final colors = widget.colors;
+    const chartSize = 148.0;
 
     return GestureDetector(
       onTap: () => _selectSegment(null),
       child: Container(
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.line, width: 0.5),
-        boxShadow: const [
-          BoxShadow(color: Color.fromRGBO(40, 30, 20, 0.04), offset: Offset(0, 1), blurRadius: 3),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (details) {
-                  _selectSegment(_hitTestSegment(details.localPosition, const Size(136, 136)));
-                },
-                child: SizedBox(
-                  width: 136,
-                  height: 136,
-                  child: CustomPaint(
-                    painter: _DonutChartPainter(
-                      segments: segments,
-                      centerTextColor: colors.ink,
-                      centerSubTextColor: colors.inkMuted,
-                      totalCount: widget.totalCount,
-                      selectedIndex: _selectedIndex,
-                      selectionProgress: _animController.value,
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: colors.line, width: 0.5),
+          boxShadow: const [
+            BoxShadow(color: Color.fromRGBO(40, 30, 20, 0.05), offset: Offset(0, 2), blurRadius: 8),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(18, 20, 20, 18),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: (details) {
+                    _selectSegment(_hitTestSegment(details.localPosition, const Size(chartSize, chartSize)));
+                  },
+                  child: SizedBox(
+                    width: chartSize,
+                    height: chartSize,
+                    child: CustomPaint(
+                      painter: _DonutChartPainter(
+                        segments: segments,
+                        centerTextColor: colors.ink,
+                        centerSubTextColor: colors.inkMuted,
+                        totalCount: widget.totalCount,
+                        selectedIndex: _selectedIndex,
+                        selectionProgress: _animController.value,
+                      ),
+                      size: const Size(chartSize, chartSize),
                     ),
-                    size: const Size(136, 136),
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(child: _buildLegendGrid(segments, colors)),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Container(
-              padding: const EdgeInsets.only(top: 14),
-              decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.lineSoft, width: 0.5))),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _selectedIndex != null
-                    ? Row(
-                        key: ValueKey('seg_$_selectedIndex'),
-                        children: [
-                          Expanded(child: _StatItem(value: segments[_selectedIndex!].weightKg.toStringAsFixed(1), unit: ' kg', label: '重量', colors: colors)),
-                          Expanded(child: _StatItem(value: segments[_selectedIndex!].price, unit: '', label: '价值', colors: colors)),
-                          Expanded(child: _StatItem(value: '${segments[_selectedIndex!].itemCount}', unit: ' 件', label: '装备', colors: colors)),
-                        ],
-                      )
-                    : Row(
-                        key: const ValueKey('total'),
-                        children: [
-                          Expanded(child: _StatItem(value: widget.totalWeightKg.toStringAsFixed(1), unit: ' kg', label: '总重', colors: colors)),
-                          Expanded(child: _StatItem(value: '¥${widget.totalPriceK.toStringAsFixed(1)}', unit: ' k', label: '总值', colors: colors)),
-                          Expanded(child: _StatItem(value: '${widget.categoriesCount}', unit: ' 个', label: '分类', colors: colors)),
-                        ],
-                      ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: Container(
-              padding: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.lineSoft, width: 0.5))),
-              child: Row(
-                children: [
-                  KaipaIcon(name: KaipaIcons.alert, size: 14, color: colors.flare),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('安全类装备不足，建议补充急救包',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.flare, letterSpacing: -0.2)),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: _selectedIndex != null
+                        ? Column(
+                            key: ValueKey('seg_$_selectedIndex'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _StatItem(value: segments[_selectedIndex!].weightKg.toStringAsFixed(1), unit: ' 公斤', label: '重量', colors: colors),
+                              const SizedBox(height: 10),
+                              _StatItem(value: segments[_selectedIndex!].price, unit: '', label: '价值', colors: colors),
+                              const SizedBox(height: 10),
+                              _StatItem(value: '${segments[_selectedIndex!].itemCount}', unit: ' 件', label: '装备', colors: colors),
+                            ],
+                          )
+                        : Column(
+                            key: const ValueKey('total'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _StatItem(value: widget.totalWeightKg.toStringAsFixed(1), unit: ' 公斤', label: '总重', colors: colors),
+                              const SizedBox(height: 10),
+                              _StatItem(value: _formatPrice(widget.totalPriceK * 1000), unit: '', label: '总值', colors: colors),
+                              const SizedBox(height: 10),
+                              _StatItem(value: '${widget.categoriesCount}', unit: ' 个', label: '分类', colors: colors),
+                            ],
+                          ),
                   ),
-                ],
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Container(height: 0.5, color: colors.lineSoft),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: _buildLegendGrid(segments, colors),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Container(
+                padding: const EdgeInsets.only(top: 12),
+                decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.lineSoft, width: 0.5))),
+                child: Row(
+                  children: [
+                    KaipaIcon(name: KaipaIcons.alert, size: 14, color: colors.flare),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('安全类装备不足，建议补充急救包',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.flare, letterSpacing: -0.2)),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -527,7 +544,7 @@ class _OverviewCardState extends State<_OverviewCard>
       final right = rightIdx < segments.length ? segments[rightIdx] : null;
       rows.add(
         Padding(
-          padding: EdgeInsets.only(bottom: i + 2 < segments.length ? 6 : 0),
+          padding: EdgeInsets.only(bottom: i + 2 < segments.length ? 8 : 0),
           child: Row(
             children: [
               Expanded(
@@ -537,7 +554,7 @@ class _OverviewCardState extends State<_OverviewCard>
                   onTap: () => _selectSegment(i),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 16),
               if (right != null)
                 Expanded(
                   child: _LegendItem(
@@ -579,19 +596,26 @@ class _DonutChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    const radius = 48.0;
-    const strokeWidth = 15.0;
-    const popOutDistance = 5.0;
-    const gapAngle = 2.0 / (2 * math.pi * radius) * (2 * math.pi);
+    const radius = 58.0;
+    const strokeWidth = 18.0;
+    const popOutDistance = 4.0;
+    const gapAngle = 3.0 / (2 * math.pi * radius) * (2 * math.pi);
 
     if (segments.isEmpty) {
       final paint = Paint()
-        ..color = colorWithOpacity(centerSubTextColor, 0.15)
+        ..color = colorWithOpacity(centerSubTextColor, 0.12)
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.butt;
       canvas.drawCircle(center, radius, paint);
     } else {
+      final trackPaint = Paint()
+        ..color = colorWithOpacity(centerSubTextColor, 0.06)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.butt;
+      canvas.drawCircle(center, radius, trackPaint);
+
       final total = segments.fold<double>(0, (s, seg) => s + seg.value);
       final totalGap = gapAngle * segments.length;
       final availableAngle = 2 * math.pi - totalGap;
@@ -605,7 +629,7 @@ class _DonutChartPainter extends CustomPainter {
 
         Color segColor = segment.color;
         if (hasSelection && !isSelected) {
-          segColor = colorWithOpacity(segment.color, 1.0 - 0.6 * selectionProgress);
+          segColor = colorWithOpacity(segment.color, 1.0 - 0.55 * selectionProgress);
         }
 
         final sw = isSelected ? strokeWidth + 2.0 * selectionProgress : strokeWidth;
@@ -634,28 +658,28 @@ class _DonutChartPainter extends CustomPainter {
     if (selectedIndex != null && selectionProgress > 0.5) {
       final seg = segments[selectedIndex!];
       final countPainter = TextPainter(
-        text: TextSpan(text: seg.price, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -0.8)),
+        text: TextSpan(text: seg.price, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -0.8)),
         textDirection: TextDirection.ltr,
       )..layout();
-      countPainter.paint(canvas, center - Offset(countPainter.width / 2, countPainter.height / 2 + 7));
+      countPainter.paint(canvas, center - Offset(countPainter.width / 2, countPainter.height / 2 + 8));
 
       final labelPainter = TextPainter(
-        text: TextSpan(text: seg.label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: centerSubTextColor, letterSpacing: 0.3)),
+        text: TextSpan(text: seg.label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: centerSubTextColor, letterSpacing: 0.2)),
         textDirection: TextDirection.ltr,
       )..layout();
-      labelPainter.paint(canvas, center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 11));
+      labelPainter.paint(canvas, center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 12));
     } else {
       final countPainter = TextPainter(
-        text: TextSpan(text: '$totalCount', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -1)),
+        text: TextSpan(text: '$totalCount', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -1)),
         textDirection: TextDirection.ltr,
       )..layout();
-      countPainter.paint(canvas, center - Offset(countPainter.width / 2, countPainter.height / 2 + 7));
+      countPainter.paint(canvas, center - Offset(countPainter.width / 2, countPainter.height / 2 + 8));
 
       final labelPainter = TextPainter(
-        text: TextSpan(text: '件装备', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: centerSubTextColor, letterSpacing: 0.3)),
+        text: TextSpan(text: '件装备', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w400, color: centerSubTextColor, letterSpacing: 0.3)),
         textDirection: TextDirection.ltr,
       )..layout();
-      labelPainter.paint(canvas, center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 11));
+      labelPainter.paint(canvas, center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 13));
     }
   }
 
@@ -687,14 +711,20 @@ class _LegendItem extends StatelessWidget {
       child: AnimatedOpacity(
         opacity: isDimmed ? 0.35 : 1.0,
         duration: const Duration(milliseconds: 200),
-        child: Row(
-          children: [
-            Container(width: 7, height: 7, decoration: BoxDecoration(color: segment.color, shape: BoxShape.circle)),
-            const SizedBox(width: 5),
-            Flexible(child: Text(segment.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: colors.ink))),
-            const Spacer(),
-            Text(segment.price, style: TextStyle(fontSize: 10, color: colors.inkDim)),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Row(
+            children: [
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: segment.color, borderRadius: BorderRadius.circular(2.5))),
+              const SizedBox(width: 7),
+              Expanded(child: Text(segment.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.ink, letterSpacing: -0.1))),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 52,
+                child: Text(segment.price, textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.inkDim, letterSpacing: -0.2, fontFeatures: const [ui.FontFeature.tabularFigures()])),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -713,17 +743,16 @@ class _StatItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: [
+        Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: colors.inkMuted, letterSpacing: -0.1)),
+        const Spacer(),
         RichText(
           text: TextSpan(children: [
-            TextSpan(text: value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.4, height: 1)),
-            TextSpan(text: unit, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.inkMuted, letterSpacing: -0.1)),
+            TextSpan(text: value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: colors.ink, letterSpacing: -0.4, fontFeatures: const [ui.FontFeature.tabularFigures()])),
+            TextSpan(text: unit, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.inkMuted, letterSpacing: -0.1)),
           ]),
         ),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.inkMuted, letterSpacing: -0.1)),
       ],
     );
   }
@@ -771,9 +800,9 @@ class _PresetCard extends StatelessWidget {
             const Spacer(),
             Row(
               children: [
-                Text('${weightKg.toStringAsFixed(1)}kg', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.2)),
+                Text('${weightKg.toStringAsFixed(1)}kg', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.2, fontFeatures: const [ui.FontFeature.tabularFigures()])),
                 const Spacer(),
-                Text(totalPrice >= 1000 ? '¥${(totalPrice / 1000).toStringAsFixed(1)}k' : '¥${totalPrice.toStringAsFixed(0)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.inkMuted, letterSpacing: -0.2)),
+                Text(totalPrice >= 1000 ? '¥${(totalPrice / 1000).toStringAsFixed(1)}k' : '¥${totalPrice.toStringAsFixed(0)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.inkMuted, letterSpacing: -0.2, fontFeatures: const [ui.FontFeature.tabularFigures()])),
               ],
             ),
           ],

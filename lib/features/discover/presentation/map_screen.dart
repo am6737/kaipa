@@ -188,6 +188,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
             options: MapOptions(
               initialCenter: _cityCenter,
               initialZoom: _cityZoom,
+              minZoom: 3,
+              maxZoom: 18,
               onTap: (_, _) {
                 if (ref.read(immersiveModeProvider)) {
                   ref.read(immersiveModeProvider.notifier).state = false;
@@ -368,25 +370,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      // Perspective toggle button
-                      CircleButton(
-                        icon: perspective == MapPerspective.discover
-                            ? KaipaIcons.compass
-                            : KaipaIcons.flag,
-                        size: 44,
-                        iconSize: 18,
-                        onTap: () {
-                          final next = perspective == MapPerspective.discover
-                              ? MapPerspective.footprint
-                              : MapPerspective.discover;
-                          ref.read(mapPerspectiveProvider.notifier).state = next;
-                          setState(() {
-                            _activeRoute = null;
-                            _activeFootprint = null;
-                          });
-                        },
-                      ),
                     ],
                   ),
                 ),
@@ -411,6 +394,25 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Perspective toggle: Discover / Footprint
+                      CircleButton(
+                        icon: perspective == MapPerspective.discover
+                            ? KaipaIcons.compass
+                            : KaipaIcons.flag,
+                        size: 44,
+                        iconSize: 18,
+                        onTap: () {
+                          final next = perspective == MapPerspective.discover
+                              ? MapPerspective.footprint
+                              : MapPerspective.discover;
+                          ref.read(mapPerspectiveProvider.notifier).state = next;
+                          setState(() {
+                            _activeRoute = null;
+                            _activeFootprint = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
                       CircleButton(
                         icon: KaipaIcons.layers,
                         size: 44,

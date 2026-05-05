@@ -373,9 +373,6 @@ class _GearItemRow extends ConsumerWidget {
                       color: item.isPacked ? colors.inkDim : colors.ink,
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      decoration:
-                          item.isPacked ? TextDecoration.lineThrough : null,
-                      decorationColor: colors.inkDim,
                     ),
                   ),
                   if (brand != null)
@@ -389,8 +386,22 @@ class _GearItemRow extends ConsumerWidget {
                 ],
               ),
             ),
-            // Badge or weight
-            if (item.isRecommended && !item.isPacked)
+            // Badge
+            if (item.isPacked)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colors.flareSoft,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '已打包',
+                  style: TextStyle(color: colors.flare, fontSize: 10,
+                      fontWeight: FontWeight.w600),
+                ),
+              )
+            else if (item.isRecommended)
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

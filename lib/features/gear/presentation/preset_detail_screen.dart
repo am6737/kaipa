@@ -415,7 +415,7 @@ class _PresetDetailScreenState extends ConsumerState<PresetDetailScreen> {
       ),
       confirmDismiss: (_) => _removeItem(item),
       child: GestureDetector(
-        onTap: () => context.go('/gear/item/${item.id}'),
+        onTap: () => context.push('/gear/item/${item.id}'),
         child: Container(
           margin: const EdgeInsets.only(bottom: 6),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

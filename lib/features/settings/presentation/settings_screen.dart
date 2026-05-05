@@ -5,6 +5,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/circle_button.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../auth/data/auth_repository.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -129,6 +130,20 @@ class SettingsScreen extends ConsumerWidget {
                         colors: colors,
                         onTap: () {},
                         isLast: true,
+                      ),
+                    ],
+                  ),
+
+                  // ── Account section ────────────────────────
+                  const SizedBox(height: 22),
+                  _SectionLabel(label: '账户', colors: colors),
+                  const SizedBox(height: 10),
+                  _SettingsGroup(
+                    colors: colors,
+                    children: [
+                      _LogoutRow(
+                        colors: colors,
+                        onTap: () => _confirmLogout(context, ref),
                       ),
                     ],
                   ),
@@ -677,5 +692,105 @@ class _SettingRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// ─── Logout row ───────────────────────────────────────────────────────────
+class _LogoutRow extends StatelessWidget {
+  final KaipaColors colors;
+  final VoidCallback onTap;
+
+  const _LogoutRow({required this.colors, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: colors.flareSoft,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Center(
+                child: KaipaIcon(
+                  name: KaipaIcons.close,
+                  size: 16,
+                  color: colors.flare,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '退出登录',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: colors.flare,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Confirm logout dialog ────────────────────────────────────────────────
+Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) {
+      final tokens = ref.read(kaipaTokensProvider);
+      final colors = tokens.color;
+      return AlertDialog(
+        backgroundColor: colors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          '退出登录',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: colors.ink,
+          ),
+        ),
+        content: Text(
+          '确定要退出当前账号吗？',
+          style: TextStyle(fontSize: 14, color: colors.inkMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              '取消',
+              style: TextStyle(color: colors.inkMuted),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '退出',
+              style: TextStyle(
+                color: colors.flare,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed == true && context.mounted) {
+    await ref.read(authRepositoryProvider).signOut();
+    if (context.mounted) {
+      context.go('/login');
+    }
   }
 }

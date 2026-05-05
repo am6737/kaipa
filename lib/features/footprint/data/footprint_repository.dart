@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/supabase/supabase_provider.dart';
@@ -57,6 +58,46 @@ class FootprintRepository {
     return memories;
   }
 
+  /// Set the cover photo for a trip footprint.
+  Future<String> uploadCoverPhoto({
+    required String tripId,
+    required String filePath,
+    required String fileName,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final ext = fileName.split('.').last;
+    final storagePath = '$userId/$tripId-${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await _client.storage.from('covers').upload(storagePath, File(filePath));
+    final url = _client.storage.from('covers').getPublicUrl(storagePath);
+    await _client.from('trips').update({'cover_photo_url': url}).eq('id', tripId);
+    return url;
+  }
+
+  /// Set the cover photo from an existing trip photo URL.
+  /// Pass null to reset to default.
+  Future<void> setCoverPhoto({
+    required String tripId,
+    required String? photoUrl,
+  }) async {
+    await _client.from('trips').update({'cover_photo_url': photoUrl}).eq('id', tripId);
+  }
+
+  /// Upload a photo to the trip memory.
+  Future<String> uploadPhoto({
+    required String tripId,
+    required String filePath,
+    required String fileName,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final ext = fileName.split('.').last;
+    final storagePath = '$userId/$tripId-${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await _client.storage.from('memories').upload(storagePath, File(filePath));
+    final url = _client.storage.from('memories').getPublicUrl(storagePath);
+    return url;
+  }
+
   /// Update trip notes and photos.
   Future<void> updateMemory({
     required String tripId,
@@ -69,6 +110,16 @@ class FootprintRepository {
     if (updates.isNotEmpty) {
       await _client.from('trips').update(updates).eq('id', tripId);
     }
+  }
+
+  /// Remove a photo URL from a trip's photos list.
+  Future<void> removePhoto({
+    required String tripId,
+    required String photoUrl,
+    required List<String> currentPhotos,
+  }) async {
+    final updated = currentPhotos.where((p) => p != photoUrl).toList();
+    await _client.from('trips').update({'photos': updated}).eq('id', tripId);
   }
 
   /// Publish a trip memory to the community feed.

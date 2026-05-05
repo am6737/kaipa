@@ -176,6 +176,19 @@ class RouteRepository {
     }
     return parts.join(' ');
   }
+
+  /// Upload GPS track data to an existing route.
+  Future<void> contributeTrack({
+    required String routeId,
+    required List<Map<String, dynamic>> waypoints,
+    required List<Map<String, dynamic>> elevationProfile,
+  }) async {
+    await _client.rpc('contribute_route_track', params: {
+      'p_route_id': routeId,
+      'p_waypoints': waypoints,
+      'p_elevation_profile': elevationProfile,
+    });
+  }
 }
 
 final routeRepositoryProvider = Provider<RouteRepository>((ref) {

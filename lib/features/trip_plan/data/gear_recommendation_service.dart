@@ -35,6 +35,14 @@ class GearRecommendationService {
     }
 
     try {
+      final historyRecs = await _getHistoryRecommendations(seenCategories);
+      for (final rec in historyRecs) {
+        seenCategories.add(rec.categoryId);
+      }
+      recommendations.addAll(historyRecs);
+    } catch (_) {}
+
+    try {
       final communityRecs =
           await _getCommunityRecommendations(route.id, seenCategories);
       recommendations.addAll(communityRecs);
@@ -67,6 +75,36 @@ class GearRecommendationService {
           source: GearRecommendationSource.rule,
         ));
       }
+    }
+
+    return results;
+  }
+
+  Future<List<GearRecommendation>> _getHistoryRecommendations(
+      Set<String> alreadySeen) async {
+    final history = await _gearRepo.getUserTripGearHistory();
+    history.sort((a, b) =>
+        (b['use_count'] as int).compareTo(a['use_count'] as int));
+
+    final results = <GearRecommendation>[];
+    for (final entry in history) {
+      final count = entry['use_count'] as int;
+      if (count < 2) break; // Must have been used at least twice
+
+      final itemId = entry['gear_item_id'] as String;
+      try {
+        final item = await _gearRepo.getItemById(itemId);
+        if (alreadySeen.contains(item.categoryId)) continue;
+
+        results.add(GearRecommendation(
+          gearItemId: item.id,
+          categoryId: item.categoryId,
+          categoryName: item.name,
+          reason: '你在过去 $count 次徒步中都携带了${item.name}',
+          source: GearRecommendationSource.history,
+        ));
+        if (results.length >= 3) break; // Max 3 history recommendations
+      } catch (_) {}
     }
 
     return results;
