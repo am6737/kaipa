@@ -515,69 +515,104 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
   }
 
   Widget _buildTrackMapPreview(KaipaColors colors, GpxRouteModel route) {
+    if (route.points.isEmpty) return const SizedBox.shrink();
+
     final trackPoints = route.points
         .map((p) => LatLng(p.latitude, p.longitude))
         .toList();
-    if (trackPoints.isEmpty) return const SizedBox.shrink();
 
-    double south = trackPoints.first.latitude;
-    double north = south;
-    double west = trackPoints.first.longitude;
-    double east = west;
-    for (final p in trackPoints) {
-      if (p.latitude < south) south = p.latitude;
-      if (p.latitude > north) north = p.latitude;
-      if (p.longitude < west) west = p.longitude;
-      if (p.longitude > east) east = p.longitude;
-    }
-    final bounds = LatLngBounds(LatLng(south, west), LatLng(north, east));
+    final bounds = LatLngBounds.fromPoints(trackPoints);
     final center = bounds.center;
-    final latSpan = north - south;
-    final lngSpan = east - west;
-    final maxSpan = math.max(latSpan, lngSpan);
-    double zoom = 13.0;
-    if (maxSpan > 0) {
-      zoom = (math.log(360 / maxSpan) / math.ln2).clamp(3.0, 17.0) - 0.5;
-    }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        height: 220,
-        child: FlutterMap(
-          options: MapOptions(
-            initialCenter: center,
-            initialZoom: zoom,
-            interactionOptions: const InteractionOptions(
-              flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+    return Container(
+      height: 240,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: Stack(
+        children: [
+          FlutterMap(
+            options: MapOptions(
+              initialCenter: center,
+              initialCameraFit: CameraFit.bounds(
+                bounds: bounds,
+                padding: const EdgeInsets.all(32),
+              ),
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                userAgentPackageName: 'com.kaipa.app',
+              ),
+              PolylineLayer(polylines: [
+                Polyline(
+                  points: trackPoints,
+                  color: colors.flare,
+                  strokeWidth: 3.5,
+                ),
+              ]),
+              MarkerLayer(markers: [
+                Marker(
+                  point: trackPoints.first,
+                  width: 20,
+                  height: 20,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colors.moss,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4)],
+                    ),
+                  ),
+                ),
+                Marker(
+                  point: trackPoints.last,
+                  width: 20,
+                  height: 20,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colors.flare,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4)],
+                    ),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+          Positioned(
+            left: 10,
+            bottom: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(220),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(color: colors.moss, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 4),
+                Text('起点', style: TextStyle(fontSize: 10, color: colors.ink, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 10),
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(color: colors.flare, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 4),
+                Text('终点', style: TextStyle(fontSize: 10, color: colors.ink, fontWeight: FontWeight.w600)),
+              ]),
             ),
           ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-              userAgentPackageName: 'com.kaipa.app',
-            ),
-            PolylineLayer(polylines: [
-              Polyline(points: trackPoints, color: colors.flare, strokeWidth: 3),
-            ]),
-            MarkerLayer(markers: [
-              Marker(
-                point: trackPoints.first, width: 20, height: 20,
-                child: Container(decoration: BoxDecoration(
-                  color: colors.moss, shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                )),
-              ),
-              Marker(
-                point: trackPoints.last, width: 20, height: 20,
-                child: Container(decoration: BoxDecoration(
-                  color: colors.flare, shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                )),
-              ),
-            ]),
-          ],
-        ),
+        ],
       ),
     );
   }
