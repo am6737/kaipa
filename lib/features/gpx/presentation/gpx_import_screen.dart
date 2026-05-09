@@ -31,6 +31,8 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
   bool _parsing = false;
   String? _error;
   GpxRouteModel? _parsedRoute;
+  List<LatLng>? _trackPoints;
+  LatLngBounds? _trackBounds;
   String _fileName = '';
 
   // Step 3 form state
@@ -94,8 +96,14 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
       // Auto-fill step 3 fields
       _routeName = parsed.name ?? file.name.replaceAll(RegExp(r'\.[^.]+$'), '');
 
+      final pts = parsed.points
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
+
       setState(() {
         _parsedRoute = parsed;
+        _trackPoints = pts;
+        _trackBounds = pts.length >= 2 ? LatLngBounds.fromPoints(pts) : null;
         _parsing = false;
         _routeName = _routeName;
       });
@@ -515,14 +523,11 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
   }
 
   Widget _buildTrackMapPreview(KaipaColors colors, GpxRouteModel route) {
-    if (route.points.isEmpty) return const SizedBox.shrink();
-
-    final trackPoints = route.points
-        .map((p) => LatLng(p.latitude, p.longitude))
-        .toList();
-
-    final bounds = LatLngBounds.fromPoints(trackPoints);
-    final center = bounds.center;
+    final pts = _trackPoints;
+    final bounds = _trackBounds;
+    if (pts == null || pts.length < 2 || bounds == null) {
+      return const SizedBox.shrink();
+    }
 
     return Container(
       height: 240,
@@ -535,7 +540,6 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
         children: [
           FlutterMap(
             options: MapOptions(
-              initialCenter: center,
               initialCameraFit: CameraFit.bounds(
                 bounds: bounds,
                 padding: const EdgeInsets.all(32),
@@ -550,39 +554,11 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
                 userAgentPackageName: 'com.kaipa.app',
               ),
               PolylineLayer(polylines: [
-                Polyline(
-                  points: trackPoints,
-                  color: colors.flare,
-                  strokeWidth: 3.5,
-                ),
+                Polyline(points: pts, color: colors.flare, strokeWidth: 3.5),
               ]),
               MarkerLayer(markers: [
-                Marker(
-                  point: trackPoints.first,
-                  width: 20,
-                  height: 20,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colors.moss,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      boxShadow: [BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4)],
-                    ),
-                  ),
-                ),
-                Marker(
-                  point: trackPoints.last,
-                  width: 20,
-                  height: 20,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colors.flare,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      boxShadow: [BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4)],
-                    ),
-                  ),
-                ),
+                _endpointMarker(pts.first, colors.moss),
+                _endpointMarker(pts.last, colors.flare),
               ]),
             ],
           ),
@@ -596,23 +572,32 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(color: colors.moss, shape: BoxShape.circle),
-                ),
+                Container(width: 8, height: 8,
+                    decoration: BoxDecoration(color: colors.moss, shape: BoxShape.circle)),
                 const SizedBox(width: 4),
                 Text('起点', style: TextStyle(fontSize: 10, color: colors.ink, fontWeight: FontWeight.w600)),
                 const SizedBox(width: 10),
-                Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(color: colors.flare, shape: BoxShape.circle),
-                ),
+                Container(width: 8, height: 8,
+                    decoration: BoxDecoration(color: colors.flare, shape: BoxShape.circle)),
                 const SizedBox(width: 4),
                 Text('终点', style: TextStyle(fontSize: 10, color: colors.ink, fontWeight: FontWeight.w600)),
               ]),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Marker _endpointMarker(LatLng point, Color color) {
+    return Marker(
+      point: point, width: 20, height: 20,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color, shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4)],
+        ),
       ),
     );
   }
