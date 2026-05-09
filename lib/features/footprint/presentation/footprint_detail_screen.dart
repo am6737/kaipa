@@ -6,6 +6,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
 import '../../../core/widgets/circle_button.dart';
+import '../../../core/widgets/stat_widget.dart';
 import '../../trip/data/trip_repository.dart';
 import '../../trip/domain/trip_model.dart';
 import '../../gear/data/gear_repository.dart';
@@ -424,109 +425,66 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
   }
 
-  // ─── Stats Row ────────────────────────────────────────────────────────
+  // ─── Stats Card ────────────────────────────────────────────────────────
   Widget _buildStatsRow(TripModel trip, KaipaColors colors) {
-    final stats = <_StatItem>[
-      _StatItem(
-          icon: KaipaIcons.ruler,
-          value: trip.actualDistanceKm != null
-              ? '${trip.actualDistanceKm!.toStringAsFixed(1)} km'
-              : '--',
-          label: '距离',
-          tint: colors.sky),
-      _StatItem(
-          icon: KaipaIcons.altitude,
-          value: trip.actualElevationM != null
-              ? '${trip.actualElevationM!.toInt()} m'
-              : '--',
-          label: '爬升',
-          tint: colors.moss),
-      _StatItem(
-          icon: KaipaIcons.clock,
-          value: trip.actualDuration != null
-              ? _fmtDur(trip.actualDuration!)
-              : '--',
-          label: '用时',
-          tint: colors.sand),
-      _StatItem(
-          icon: KaipaIcons.hiker,
-          value: trip.avgSpeedKmh != null
-              ? trip.avgSpeedKmh!.toStringAsFixed(1)
-              : '--',
-          label: '均速 km/h',
-          tint: colors.flare),
-      if (trip.maxAltitudeM != null)
-        _StatItem(
-            icon: KaipaIcons.mountain,
-            value: '${trip.maxAltitudeM!.toInt()} m',
-            label: '最高海拔',
-            tint: colors.sky),
-      if (trip.caloriesBurned != null && trip.caloriesBurned! > 0)
-        _StatItem(
-            icon: KaipaIcons.flame,
-            value: '${trip.caloriesBurned!.toInt()}',
-            label: 'kcal',
-            tint: colors.flare),
-    ];
-
-    return SizedBox(
-      height: 100,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: stats.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (_, i) => _statChip(stats[i], colors),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: KaipaSpace.s4, vertical: KaipaSpace.s4),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.line, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: StatWidget(
+                value: trip.actualDistanceKm?.toStringAsFixed(1) ?? '--',
+                unit: 'km',
+                label: '距离',
+              ),
+            ),
+            _statDivider(colors),
+            Expanded(
+              child: StatWidget(
+                value: trip.actualElevationM?.toInt().toString() ?? '--',
+                unit: 'm',
+                label: '爬升',
+              ),
+            ),
+            _statDivider(colors),
+            Expanded(
+              child: StatWidget(
+                value: trip.actualDuration != null
+                    ? '${trip.actualDuration!.inHours}'
+                    : '--',
+                unit: trip.actualDuration != null ? 'h' : null,
+                label: '用时',
+              ),
+            ),
+            _statDivider(colors),
+            Expanded(
+              child: StatWidget(
+                value: trip.avgSpeedKmh?.toStringAsFixed(1) ?? '--',
+                unit: 'km/h',
+                label: '均速',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _statChip(_StatItem item, KaipaColors colors) {
+  Widget _statDivider(KaipaColors colors) {
     return Container(
-      width: 88,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.line, width: 0.5),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: colorWithOpacity(item.tint, 0.12),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Center(
-              child: KaipaIcon(name: item.icon, size: 15, color: item.tint),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(item.value,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: colors.ink,
-                  letterSpacing: -0.3),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 2),
-          Text(item.label,
-              style: TextStyle(fontSize: 10, color: colors.inkDim),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-        ],
-      ),
+      width: 0.5,
+      height: 36,
+      color: colors.line,
+      margin: const EdgeInsets.symmetric(horizontal: KaipaSpace.s2),
     );
-  }
-
-  String _fmtDur(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
-    return '$h:${m.toString().padLeft(2, '0')}';
   }
 
   // ─── Trip Switcher ────────────────────────────────────────────────────
@@ -1346,18 +1304,6 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
 class _TabSpec {
   final String label;
   const _TabSpec({required this.label});
-}
-
-class _StatItem {
-  final String icon;
-  final String value;
-  final String label;
-  final Color tint;
-  const _StatItem(
-      {required this.icon,
-      required this.value,
-      required this.label,
-      required this.tint});
 }
 
 class _WeatherItem {

@@ -426,8 +426,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       // Perspective toggle: Discover / Footprint
                       CircleButton(
                         icon: perspective == MapPerspective.discover
-                            ? KaipaIcons.compass
-                            : KaipaIcons.flag,
+                            ? KaipaIcons.flag
+                            : KaipaIcons.compass,
                         size: 44,
                         iconSize: 18,
                         onTap: () {

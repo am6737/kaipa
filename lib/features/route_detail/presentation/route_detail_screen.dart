@@ -140,7 +140,7 @@ class _RouteDetailBody extends ConsumerWidget {
 
             // Content sections (starts overlapping hero at y=280)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   // Region
@@ -241,15 +241,7 @@ class _RouteDetailBody extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 22),
-                ]),
-              ),
-            ),
 
-            // Reviews + remaining content
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 22, 16, 0),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
                   // Reviews section
                   _SectionHeader(
                     title: '走过的人',
@@ -1419,22 +1411,6 @@ class _ReviewsCard extends StatelessWidget {
     required this.colors,
   });
 
-  // Hardcoded review data matching spec
-  static const _fallbackReviews = [
-    (
-      name: '陈明',
-      date: '3 天前',
-      rating: 4.5,
-      text: '北京结到鹰飞倒仰最险，新手务必带绳子。日出 5:42 抵北京结刚好。',
-    ),
-    (
-      name: 'Sara K.',
-      date: '上周',
-      rating: 5.0,
-      text: '11 月去秋色拉满。下午 3 点后山风很大，建议带防风外套。',
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1447,8 +1423,7 @@ class _ReviewsCard extends StatelessWidget {
       child: reviewsAsync.when(
         data: (reviews) {
           if (reviews.isEmpty) {
-            // Show fallback reviews from spec
-            return _buildFallbackReviews();
+            return _buildEmpty();
           }
           return Column(
             children: [
@@ -1471,25 +1446,20 @@ class _ReviewsCard extends StatelessWidget {
             ),
           ),
         ),
-        error: (_, _) => _buildFallbackReviews(),
+        error: (_, _) => _buildEmpty(),
       ),
     );
   }
 
-  Widget _buildFallbackReviews() {
-    return Column(
-      children: [
-        for (int i = 0; i < _fallbackReviews.length; i++) ...[
-          if (i > 0) _reviewDivider(),
-          _FallbackReviewItem(
-            name: _fallbackReviews[i].name,
-            date: _fallbackReviews[i].date,
-            rating: _fallbackReviews[i].rating,
-            text: _fallbackReviews[i].text,
-            colors: colors,
-          ),
-        ],
-      ],
+  Widget _buildEmpty() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Text(
+          '暂无评价，走完这条路线后来分享你的体验吧',
+          style: TextStyle(fontSize: 13, color: colors.inkDim),
+        ),
+      ),
     );
   }
 
@@ -1623,121 +1593,6 @@ class _ReviewItem extends StatelessWidget {
             ),
           ),
         ],
-      ],
-    );
-  }
-}
-
-class _FallbackReviewItem extends StatelessWidget {
-  final String name;
-  final String date;
-  final double rating;
-  final String text;
-  final KaipaColors colors;
-
-  const _FallbackReviewItem({
-    required this.name,
-    required this.date,
-    required this.rating,
-    required this.text,
-    required this.colors,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            // Avatar
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: colors.mossSoft,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  name.isNotEmpty ? name[0] : '?',
-                  style: TextStyle(
-                    color: colors.mossDeep,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                name,
-                style: TextStyle(
-                  color: colors.ink,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            Text(
-              date,
-              style: TextStyle(
-                color: colors.inkDim,
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        // Star rating + label
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ...List.generate(5, (i) {
-              final IconData icon;
-              if (i < rating.floor()) {
-                icon = Icons.star_rounded;
-              } else if (i == rating.floor() && rating % 1 >= 0.5) {
-                icon = Icons.star_half_rounded;
-              } else {
-                icon = Icons.star_border_rounded;
-              }
-              return Padding(
-                padding: const EdgeInsets.only(right: 1),
-                child: Icon(icon, color: colors.flare, size: 14),
-              );
-            }),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-              decoration: BoxDecoration(
-                color: _ratingLabelColor(rating, colors).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                _ratingLabel(rating),
-                style: TextStyle(
-                  color: _ratingLabelColor(rating, colors),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Opacity(
-          opacity: 0.85,
-          child: Text(
-            text,
-            style: TextStyle(
-              color: colors.ink,
-              fontSize: 13.5,
-              height: 1.5,
-            ),
-          ),
-        ),
       ],
     );
   }

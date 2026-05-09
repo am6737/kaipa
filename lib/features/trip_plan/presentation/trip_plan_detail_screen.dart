@@ -133,7 +133,9 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
 
   Widget _buildContent(TripPlanModel plan, KaipaColors colors) {
     final route = plan.route;
-    final daysUntil = plan.plannedDate.difference(DateTime.now()).inDays;
+    final today = DateUtils.dateOnly(DateTime.now());
+    final planned = DateUtils.dateOnly(plan.plannedDate);
+    final daysUntil = planned.difference(today).inDays;
 
     if (!_notesInitialized) {
       _notesCtrl = TextEditingController(text: plan.notes ?? '');
@@ -920,7 +922,9 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
         ),
         child: isDeparted
             ? _buildCompleteCta(plan, colors)
-            : _buildDepartureCta(plan, colors),
+            : (plan.status == TripPlanStatus.draft && !widget.isImmediate)
+                ? _buildSaveCta(plan, colors)
+                : _buildDepartureCta(plan, colors),
       ),
     );
   }
@@ -961,6 +965,46 @@ class _TripPlanDetailScreenState extends ConsumerState<TripPlanDetailScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaveCta(TripPlanModel plan, KaipaColors colors) {
+    return GestureDetector(
+      onTap: () async {
+        await _savePlan(plan);
+        ref.invalidate(tripPlanListProvider);
+        if (mounted) {
+          setState(() => _savedAndPopping = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) Navigator.of(context).pop();
+          });
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: KaipaSpace.s4),
+        decoration: BoxDecoration(
+          color: colors.flare,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: colors.flare.withAlpha(64),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Center(
+          child: Text(
+            '保存行程',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
           ),
         ),
       ),

@@ -655,7 +655,7 @@ class TripPlanListScreen extends ConsumerWidget {
   Widget _buildHeroCardInner(BuildContext context, WidgetRef ref,
       TripPlanModel plan, KaipaColors colors) {
     final route = plan.route;
-    final daysUntil = plan.plannedDate.difference(DateTime.now()).inDays;
+    final daysUntil = DateUtils.dateOnly(plan.plannedDate).difference(DateUtils.dateOnly(DateTime.now())).inDays;
     final dateStr = _formatDate(plan.plannedDate);
 
     return GestureDetector(
@@ -772,7 +772,7 @@ class TripPlanListScreen extends ConsumerWidget {
     TripPlanModel plan,
     KaipaColors colors) {
     final route = plan.route;
-    final daysUntil = plan.plannedDate.difference(DateTime.now()).inDays;
+    final daysUntil = DateUtils.dateOnly(plan.plannedDate).difference(DateUtils.dateOnly(DateTime.now())).inDays;
 
     return GestureDetector(
       onTap: _isSelectionMode.value
