@@ -49,6 +49,7 @@ class TripPlanRepository {
     required String routeId,
     required DateTime plannedDate,
     String? plannedStartTime,
+    String status = 'draft',
   }) async {
     final uid = _userId;
     final row = await _client
@@ -58,7 +59,7 @@ class TripPlanRepository {
           'route_id': routeId,
           'planned_date': plannedDate.toIso8601String().split('T').first,
           'planned_start_time': plannedStartTime,
-          'status': 'draft',
+          'status': status,
         })
         .select(_selectWithJoins)
         .single();

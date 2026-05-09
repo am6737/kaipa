@@ -274,11 +274,13 @@ const _demoWarnings = <_WarningData>[
 class GearPickScreen extends ConsumerStatefulWidget {
   final String routeId;
   final String? planId;
+  final bool immediate;
 
   const GearPickScreen({
     super.key,
     required this.routeId,
     this.planId,
+    this.immediate = false,
   });
 
   @override
@@ -286,7 +288,7 @@ class GearPickScreen extends ConsumerStatefulWidget {
 }
 
 class _GearPickScreenState extends ConsumerState<GearPickScreen> {
-  bool get _isForPlan => widget.planId != null;
+  bool get _isForPlan => widget.planId != null || widget.immediate;
   List<_DemoCategory>? _realCategories;
   bool _realDataLoaded = false;
 
@@ -610,21 +612,12 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
                               ),
                             ],
                           ),
-                          child: Center(
-                            child: isLoading
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const KaipaIcon(
-                                    name: KaipaIcons.sparkle,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
+                          child: const Center(
+                            child: KaipaIcon(
+                              name: KaipaIcons.sparkle,
+                              size: 16,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -688,10 +681,8 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
 
                     const SizedBox(height: 12),
 
-                    // Content area: loading / error / result / default
-                    if (isLoading)
-                      _buildAiLoadingContent(colors)
-                    else if (hasError)
+                    // Content area: error / result / default
+                    if (hasError)
                       _buildAiErrorContent(colors, pickState.aiError!)
                     else if (hasResult)
                       _buildAiResultContent(colors, pickState.aiResult!)
@@ -700,13 +691,11 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
 
                     const SizedBox(height: 14),
 
-                    // Buttons
-                    if (isLoading)
-                      _buildAiLoadingButton(colors)
-                    else if (hasResult)
-                      _buildAiResultButtons(colors)
+                    // Button (loading state shown inline)
+                    if (hasResult)
+                      _buildAiResultButtons(colors, isLoading)
                     else
-                      _buildAiDefaultButtons(colors, hasError),
+                      _buildAiDefaultButton(colors, hasError, isLoading),
                   ],
                 ),
               ),
@@ -717,44 +706,6 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
     );
   }
 
-  Widget _buildAiLoadingContent(KaipaColors colors) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 14,
-          height: 14,
-          margin: const EdgeInsets.only(top: 2),
-          decoration: BoxDecoration(
-            color: colors.flare.withAlpha(51),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.flare,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'AI 正在分析路线、天气和你的装备库...',
-            style: TextStyle(
-              fontSize: 12,
-              color: colors.ink,
-              height: 1.55,
-              letterSpacing: -0.1,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildAiErrorContent(KaipaColors colors, String error) {
     return Row(
@@ -894,184 +845,89 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
     );
   }
 
-  Widget _buildAiLoadingButton(KaipaColors colors) {
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: colors.flare.withAlpha(180),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Colors.white,
-            ),
-          ),
-          SizedBox(width: 8),
-          Text(
-            'AI 分析中...',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: -0.1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAiResultButtons(KaipaColors colors) {
+  Widget _buildAiResultButtons(KaipaColors colors, bool isLoading) {
     return Row(
       children: [
         Expanded(
           child: GestureDetector(
-            onTap: () => _callAiRecommend(),
+            onTap: isLoading ? null : () => _callAiRecommend(),
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: colors.flare,
+                color: isLoading ? colors.flare.withAlpha(180) : colors.flare,
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: colors.flare.withAlpha(77),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  KaipaIcon(
-                    name: KaipaIcons.sparkle,
-                    size: 14,
-                    color: Colors.white,
-                  ),
-                  SizedBox(width: 6),
-                  Text(
-                    '重新推荐',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () {
-            ref.read(gearPickProvider.notifier).clearAi(_activeCategories);
-          },
-          child: Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: colors.line,
-                width: 0.5,
-              ),
-            ),
-            child: Center(
-              child: Text(
-                '清除',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: colors.ink,
-                  letterSpacing: -0.1,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAiDefaultButtons(KaipaColors colors, bool hasError) {
-    return Row(
-      children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () => _callAiRecommend(),
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: colors.flare,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: colors.flare.withAlpha(77),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
+                boxShadow: isLoading ? null : [
+                  BoxShadow(color: colors.flare.withAlpha(77), blurRadius: 10, offset: const Offset(0, 3)),
                 ],
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const KaipaIcon(
-                    name: KaipaIcons.sparkle,
-                    size: 14,
-                    color: Colors.white,
-                  ),
+                  if (isLoading)
+                    const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  else
+                    const KaipaIcon(name: KaipaIcons.sparkle, size: 14, color: Colors.white),
                   const SizedBox(width: 6),
                   Text(
-                    hasError ? '重试' : '一键智能搭配',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                      letterSpacing: -0.1,
-                    ),
+                    isLoading ? 'AI 分析中...' : '重新推荐',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: -0.1),
                   ),
                 ],
               ),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () {},
-          child: Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: colors.line,
-                width: 0.5,
+        if (!isLoading) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () {
+              ref.read(gearPickProvider.notifier).clearAi(_activeCategories);
+            },
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.line, width: 0.5),
               ),
-            ),
-            child: Center(
-              child: Text(
-                '手动选',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: colors.ink,
-                  letterSpacing: -0.1,
-                ),
+              child: Center(
+                child: Text('清除', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: colors.ink, letterSpacing: -0.1)),
               ),
             ),
           ),
-        ),
+        ],
       ],
+    );
+  }
+
+  Widget _buildAiDefaultButton(KaipaColors colors, bool hasError, bool isLoading) {
+    return GestureDetector(
+      onTap: isLoading ? null : () => _callAiRecommend(),
+      child: Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: isLoading ? colors.flare.withAlpha(180) : colors.flare,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: isLoading ? null : [
+            BoxShadow(color: colors.flare.withAlpha(77), blurRadius: 10, offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isLoading)
+              const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            else
+              const KaipaIcon(name: KaipaIcons.sparkle, size: 14, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              isLoading ? 'AI 分析中...' : hasError ? '重试' : '一键智能搭配',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: -0.1),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1600,6 +1456,10 @@ class _GearPickScreenState extends ConsumerState<GearPickScreen> {
               return;
             }
             ref.read(departureFlowProvider(widget.routeId).notifier).setGear(gearIds.toList());
+            if (widget.immediate) {
+              if (context.mounted) context.pop();
+              return;
+            }
             context.push('/weather/${widget.routeId}');
           },
           child: Container(

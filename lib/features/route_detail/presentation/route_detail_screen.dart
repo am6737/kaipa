@@ -20,6 +20,7 @@ import '../../trip_plan/data/trip_plan_repository.dart';
 import '../../trip_plan/data/gear_recommendation_service.dart';
 import '../../trip_plan/domain/gear_recommendation.dart';
 import '../../gpx/data/gpx_repository.dart';
+import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 
 class RouteDetailScreen extends ConsumerWidget {
@@ -219,7 +220,7 @@ class _RouteDetailBody extends ConsumerWidget {
                   // Getting there section
                   _SectionHeader(title: '如何抵达', colors: colors),
                   const SizedBox(height: 12),
-                  _GettingThereCard(colors: colors),
+                  _GettingThereCard(routeName: route.name, colors: colors),
                   const SizedBox(height: 22),
 
                   // Gear section — rule-based recommendations
@@ -240,29 +241,7 @@ class _RouteDetailBody extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 22),
-
-                  // Photo spots section
-                  _SectionHeader(
-                    title: '拍照打卡',
-                    colors: colors,
-                    trailing: Text(
-                      '${route.photoSpots.isNotEmpty ? route.photoSpots.length : 5} 处',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.inkMuted,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                 ]),
-              ),
-            ),
-
-            // Photo spots horizontal scroll (full-bleed)
-            SliverToBoxAdapter(
-              child: _PhotoSpotsRow(
-                spots: route.photoSpots,
-                colors: colors,
               ),
             ),
 
@@ -386,14 +365,17 @@ Future<void> _handleUploadTrack(
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['gpx', 'kml'],
+      withData: true,
     );
     if (result == null || result.files.isEmpty) return;
 
-    final filePath = result.files.single.path;
-    if (filePath == null) return;
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) return;
 
+    final content = utf8.decode(bytes, allowMalformed: true);
     final gpxRepo = ref.read(gpxRepositoryProvider);
-    final parsed = await gpxRepo.parseGpxFile(filePath);
+    final parsed = gpxRepo.parseGpxContent(content, fileName: file.name);
 
     if (parsed.points.isEmpty) {
       if (context.mounted) {
@@ -921,13 +903,157 @@ class _ElevationChartPainter extends CustomPainter {
 
 // ─── Getting There Card ───────────────────────────────────────────────
 
+class _AccessInfo {
+  final String drive;
+  final String transit;
+  final String? carpool;
+
+  const _AccessInfo({
+    required this.drive,
+    required this.transit,
+    this.carpool,
+  });
+}
+
+const _routeAccess = <String, _AccessInfo>{
+  '武功山金顶穿越': _AccessInfo(
+    drive: '南昌 → 龙山村 · 3h · 260km',
+    transit: '南昌西站 → 萍乡北 (高铁40min) → 班车至龙山村',
+    carpool: '萍乡拼车至龙山村 · ¥50/人',
+  ),
+  '虎跳峡高路徒步': _AccessInfo(
+    drive: '丽江 → 桥头镇 · 2h · 100km',
+    transit: '丽江客运站 → 桥头镇班车 · 2h · ¥35',
+    carpool: '丽江古城拼车 · ¥60/人',
+  ),
+  '鳌太穿越': _AccessInfo(
+    drive: '西安 → 都督门(鳌山登山口) · 4h · 230km',
+    transit: '西安 → 眉县(高铁40min) → 包车至都督门',
+    carpool: '西安户外群拼车 · ¥150/人',
+  ),
+  '船底顶穿越': _AccessInfo(
+    drive: '广州 → 罗坑镇 · 3h · 220km',
+    transit: '广州 → 韶关东(高铁1h) → 班车至罗坑镇',
+    carpool: '广州户外群拼车 · ¥100/人',
+  ),
+  '徽杭古道': _AccessInfo(
+    drive: '杭州 → 绩溪鱼川村 · 3h · 250km',
+    transit: '杭州东 → 绩溪北(高铁1.5h) → 班车至鱼川村',
+    carpool: '绩溪拼车至登山口 · ¥30/人',
+  ),
+  '雨崩村徒步': _AccessInfo(
+    drive: '丽江 → 西当温泉 · 8h · 400km',
+    transit: '丽江 → 德钦(班车8h) → 包车至西当',
+    carpool: '丽江/香格里拉拼车 · ¥200/人',
+  ),
+  '洛克线': _AccessInfo(
+    drive: '成都 → 木里嘟噜村 · 12h · 700km',
+    transit: '成都 → 西昌(火车/飞机) → 木里(班车6h) → 包车至嘟噜',
+    carpool: '成都户外群拼车 · ¥400/人',
+  ),
+  '四姑娘山大峰攀登': _AccessInfo(
+    drive: '成都 → 日隆镇 · 4h · 230km',
+    transit: '成都茶店子站 → 小金(班车5h) → 日隆镇',
+    carpool: '成都拼车至日隆 · ¥120/人',
+  ),
+  '贡嘎转山': _AccessInfo(
+    drive: '成都 → 老榆林 · 7h · 380km',
+    transit: '成都 → 康定(班车6h) → 包车至老榆林',
+    carpool: '成都户外群拼车 · ¥250/人',
+  ),
+  '五台山大朝台': _AccessInfo(
+    drive: '太原 → 五台山景区 · 3.5h · 230km',
+    transit: '太原 → 五台山(火车2h) → 景区班车',
+    carpool: '太原拼车至台怀镇 · ¥80/人',
+  ),
+  '狼塔C线': _AccessInfo(
+    drive: '乌鲁木齐 → 呼图壁林场 · 3h · 180km',
+    transit: '乌鲁木齐 → 呼图壁(班车1.5h) → 包车至林场',
+    carpool: '乌鲁木齐户外群拼车 · ¥150/人',
+  ),
+  '乌孙古道': _AccessInfo(
+    drive: '伊宁 → 琼库什台村 · 4h · 180km',
+    transit: '伊宁 → 特克斯(班车3h) → 包车至琼库什台',
+    carpool: '伊宁户外群拼车 · ¥200/人',
+  ),
+  '长穿毕': _AccessInfo(
+    drive: '成都 → 长坪沟口 · 4h · 230km',
+    transit: '成都茶店子站 → 小金(班车5h) → 包车至长坪沟口',
+    carpool: '成都拼车至日隆 · ¥120/人',
+  ),
+  '七藏沟穿越': _AccessInfo(
+    drive: '成都 → 卡卡沟口 · 7h · 430km',
+    transit: '成都 → 松潘(班车6h) → 包车至卡卡沟口',
+    carpool: '成都/松潘拼车 · ¥200/人',
+  ),
+  '梅里雪山外转': _AccessInfo(
+    drive: '丽江 → 德钦 · 8h · 360km',
+    transit: '丽江 → 香格里拉(班车4h) → 德钦(班车4h)',
+    carpool: '丽江/香格里拉拼车 · ¥200/人',
+  ),
+  '珠峰东坡嘎玛沟': _AccessInfo(
+    drive: '日喀则 → 曲当乡 · 6h · 280km',
+    transit: '拉萨 → 日喀则(火车3h) → 包车至曲当乡',
+    carpool: '日喀则户外群拼车 · ¥300/人',
+  ),
+  '龙脊梯田徒步': _AccessInfo(
+    drive: '桂林 → 龙脊景区 · 2h · 80km',
+    transit: '桂林琴潭站 → 龙脊(直达班车2h) · ¥40',
+    carpool: '桂林拼车 · ¥50/人',
+  ),
+  '夏特古道': _AccessInfo(
+    drive: '伊宁 → 夏特温泉 · 3h · 150km',
+    transit: '伊宁 → 昭苏(班车3h) → 包车至夏特温泉',
+    carpool: '伊宁户外群拼车 · ¥180/人',
+  ),
+  '库拉岗日徒步': _AccessInfo(
+    drive: '拉萨 → 洛扎县 · 6h · 340km',
+    transit: '拉萨 → 洛扎(班车7h) → 包车至登山口',
+    carpool: '拉萨户外群拼车 · ¥350/人',
+  ),
+  '半脊峰攀登': _AccessInfo(
+    drive: '成都 → 理县毕棚沟 · 4h · 220km',
+    transit: '成都茶店子站 → 理县(班车4h) → 包车至毕棚沟',
+    carpool: '成都拼车至毕棚沟 · ¥120/人',
+  ),
+  '火凤线': _AccessInfo(
+    drive: '深圳市区 → 凤凰山森林公园 · 40min · 25km',
+    transit: '地铁1号线凤凰岗站A出口 · 步行10min至登山口',
+  ),
+  '七娘山穿越': _AccessInfo(
+    drive: '深圳市区 → 七娘山地质公园 · 1h · 50km',
+    transit: '地铁8号线大鹏站 → M471路至七娘山站',
+  ),
+  '墨脱徒步': _AccessInfo(
+    drive: '林芝 → 派镇 · 3h · 130km',
+    transit: '拉萨 → 林芝(飞机/火车) → 包车至派镇',
+    carpool: '林芝户外群拼车 · ¥200/人',
+  ),
+  '武夷山主峰穿越': _AccessInfo(
+    drive: '福州 → 武夷山景区 · 3h · 300km',
+    transit: '福州 → 武夷山北(高铁1.5h) → 景区接驳车',
+    carpool: '武夷山拼车 · ¥40/人',
+  ),
+  '潮州凤凰山': _AccessInfo(
+    drive: '潮州市区 → 凤凰镇 · 1h · 40km',
+    transit: '潮汕站 → 潮州(公交) → 凤凰镇(班车1h)',
+    carpool: '潮州拼车至凤凰镇 · ¥30/人',
+  ),
+};
+
 class _GettingThereCard extends StatelessWidget {
+  final String routeName;
   final KaipaColors colors;
 
-  const _GettingThereCard({required this.colors});
+  const _GettingThereCard({required this.routeName, required this.colors});
 
   @override
   Widget build(BuildContext context) {
+    final info = _routeAccess[routeName];
+    final driveTxt = info?.drive ?? '导航至登山口';
+    final transitTxt = info?.transit ?? '查询当地班车至登山口';
+    final carpoolTxt = info?.carpool;
+
     return Container(
       decoration: BoxDecoration(
         color: colors.surface,
@@ -942,28 +1068,30 @@ class _GettingThereCard extends StatelessWidget {
             child: _AccessRow(
               icon: KaipaIcons.navigate,
               title: '自驾',
-              detail: '国贸 → 西栅子村 · 2h10m · 92km',
+              detail: driveTxt,
               badge: '推荐',
               colors: colors,
             ),
           ),
-          _accessDivider(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _AccessRow(
-              icon: KaipaIcons.users,
-              title: '拼车',
-              detail: '周末徒步群拼车 · ¥80/人',
-              colors: colors,
+          if (carpoolTxt != null) ...[
+            _accessDivider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _AccessRow(
+                icon: KaipaIcons.users,
+                title: '拼车',
+                detail: carpoolTxt,
+                colors: colors,
+              ),
             ),
-          ),
+          ],
           _accessDivider(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _AccessRow(
               icon: KaipaIcons.route,
-              title: '公交+打车',
-              detail: '916快 → 怀柔 → 黑山寨 · 3h+',
+              title: '公共交通',
+              detail: transitTxt,
               colors: colors,
             ),
           ),
@@ -1263,174 +1391,6 @@ class _GearRecMore extends StatelessWidget {
   }
 }
 
-// ─── Photo Spots Row ──────────────────────────────────────────────────
-
-class _PhotoSpotsRow extends StatelessWidget {
-  final List<PhotoSpot> spots;
-  final KaipaColors colors;
-
-  const _PhotoSpotsRow({required this.spots, required this.colors});
-
-  // Fallback data when spots list doesn't have enough items
-  static const _fallbackSpots = [
-    (name: '北京结', distance: '3.2km', type: '日出最佳'),
-    (name: '鹰飞倒仰', distance: '5.8km', type: '险段'),
-    (name: '天梯', distance: '7.1km', type: '日落'),
-    (name: '九眼楼', distance: '11.4km', type: '终点'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 180,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: spots.isNotEmpty ? spots.length : _fallbackSpots.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          if (spots.isNotEmpty && index < spots.length) {
-            final spot = spots[index];
-            return _PhotoSpotCard(
-              name: spot.name,
-              distance: '',
-              type: spot.description ?? '',
-              colors: colors,
-            );
-          }
-          final fb = _fallbackSpots[index];
-          return _PhotoSpotCard(
-            name: fb.name,
-            distance: fb.distance,
-            type: fb.type,
-            colors: colors,
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _PhotoSpotCard extends StatelessWidget {
-  final String name;
-  final String distance;
-  final String type;
-  final KaipaColors colors;
-
-  const _PhotoSpotCard({
-    required this.name,
-    required this.distance,
-    required this.type,
-    required this.colors,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 140,
-      height: 180,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: colors.terrain.mid,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.line, width: 0.5),
-      ),
-      child: Stack(
-        children: [
-          // Terrain gradient bands
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _PhotoStripePainter(colors: colors),
-            ),
-          ),
-          // Dark gradient overlay
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.5, 1.0],
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withAlpha((0.65 * 255).round()),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Bottom content
-          Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (type.isNotEmpty || distance.isNotEmpty)
-                  Opacity(
-                    opacity: 0.85,
-                    child: Text(
-                      [type, distance].where((s) => s.isNotEmpty).join(' · '),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                const SizedBox(height: 2),
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PhotoStripePainter extends CustomPainter {
-  final KaipaColors colors;
-
-  _PhotoStripePainter({required this.colors});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final terrain = colors.terrain;
-    final stripes = [
-      terrain.base,
-      terrain.lowland,
-      terrain.mid,
-      terrain.ridge,
-      terrain.peak,
-      terrain.ridge,
-      terrain.mid,
-    ];
-
-    final stripeHeight = size.height / stripes.length;
-    for (int i = 0; i < stripes.length; i++) {
-      canvas.drawRect(
-        Rect.fromLTWH(0, i * stripeHeight, size.width, stripeHeight + 1),
-        Paint()..color = stripes[i],
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _PhotoStripePainter oldDelegate) => false;
-}
 
 // ─── Rating Label ─────────────────────────────────────────────────────
 
@@ -1833,7 +1793,7 @@ class _StickyCTA extends ConsumerWidget {
                   plannedDate: picked,
                 );
                 if (context.mounted) {
-                  context.push('/trip-plans/${plan.id}');
+                  context.push('/trip-plans/${plan.id}?isNew=1');
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -1857,9 +1817,8 @@ class _StickyCTA extends ConsumerWidget {
                   routeId: routeId,
                   plannedDate: DateTime.now(),
                 );
-                await repo.updatePlan(plan.id, {'status': 'ready'});
                 if (context.mounted) {
-                  context.push('/trip-plans/${plan.id}');
+                  context.push('/trip-plans/${plan.id}?isNew=1&immediate=1');
                 }
               },
               style: ElevatedButton.styleFrom(

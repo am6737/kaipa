@@ -159,12 +159,20 @@ class GearRecommendationService {
   }
 }
 
+final _gearRecommendationCache = <String, List<GearRecommendation>>{};
+
 final gearRecommendationsProvider = FutureProvider.family<
     List<GearRecommendation>,
     ({RouteModel route, WeatherForecast? weather})>((ref, params) async {
+  final cacheKey = '${params.route.id}_${params.weather?.hashCode ?? 'null'}';
+  if (_gearRecommendationCache.containsKey(cacheKey)) {
+    return _gearRecommendationCache[cacheKey]!;
+  }
   final service = ref.watch(gearRecommendationServiceProvider);
-  return service.getRecommendations(
+  final result = await service.getRecommendations(
     route: params.route,
     weather: params.weather,
   );
+  _gearRecommendationCache[cacheKey] = result;
+  return result;
 });

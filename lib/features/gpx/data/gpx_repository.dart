@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -16,14 +16,8 @@ class GpxRepository {
 
   GpxRepository(this._client);
 
-  /// Parse a GPX or KML file from [filePath] into a [GpxRouteModel].
-  ///
-  /// Detects format by file extension. Extracts track points, calculates
-  /// distance, elevation gain/loss, and speed statistics.
-  Future<GpxRouteModel> parseGpxFile(String filePath) async {
-    final file = File(filePath);
-    final content = await file.readAsString();
-    if (filePath.toLowerCase().endsWith('.kml')) {
+  GpxRouteModel parseGpxContent(String content, {required String fileName}) {
+    if (fileName.toLowerCase().endsWith('.kml')) {
       return _parseKmlString(content);
     }
     return _parseGpxString(content);
@@ -258,6 +252,18 @@ class GpxRepository {
     return result;
   }
 
+  Future<String> uploadRouteCover({
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('Not authenticated');
+    final ext = fileName.split('.').last;
+    final storagePath = '$userId/route-${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await _client.storage.from('covers').uploadBinary(storagePath, bytes);
+    return _client.storage.from('covers').getPublicUrl(storagePath);
+  }
+
   /// Save a parsed GPX route to the database as a new route.
   Future<void> saveRoute({
     required GpxRouteModel gpxRoute,
@@ -265,6 +271,7 @@ class GpxRepository {
     String? description,
     required String difficulty,
     String? region,
+    String? coverImageUrl,
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) {
@@ -300,6 +307,7 @@ class GpxRepository {
       'elevation_profile': elevationProfile,
       'waypoints': waypoints,
       'tags': <String>[],
+      if (coverImageUrl != null) 'cover_image_url': coverImageUrl,  // ignore: use_null_aware_elements
     };
 
     await _client.from('routes').insert(routeData);

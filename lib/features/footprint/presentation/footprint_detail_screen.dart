@@ -61,27 +61,39 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
 
   // ─── Loading Skeleton ─────────────────────────────────────────────────
   Widget _buildLoadingSkeleton(KaipaColors colors) {
+    final headerH =
+        (MediaQuery.of(context).size.height * 0.35).clamp(240.0, 320.0);
     return Column(
       children: [
-        Container(height: 200, color: colors.surfaceHi),
+        Container(height: headerH, color: colors.surfaceHi),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 94,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            children: List.generate(
+                4,
+                (_) => Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: _shimmerBar(colors, 88, 94),
+                    )),
+          ),
+        ),
+        const SizedBox(height: 28),
         Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(children: [
-            _shimmerBar(colors, 180, 24),
-            const SizedBox(height: 12),
-            _shimmerBar(colors, 120, 14),
-            const SizedBox(height: 20),
-            Row(
-              children: List.generate(
-                  4,
-                  (_) => Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: _shimmerBar(colors, double.infinity, 60),
-                        ),
-                      )),
-            ),
-          ]),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _shimmerBar(colors, 100, 16),
+                const SizedBox(height: 14),
+                _shimmerBar(colors, double.infinity, 70),
+                const SizedBox(height: 28),
+                _shimmerBar(colors, 80, 16),
+                const SizedBox(height: 14),
+                _shimmerBar(colors, double.infinity, 120),
+              ]),
         ),
       ],
     );
@@ -93,7 +105,7 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
       height: height,
       decoration: BoxDecoration(
         color: colors.surfaceHi,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
       ),
     );
   }
@@ -107,8 +119,7 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
             style: TextStyle(fontSize: 15, color: colors.inkMuted)),
         const SizedBox(height: 16),
         GestureDetector(
-          onTap: () =>
-              ref.invalidate(tripByIdProvider(widget.tripId)),
+          onTap: () => ref.invalidate(tripByIdProvider(widget.tripId)),
           child: Container(
             padding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -116,8 +127,8 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
               color: colors.flare,
               borderRadius: BorderRadius.circular(99),
             ),
-            child: Text('重试',
-                style: const TextStyle(
+            child: const Text('重试',
+                style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: Colors.white)),
@@ -129,7 +140,6 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
 
   // ─── Main Content ─────────────────────────────────────────────────────
   Widget _buildContent(TripModel trip, KaipaColors colors) {
-    final hasPhotos = trip.photos.isNotEmpty;
     final hasTrack = trip.trackGeojson != null;
     final hasWeather = trip.weatherSummary != null;
 
@@ -143,17 +153,19 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
 
     if (_tabController == null || tabSpecs.length != _previousTabCount) {
       _tabController?.dispose();
-      _tabController = TabController(
-          length: tabSpecs.length, vsync: this);
+      _tabController =
+          TabController(length: tabSpecs.length, vsync: this);
       _previousTabCount = tabSpecs.length;
     }
 
     final tabContents = <Widget>[
-      _buildGearSection(trip, colors),
-      if (hasTrack) _buildTrackSection(trip, colors),
-      if (hasWeather) _buildWeatherSection(trip, colors),
-      _buildPhotosSection(trip, colors),
-      _buildNotesSection(trip, colors),
+      SingleChildScrollView(child: _buildGearSection(trip, colors)),
+      if (hasTrack)
+        SingleChildScrollView(child: _buildTrackSection(trip, colors)),
+      if (hasWeather)
+        SingleChildScrollView(child: _buildWeatherSection(trip, colors)),
+      SingleChildScrollView(child: _buildPhotosSection(trip, colors)),
+      SingleChildScrollView(child: _buildNotesSection(trip, colors)),
     ];
 
     return Stack(
@@ -164,48 +176,30 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
           onRefresh: () async {
             ref.invalidate(tripByIdProvider(widget.tripId));
           },
-          child: Column(
+          child: ListView(
+            padding: EdgeInsets.zero,
             children: [
-              // Header
-              _buildHeader(trip, colors, hasPhotos, hasTrack),
-              // Scrollable body
-              Expanded(
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    // Title + switcher
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: _buildTitleRow(trip, colors),
-                    ),
-                    if (trip.routeId != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                        child: _buildSwitcherIfNeeded(trip, colors),
-                      ),
-                    // Stats card
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: _buildStatsCard(trip, colors),
-                    ),
-                    const SizedBox(height: 18),
-                    // Tab bar
-                    _buildTabBar(tabSpecs, colors),
-                    // Tab content — use fixed height based on available space
-                    SizedBox(
-                      height: _tabContentHeight(tabSpecs.length),
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: tabContents,
-                      ),
-                    ),
-                  ],
+              _buildHeader(trip, colors),
+              const SizedBox(height: 16),
+              _buildStatsRow(trip, colors),
+              if (trip.routeId != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: _buildSwitcherIfNeeded(trip, colors),
+                ),
+              const SizedBox(height: 20),
+              _buildTabBar(tabSpecs, colors),
+              SizedBox(
+                height: _tabContentHeight(),
+                child: TabBarView(
+                  controller: _tabController,
+                  children: tabContents,
                 ),
               ),
             ],
           ),
         ),
-        // Top chrome
+        // Floating top chrome
         Positioned(
           top: MediaQuery.of(context).padding.top + 8,
           left: 12,
@@ -234,19 +228,23 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
   }
 
-  double _tabContentHeight(int tabCount) {
-    // Approximate remaining height after header+title+stats+tabbar
+  double _tabContentHeight() {
     final screenHeight = MediaQuery.of(context).size.height;
-    final topPadding = MediaQuery.of(context).padding.top;
-    final usedHeight =
-        200 + 68 + 16 + 120 + 18 + 48 + topPadding + 60;
-    return (screenHeight - usedHeight).clamp(260.0, 600.0);
+    final headerH =
+        (screenHeight * 0.35).clamp(240.0, 320.0);
+    final usedHeight = headerH + 16 + 100 + 20 + 48 + 40;
+    return (screenHeight - usedHeight).clamp(280.0, 600.0);
   }
 
   // ─── Tab Bar ──────────────────────────────────────────────────────────
   Widget _buildTabBar(List<_TabSpec> tabs, KaipaColors colors) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: colors.surfaceHi,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: TabBar(
         controller: _tabController,
         isScrollable: false,
@@ -254,15 +252,20 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
             const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
         unselectedLabelStyle:
             const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
-        labelColor: colors.flare,
+        labelColor: Colors.white,
         unselectedLabelColor: colors.inkDim,
-        indicatorColor: colors.flare,
-        indicatorSize: TabBarIndicatorSize.label,
-        indicatorWeight: 2.5,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        indicator: BoxDecoration(
+          color: colors.flare,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        indicatorSize: TabBarIndicatorSize.tab,
+        dividerHeight: 0,
+        labelPadding: EdgeInsets.zero,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
         tabs: tabs
             .map((t) => Tab(
-                  height: 44,
+                  height: 34,
                   child: Text(t.label),
                 ))
             .toList(),
@@ -270,10 +273,14 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
   }
 
-  // ─── Header ───────────────────────────────────────────────────────────
-  Widget _buildHeader(
-      TripModel trip, KaipaColors colors, bool hasPhotos, bool hasTrack) {
+  // ─── Hero Header ─────────────────────────────────────────────────────
+  Widget _buildHeader(TripModel trip, KaipaColors colors) {
+    final headerHeight =
+        (MediaQuery.of(context).size.height * 0.35).clamp(240.0, 320.0);
+    final hasPhotos = trip.photos.isNotEmpty;
+    final hasTrack = trip.trackGeojson != null;
     final coverUrl = trip.coverPhotoUrl;
+
     final background = coverUrl != null
         ? Image.network(coverUrl,
             fit: BoxFit.cover,
@@ -282,44 +289,100 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
         : _headerBackground(trip, colors, hasPhotos, hasTrack);
 
     return SizedBox(
-      height: 200,
+      height: headerHeight,
       child: Stack(
         fit: StackFit.expand,
         children: [
           background,
-          // Dark overlay for readability
+          // Gradient overlay for readability
           Positioned.fill(
-            child: Container(
-              decoration: const BoxDecoration(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: [0.0, 0.5, 1.0],
+                  stops: const [0.0, 0.35, 0.55, 1.0],
                   colors: [
-                    Color(0x50000000),
+                    const Color(0x70000000),
                     Colors.transparent,
-                    Color(0x70000000),
+                    Colors.transparent,
+                    const Color(0xA0000000),
                   ],
                 ),
               ),
             ),
           ),
+          // Title + date + badge overlay
+          Positioned(
+            left: 20,
+            right: 64,
+            bottom: 20,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(25),
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                        color: Colors.white.withAlpha(40), width: 0.5),
+                  ),
+                  child: const Text('已完成',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white)),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  trip.routeName ??
+                      '${trip.startedAt.month}月${trip.startedAt.day}日 徒步',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: -0.6,
+                    shadows: [
+                      Shadow(color: Color(0x50000000), blurRadius: 12)
+                    ],
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${trip.startedAt.year}.${trip.startedAt.month.toString().padLeft(2, '0')}.${trip.startedAt.day.toString().padLeft(2, '0')}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withAlpha(190),
+                    shadows: const [
+                      Shadow(color: Color(0x40000000), blurRadius: 6)
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           // Edit cover button
           Positioned(
-            right: 12,
-            bottom: 12,
+            right: 16,
+            bottom: 16,
             child: GestureDetector(
               onTap: () => _showCoverPicker(trip, colors, hasPhotos),
               child: Container(
-                width: 40,
-                height: 40,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(140),
+                  color: Colors.black.withAlpha(100),
                   shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withAlpha(30)),
                 ),
-                child: const Center(
+                child: Center(
                   child: Icon(Icons.camera_alt_rounded,
-                      color: Colors.white, size: 18),
+                      color: Colors.white.withAlpha(200), size: 16),
                 ),
               ),
             ),
@@ -353,56 +416,117 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
         ),
       ),
       child: Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          KaipaIcon(
-              name: KaipaIcons.mountain,
-              size: 48,
-              color: Colors.white.withAlpha(140)),
-          const SizedBox(height: 12),
-          Text(trip.routeName ?? '我的足迹',
-              style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white)),
-        ]),
+        child: KaipaIcon(
+            name: KaipaIcons.mountain,
+            size: 56,
+            color: Colors.white.withAlpha(80)),
       ),
     );
   }
 
-  // ─── Title Row ────────────────────────────────────────────────────────
-  Widget _buildTitleRow(TripModel trip, KaipaColors colors) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Expanded(
-          child: Text(
-            trip.routeName ??
-                '${trip.startedAt.month}月${trip.startedAt.day}日 徒步',
-            style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: colors.ink,
-                letterSpacing: -0.6),
+  // ─── Stats Row ────────────────────────────────────────────────────────
+  Widget _buildStatsRow(TripModel trip, KaipaColors colors) {
+    final stats = <_StatItem>[
+      _StatItem(
+          icon: KaipaIcons.ruler,
+          value: trip.actualDistanceKm != null
+              ? '${trip.actualDistanceKm!.toStringAsFixed(1)} km'
+              : '--',
+          label: '距离',
+          tint: colors.sky),
+      _StatItem(
+          icon: KaipaIcons.altitude,
+          value: trip.actualElevationM != null
+              ? '${trip.actualElevationM!.toInt()} m'
+              : '--',
+          label: '爬升',
+          tint: colors.moss),
+      _StatItem(
+          icon: KaipaIcons.clock,
+          value: trip.actualDuration != null
+              ? _fmtDur(trip.actualDuration!)
+              : '--',
+          label: '用时',
+          tint: colors.sand),
+      _StatItem(
+          icon: KaipaIcons.hiker,
+          value: trip.avgSpeedKmh != null
+              ? trip.avgSpeedKmh!.toStringAsFixed(1)
+              : '--',
+          label: '均速 km/h',
+          tint: colors.flare),
+      if (trip.maxAltitudeM != null)
+        _StatItem(
+            icon: KaipaIcons.mountain,
+            value: '${trip.maxAltitudeM!.toInt()} m',
+            label: '最高海拔',
+            tint: colors.sky),
+      if (trip.caloriesBurned != null && trip.caloriesBurned! > 0)
+        _StatItem(
+            icon: KaipaIcons.flame,
+            value: '${trip.caloriesBurned!.toInt()}',
+            label: 'kcal',
+            tint: colors.flare),
+    ];
+
+    return SizedBox(
+      height: 100,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: stats.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (_, i) => _statChip(stats[i], colors),
+      ),
+    );
+  }
+
+  Widget _statChip(_StatItem item, KaipaColors colors) {
+    return Container(
+      width: 88,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: colorWithOpacity(item.tint, 0.12),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Center(
+              child: KaipaIcon(name: item.icon, size: 15, color: item.tint),
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: colors.moss.withAlpha(30),
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: Text('已完成',
+          const SizedBox(height: 8),
+          Text(item.value,
               style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: colors.moss)),
-        ),
-      ]),
-      const SizedBox(height: 4),
-      Text(
-        '${trip.startedAt.year}.${trip.startedAt.month.toString().padLeft(2, '0')}.${trip.startedAt.day.toString().padLeft(2, '0')}',
-        style: TextStyle(fontSize: 13, color: colors.inkMuted)),
-    ]);
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: colors.ink,
+                  letterSpacing: -0.3),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 2),
+          Text(item.label,
+              style: TextStyle(fontSize: 10, color: colors.inkDim),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+
+  String _fmtDur(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    return '$h:${m.toString().padLeft(2, '0')}';
   }
 
   // ─── Trip Switcher ────────────────────────────────────────────────────
@@ -427,89 +551,19 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
   }
 
-  // ─── Stats Card ───────────────────────────────────────────────────────
-  Widget _buildStatsCard(TripModel trip, KaipaColors colors) {
-    final stats = <_StatItem>[
-      _StatItem(
-          value: trip.actualDistanceKm != null
-              ? '${trip.actualDistanceKm!.toStringAsFixed(1)} km'
-              : '--',
-          label: '距离'),
-      _StatItem(
-          value: trip.actualElevationM != null
-              ? '${trip.actualElevationM!.toInt()} m'
-              : '--',
-          label: '爬升'),
-      _StatItem(
-          value: trip.actualDuration != null
-              ? _fmtDur(trip.actualDuration!)
-              : '--',
-          label: '用时'),
-      _StatItem(
-          value: trip.avgSpeedKmh != null
-              ? '${trip.avgSpeedKmh!.toStringAsFixed(1)} km/h'
-              : '--',
-          label: '均速'),
-      if (trip.maxAltitudeM != null)
-        _StatItem(
-            value: '${trip.maxAltitudeM!.toInt()} m',
-            label: '最高'),
-      if (trip.caloriesBurned != null && trip.caloriesBurned! > 0)
-        _StatItem(
-            value: '${trip.caloriesBurned!.toInt()} kcal',
-            label: '消耗'),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.surface,
+  // ─── Track Section ────────────────────────────────────────────────────
+  Widget _buildTrackSection(TripModel trip, KaipaColors colors) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.line, width: 0.5),
-      ),
-      child: Column(
-        children: [
-          for (var i = 0; i < stats.length; i += 2)
-            Padding(
-              padding: EdgeInsets.only(top: i > 0 ? 12 : 0),
-              child: Row(
-                children: [
-                  Expanded(child: _statCell(stats[i], colors)),
-                  if (i + 1 < stats.length) const SizedBox(width: 8),
-                  if (i + 1 < stats.length)
-                    Expanded(child: _statCell(stats[i + 1], colors)),
-                  if (i + 1 >= stats.length)
-                    const Expanded(child: SizedBox.shrink()),
-                ],
-              ),
-            ),
-          if (stats.length % 2 != 0) const SizedBox.shrink(),
-        ],
+        child: SizedBox(
+          height: 200,
+          child:
+              TrackReplayMap(trackGeojson: trip.trackGeojson!, colors: colors),
+        ),
       ),
     );
-  }
-
-  Widget _statCell(_StatItem item, KaipaColors colors) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(item.value,
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: colors.ink,
-                letterSpacing: -0.3)),
-        const SizedBox(height: 2),
-        Text(item.label,
-            style: TextStyle(fontSize: 11, color: colors.inkDim)),
-      ],
-    );
-  }
-
-  String _fmtDur(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
-    return '$h:${m.toString().padLeft(2, '0')}';
   }
 
   // ─── Gear Section ─────────────────────────────────────────────────────
@@ -564,16 +618,117 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
   }
 
-  // ─── Track Section ────────────────────────────────────────────────────
-  Widget _buildTrackSection(TripModel trip, KaipaColors colors) {
+  Widget _buildGearList({
+    required List<GearItemModel> items,
+    required Map<String, List<GearItemModel>> grouped,
+    required Map<String, String> categoryMap,
+    required double totalWeight,
+    required KaipaColors colors,
+  }) {
+    final totalValue =
+        items.fold<double>(0, (sum, i) => sum + (i.price ?? 0));
+
+    String fmtPrice(double? price) {
+      if (price == null || price == 0) return '';
+      if (price >= 10000) return '¥${(price / 10000).toStringAsFixed(1)}w';
+      return '¥${price.toInt()}';
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: SizedBox(
-          height: 220,
-          child:
-              TrackReplayMap(trackGeojson: trip.trackGeojson!, colors: colors),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.line, width: 0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Summary bar
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: colors.surfaceHi,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                Text('${items.length} 件',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: colors.inkMuted)),
+                const SizedBox(width: 12),
+                Text('${(totalWeight / 1000).toStringAsFixed(2)} kg',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: colors.ink)),
+                if (totalValue > 0) ...[
+                  const Spacer(),
+                  Text(fmtPrice(totalValue),
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: colors.flare)),
+                ],
+              ]),
+            ),
+            const SizedBox(height: 14),
+            for (final entry in grouped.entries) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6, top: 4),
+                child: Text(categoryMap[entry.key] ?? '其他',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: colors.inkDim)),
+              ),
+              ...entry.value.map((item) => GestureDetector(
+                    onTap: () => context.push('/gear/item/${item.id}'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 7, horizontal: 4),
+                      child: Row(children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          margin: const EdgeInsets.only(right: 10),
+                          decoration: BoxDecoration(
+                              color: colors.flare, shape: BoxShape.circle),
+                        ),
+                        Expanded(
+                          child: Text(item.name,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: colors.ink)),
+                        ),
+                        if (item.brand != null)
+                          Text(item.brand!,
+                              style: TextStyle(
+                                  fontSize: 11, color: colors.inkDim)),
+                        if (item.weightG != null) ...[
+                          const SizedBox(width: 8),
+                          Text('${item.weightG!.toInt()}g',
+                              style: TextStyle(
+                                  fontSize: 11, color: colors.inkMuted)),
+                        ],
+                        if (item.price != null && item.price! > 0) ...[
+                          const SizedBox(width: 8),
+                          Text(fmtPrice(item.price),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.flare)),
+                        ],
+                      ]),
+                    ),
+                  )),
+            ],
+          ],
         ),
       ),
     );
@@ -586,53 +741,62 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     final condition = w['condition']?.toString();
     final wind = w['wind']?.toString();
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: colors.line, width: 0.5),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            KaipaIcon(name: KaipaIcons.weather, size: 18, color: colors.flare),
-            const SizedBox(width: 8),
-            Text('天气回顾',
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: colors.ink)),
-          ]),
-          const SizedBox(height: 12),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            if (temp != null) _chip('$temp°C', colors),
-            if (condition != null) _chip(condition, colors),
-            if (wind != null) _chip('风 $wind', colors),
-          ]),
-        ]),
-      ),
-    );
-  }
+    final weatherItems = <_WeatherItem>[
+      if (temp != null)
+        _WeatherItem(icon: KaipaIcons.sun, value: '$temp°C', label: '温度'),
+      if (condition != null)
+        _WeatherItem(
+            icon: KaipaIcons.weather, value: condition, label: '天气'),
+      if (wind != null)
+        _WeatherItem(icon: KaipaIcons.flag, value: wind, label: '风力'),
+    ];
 
-  Widget _chip(String label, KaipaColors colors) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: colors.surfaceHi,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.lineSoft, width: 0.5),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: weatherItems
+            .map((item) => Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(
+                        right: item == weatherItems.last ? 0 : 10),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: colors.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: colors.line, width: 0.5),
+                    ),
+                    child: Column(
+                      children: [
+                        KaipaIcon(
+                            name: item.icon,
+                            size: 18,
+                            color: colors.sky),
+                        const SizedBox(height: 8),
+                        Text(item.value,
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: colors.ink),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text(item.label,
+                            style: TextStyle(
+                                fontSize: 10, color: colors.inkDim)),
+                      ],
+                    ),
+                  ),
+                ))
+            .toList(),
       ),
-      child:
-          Text(label, style: TextStyle(fontSize: 12, color: colors.ink)),
     );
   }
 
   // ─── Photos Section ───────────────────────────────────────────────────
   Widget _buildPhotosSection(TripModel trip, KaipaColors colors) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: trip.photos.isEmpty
           ? _buildEmptyState(
               icon: KaipaIcons.camera,
@@ -659,12 +823,10 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
         final colors = ref.read(kaipaTokensProvider).color;
         return Stack(
           children: [
-            // Dark backdrop
             GestureDetector(
               onTap: () => Navigator.pop(ctx),
               child: Container(color: Colors.black.withAlpha(230)),
             ),
-            // Image
             Center(
               child: InteractiveViewer(
                 child: Image.network(trip.photos[index],
@@ -678,7 +840,6 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
                                 color: colors.inkDim)))),
               ),
             ),
-            // Close + counter
             Positioned(
               top: MediaQuery.of(ctx).padding.top + 12,
               left: 16,
@@ -708,9 +869,8 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
   // ─── Notes Section ────────────────────────────────────────────────────
   Widget _buildNotesSection(TripModel trip, KaipaColors colors) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Edit/Save toggle
         Row(children: [
           const Spacer(),
           GestureDetector(
@@ -722,13 +882,12 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
             },
             child: Container(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
                 color: _editingNotes ? colors.flare : colors.surface,
                 borderRadius: BorderRadius.circular(99),
                 border: Border.all(
-                    color:
-                        _editingNotes ? colors.flare : colors.line,
+                    color: _editingNotes ? colors.flare : colors.line,
                     width: 0.5),
               ),
               child: Text(_editingNotes ? '保存' : '编辑',
@@ -769,7 +928,7 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
         ] else if (trip.notes?.isNotEmpty == true)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: colors.surface,
               borderRadius: BorderRadius.circular(14),
@@ -815,9 +974,22 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     bool compact = false,
   }) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: compact ? 20 : 40),
+      padding: EdgeInsets.symmetric(vertical: compact ? 20 : 32),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        KaipaIcon(name: icon, size: compact ? 32 : 40, color: colors.inkDim),
+        Container(
+          width: compact ? 44 : 52,
+          height: compact ? 44 : 52,
+          decoration: BoxDecoration(
+            color: colors.surfaceHi,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Center(
+            child: KaipaIcon(
+                name: icon,
+                size: compact ? 22 : 26,
+                color: colors.inkDim),
+          ),
+        ),
         const SizedBox(height: 12),
         Text(message,
             style: TextStyle(
@@ -850,115 +1022,6 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
           ),
         ],
       ]),
-    );
-  }
-
-  // ─── Gear List (extracted for clarity) ────────────────────────────────
-  Widget _buildGearList({
-    required List<GearItemModel> items,
-    required Map<String, List<GearItemModel>> grouped,
-    required Map<String, String> categoryMap,
-    required double totalWeight,
-    required KaipaColors colors,
-  }) {
-    final totalValue =
-        items.fold<double>(0, (sum, i) => sum + (i.price ?? 0));
-
-    String fmtPrice(double? price) {
-      if (price == null || price == 0) return '';
-      if (price >= 10000) return '¥${(price / 10000).toStringAsFixed(1)}w';
-      return '¥${price.toInt()}';
-    }
-
-    return ListView(
-      physics: const NeverScrollableScrollPhysics(),
-      shrinkWrap: true,
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-      children: [
-        // Summary bar
-        Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: colors.surfaceHi,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(children: [
-            Text('${items.length} 件',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: colors.inkMuted)),
-            const SizedBox(width: 12),
-            Text('${(totalWeight / 1000).toStringAsFixed(2)} kg',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: colors.ink)),
-            if (totalValue > 0) ...[
-              const Spacer(),
-              Text(fmtPrice(totalValue),
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: colors.flare)),
-            ],
-          ]),
-        ),
-        const SizedBox(height: 14),
-        for (final entry in grouped.entries) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(categoryMap[entry.key] ?? '其他',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: colors.inkDim)),
-          ),
-          ...entry.value.map((item) => GestureDetector(
-                onTap: () => context.push('/gear/item/${item.id}'),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 8, horizontal: 4),
-                  child: Row(children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      margin: const EdgeInsets.only(right: 10),
-                      decoration: BoxDecoration(
-                          color: colors.flare, shape: BoxShape.circle),
-                    ),
-                    Expanded(
-                      child: Text(item.name,
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: colors.ink)),
-                    ),
-                    if (item.brand != null)
-                      Text(item.brand!,
-                          style: TextStyle(
-                              fontSize: 11, color: colors.inkDim)),
-                    if (item.weightG != null) ...[
-                      const SizedBox(width: 8),
-                      Text('${item.weightG!.toInt()}g',
-                          style: TextStyle(
-                              fontSize: 11, color: colors.inkMuted)),
-                    ],
-                    if (item.price != null && item.price! > 0) ...[
-                      const SizedBox(width: 8),
-                      Text(fmtPrice(item.price),
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: colors.flare)),
-                    ],
-                  ]),
-                ),
-              )),
-          const SizedBox(height: 4),
-        ],
-      ],
     );
   }
 
@@ -1244,6 +1307,7 @@ class _FootprintDetailScreenState extends ConsumerState<FootprintDetailScreen>
     );
     if (confirmed == true && mounted) {
       await ref.read(tripRepositoryProvider).deleteTrip(trip.id);
+      ref.invalidate(footprintMemoriesProvider);
       if (mounted) context.pop();
     }
   }
@@ -1285,7 +1349,21 @@ class _TabSpec {
 }
 
 class _StatItem {
+  final String icon;
   final String value;
   final String label;
-  const _StatItem({required this.value, required this.label});
+  final Color tint;
+  const _StatItem(
+      {required this.icon,
+      required this.value,
+      required this.label,
+      required this.tint});
+}
+
+class _WeatherItem {
+  final String icon;
+  final String value;
+  final String label;
+  const _WeatherItem(
+      {required this.icon, required this.value, required this.label});
 }

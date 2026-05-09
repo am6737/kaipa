@@ -32,6 +32,7 @@ import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/trip_plan/presentation/trip_plan_list_screen.dart';
 import '../../features/trip_plan/presentation/trip_plan_detail_screen.dart';
+import '../../features/trip_plan/presentation/task_timeline_screen.dart';
 import '../widgets/bottom_nav_bar.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -177,6 +178,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => GearPickScreen(
           routeId: state.pathParameters['routeId']!,
           planId: state.uri.queryParameters['planId'],
+          immediate: state.uri.queryParameters['immediate'] == '1',
         ),
       ),
       GoRoute(
@@ -251,6 +253,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/trip-plans/:planId',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, state) => TripPlanDetailScreen(
+          planId: state.pathParameters['planId']!,
+          isNew: state.uri.queryParameters['isNew'] == '1',
+          isImmediate: state.uri.queryParameters['immediate'] == '1',
+        ),
+      ),
+      GoRoute(
+        path: '/trip-plans/:planId/timeline',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, state) => TaskTimelineScreen(
           planId: state.pathParameters['planId']!,
         ),
       ),

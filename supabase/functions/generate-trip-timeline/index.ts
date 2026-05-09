@@ -39,6 +39,7 @@ interface TimelineTask {
   title: string;
   description: string;
   suggested_time: string | null; // HH:MM
+  suggested_day: number | null;  // 1-indexed day number
   sort_order: number;
 }
 
@@ -56,7 +57,7 @@ const providers: Record<string, { envKey: string; call: (prompt: string, apiKey:
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4096, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 8192, messages: [{ role: "user", content: prompt }] }),
       });
       if (!res.ok) throw new Error(`Anthropic ${res.status}`);
       const data = await res.json();
@@ -70,7 +71,7 @@ const providers: Record<string, { envKey: string; call: (prompt: string, apiKey:
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model, max_tokens: 8192, messages: [{ role: "user", content: prompt }] }),
       });
       if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -83,7 +84,7 @@ const providers: Record<string, { envKey: string; call: (prompt: string, apiKey:
       const res = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: "deepseek-chat", max_tokens: 4096, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "deepseek-chat", max_tokens: 8192, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
       });
       if (!res.ok) throw new Error(`DeepSeek ${res.status}`);
       const data = await res.json();
@@ -117,79 +118,123 @@ function buildPrompt(req: RequestBody): string {
     }
   }
 
-  return `你是一位经验丰富的户外徒步向导和行程规划专家。请根据以下路线信息、天气预报和出行日期，为用户生成一份详细的徒步行程时间线和待办清单。
+  const isMultiDay = req.day_count >= 2;
+  const month = new Date(req.planned_date).getMonth() + 1;
+  let season = "春秋";
+  if (month >= 6 && month <= 8) season = "夏季";
+  else if (month >= 11 || month <= 2) season = "冬季";
 
-## 路线信息
+  return `你是户外行程规划 AI。根据路线数据和天气，生成一份**具体到时刻**的行进计划。
+
+## 核心原则
+- 你在排**行军时刻表**，不是写安全手册
+- 每条事项必须绑定**具体时间**和**具体地点/行动**
+- 禁止输出"注意安全""关注天气变化"等笼统建议
+- 所有时间必须通过路线数据推算，不许凭空编
+
+## 路线数据
 - 名称: ${r.name}
-- 距离: ${r.distance_km} km
-- 累计爬升: ${r.elevation_gain_m} m
-- 最高海拔: ${r.max_altitude_m ?? "未知"} m
-- 难度: ${r.difficulty}
-- 预计总时长: ${r.estimated_duration_hours} 小时
-- 沿途水源: ${r.has_water_source ? "有" : "无"}
+- 总距离: ${r.distance_km} km | 累计爬升: ${r.elevation_gain_m} m
+- 最高海拔: ${r.max_altitude_m ?? "未知"} m | 难度: ${r.difficulty}
+- 预计行走时长: ${r.estimated_duration_hours} 小时
+- 水源: ${r.has_water_source ? "有" : "无"}
 ${r.region ? `- 地区: ${r.region}` : ""}
 
-## 天气预报 (出行日期: ${req.planned_date})
-- 温度: ${w.min_temp_c}°C ~ ${w.max_temp_c}°C
-- 降水概率: ${(w.max_pop * 100).toFixed(0)}%
-- 最大风速: ${w.max_wind_speed_ms.toFixed(1)} m/s
-- 降雨风险: ${w.has_rain_risk ? "有" : "无"}${w.summary ? `\n- 概况: ${w.summary}` : ""}${hourSummary}
+## 天气 (${req.planned_date}, ${season})
+- ${w.min_temp_c}°C ~ ${w.max_temp_c}°C | 降水${(w.max_pop * 100).toFixed(0)}% | 风速${w.max_wind_speed_ms.toFixed(1)}m/s${hourSummary}
 
 ## 行程天数: ${req.day_count} 天
 
-## 任务生成要求
+## 计算规则
+- 上升: 300m/h | 平路: 4.5km/h | 下降: 500m/h
+- 每2.5h休息15min
+- ${season === "夏季" ? "日出约05:30，建议06:00前出发避热" : season === "冬季" ? "日出约07:00，建议07:30出发" : "日出约06:15，建议06:30出发"}
+- ${season === "夏季" ? "日落约19:30" : season === "冬季" ? "日落约17:30" : "日落约18:00"}，扎营必须在日落前1.5h完成
+${w.has_rain_risk ? `- ⚠️ 有降雨风险，需在雨前完成暴露路段或扎营` : ""}
 
-请生成以下类别的任务，按时间顺序排列：
+## 你需要生成的内容
 
-### prep（出发前准备）
-- 提前检查的事项（装备打包、充电、下载离线地图、告知亲友路线等）
+**以 milestone 为主（占70%以上），生成具体行进节点：**
+- 出发时间和地点
+- 每隔1-2小时一个途经点（按距离/爬升推算到达时间，写清楚"预计已行进Xkm，爬升Xm"）
+- 关键地形节点（垭口、山顶、河流、补水点等）的预计到达时间
+- 休息点和午餐时间
+${isMultiDay ? "- 每天的扎营时间和建议营地位置\n- 第二天及以后的出发时间" : "- 预计返回/结束时间"}
 
-### milestone（关键里程碑）
-- 几点出发（考虑天气，避开最热/最冷的时段，充分利用日照）
-- 预计几点到达关键节点（垭口、山顶、补水点等）
-- 根据路线距离和爬升合理分配各段时间
+**仅在以下情况添加非 milestone 事项（最多2-3条）：**
+- weather: 仅当存在具体危险天气窗口时（写清几点到几点有什么风险，要做什么）
+- camp: 仅多日行程，写具体扎营时间和选址要求
+- prep: 仅1条，出发前夜的具体准备（写清楚几点之前完成什么）
+- safety/gear: 仅当路线有特殊风险时（如高海拔>4000m需要提醒高反预案，渡河段需要提醒涉水装备）
+- 不要输出任何通用建议（"注意保暖""携带雨具""通知亲友"之类全部禁止）
 
-### weather（天气提醒）
-${w.has_rain_risk ? "- **关键**: 下午可能有恶劣天气，必须在天气恶化前完成关键路段或扎营" : "- 根据温度提醒防晒或保暖"}
-- 给出具体的建议时间窗口
-
-### camp（营地相关）
-${req.day_count >= 2 ? "- 建议扎营时间（必须在天黑前，且考虑天气恶化时间）" : "- 单日路线，无需扎营"}
-- 营地选择建议
-
-### safety（安全提醒）
-- 高海拔注意高反
-- 长距离注意体力分配
-- 其他安全提示
-
-### gear（装备提醒）
-- 关键装备检查提醒
-
-## 输出格式
-请严格按以下 JSON 格式返回（不要包含任何其他文字）:
+## JSON 格式
+严格返回以下格式（不要包含其他文字）:
 {
   "tasks": [
     {
-      "category": "prep|milestone|weather|camp|safety|gear",
-      "title": "任务标题（简短有力）",
-      "description": "详细说明（1-2句话，解释为什么和怎么做）",
-      "suggested_time": "06:30 或 null（如果是具体时间点）",
+      "category": "milestone",
+      "title": "06:30 从登山口出发",
+      "description": "沿主步道向北，前方3km为缓坡上升段，预计1h到达第一个岔路口",
+      "suggested_time": "06:30",
+      "suggested_day": 1,
       "sort_order": 1
     }
   ],
-  "summary": "一句话总结本次行程的关键注意事项"
+  "summary": "全程约Xh，核心难点在XX段，需在XX点前通过"
 }
 
-## 时间规划原则
-- 夏季: 尽量早出发(6-7点)，避开中午高温
-- 冬季: 稍晚出发(7-8点)，充分利用日照温度
-- 如果下午有降雨/降雪风险，倒推最晚扎营时间
-- 上升速度按 300-400m/h 估算，平地 4-5km/h
-- 每 2-3 小时安排一次休息
-- 天黑时间按季节估算（夏季约19:30，春秋约18:00，冬季约17:00）
-- 必须在日落前 1-2 小时完成扎营
+注意：
+- suggested_time 格式为 "HH:MM"（不带秒），无具体时间则为 null
+- suggested_day 为第几天（从1开始）${isMultiDay ? "" : "，单日行程全部填 1"}
+- sort_order 按时间先后排列
+- 生成 ${isMultiDay ? "每天6-8条，总计" + (req.day_count * 7) + "条左右" : "8-12条"}
+- summary 用一句话点出此行程的核心时间节点和关键风险`;
+}
 
-请确保任务数量在 8-15 条之间，覆盖行前、出发、途中、扎营、收尾全流程。`;
+// ─── JSON repair for truncated AI responses ────────────────────────
+
+function repairTruncatedJson(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/^`{3,}(?:json)?\s*\n?/i, '').replace(/\n?`{3,}\s*$/i, '');
+  if (!s.startsWith('{')) {
+    const start = s.indexOf('{');
+    if (start === -1) throw new Error("No JSON object found in response");
+    s = s.slice(start);
+  }
+
+  try {
+    JSON.parse(s);
+    return s;
+  } catch (_) {
+    // truncated — attempt repair
+  }
+
+  // Remove trailing incomplete key-value: a comma or key fragment at the end
+  s = s.replace(/,\s*"[^"]*"?\s*:?\s*"?[^"]*$/, '');
+  // Remove trailing incomplete object in an array
+  s = s.replace(/,\s*\{[^}]*$/, '');
+
+  // Close open brackets/braces
+  const stack: string[] = [];
+  let inString = false;
+  let escape = false;
+  for (const ch of s) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+
+  if (inString) s += '"';
+  while (stack.length > 0) {
+    const open = stack.pop();
+    s += open === '{' ? '}' : ']';
+  }
+
+  return s;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────
@@ -218,11 +263,7 @@ Deno.serve(async (req) => {
 
     const prompt = buildPrompt(body);
     const rawText = await provider.call(prompt, provider.apiKey);
-
-    let jsonStr = rawText.trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
+    const jsonStr = repairTruncatedJson(rawText);
     const parsed: AiResponse = JSON.parse(jsonStr);
 
     return new Response(JSON.stringify({ ...parsed, provider: provider.name }), {

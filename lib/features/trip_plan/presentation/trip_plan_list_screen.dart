@@ -17,6 +17,10 @@ final _openSwipeId = ValueNotifier<String?>(null);
 // Selected tab filter.
 final _selectedTab = ValueNotifier<_TabFilter>(_TabFilter.all);
 
+// Batch selection mode state.
+final _isSelectionMode = ValueNotifier<bool>(false);
+final _selectedIds = ValueNotifier<Set<String>>({});
+
 enum _TabFilter { all, planning, departed, completed, cancelled }
 
 class TripPlanListScreen extends ConsumerWidget {
@@ -60,29 +64,40 @@ class TripPlanListScreen extends ConsumerWidget {
 
               final heroPlan = _findHeroPlan(plans);
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildTitle(colors),
-                  if (heroPlan != null) ...[
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: GestureDetector(
-                        onTap: () => context.push('/trip-plans/${heroPlan.id}'),
-                        child: _buildHeroCardInner(
-                            context, ref, heroPlan, colors),
+              return ValueListenableBuilder<bool>(
+                valueListenable: _isSelectionMode,
+                builder: (context, selectionMode, _) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (selectionMode)
+                        _buildSelectionBar(context, ref, plans, colors, heroPlan)
+                      else
+                        _buildTitle(colors),
+                      if (heroPlan != null && !selectionMode) ...[
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: GestureDetector(
+                            onTap: () =>
+                                context.push('/trip-plans/${heroPlan.id}'),
+                            onLongPress: () =>
+                                _enterSelectionMode(heroPlan.id),
+                            child: _buildHeroCardInner(
+                                context, ref, heroPlan, colors),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      _buildTabBar(colors),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: _buildFilteredList(
+                            context, ref, plans, colors, heroPlan),
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildTabBar(colors),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _buildFilteredList(
-                        context, ref, plans, colors, heroPlan),
-                  ),
-                ],
+                    ],
+                  );
+                },
               );
             },
           ),
@@ -108,10 +123,157 @@ class TripPlanListScreen extends ConsumerWidget {
     );
   }
 
+  // ─── Selection bar (batch mode) ────────────────────────────────
+
+  Widget _buildSelectionBar(BuildContext context, WidgetRef ref,
+      List<TripPlanModel> plans, KaipaColors colors,
+      TripPlanModel? heroPlan) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: _selectedIds,
+      builder: (context, selected, _) {
+        final filtered = _filterPlans(plans, _selectedTab.value);
+        final allSelected = filtered.isNotEmpty &&
+            filtered.every((p) => selected.contains(p.id));
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 12, 0),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: _exitSelectionMode,
+                icon: Icon(Icons.close, color: colors.ink, size: 22),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '已选 ${selected.length} 项',
+                style: TextStyle(
+                  color: colors.ink,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () {
+                  if (allSelected) {
+                    _selectedIds.value = {};
+                  } else {
+                    _selectedIds.value = filtered.map((p) => p.id).toSet();
+                  }
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(KaipaRadius.pill),
+                    border: Border.all(color: colors.line, width: 0.5),
+                  ),
+                  child: Text(
+                    allSelected ? '取消全选' : '全选',
+                    style: TextStyle(
+                      color: colors.inkMuted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: selected.isEmpty
+                    ? null
+                    : () => _handleBatchDelete(context, ref, colors),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: selected.isEmpty
+                        ? colors.surface
+                        : colorWithOpacity(_kDanger, 0.10),
+                    borderRadius: BorderRadius.circular(KaipaRadius.pill),
+                    border: Border.all(
+                      color: selected.isEmpty
+                          ? colors.line
+                          : colorWithOpacity(_kDanger, 0.3),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Text(
+                    '删除',
+                    style: TextStyle(
+                      color: selected.isEmpty ? colors.inkDim : _kDanger,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _exitSelectionMode() {
+    _isSelectionMode.value = false;
+    _selectedIds.value = {};
+  }
+
+  void _enterSelectionMode(String planId) {
+    _openSwipeId.value = null;
+    _isSelectionMode.value = true;
+    _selectedIds.value = {planId};
+  }
+
+  void _toggleSelection(String planId) {
+    final current = Set<String>.from(_selectedIds.value);
+    if (current.contains(planId)) {
+      current.remove(planId);
+      if (current.isEmpty) {
+        _exitSelectionMode();
+        return;
+      }
+    } else {
+      current.add(planId);
+    }
+    _selectedIds.value = current;
+  }
+
+  void _handleBatchDelete(
+      BuildContext context, WidgetRef ref, KaipaColors colors) {
+    final count = _selectedIds.value.length;
+    _showConfirmDialog(
+      context,
+      colors,
+      title: '批量删除',
+      message: '确定要永久删除所选的 $count 个行程吗？此操作不可撤销。',
+      confirmLabel: '删除 $count 项',
+      onConfirm: () async {
+        final repo = ref.read(tripPlanRepositoryProvider);
+        await Future.wait(
+          _selectedIds.value.map((id) => repo.deletePlan(id)),
+        );
+        _exitSelectionMode();
+        ref.invalidate(tripPlanListProvider);
+      },
+    );
+  }
+
   TripPlanModel? _findHeroPlan(List<TripPlanModel> plans) {
     final active = plans.where((p) =>
         p.status != TripPlanStatus.completed &&
         p.status != TripPlanStatus.cancelled);
+
+    final departed = active
+        .where((p) => p.status == TripPlanStatus.departed)
+        .toList()
+      ..sort((a, b) => a.plannedDate.compareTo(b.plannedDate));
+    if (departed.isNotEmpty) return departed.first;
 
     final today = active.where((p) => p.isDepartureDay).toList();
     if (today.isNotEmpty) return today.first;
@@ -318,16 +480,10 @@ class TripPlanListScreen extends ConsumerWidget {
       builder: (context, tab, _) {
         var filtered = _filterPlans(plans, tab);
 
-        // Exclude the hero plan from the list since it's shown above the tabs.
-        if (heroPlan != null) {
-          filtered = filtered.where((p) => p.id != heroPlan.id).toList();
-        }
-
         if (filtered.isEmpty) {
           return _buildEmptyFilter(colors, tab);
         }
 
-        final muted = tab == _TabFilter.completed || tab == _TabFilter.cancelled;
         filtered.sort((a, b) => b.plannedDate.compareTo(a.plannedDate));
 
         return RefreshIndicator(
@@ -340,7 +496,7 @@ class TripPlanListScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               return _buildSwipeablePlanCard(
-                  context, ref, filtered[index], colors, muted);
+                  context, ref, filtered[index], colors);
             },
           ),
         );
@@ -392,15 +548,63 @@ class TripPlanListScreen extends ConsumerWidget {
   // ─── Swipeable wrappers ───────────────────────────────────────────
 
   Widget _buildSwipeablePlanCard(BuildContext context, WidgetRef ref,
-      TripPlanModel plan, KaipaColors colors, bool muted) {
-    final actions = _getSwipeActions(context, ref, plan, colors);
-    if (actions.isEmpty) {
-      return _buildPlanCardInner(context, ref, plan, colors, muted: muted);
-    }
-    return _SwipeableCard(
-      planId: plan.id,
-      actions: actions,
-      child: _buildPlanCardInner(context, ref, plan, colors, muted: muted),
+      TripPlanModel plan, KaipaColors colors) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isSelectionMode,
+      builder: (context, selectionMode, _) {
+        if (selectionMode) {
+          return ValueListenableBuilder<Set<String>>(
+            valueListenable: _selectedIds,
+            builder: (context, selected, _) {
+              final isSelected = selected.contains(plan.id);
+              return GestureDetector(
+                onTap: () => _toggleSelection(plan.id),
+                child: Row(
+                  children: [
+                    _buildCheckbox(isSelected, colors),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildPlanCardInner(
+                          context, ref, plan, colors),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        }
+
+        final actions = _getSwipeActions(context, ref, plan, colors);
+        final card = _buildPlanCardInner(context, ref, plan, colors);
+        return GestureDetector(
+          onLongPress: () => _enterSelectionMode(plan.id),
+          child: actions.isEmpty
+              ? card
+              : _SwipeableCard(
+                  planId: plan.id,
+                  actions: actions,
+                  child: card,
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCheckbox(bool isSelected, KaipaColors colors) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: isSelected ? colors.flare : Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isSelected ? colors.flare : colors.inkDim,
+          width: 1.5,
+        ),
+      ),
+      child: isSelected
+          ? const Icon(Icons.check, size: 14, color: Colors.white)
+          : null,
     );
   }
 
@@ -416,9 +620,9 @@ class TripPlanListScreen extends ConsumerWidget {
             onTap: () => _handleReschedule(context, ref, plan, colors),
           ),
           _SwipeAction(
-            label: '删除',
-            color: _kDanger,
-            onTap: () => _handleDelete(context, ref, plan, colors),
+            label: '取消',
+            color: colors.diff.extreme,
+            onTap: () => _handleCancel(context, ref, plan, colors),
           ),
         ];
       case TripPlanStatus.departed:
@@ -533,15 +737,13 @@ class TripPlanListScreen extends ConsumerWidget {
                         '${route.elevationGainM.toInt()}m',
                         colors),
                     _buildStatDivider(colors),
-                    _buildStatItem(
-                        KaipaIcons.backpack,
-                        '${plan.totalGearCount}件',
+                    _buildStatLabel(
+                        '装备 ${plan.totalGearCount}件',
                         colors),
                     if (plan.totalGearCount > 0) ...[
                       _buildStatDivider(colors),
-                      _buildStatItem(
-                        KaipaIcons.check,
-                        '${plan.packedCount}/${plan.totalGearCount}',
+                      _buildStatLabel(
+                        '已打包 ${plan.packedCount}/${plan.totalGearCount}',
                         colors,
                         valueColor: plan.packedCount == plan.totalGearCount
                             ? colors.flare
@@ -568,14 +770,14 @@ class TripPlanListScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     TripPlanModel plan,
-    KaipaColors colors, {
-    required bool muted,
-  }) {
+    KaipaColors colors) {
     final route = plan.route;
     final daysUntil = plan.plannedDate.difference(DateTime.now()).inDays;
 
     return GestureDetector(
-      onTap: () => context.push('/trip-plans/${plan.id}'),
+      onTap: _isSelectionMode.value
+          ? null
+          : () => context.push('/trip-plans/${plan.id}'),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -583,58 +785,55 @@ class TripPlanListScreen extends ConsumerWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: colors.line, width: 0.5),
         ),
-        child: Opacity(
-          opacity: muted ? 0.7 : 1.0,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        route?.name ?? '行程计划',
+                        style: TextStyle(
+                          color: colors.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.2,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(plan.plannedDate),
+                        style: TextStyle(
+                          color: colors.inkDim,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (plan.status == TripPlanStatus.draft || plan.status == TripPlanStatus.ready)
+                  _buildCountdown(plan, daysUntil, colors, compact: true)
+                else
+                  _buildStatusChip(plan.status, colors),
+              ],
+            ),
+            if (route != null) ...[
+              const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          route?.name ?? '行程计划',
-                          style: TextStyle(
-                            color: colors.ink,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.2,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _formatDate(plan.plannedDate),
-                          style: TextStyle(
-                            color: colors.inkDim,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (!muted)
-                    _buildCountdown(plan, daysUntil, colors, compact: true)
-                  else
-                    _buildStatusChip(plan.status, colors),
+                  _buildMiniStat(KaipaIcons.ruler,
+                      '${route.distanceKm.toStringAsFixed(0)}km', colors),
+                  const SizedBox(width: 16),
+                  _buildMiniStat(KaipaIcons.altitude,
+                      '${route.elevationGainM.toInt()}m', colors),
                 ],
               ),
-              if (route != null && !muted) ...[
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _buildMiniStat(KaipaIcons.ruler,
-                        '${route.distanceKm.toStringAsFixed(0)}km', colors),
-                    const SizedBox(width: 16),
-                    _buildMiniStat(KaipaIcons.altitude,
-                        '${route.elevationGainM.toInt()}m', colors),
-                  ],
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -663,15 +862,34 @@ class TripPlanListScreen extends ConsumerWidget {
           child: child!,
         );
       },
-    ).then((picked) {
+    ).then((picked) async {
       if (picked != null) {
-        ref.read(tripPlanRepositoryProvider).updatePlan(
+        await ref.read(tripPlanRepositoryProvider).updatePlan(
           plan.id,
           {'planned_date': picked.toIso8601String().split('T').first},
         );
         ref.invalidate(tripPlanListProvider);
       }
     });
+  }
+
+  void _handleCancel(BuildContext context, WidgetRef ref,
+      TripPlanModel plan, KaipaColors colors) {
+    _openSwipeId.value = null;
+    _showConfirmDialog(
+      context,
+      colors,
+      title: '取消行程',
+      message: '确定要取消「${plan.route?.name ?? "此行程"}」吗？',
+      confirmLabel: '取消行程',
+      onConfirm: () async {
+        await ref.read(tripPlanRepositoryProvider).updatePlan(
+          plan.id,
+          {'status': 'cancelled'},
+        );
+        ref.invalidate(tripPlanListProvider);
+      },
+    );
   }
 
   void _handleDelete(BuildContext context, WidgetRef ref,
@@ -683,8 +901,8 @@ class TripPlanListScreen extends ConsumerWidget {
       title: '删除行程',
       message: '确定要永久删除「${plan.route?.name ?? "此行程"}」吗？此操作不可撤销。',
       confirmLabel: '删除',
-      onConfirm: () {
-        ref.read(tripPlanRepositoryProvider).deletePlan(plan.id);
+      onConfirm: () async {
+        await ref.read(tripPlanRepositoryProvider).deletePlan(plan.id);
         ref.invalidate(tripPlanListProvider);
       },
     );
@@ -720,7 +938,7 @@ class TripPlanListScreen extends ConsumerWidget {
         ).then((newPlan) {
           ref.invalidate(tripPlanListProvider);
           if (context.mounted) {
-            context.push('/trip-plans/${newPlan.id}');
+            context.push('/trip-plans/${newPlan.id}?isNew=1');
           }
         });
       }
@@ -814,6 +1032,20 @@ class TripPlanListScreen extends ConsumerWidget {
   Widget _buildCountdown(
       TripPlanModel plan, int daysUntil, KaipaColors colors,
       {bool compact = false}) {
+    if (plan.status == TripPlanStatus.departed) {
+      final daysSinceDeparture =
+          DateTime.now().difference(plan.plannedDate).inDays;
+      final label = daysSinceDeparture <= 0 ? '今天出发' : '第${daysSinceDeparture + 1}天';
+      return Text(
+        label,
+        style: TextStyle(
+          color: colors.flare,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+
     if (plan.isDepartureDay) {
       if (compact) {
         return Container(
@@ -903,6 +1135,22 @@ class TripPlanListScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildStatLabel(String value, KaipaColors colors, {Color? valueColor}) {
+    return Expanded(
+      child: Center(
+        child: Text(
+          value,
+          style: TextStyle(
+            color: valueColor ?? colors.inkMuted,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            letterSpacing: -0.2,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatDivider(KaipaColors colors) {
     return Container(
       width: 0.5,
@@ -936,12 +1184,6 @@ class TripPlanListScreen extends ConsumerWidget {
 
     return Row(
       children: [
-        KaipaIcon(
-          name: allPacked ? KaipaIcons.check : KaipaIcons.backpack,
-          size: 13,
-          color: progressColor,
-        ),
-        const SizedBox(width: 8),
         Text(
           allPacked ? '装备已齐全' : '装备打包',
           style: TextStyle(

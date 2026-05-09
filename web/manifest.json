@@ -1,11 +1,11 @@
 {
-    "name": "Kaipa",
-    "short_name": "Kaipa",
+    "name": "开爬",
+    "short_name": "开爬",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#111111",
     "theme_color": "#FF6B35",
-    "description": "Kaipa · 户外徒步导航",
+    "description": "开爬 · 户外徒步伴侣",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

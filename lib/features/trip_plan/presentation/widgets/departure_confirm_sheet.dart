@@ -118,17 +118,21 @@ class DepartureConfirmSheet extends ConsumerWidget {
                 ),
                 Divider(height: 0.5, thickness: 0.5, color: colors.line,
                     indent: 52),
-                if (hasGear) ...[
-                  _buildCheckRow(
-                    icon: KaipaIcons.backpack,
-                    label: '装备打包',
-                    value: '${plan.packedCount}/${plan.totalGearCount}',
-                    status: allPacked ? _CheckStatus.ok : _CheckStatus.warn,
-                    colors: colors,
-                  ),
-                  Divider(height: 0.5, thickness: 0.5, color: colors.line,
-                      indent: 52),
-                ],
+                _buildCheckRow(
+                  icon: KaipaIcons.backpack,
+                  label: '装备',
+                  value: hasGear
+                      ? '${plan.packedCount}/${plan.totalGearCount} 已打包'
+                      : '未添加装备',
+                  status: !hasGear
+                      ? _CheckStatus.warn
+                      : allPacked
+                          ? _CheckStatus.ok
+                          : _CheckStatus.warn,
+                  colors: colors,
+                ),
+                Divider(height: 0.5, thickness: 0.5, color: colors.line,
+                    indent: 52),
                 _buildCheckRow(
                   icon: KaipaIcons.clock,
                   label: '出发时间',
@@ -141,7 +145,7 @@ class DepartureConfirmSheet extends ConsumerWidget {
           ),
 
           // Warning banner if gear not packed
-          if (hasGear && !allPacked) ...[
+          if (!allPacked) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -163,7 +167,9 @@ class DepartureConfirmSheet extends ConsumerWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '还有 ${plan.totalGearCount - plan.packedCount} 件装备未打包',
+                      hasGear
+                          ? '还有 ${plan.totalGearCount - plan.packedCount} 件装备未打包'
+                          : '你还没有添加装备',
                       style: TextStyle(
                         color: colors.ink,
                         fontSize: 13,

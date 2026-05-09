@@ -152,7 +152,35 @@ class _MapScreenState extends ConsumerState<MapScreen>
     );
   }
 
-  static const _photoIds = [
+  static const _routePhotos = <String, String>{
+    '武功山金顶穿越': '1623291612752-a7ffc8cf0f7c',
+    '虎跳峡高路徒步': '1516941072577-aecd44b927bf',
+    '鳌太穿越': '1625297756846-21ce73796c99',
+    '船底顶穿越': '1628438375703-15146c56fb0d',
+    '徽杭古道': '1747107341450-efb9cd0d2b03',
+    '雨崩村徒步': '1661134572291-5292f61b3533',
+    '洛克线': '1602505026704-7d1ee0bc6088',
+    '四姑娘山大峰攀登': '1568015490643-f55ab9a561c4',
+    '贡嘎转山': '1643287167312-832b6f9e9b14',
+    '五台山大朝台': '1698236415363-3afe5b9304f5',
+    '狼塔C线': '1569660003459-6c30601dc19c',
+    '乌孙古道': '1642129412847-ea049c5def2e',
+    '长穿毕': '1673579529576-be48e2b590a5',
+    '七藏沟穿越': '1708141472309-fa6daa5b5ea0',
+    '梅里雪山外转': '1693869189333-7befe88938f0',
+    '珠峰东坡嘎玛沟': '1603787663416-88d33de66699',
+    '龙脊梯田徒步': '1549733171-76fb95f99322',
+    '夏特古道': '1621765458937-9d5bbe871304',
+    '库拉岗日徒步': '1597666864156-2e7ae49fca5a',
+    '半脊峰攀登': '1750215584605-3c13834400b1',
+    '火凤线': '1564513438899-7a65d3bc5eed',
+    '七娘山穿越': '1747102919063-5a22a0a65496',
+    '墨脱徒步': '1544735716-392fe2489ffa',
+    '武夷山主峰穿越': '1661101494670-431a96374bef',
+    '潮州凤凰山': '1557318254-3c3c0e173364',
+  };
+
+  static const _fallbackPhotos = [
     '1508804185872-d7badad00f7d',
     '1464822759023-fed622ff2c3b',
     '1551632811-561732d1e306',
@@ -162,8 +190,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
   ];
 
   static String routePhoto(String name, {int w = 400, int h = 200}) {
-    final idx = name.hashCode.abs() % _photoIds.length;
-    return 'https://images.unsplash.com/photo-${_photoIds[idx]}?w=$w&h=$h&fit=crop&q=80';
+    final id = _routePhotos[name] ??
+        _fallbackPhotos[name.hashCode.abs() % _fallbackPhotos.length];
+    return 'https://images.unsplash.com/photo-$id?w=$w&h=$h&fit=crop&q=80';
   }
 
   @override

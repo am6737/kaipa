@@ -1,11 +1,17 @@
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart' hide Path;
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
 import '../../../core/widgets/kaipa_icons.dart';
+import '../../discover/data/route_repository.dart';
 import '../data/gpx_repository.dart';
 import '../domain/gpx_route_model.dart';
 
@@ -32,15 +38,20 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
   String _selectedType = '徒步';
   String _selectedDifficulty = 'moderate';
   String _selectedRegion = '';
+  bool _regionLoading = false;
   String _visibility = 'public';
   String _notes = '';
+  Uint8List? _coverImageBytes;
+  String? _coverImageName;
 
   final _nameController = TextEditingController();
+  final _regionController = TextEditingController();
   final _notesController = TextEditingController();
 
   @override
   void dispose() {
     _nameController.dispose();
+    _regionController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -54,12 +65,13 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['gpx', 'kml'],
+        withData: true,
       );
       if (result == null || result.files.isEmpty) return;
 
       final file = result.files.single;
-      final path = file.path;
-      if (path == null) return;
+      final bytes = file.bytes;
+      if (bytes == null) return;
 
       setState(() {
         _parsing = true;
@@ -67,8 +79,9 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
         _fileName = file.name;
       });
 
+      final content = utf8.decode(bytes, allowMalformed: true);
       final gpxRepo = ref.read(gpxRepositoryProvider);
-      final parsed = await gpxRepo.parseGpxFile(path);
+      final parsed = gpxRepo.parseGpxContent(content, fileName: file.name);
 
       if (parsed.points.isEmpty) {
         setState(() {
@@ -89,6 +102,7 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
 
       _nameController.text = _routeName;
       _goToStep(1);
+      _reverseGeocodeRegion(parsed);
     } catch (e) {
       setState(() {
         _parsing = false;
@@ -97,17 +111,97 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
     }
   }
 
+  Future<void> _reverseGeocodeRegion(GpxRouteModel route) async {
+    if (route.points.isEmpty) return;
+    setState(() => _regionLoading = true);
+    try {
+      final mid = route.points[route.points.length ~/ 2];
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=${mid.latitude}&lon=${mid.longitude}&format=json&accept-language=zh&zoom=10',
+      );
+      final resp = await http.get(uri, headers: {'User-Agent': 'Kaipa/1.0'});
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final addr = data['address'] as Map<String, dynamic>?;
+        if (addr != null) {
+          final state = addr['state'] as String? ?? '';
+          final city = addr['city'] as String? ?? addr['county'] as String? ?? '';
+          final region = city.isNotEmpty ? '$state$city' : state;
+          if (region.isNotEmpty && mounted) {
+            setState(() {
+              _selectedRegion = region;
+              _regionController.text = region;
+            });
+          }
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _regionLoading = false);
+  }
+
+  Future<void> _openRegionMapPicker(KaipaColors colors) async {
+    final route = _parsedRoute;
+    if (route == null || route.points.isEmpty) return;
+
+    final mid = route.points[route.points.length ~/ 2];
+    final initialCenter = LatLng(mid.latitude, mid.longitude);
+
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RegionMapPicker(
+        initialCenter: initialCenter,
+        colors: colors,
+      ),
+    );
+
+    if (result != null && result.isNotEmpty && mounted) {
+      setState(() {
+        _selectedRegion = result;
+        _regionController.text = result;
+      });
+    }
+  }
+
+  Future<void> _pickCoverImage() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+    if (file.bytes == null) return;
+    setState(() {
+      _coverImageBytes = file.bytes;
+      _coverImageName = file.name;
+    });
+  }
+
   Future<void> _saveRoute() async {
     if (_parsedRoute == null) return;
     try {
       final gpxRepo = ref.read(gpxRepositoryProvider);
+
+      String? coverUrl;
+      if (_coverImageBytes != null && _coverImageName != null) {
+        coverUrl = await gpxRepo.uploadRouteCover(
+          bytes: _coverImageBytes!,
+          fileName: _coverImageName!,
+        );
+      }
+
       await gpxRepo.saveRoute(
         gpxRoute: _parsedRoute!,
         name: _routeName,
         description: _notes.isNotEmpty ? _notes : _parsedRoute!.description,
         difficulty: _selectedDifficulty,
         region: _selectedRegion.isNotEmpty ? _selectedRegion : null,
+        coverImageUrl: coverUrl,
       );
+
+      ref.invalidate(allRoutesProvider);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('路线已保存')),
@@ -409,12 +503,82 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
       key: const ValueKey('step2'),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _buildTrackMapPreview(colors, route),
+        const SizedBox(height: 14),
         _buildFileInfoBar(colors, route),
         const SizedBox(height: 14),
         _buildStatsGrid(colors, route),
         const SizedBox(height: 14),
         _buildElevationPreview(colors, route),
       ]),
+    );
+  }
+
+  Widget _buildTrackMapPreview(KaipaColors colors, GpxRouteModel route) {
+    final trackPoints = route.points
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    if (trackPoints.isEmpty) return const SizedBox.shrink();
+
+    double south = trackPoints.first.latitude;
+    double north = south;
+    double west = trackPoints.first.longitude;
+    double east = west;
+    for (final p in trackPoints) {
+      if (p.latitude < south) south = p.latitude;
+      if (p.latitude > north) north = p.latitude;
+      if (p.longitude < west) west = p.longitude;
+      if (p.longitude > east) east = p.longitude;
+    }
+    final bounds = LatLngBounds(LatLng(south, west), LatLng(north, east));
+    final center = bounds.center;
+    final latSpan = north - south;
+    final lngSpan = east - west;
+    final maxSpan = math.max(latSpan, lngSpan);
+    double zoom = 13.0;
+    if (maxSpan > 0) {
+      zoom = (math.log(360 / maxSpan) / math.ln2).clamp(3.0, 17.0) - 0.5;
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        height: 220,
+        child: FlutterMap(
+          options: MapOptions(
+            initialCenter: center,
+            initialZoom: zoom,
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+              userAgentPackageName: 'com.kaipa.app',
+            ),
+            PolylineLayer(polylines: [
+              Polyline(points: trackPoints, color: colors.flare, strokeWidth: 3),
+            ]),
+            MarkerLayer(markers: [
+              Marker(
+                point: trackPoints.first, width: 20, height: 20,
+                child: Container(decoration: BoxDecoration(
+                  color: colors.moss, shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                )),
+              ),
+              Marker(
+                point: trackPoints.last, width: 20, height: 20,
+                child: Container(decoration: BoxDecoration(
+                  color: colors.flare, shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                )),
+              ),
+            ]),
+          ],
+        ),
+      ),
     );
   }
 
@@ -532,11 +696,41 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
             style: TextStyle(fontSize: 14, color: colors.ink),
             decoration: _inputDeco(colors)),
         const SizedBox(height: 20),
+        _buildFieldLabel(colors, '封面图片'),
+        _buildCoverImagePicker(colors),
+        const SizedBox(height: 20),
         _buildFieldLabel(colors, '所在区域'),
-        TextField(
-            onChanged: (v) => _selectedRegion = v,
-            style: TextStyle(fontSize: 14, color: colors.ink),
-            decoration: _inputDeco(colors).copyWith(hintText: '例如：北京怀柔')),
+        Row(children: [
+          Expanded(child: TextField(
+              controller: _regionController,
+              onChanged: (v) => _selectedRegion = v,
+              style: TextStyle(fontSize: 14, color: colors.ink),
+              decoration: _inputDeco(colors).copyWith(
+                hintText: _regionLoading ? '自动识别中…' : '点击右侧按钮选取位置',
+                suffixIcon: _regionLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                    : _selectedRegion.isNotEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: Icon(Icons.check_circle, size: 18, color: Color(0xFF4CAF50)))
+                        : null,
+              ))),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _openRegionMapPicker(colors),
+            child: Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: colors.flare,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.map_outlined, color: Colors.white, size: 22),
+            ),
+          ),
+        ]),
         const SizedBox(height: 20),
         _buildFieldLabel(colors, '活动类型'),
         _buildTypePills(colors),
@@ -573,6 +767,52 @@ class _GpxImportScreenState extends ConsumerState<GpxImportScreen> {
     if (km > 25 || gain > 1500) return 'hard';
     if (km > 10 || gain > 500) return 'moderate';
     return 'easy';
+  }
+
+  Widget _buildCoverImagePicker(KaipaColors colors) {
+    if (_coverImageBytes != null) {
+      return Stack(children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.memory(_coverImageBytes!, width: double.infinity, height: 160, fit: BoxFit.cover),
+        ),
+        Positioned(top: 8, right: 8, child: GestureDetector(
+          onTap: () => setState(() { _coverImageBytes = null; _coverImageName = null; }),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+            child: const Icon(Icons.close, color: Colors.white, size: 16),
+          ),
+        )),
+        Positioned(bottom: 8, right: 8, child: GestureDetector(
+          onTap: _pickCoverImage,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(999)),
+            child: const Text('更换', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        )),
+      ]);
+    }
+
+    return GestureDetector(
+      onTap: _pickCoverImage,
+      child: Container(
+        width: double.infinity, height: 120,
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.line, width: 0.5),
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.add_photo_alternate_outlined, size: 32, color: colors.inkMuted),
+          const SizedBox(height: 8),
+          Text('点击上传封面图片', style: TextStyle(fontSize: 12, color: colors.inkMuted)),
+          const SizedBox(height: 2),
+          Text('建议比例 16:9', style: TextStyle(fontSize: 10, color: colors.inkDim)),
+        ]),
+      ),
+    );
   }
 
   Widget _buildFieldLabel(KaipaColors colors, String label) {
@@ -772,4 +1012,162 @@ class _RealElevationPainter extends CustomPainter {
   @override
   bool shouldRepaint(_RealElevationPainter old) =>
       old.lineColor != lineColor || old.points != points;
+}
+
+// =============================================================================
+// Region Map Picker — pick a location on map to reverse-geocode region name
+// =============================================================================
+
+class _RegionMapPicker extends StatefulWidget {
+  final LatLng initialCenter;
+  final KaipaColors colors;
+
+  const _RegionMapPicker({required this.initialCenter, required this.colors});
+
+  @override
+  State<_RegionMapPicker> createState() => _RegionMapPickerState();
+}
+
+class _RegionMapPickerState extends State<_RegionMapPicker> {
+  late final MapController _mapController;
+  String _placeName = '';
+  bool _loading = false;
+  LatLng? _currentCenter;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _currentCenter = widget.initialCenter;
+    _geocodeCenter(widget.initialCenter);
+  }
+
+  Future<void> _geocodeCenter(LatLng pos) async {
+    setState(() => _loading = true);
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json&accept-language=zh&zoom=10',
+      );
+      final resp = await http.get(uri, headers: {'User-Agent': 'Kaipa/1.0'});
+      if (resp.statusCode == 200 && mounted) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final addr = data['address'] as Map<String, dynamic>?;
+        if (addr != null) {
+          final state = addr['state'] as String? ?? '';
+          final city = addr['city'] as String? ?? addr['county'] as String? ?? '';
+          final region = city.isNotEmpty ? '$state$city' : state;
+          setState(() => _placeName = region);
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = widget.colors;
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(children: [
+        const SizedBox(height: 8),
+        Container(width: 36, height: 4,
+          decoration: BoxDecoration(color: colors.line, borderRadius: BorderRadius.circular(2))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text('选择所在区域', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: colors.ink)),
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Icon(Icons.close, color: colors.inkMuted, size: 22),
+            ),
+          ]),
+        ),
+        Expanded(
+          child: Stack(children: [
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: widget.initialCenter,
+                initialZoom: 10,
+                onPositionChanged: (pos, _) {
+                  _currentCenter = pos.center;
+                },
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                ),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                  userAgentPackageName: 'com.kaipa.app',
+                ),
+              ],
+            ),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 36),
+                child: Icon(Icons.location_on, size: 36, color: colors.flare),
+              ),
+            ),
+          ]),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: colors.line, width: 0.5),
+            ),
+            child: Row(children: [
+              Icon(Icons.place, size: 18, color: colors.flare),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                _loading ? '识别中…' : (_placeName.isNotEmpty ? _placeName : '移动地图选择位置'),
+                style: TextStyle(fontSize: 14, color: _placeName.isNotEmpty ? colors.ink : colors.inkMuted),
+              )),
+              if (!_loading)
+                GestureDetector(
+                  onTap: () {
+                    if (_currentCenter != null) _geocodeCenter(_currentCenter!);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: colors.flareSoft,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text('识别', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.flare)),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: SizedBox(
+              width: double.infinity, height: 48,
+              child: ElevatedButton(
+                onPressed: _placeName.isNotEmpty ? () => Navigator.pop(context, _placeName) : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colors.flare,
+                  disabledBackgroundColor: colors.line,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text('确认选择', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+                    color: _placeName.isNotEmpty ? Colors.white : colors.inkMuted)),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
 }

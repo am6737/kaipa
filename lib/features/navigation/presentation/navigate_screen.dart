@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,7 +11,11 @@ import '../../discover/presentation/widgets/layer_picker.dart';
 import '../../trip/data/trip_repository.dart';
 import '../../trip/data/active_trip_provider.dart';
 import '../../trip_plan/data/trip_plan_repository.dart';
+import '../../trip_plan/data/trip_task_service.dart';
 import '../../trip_plan/domain/trip_plan_model.dart';
+import '../../trip_plan/presentation/widgets/task_edit_sheet.dart';
+import '../../trip_plan/presentation/widgets/task_timeline.dart';
+import '../../gear/data/gear_repository.dart';
 import '../../discover/domain/route_model.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/kaipa_tokens.dart';
@@ -35,20 +38,39 @@ class NavigateScreen extends ConsumerStatefulWidget {
 class _NavigateScreenState extends ConsumerState<NavigateScreen> {
   final MapController _mapController = MapController();
   Timer? _timer;
-  int _elapsedSeconds = 0;
+  DateTime? _tripStartedAt;
   int _zoomLevel = 2;
   bool _showLayerPicker = false;
+  bool _tripEnded = false;
 
   @override
   void initState() {
     super.initState();
+    _loadTripStartTime();
     _startTimer();
+  }
+
+  Future<void> _loadTripStartTime() async {
+    if (widget.tripId != null) {
+      try {
+        final trip = await ref.read(tripByIdProvider(widget.tripId!).future);
+        if (mounted) {
+          setState(() => _tripStartedAt = trip.startedAt);
+        }
+      } catch (_) {}
+    }
+    _tripStartedAt ??= DateTime.now();
   }
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _elapsedSeconds++);
+      if (mounted) setState(() {});
     });
+  }
+
+  int get _elapsedSeconds {
+    if (_tripStartedAt == null) return 0;
+    return DateTime.now().difference(_tripStartedAt!).inSeconds;
   }
 
   @override
@@ -125,6 +147,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
   }
 
   Future<void> _endTrip() async {
+    _tripEnded = true;
     ref.read(activeTripProvider.notifier).state = null;
 
     final tripId = widget.tripId;
@@ -204,7 +227,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
         error: (error, stack) => _buildError(context, colors, error),
         data: (route) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (ref.read(activeTripProvider) == null) {
+            if (!_tripEnded && ref.read(activeTripProvider) == null) {
               ref.read(activeTripProvider.notifier).state = ActiveTrip(
                 routeId: widget.routeId,
                 tripId: widget.tripId,
@@ -390,7 +413,7 @@ class _NavigateScreenState extends ConsumerState<NavigateScreen> {
                 child: IgnorePointer(
                   ignoring: immersive,
                   child: CircleButton(
-                    icon: KaipaIcons.backpack,
+                    icon: KaipaIcons.list,
                     size: 40,
                     iconSize: 18,
                     tokens: tokens,
@@ -663,6 +686,102 @@ class _TripInfoContent extends ConsumerWidget {
     );
   }
 
+  Widget _buildTimelineSection(TripPlanModel plan) {
+    final route = plan.route;
+    final dayCount = route != null
+        ? (route.estimatedDuration.inHours / 8).ceil().clamp(1, 14)
+        : 1;
+
+    return Consumer(
+      builder: (context, ref, _) {
+        final tasksAsync = ref.watch(tripTasksProvider(planId));
+        return tasksAsync.when(
+          loading: () => const SizedBox.shrink(),
+          error: (_, _) => const SizedBox.shrink(),
+          data: (tasks) {
+            if (tasks.isEmpty) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    KaipaIcon(name: KaipaIcons.clock, size: 16, color: colors.flare),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '行程时间线 · ${tasks.where((t) => t.isDone).length}/${tasks.length}',
+                        style: TextStyle(
+                          color: colors.ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () async {
+                        final result = await showModalBottomSheet<TaskEditResult>(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => TaskEditSheet(dayCount: dayCount),
+                        );
+                        if (result == null) return;
+                        final service = ref.read(tripTaskServiceProvider);
+                        await service.addTask(
+                          planId: planId,
+                          category: result.category,
+                          title: result.title,
+                          description: result.description,
+                          suggestedTime: result.suggestedTime,
+                          suggestedDay: result.suggestedDay,
+                          customLabel: result.customCategoryName,
+                        );
+                        ref.invalidate(tripTasksProvider(planId));
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: colors.flare.withAlpha(15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: colors.flare.withAlpha(40)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.add, size: 14, color: colors.flare),
+                          const SizedBox(width: 2),
+                          Text('添加', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.flare)),
+                        ]),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: colors.line, width: 0.5),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: TaskTimeline(
+                    planId: planId,
+                    dayCount: dayCount,
+                    embedded: true,
+                    showBottomAdd: false,
+                    onChanged: () {
+                      ref.invalidate(tripTasksProvider(planId));
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildContent(TripPlanModel plan) {
     final gearItems = plan.gearItems;
     final notes = plan.notes;
@@ -693,45 +812,15 @@ class _TripInfoContent extends ConsumerWidget {
           ),
         ),
 
+        // Timeline section
+        _buildTimelineSection(plan),
+
         // Gear section
-        if (gearItems.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
-              const SizedBox(width: 8),
-              Text(
-                '携带装备 · ${gearItems.length}件',
-                style: TextStyle(
-                  color: colors.ink,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ],
+        if (gearItems.isNotEmpty)
+          _GearGroupedSection(
+            gearItems: gearItems,
+            colors: colors,
           ),
-          const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: colors.line, width: 0.5),
-            ),
-            child: Column(
-              children: [
-                for (var i = 0; i < gearItems.length; i++) ...[
-                  if (i > 0)
-                    Divider(height: 0.5, thickness: 0.5, color: colors.line, indent: 56),
-                  _GearItemTile(
-                    item: gearItems[i],
-                    colors: colors,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
 
         // Notes section
         if (notes != null && notes.isNotEmpty) ...[
@@ -788,6 +877,131 @@ class _TripInfoContent extends ConsumerWidget {
   }
 }
 
+class _GearGroupedSection extends ConsumerWidget {
+  final List<TripPlanGearItem> gearItems;
+  final KaipaColors colors;
+
+  const _GearGroupedSection({required this.gearItems, required this.colors});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categoriesAsync = ref.watch(gearCategoriesProvider);
+    final categoryFullMap = categoriesAsync.whenOrNull(
+      data: (cats) => {for (final c in cats) c.id: c},
+    ) ?? {};
+
+    final grouped = <String, List<TripPlanGearItem>>{};
+    for (final item in gearItems) {
+      final catId = item.gearItem?.categoryId ?? 'unknown';
+      grouped.putIfAbsent(catId, () => []).add(item);
+    }
+
+    final sortedEntries = grouped.entries.toList()
+      ..sort((a, b) {
+        final aOrder = categoryFullMap[a.key]?.sortOrder ?? 999;
+        final bOrder = categoryFullMap[b.key]?.sortOrder ?? 999;
+        return aOrder.compareTo(bOrder);
+      });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
+            const SizedBox(width: 8),
+            Text(
+              '携带装备 · ${gearItems.length}件',
+              style: TextStyle(
+                color: colors.ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        for (final entry in sortedEntries) ...[
+          _GearCategoryGroup(
+            categoryName: categoryFullMap[entry.key]?.name ?? '其他',
+            categoryIcon: categoryFullMap[entry.key]?.icon,
+            items: entry.value,
+            colors: colors,
+          ),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _GearCategoryGroup extends StatelessWidget {
+  final String categoryName;
+  final String? categoryIcon;
+  final List<TripPlanGearItem> items;
+  final KaipaColors colors;
+
+  const _GearCategoryGroup({
+    required this.categoryName,
+    this.categoryIcon,
+    required this.items,
+    required this.colors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalWeight = items.fold<double>(
+        0, (sum, g) => sum + (g.gearItem?.weightG ?? 0));
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.line, width: 0.5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            color: colors.surfaceHi,
+            child: Row(
+              children: [
+                if (categoryIcon != null) ...[
+                  KaipaIcon(name: categoryIcon!, size: 14, color: colors.inkMuted),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    categoryName,
+                    style: TextStyle(
+                      color: colors.ink,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${items.length}件 · ${(totalWeight / 1000).toStringAsFixed(1)}kg',
+                  style: TextStyle(color: colors.inkDim, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0)
+              Divider(height: 0.5, thickness: 0.5, color: colors.line, indent: 14),
+            _GearItemTile(item: items[i], colors: colors),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _GearItemTile extends StatelessWidget {
   final TripPlanGearItem item;
   final KaipaColors colors;
@@ -797,7 +1011,6 @@ class _GearItemTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gear = item.gearItem;
-    final photoUrl = gear?.photoUrl;
 
     return GestureDetector(
       onTap: () {
@@ -806,59 +1019,26 @@ class _GearItemTile extends StatelessWidget {
       },
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: colors.flareSoft,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: colors.line, width: 0.5),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: photoUrl != null && photoUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: photoUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) => Center(
-                        child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
-                      ),
-                      errorWidget: (_, _, _) => Center(
-                        child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
-                      ),
-                    )
-                  : Center(
-                      child: KaipaIcon(name: KaipaIcons.backpack, size: 16, color: colors.flare),
-                    ),
-            ),
-            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    gear?.name ?? '装备',
-                    style: TextStyle(
-                      color: colors.ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                  if ((gear?.weightG ?? 0) > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        '${gear!.weightG!.toInt()}g',
-                        style: TextStyle(color: colors.inkDim, fontSize: 12),
-                      ),
-                    ),
-                ],
+              child: Text(
+                gear?.name ?? '装备',
+                style: TextStyle(
+                  color: colors.ink,
+                  fontSize: 13,
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
-            KaipaIcon(name: KaipaIcons.chevronRight, size: 14, color: colors.inkDim),
+            if ((gear?.weightG ?? 0) > 0)
+              Text(
+                '${gear!.weightG!.toInt()}g',
+                style: TextStyle(color: colors.inkDim, fontSize: 11),
+              ),
+            const SizedBox(width: 6),
+            KaipaIcon(name: KaipaIcons.chevronRight, size: 12, color: colors.inkDim),
           ],
         ),
       ),

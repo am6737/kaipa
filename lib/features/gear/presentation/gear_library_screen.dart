@@ -38,6 +38,8 @@ String _formatPrice(double yuan) {
   return '¥${yuan.toStringAsFixed(0)}';
 }
 
+enum _ChartMode { weight, price }
+
 // ─── Main screen ────────────────────────────────────────────────────
 
 class GearLibraryScreen extends ConsumerWidget {
@@ -364,6 +366,7 @@ class _OverviewCard extends StatefulWidget {
 class _OverviewCardState extends State<_OverviewCard>
     with SingleTickerProviderStateMixin {
   int? _selectedIndex;
+  _ChartMode _mode = _ChartMode.price;
   late AnimationController _animController;
 
   @override
@@ -431,11 +434,83 @@ class _OverviewCardState extends State<_OverviewCard>
     return null;
   }
 
+  Widget _buildModeToggle(KaipaColors colors) {
+    Widget tab(String label, _ChartMode mode) {
+      final active = _mode == mode;
+      return GestureDetector(
+        onTap: () {
+          if (_mode == mode) return;
+          setState(() {
+            _mode = mode;
+            _selectedIndex = null;
+            _animController.value = 0;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          decoration: BoxDecoration(
+            color: active ? colors.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+            boxShadow: active
+                ? [const BoxShadow(color: Color.fromRGBO(0, 0, 0, 0.06), blurRadius: 2, offset: Offset(0, 1))]
+                : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              color: active ? colors.ink : colors.inkMuted,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          tab('重量', _ChartMode.weight),
+          tab('价值', _ChartMode.price),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final segments = widget.segments;
     final colors = widget.colors;
     const chartSize = 148.0;
+
+    final segments = _mode == _ChartMode.weight
+        ? widget.segments.where((s) => s.weightKg > 0).map((s) => _DonutSegment(
+            label: s.label,
+            value: s.weightKg,
+            color: s.color,
+            price: s.price,
+            weightKg: s.weightKg,
+            itemCount: s.itemCount,
+          )).toList()
+        : widget.segments;
+
+    String? selectedCenterText;
+    String? selectedCenterLabel;
+    if (_selectedIndex != null && _selectedIndex! < segments.length) {
+      final seg = segments[_selectedIndex!];
+      selectedCenterLabel = seg.label;
+      if (_mode == _ChartMode.weight) {
+        selectedCenterText = '${seg.weightKg.toStringAsFixed(1)}kg';
+      } else {
+        selectedCenterText = seg.price;
+      }
+    }
 
     return GestureDetector(
       onTap: () => _selectSegment(null),
@@ -451,6 +526,11 @@ class _OverviewCardState extends State<_OverviewCard>
         padding: const EdgeInsets.fromLTRB(18, 20, 20, 18),
         child: Column(
           children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: _buildModeToggle(colors),
+            ),
+            const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -470,6 +550,8 @@ class _OverviewCardState extends State<_OverviewCard>
                         totalCount: widget.totalCount,
                         selectedIndex: _selectedIndex,
                         selectionProgress: _animController.value,
+                        selectedCenterText: selectedCenterText,
+                        selectedCenterLabel: selectedCenterLabel,
                       ),
                       size: const Size(chartSize, chartSize),
                     ),
@@ -537,6 +619,13 @@ class _OverviewCardState extends State<_OverviewCard>
     );
   }
 
+  String _legendValue(_DonutSegment seg) {
+    if (_mode == _ChartMode.weight) {
+      return '${seg.weightKg.toStringAsFixed(1)}kg';
+    }
+    return seg.price;
+  }
+
   Widget _buildLegendGrid(List<_DonutSegment> segments, KaipaColors colors) {
     final rows = <Widget>[];
     for (int i = 0; i < segments.length; i += 2) {
@@ -552,6 +641,7 @@ class _OverviewCardState extends State<_OverviewCard>
                   segment: segments[i], colors: colors,
                   isDimmed: _selectedIndex != null && _selectedIndex != i,
                   onTap: () => _selectSegment(i),
+                  displayValue: _legendValue(segments[i]),
                 ),
               ),
               const SizedBox(width: 16),
@@ -561,6 +651,7 @@ class _OverviewCardState extends State<_OverviewCard>
                     segment: right, colors: colors,
                     isDimmed: _selectedIndex != null && _selectedIndex != rightIdx,
                     onTap: () => _selectSegment(rightIdx),
+                    displayValue: _legendValue(right),
                   ),
                 )
               else
@@ -583,6 +674,8 @@ class _DonutChartPainter extends CustomPainter {
   final int totalCount;
   final int? selectedIndex;
   final double selectionProgress;
+  final String? selectedCenterText;
+  final String? selectedCenterLabel;
 
   _DonutChartPainter({
     required this.segments,
@@ -591,6 +684,8 @@ class _DonutChartPainter extends CustomPainter {
     required this.totalCount,
     this.selectedIndex,
     this.selectionProgress = 0.0,
+    this.selectedCenterText,
+    this.selectedCenterLabel,
   });
 
   @override
@@ -655,16 +750,15 @@ class _DonutChartPainter extends CustomPainter {
       }
     }
 
-    if (selectedIndex != null && selectionProgress > 0.5) {
-      final seg = segments[selectedIndex!];
+    if (selectedIndex != null && selectionProgress > 0.5 && selectedCenterText != null) {
       final countPainter = TextPainter(
-        text: TextSpan(text: seg.price, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -0.8)),
+        text: TextSpan(text: selectedCenterText, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: centerTextColor, letterSpacing: -0.8)),
         textDirection: TextDirection.ltr,
       )..layout();
       countPainter.paint(canvas, center - Offset(countPainter.width / 2, countPainter.height / 2 + 8));
 
       final labelPainter = TextPainter(
-        text: TextSpan(text: seg.label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: centerSubTextColor, letterSpacing: 0.2)),
+        text: TextSpan(text: selectedCenterLabel ?? '', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: centerSubTextColor, letterSpacing: 0.2)),
         textDirection: TextDirection.ltr,
       )..layout();
       labelPainter.paint(canvas, center - Offset(labelPainter.width / 2, labelPainter.height / 2 - 12));
@@ -689,7 +783,9 @@ class _DonutChartPainter extends CustomPainter {
         oldDelegate.centerTextColor != centerTextColor ||
         oldDelegate.totalCount != totalCount ||
         oldDelegate.selectedIndex != selectedIndex ||
-        oldDelegate.selectionProgress != selectionProgress;
+        oldDelegate.selectionProgress != selectionProgress ||
+        oldDelegate.selectedCenterText != selectedCenterText ||
+        oldDelegate.selectedCenterLabel != selectedCenterLabel;
   }
 }
 
@@ -700,8 +796,9 @@ class _LegendItem extends StatelessWidget {
   final KaipaColors colors;
   final bool isDimmed;
   final VoidCallback? onTap;
+  final String? displayValue;
 
-  const _LegendItem({required this.segment, required this.colors, this.isDimmed = false, this.onTap});
+  const _LegendItem({required this.segment, required this.colors, this.isDimmed = false, this.onTap, this.displayValue});
 
   @override
   Widget build(BuildContext context) {
@@ -721,7 +818,7 @@ class _LegendItem extends StatelessWidget {
               const SizedBox(width: 4),
               SizedBox(
                 width: 52,
-                child: Text(segment.price, textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.inkDim, letterSpacing: -0.2, fontFeatures: const [ui.FontFeature.tabularFigures()])),
+                child: Text(displayValue ?? segment.price, textAlign: TextAlign.right, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: colors.inkDim, letterSpacing: -0.2, fontFeatures: const [ui.FontFeature.tabularFigures()])),
               ),
             ],
           ),

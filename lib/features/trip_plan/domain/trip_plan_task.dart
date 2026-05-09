@@ -40,6 +40,8 @@ class TripPlanTask {
   final DateTime? doneAt;
   final int sortOrder;
   final bool aiGenerated;
+  final String? customLabel;
+  final int? suggestedDay;
   final DateTime createdAt;
 
   const TripPlanTask({
@@ -49,11 +51,13 @@ class TripPlanTask {
     required this.title,
     this.description,
     this.suggestedTime,
+    this.suggestedDay,
     this.deadline,
     this.isDone = false,
     this.doneAt,
     this.sortOrder = 0,
     this.aiGenerated = true,
+    this.customLabel,
     required this.createdAt,
   });
 
@@ -70,6 +74,8 @@ class TripPlanTask {
       doneAt: json['done_at'] != null ? DateTime.parse(json['done_at'] as String) : null,
       sortOrder: json['sort_order'] as int? ?? 0,
       aiGenerated: json['ai_generated'] as bool? ?? true,
+      customLabel: json['custom_label'] as String?,
+      suggestedDay: json['suggested_day'] as int?,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -85,5 +91,7 @@ class TripPlanTask {
     'done_at': doneAt?.toIso8601String(),
     'sort_order': sortOrder,
     'ai_generated': aiGenerated,
+    'custom_label': customLabel,
+    'suggested_day': suggestedDay,
   };
 }

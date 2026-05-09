@@ -22,6 +22,8 @@ class TripTaskService {
         .from('trip_plan_tasks')
         .select()
         .eq('plan_id', planId)
+        .order('suggested_day', nullsFirst: true)
+        .order('suggested_time', nullsFirst: true)
         .order('sort_order');
     return (data as List)
         .map((r) => TripPlanTask.fromJson(r as Map<String, dynamic>))
@@ -45,6 +47,53 @@ class TripTaskService {
       'plan_id': planId,
     }).toList();
     await _client.from('trip_plan_tasks').insert(rows);
+  }
+
+  Future<void> addTask({
+    required String planId,
+    required TaskCategory category,
+    required String title,
+    String? description,
+    String? suggestedTime,
+    int? suggestedDay,
+    String? customLabel,
+  }) async {
+    final existing = await getTasks(planId);
+    final maxSort = existing.isEmpty ? 0 : existing.map((t) => t.sortOrder).reduce((a, b) => a > b ? a : b);
+    await _client.from('trip_plan_tasks').insert({
+      'plan_id': planId,
+      'category': category.jsonValue,
+      'title': title,
+      'description': description,
+      'suggested_time': suggestedTime,
+      'suggested_day': suggestedDay,
+      'sort_order': maxSort + 1,
+      'ai_generated': false,
+      'custom_label': customLabel,
+    });
+  }
+
+  Future<void> updateTask({
+    required String taskId,
+    required TaskCategory category,
+    required String title,
+    String? description,
+    String? suggestedTime,
+    int? suggestedDay,
+    String? customLabel,
+  }) async {
+    await _client.from('trip_plan_tasks').update({
+      'category': category.jsonValue,
+      'title': title,
+      'description': description,
+      'suggested_time': suggestedTime,
+      'suggested_day': suggestedDay,
+      'custom_label': customLabel,
+    }).eq('id', taskId);
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    await _client.from('trip_plan_tasks').delete().eq('id', taskId);
   }
 
   /// Generate timeline tasks via AI Edge Function.
@@ -129,6 +178,7 @@ class AiTimelineResult {
         title: m['title'] as String,
         description: m['description'] as String?,
         suggestedTime: m['suggested_time'] as String?,
+        suggestedDay: m['suggested_day'] as int?,
         sortOrder: m['sort_order'] as int? ?? i,
         aiGenerated: true,
         createdAt: DateTime.now(),
