@@ -3,7 +3,7 @@
 // FAB to add. For 计划中 it uses real inspoStore media; ongoing/completed use
 // deterministic placeholders attributed to the journey's real companions.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, ActionSheetIOS, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
@@ -68,14 +68,28 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   };
 
   const showActions = () => {
-    const items: { label: string; onPress: () => void; destructive?: boolean }[] = [
-      { label: '保存到相册', onPress: () => nav.showToast('已保存到相册') },
-      { label: '分享', onPress: () => nav.showToast('已分享') },
-    ];
-    if (onDelete && photo) {
-      items.push({ label: '删除', destructive: true, onPress: () => { onDelete(photo.id); dismiss(); } });
+    const canDel = !!(onDelete && photo);
+    const options = canDel ? ['保存到相册', '分享', '删除', '取消'] : ['保存到相册', '分享', '取消'];
+    const cancelIdx = options.length - 1;
+    const destructIdx = canDel ? 2 : undefined;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: cancelIdx, destructiveButtonIndex: destructIdx },
+        (i) => {
+          if (i === 0) nav.showToast('已保存到相册');
+          else if (i === 1) nav.showToast('已分享');
+          else if (canDel && i === 2) { onDelete!(photo.id); dismiss(); }
+        },
+      );
+    } else {
+      const items: { label: string; onPress: () => void; destructive?: boolean }[] = [
+        { label: '保存到相册', onPress: () => nav.showToast('已保存到相册') },
+        { label: '分享', onPress: () => nav.showToast('已分享') },
+      ];
+      if (canDel) items.push({ label: '删除', destructive: true, onPress: () => { onDelete!(photo.id); dismiss(); } });
+      nav.openActionSheet({ items });
     }
-    nav.openActionSheet({ items });
   };
 
   if (!photo) return null;
@@ -101,13 +115,13 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         style={{ flex: 1 }}
       >
         {visible.map((p) => (
-          <Press key={p.id} onPress={dismiss} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable key={p.id} onPress={dismiss} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             {p.uri ? (
               <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
             ) : (
               <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
             )}
-          </Press>
+          </Pressable>
         ))}
       </ScrollView>
 
