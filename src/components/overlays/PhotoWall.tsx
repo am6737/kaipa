@@ -1,7 +1,7 @@
 // PhotoWall.tsx — 瞬间 shared wall, faithful port of prototype's shared-wall.jsx.
 // Hero cover → section title + companion bar → 2-col masonry with author badges →
 // FAB to add. For 计划中 it uses real inspoStore media; ongoing/completed use
-// deterministic placeholders attributed to companions.
+// deterministic placeholders attributed to the journey's real companions.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,19 +18,11 @@ import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../data/inspoStore';
 import { elevAccent } from '../../theme/shadow';
 
-// ── placeholder data generators ──
 const CAPTIONS = [
   '云海在脚下翻涌', '今天的日出值回票价', '垭口风很大，但景色绝了',
   '营地的第一缕光', '一路向上', '高山杜鹃开了', '星空下的帐篷',
   '终于看到主峰', '休息一下，喝口热水', '回望来时的路',
   '雪山在云里露了一下脸', '晨雾散开的那一瞬',
-];
-
-const PEOPLE: { ini: string; name: string; tone: string; color: string }[] = [
-  { ini: '陈', name: '陈泽宇', tone: 'dusk', color: '#0A84FF' },
-  { ini: 'M', name: 'Mia', tone: 'river', color: '#AF52DE' },
-  { ini: '周', name: '老周', tone: 'rock', color: '#34C759' },
-  { ini: '林', name: '林深见鹿', tone: 'forest', color: '#FF5C3A' },
 ];
 
 interface WallPhoto {
@@ -39,12 +31,14 @@ interface WallPhoto {
   ratio: number;
   caption: string;
   day: number;
-  user: typeof PEOPLE[number];
+  author: Companion;
   uri?: string;
   kind?: 'image' | 'video';
 }
 
 function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
+  const roster = info.companionList || [];
+  if (roster.length === 0) return [];
   const rng = mulberry32(hashStr(info.name + (status || '')));
   const total = status === 'ongoing' ? 12 : status === 'planning' ? 0 : 24;
   const ratios = [0.72, 0.75, 0.8, 1, 1, 1.34, 1.5];
@@ -57,7 +51,7 @@ function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
       ratio: pick(rng, ratios),
       caption: pick(rng, CAPTIONS),
       day: 1 + Math.floor(rng() * days),
-      user: pick(rng, PEOPLE),
+      author: pick(rng, roster),
     });
   }
   return out;
@@ -73,6 +67,10 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const inspoRef = useRef(inspo);
   inspoRef.current = inspo;
   const [pending, setPending] = useState<'camera' | 'library' | null>(null);
+  const [filter, setFilter] = useState<Companion | null>(null);
+
+  const roster = info.companionList || [];
+  const self = roster.find((c) => c.self || c.host) || roster[0];
 
   // ── entrance + drag-to-dismiss ──
   const translateY = useRef(new Animated.Value(600)).current;
@@ -132,20 +130,38 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
 
   // ── photos ──
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
-
-  // convert inspo media into WallPhoto shape
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m, i) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, user: PEOPLE[0], uri: m.uri, kind: m.kind })),
-    [inspo.media]
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: self || { ini: '我', name: '我', color: '#0A84FF' } as Companion, uri: m.uri, kind: m.kind })),
+    [inspo.media, self]
   );
-  const photos = isPlanning ? inspoPhotos : fakePhotos;
-  const totalCount = photos.length;
+  const allPhotos = isPlanning ? inspoPhotos : fakePhotos;
 
-  // companions
-  const companions = info.companionList || [];
-  const myCount = isPlanning
-    ? inspo.media.length
-    : photos.filter((p) => p.user.name === PEOPLE[0].name).length;
+  // per-person counts
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {};
+    allPhotos.forEach((p) => { m[p.author.name] = (m[p.author.name] || 0) + 1; });
+    return m;
+  }, [allPhotos]);
+
+  const visible = filter ? allPhotos.filter((p) => p.author.name === filter.name) : allPhotos;
+  const totalCount = allPhotos.length;
+  const myCount = self ? (counts[self.name] || 0) : 0;
+
+  // ── companion sheet (prototype's CompanionsSheet) ──
+  const openCompanionSheet = () => {
+    const items = roster.map((c) => {
+      const n = counts[c.name] || 0;
+      return {
+        label: `${c.name}${c.host ? ' · 发起人' : ''}`,
+        onPress: n > 0 ? () => setFilter(c) : undefined,
+      };
+    });
+    nav.openActionSheet({
+      title: '同行的人',
+      message: `${roster.length} 人在这段旅程里`,
+      items,
+    });
+  };
 
   // ── masonry ──
   const gap = 7;
@@ -153,7 +169,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const colW = (width - bodyPad * 2 - gap) / 2;
   const cols: WallPhoto[][] = [[], []];
   const colH = [0, 0];
-  photos.forEach((p) => {
+  visible.forEach((p) => {
     const c = colH[0] <= colH[1] ? 0 : 1;
     cols[c].push(p);
     colH[c] += (p.uri ? colW : colW / p.ratio) + gap;
@@ -168,60 +184,84 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg, transform: [{ translateY }], zIndex: 132 }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
         {/* ── hero cover ── */}
-        <View {...pan.panHandlers} style={{ height: 252 }}>
-          <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-            <Press onPress={onClose} style={{
-              position: 'absolute', top: insets.top + 10, right: 16,
-              width: 34, height: 34, borderRadius: 17,
-              backgroundColor: 'rgba(0,0,0,0.32)', alignItems: 'center', justifyContent: 'center',
-              borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.22)',
-            }}>
-              <Icon name="close" color="#fff" size={15} />
-            </Press>
-            <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
-              <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
-                {info.name}
-              </Text>
-              {dayLabel ? (
-                <Text style={{ fontFamily: MONO, fontSize: 11.5, color: 'rgba(255,255,255,0.78)', marginTop: 8, letterSpacing: 0.3 }}>{dayLabel}</Text>
-              ) : null}
-            </View>
-          </PhotoTile>
-        </View>
-
-        {/* ── section header ── */}
-        <View style={{ paddingHorizontal: 18, paddingTop: 16 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>瞬间</Text>
-            <Text style={{ fontSize: 13, color: t.text2, paddingBottom: 3 }}>
-              <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> 张
-            </Text>
+        {!filter ? (
+          <View {...pan.panHandlers} style={{ height: 252 }}>
+            <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+              <Press onPress={onClose} style={{
+                position: 'absolute', top: insets.top + 10, right: 16,
+                width: 34, height: 34, borderRadius: 17,
+                backgroundColor: 'rgba(0,0,0,0.32)', alignItems: 'center', justifyContent: 'center',
+                borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.22)',
+              }}>
+                <Icon name="close" color="#fff" size={15} />
+              </Press>
+              <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
+                <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
+                  {info.name}
+                </Text>
+                {dayLabel ? (
+                  <Text style={{ fontFamily: MONO, fontSize: 11.5, color: 'rgba(255,255,255,0.78)', marginTop: 8, letterSpacing: 0.3 }}>{dayLabel}</Text>
+                ) : null}
+              </View>
+            </PhotoTile>
           </View>
-
-          {/* companion row */}
-          {companions.length > 0 ? (
-            <Press onPress={() => nav.openManageCompanions(info)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
-              <AvatarStack people={companions} size={26} max={5} ringColor={t.dark ? '#1c1c1e' : '#fff'} />
-              <Text style={{ fontSize: 12.5, color: t.text2 }}>{companions.length} 人同行 ›</Text>
-              {myCount > 0 ? (
-                <View style={{ marginLeft: 'auto', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: t.accentSoft }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: t.accent }}>我的 {myCount}</Text>
+        ) : (
+          // ── filter mode header ──
+          <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 18, paddingBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
+              <Press onPress={() => setFilter(null)} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)' }}>
+                <Icon name="chevronL" color={t.text2} size={16} />
+              </Press>
+              <Avatar ini={filter.ini} color={filter.color} tone={filter.tone} size={38} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, letterSpacing: -0.4 }}>{filter.self ? '我的瞬间' : filter.name}</Text>
+                  {filter.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>发起人</Text></View> : null}
                 </View>
-              ) : null}
-            </Press>
-          ) : null}
-        </View>
+                <Text style={{ fontSize: 12.5, color: t.text2, marginTop: 2 }}>{visible.length} 张</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── section header (hidden in filter mode) ── */}
+        {!filter ? (
+          <View style={{ paddingHorizontal: 18, paddingTop: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>瞬间</Text>
+              <Text style={{ fontSize: 13, color: t.text2, paddingBottom: 3 }}>
+                <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> 张
+              </Text>
+            </View>
+
+            {roster.length > 0 ? (
+              <Press onPress={openCompanionSheet} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                <AvatarStack people={roster} size={26} max={5} ringColor={t.dark ? '#1c1c1e' : '#fff'} />
+                <Text style={{ fontSize: 12.5, color: t.text2 }}>{roster.length} 人同行 ›</Text>
+                {myCount > 0 ? (
+                  <Press onPress={() => self && setFilter(self)} style={{ marginLeft: 'auto', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: t.accentSoft }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: t.accent }}>我的 {myCount}</Text>
+                  </Press>
+                ) : null}
+              </Press>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* ── masonry body ── */}
         <View style={{ paddingHorizontal: bodyPad, paddingTop: 18 }}>
-          {photos.length === 0 ? (
+          {visible.length === 0 ? (
             <View style={{ alignItems: 'center', paddingTop: 60 }}>
               <Icon name="photo" color={t.text3} size={44} />
-              <Text style={{ fontSize: 17, fontWeight: '700', color: t.text, marginTop: 16 }}>还没有瞬间</Text>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: t.text, marginTop: 16 }}>
+                {filter ? 'TA 还没传照片' : '还没有瞬间'}
+              </Text>
               <Text style={{ fontSize: 13.5, color: t.text2, textAlign: 'center', lineHeight: 20, marginTop: 8, paddingHorizontal: 24 }}>
-                {isPlanning
-                  ? '出发前的装备照、地图、参考图都可以先放进来。'
-                  : '点右下角 ＋ 传第一张，照片会按时间汇成共享墙。'}
+                {filter
+                  ? '换个同行看看，或等这趟旅程有新瞬间。'
+                  : isPlanning
+                    ? '出发前的装备照、地图、参考图都可以先放进来。'
+                    : '点右下角 ＋ 传第一张，照片会按时间汇成共享墙。'}
               </Text>
             </View>
           ) : (
@@ -249,10 +289,12 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                         </View>
                       ) : (
                         <PhotoTile tone={p.tone} seed={info.id + p.id} radius={12} style={{ width: '100%', height: colW / p.ratio }}>
-                          <View style={{ position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-                            <Avatar ini={p.user.ini} tone={p.user.tone} size={18} />
-                            <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{p.user.name}</Text>
-                          </View>
+                          {!filter ? (
+                            <View style={{ position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
+                              <Avatar ini={p.author.ini} color={p.author.color} tone={p.author.tone} size={18} />
+                              <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{p.author.name}</Text>
+                            </View>
+                          ) : null}
                         </PhotoTile>
                       )}
                     </View>
@@ -264,17 +306,19 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         </View>
       </ScrollView>
 
-      {/* ── FAB ── */}
-      <Press
-        onPress={chooseSource}
-        style={[{
-          position: 'absolute', right: 20, bottom: insets.bottom + 30,
-          width: 58, height: 58, borderRadius: 29, backgroundColor: t.accent,
-          alignItems: 'center', justifyContent: 'center',
-        }, elevAccent(t.accent)]}
-      >
-        <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />
-      </Press>
+      {/* ── FAB (hidden in filter mode) ── */}
+      {!filter ? (
+        <Press
+          onPress={chooseSource}
+          style={[{
+            position: 'absolute', right: 20, bottom: insets.bottom + 30,
+            width: 58, height: 58, borderRadius: 29, backgroundColor: t.accent,
+            alignItems: 'center', justifyContent: 'center',
+          }, elevAccent(t.accent)]}
+        >
+          <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />
+        </Press>
+      ) : null}
     </Animated.View>
   );
 }
