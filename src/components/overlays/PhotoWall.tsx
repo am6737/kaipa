@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -128,46 +129,50 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         </View>
       </View>
 
-      {/* ── iOS-style action sheet (bottom) ── */}
+      {/* ── iOS-native-style action sheet with real blur ── */}
       {menu ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'flex-end' }]}>
           <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
           <View style={{ paddingHorizontal: 8, paddingBottom: insets.bottom + 10 }}>
             <View style={{ borderRadius: 14, overflow: 'hidden' }}>
-              {([
-                { label: '保存到相册', color: '#007AFF', onPress: () => act(() => nav.showToast('已保存到相册')) },
-                { label: '分享', color: '#007AFF', onPress: () => act(() => nav.showToast('已分享')) },
-                ...(canDel ? [{ label: '删除', color: '#FF453A', onPress: () => act(() => { onDelete!(photo.id); dismiss(); }) }] : []),
-              ] as { label: string; color: string; onPress: () => void }[]).map((item, i) => (
+              <BlurView intensity={96} tint="systemChromeMaterialLight" style={{ overflow: 'hidden' }}>
+                {([
+                  { label: '保存到相册', color: '#007AFF', onPress: () => act(() => nav.showToast('已保存到相册')) },
+                  { label: '分享', color: '#007AFF', onPress: () => act(() => nav.showToast('已分享')) },
+                  ...(canDel ? [{ label: '删除', color: '#FF453A', onPress: () => act(() => { onDelete!(photo.id); dismiss(); }) }] : []),
+                ] as { label: string; color: string; onPress: () => void }[]).map((item, i) => (
+                  <Pressable
+                    key={i}
+                    onPress={item.onPress}
+                    style={({ pressed }) => ({
+                      height: 57,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: pressed ? 'rgba(0,0,0,0.06)' : 'transparent',
+                      borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
+                      borderTopColor: 'rgba(60,60,67,0.36)',
+                    })}
+                  >
+                    <Text style={{ fontSize: 20, color: item.color }}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </BlurView>
+            </View>
+            <View style={{ borderRadius: 14, overflow: 'hidden', marginTop: 8 }}>
+              <BlurView intensity={96} tint="systemChromeMaterialLight">
                 <Pressable
-                  key={i}
-                  onPress={item.onPress}
+                  onPress={() => setMenu(false)}
                   style={({ pressed }) => ({
                     height: 57,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: pressed ? 'rgba(230,230,234,0.82)' : 'rgba(242,242,247,0.82)',
-                    borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
-                    borderTopColor: 'rgba(60,60,67,0.14)',
+                    backgroundColor: pressed ? 'rgba(0,0,0,0.06)' : 'transparent',
                   })}
                 >
-                  <Text style={{ fontSize: 20, color: item.color }}>{item.label}</Text>
+                  <Text style={{ fontSize: 20, fontWeight: '600', color: '#007AFF' }}>取消</Text>
                 </Pressable>
-              ))}
+              </BlurView>
             </View>
-            <Pressable
-              onPress={() => setMenu(false)}
-              style={({ pressed }) => ({
-                height: 57,
-                marginTop: 8,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: pressed ? 'rgba(230,230,234,0.90)' : 'rgba(242,242,247,0.90)',
-              })}
-            >
-              <Text style={{ fontSize: 20, fontWeight: '600', color: '#007AFF' }}>取消</Text>
-            </Pressable>
           </View>
         </View>
       ) : null}
