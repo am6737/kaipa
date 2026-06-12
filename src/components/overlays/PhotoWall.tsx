@@ -3,7 +3,7 @@
 // FAB to add. For 计划中 it uses real inspoStore media; ongoing/completed use
 // deterministic placeholders attributed to the journey's real companions.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, ActionSheetIOS, Platform, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
@@ -68,33 +68,14 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   };
 
   const longPressedRef = useRef(false);
+  const [menu, setMenu] = useState(false);
   const canDel = !!(onDelete && photo);
 
-  const showActions = () => {
-    longPressedRef.current = true;
-    const options = canDel ? ['保存到相册', '分享', '删除', '取消'] : ['保存到相册', '分享', '取消'];
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: options.length - 1, destructiveButtonIndex: canDel ? 2 : undefined },
-        (i) => {
-          if (i === 0) nav.showToast('已保存到相册');
-          else if (i === 1) nav.showToast('已分享');
-          else if (canDel && i === 2) { onDelete!(photo.id); dismiss(); }
-        },
-      );
-    } else {
-      nav.openActionSheet({
-        items: [
-          { label: '保存到相册', onPress: () => nav.showToast('已保存到相册') },
-          { label: '分享', onPress: () => nav.showToast('已分享') },
-          ...(canDel ? [{ label: '删除', destructive: true, onPress: () => { onDelete!(photo.id); dismiss(); } }] : []),
-        ],
-      });
-    }
-  };
-
+  const showActions = () => { longPressedRef.current = true; setMenu(true); };
+  const act = (fn: () => void) => { setMenu(false); fn(); };
   const handlePress = () => {
     if (longPressedRef.current) { longPressedRef.current = false; return; }
+    if (menu) { setMenu(false); return; }
     dismiss();
   };
 
@@ -144,16 +125,49 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         </View>
       ) : null}
 
-      {/* bottom info */}
-      <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
-        {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
-        {photo.day ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>Day {photo.day}</Text> : null}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
-          <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
-          <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
+      {/* bottom info (hidden when menu is open) */}
+      {!menu ? (
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
+          {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
+          {photo.day ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>Day {photo.day}</Text> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
+            <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
+            <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
+          </View>
         </View>
-      </View>
+      ) : null}
 
+      {/* ── action sheet (same card style as CompanionsSheet) ── */}
+      {menu ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+          <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#1c1c1e', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+            <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
+              <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.25)' }} />
+            </View>
+            <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.10)' }}>
+              <Pressable onPress={() => act(() => nav.showToast('已保存到相册'))} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+                <Icon name="photo" color="rgba(255,255,255,0.85)" size={20} />
+                <Text style={{ fontSize: 16, color: '#fff' }}>保存到相册</Text>
+              </Pressable>
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginLeft: 48 }} />
+              <Pressable onPress={() => act(() => nav.showToast('已分享'))} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+                <Icon name="share" color="rgba(255,255,255,0.85)" size={20} />
+                <Text style={{ fontSize: 16, color: '#fff' }}>分享</Text>
+              </Pressable>
+              {canDel ? (
+                <>
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginLeft: 48 }} />
+                  <Pressable onPress={() => act(() => { onDelete!(photo.id); dismiss(); })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
+                    <Icon name="trash" color="#FF453A" size={20} />
+                    <Text style={{ fontSize: 16, color: '#FF453A' }}>删除</Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
