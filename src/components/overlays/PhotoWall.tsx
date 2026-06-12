@@ -412,14 +412,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                             ) : null}
                           </View>
                         ) : (
-                          <PhotoTile tone={p.tone} seed={info.id + p.id} radius={12} style={{ width: '100%', height: colW / p.ratio }}>
-                            {!filter ? (
-                              <View style={{ position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-                                <Avatar ini={p.author.ini} color={p.author.color} tone={p.author.tone} size={18} />
-                                <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{p.author.name}</Text>
-                              </View>
-                            ) : null}
-                          </PhotoTile>
+                          <PhotoTile tone={p.tone} seed={info.id + p.id} radius={12} style={{ width: '100%', height: colW / p.ratio }} />
                         )}
                       </View>
                     </Press>
