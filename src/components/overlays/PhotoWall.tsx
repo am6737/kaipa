@@ -68,6 +68,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   inspoRef.current = inspo;
   const [pending, setPending] = useState<'camera' | 'library' | null>(null);
   const [filter, setFilter] = useState<Companion | null>(null);
+  const [compSheet, setCompSheet] = useState(false);
 
   const roster = info.companionList || [];
   const self = roster.find((c) => c.self || c.host) || roster[0];
@@ -147,21 +148,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const totalCount = allPhotos.length;
   const myCount = self ? (counts[self.name] || 0) : 0;
 
-  // ── companion sheet (prototype's CompanionsSheet) ──
-  const openCompanionSheet = () => {
-    const items = roster.map((c) => {
-      const n = counts[c.name] || 0;
-      return {
-        label: `${c.name}${c.host ? ' · 发起人' : ''}`,
-        onPress: n > 0 ? () => setFilter(c) : undefined,
-      };
-    });
-    nav.openActionSheet({
-      title: '同行的人',
-      message: `${roster.length} 人在这段旅程里`,
-      items,
-    });
-  };
+  const openCompanionSheet = () => setCompSheet(true);
 
   // ── masonry ──
   const gap = 7;
@@ -318,6 +305,47 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         >
           <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />
         </Press>
+      ) : null}
+
+      {/* ── Companions bottom sheet ── */}
+      {compSheet ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 140 }]}>
+          <Press onPress={() => setCompSheet(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><View /></Press>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+            <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
+              <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
+            </View>
+            <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, paddingHorizontal: 18, marginBottom: 4 }}>同行的人</Text>
+            <Text style={{ fontSize: 12.5, color: t.text2, paddingHorizontal: 18, marginBottom: 14 }}>{roster.length} 人在这段旅程里</Text>
+            <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline }}>
+              {roster.map((c, i) => {
+                const n = counts[c.name] || 0;
+                return (
+                  <View key={i}>
+                    <Press
+                      onPress={n > 0 ? () => { setCompSheet(false); setFilter(c); } : undefined}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, opacity: n > 0 ? 1 : 0.55 }}
+                    >
+                      <Avatar ini={c.ini} color={c.color} tone={c.tone} size={42} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '600', color: t.text }}>{c.name}</Text>
+                          {c.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>发起人</Text></View> : null}
+                          {c.self ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>你</Text></View> : null}
+                        </View>
+                        <Text style={{ fontSize: 12, color: t.text2, marginTop: 2 }}>
+                          {n > 0 ? <><Text style={{ fontFamily: MONO, fontWeight: '700' }}>{n}</Text> 个瞬间</> : '还没有照片'}
+                        </Text>
+                      </View>
+                      {n > 0 ? <Icon name="chevronR" color={t.text3} size={15} /> : null}
+                    </Press>
+                    {i < roster.length - 1 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline, marginLeft: 68 }} /> : null}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        </View>
       ) : null}
     </Animated.View>
   );
