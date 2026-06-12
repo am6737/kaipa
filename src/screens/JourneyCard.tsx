@@ -1,7 +1,7 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet and (full-bleed) in the JourneyCardFull overlay.
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Share, Platform, Image } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Share, Platform, Image, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
@@ -67,34 +67,45 @@ function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
   const nav = useNav();
   const inspo = useInspo(poi.id);
   const has = inspo.media.length > 0;
+  const [pending, setPending] = useState<'camera' | 'library' | null>(null);
+  const inspoRef = useRef(inspo);
+  inspoRef.current = inspo;
 
-  const ingest = (res: ImagePicker.ImagePickerResult) => {
-    if (res.canceled || !res.assets) return;
-    res.assets.forEach((a) => inspo.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
-  };
-
-  const takePhoto = async () => {
-    try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) { nav.showToast('需要相机权限'); return; }
-      ingest(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 }));
-    } catch { nav.showToast('无法打开相机'); }
-  };
-
-  const pickFromLibrary = async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { nav.showToast('需要相册访问权限'); return; }
-      ingest(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 }));
-    } catch { nav.showToast('无法打开相册'); }
-  };
+  useEffect(() => {
+    if (!pending) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (pending === 'camera') {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) { if (!cancelled) nav.showToast('需要相机权限'); return; }
+          const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+          if (!cancelled && !res.canceled && res.assets) {
+            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
+          }
+        } else {
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!perm.granted) { if (!cancelled) nav.showToast('需要相册访问权限'); return; }
+          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
+          if (!cancelled && !res.canceled && res.assets) {
+            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
+          }
+        }
+      } catch (e) {
+        if (!cancelled) Alert.alert('出错了', String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
+      } finally {
+        if (!cancelled) setPending(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pending]);
 
   const chooseSource = () =>
     nav.openActionSheet({
       title: '添加瞬间',
       items: [
-        { label: '拍照', onPress: takePhoto },
-        { label: '从相册选择照片或视频', onPress: pickFromLibrary },
+        { label: '拍照', onPress: () => setPending('camera') },
+        { label: '从相册选择照片或视频', onPress: () => setPending('library') },
       ],
     });
 
