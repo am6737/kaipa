@@ -137,30 +137,27 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         </View>
       ) : null}
 
-      {/* ── action sheet (same card style as CompanionsSheet) ── */}
+      {/* ── action sheet (themed card, centered content) ── */}
       {menu ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#1c1c1e', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.18, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
-              <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.25)' }} />
+              <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
-            <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.10)' }}>
-              <Pressable onPress={() => act(() => nav.showToast('已保存到相册'))} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
-                <Icon name="photo" color="rgba(255,255,255,0.85)" size={20} />
-                <Text style={{ fontSize: 16, color: '#fff' }}>保存到相册</Text>
+            <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline }}>
+              <Pressable onPress={() => act(() => nav.showToast('已保存到相册'))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
+                <Text style={{ fontSize: 16, color: t.accent }}>保存到相册</Text>
               </Pressable>
-              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginLeft: 48 }} />
-              <Pressable onPress={() => act(() => nav.showToast('已分享'))} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
-                <Icon name="share" color="rgba(255,255,255,0.85)" size={20} />
-                <Text style={{ fontSize: 16, color: '#fff' }}>分享</Text>
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
+              <Pressable onPress={() => act(() => nav.showToast('已分享'))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
+                <Text style={{ fontSize: 16, color: t.accent }}>分享</Text>
               </Pressable>
               {canDel ? (
                 <>
-                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginLeft: 48 }} />
-                  <Pressable onPress={() => act(() => { onDelete!(photo.id); dismiss(); })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 52, backgroundColor: pressed ? 'rgba(255,255,255,0.06)' : 'transparent' })}>
-                    <Icon name="trash" color="#FF453A" size={20} />
-                    <Text style={{ fontSize: 16, color: '#FF453A' }}>删除</Text>
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
+                  <Pressable onPress={() => act(() => { onDelete!(photo.id); dismiss(); })} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
+                    <Text style={{ fontSize: 16, color: t.danger }}>删除</Text>
                   </Pressable>
                 </>
               ) : null}
