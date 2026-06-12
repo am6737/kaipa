@@ -31,6 +31,7 @@ interface WallPhoto {
   ratio: number;
   caption: string;
   day: number;
+  time?: string;
   author: Companion;
   uri?: string;
   kind?: 'image' | 'video' | 'livePhoto';
@@ -129,7 +130,19 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       {!menu ? (
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
           {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
-          {photo.day ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>Day {photo.day}</Text> : null}
+          {photo.day ? (() => {
+            let dateLine = `Day ${photo.day}`;
+            if (photo.time) dateLine += ` · ${photo.time}`;
+            if (info.date) {
+              const m = info.date.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
+              if (m) {
+                const base = new Date(+m[1], +m[2] - 1, +m[3]);
+                base.setDate(base.getDate() + photo.day - 1);
+                dateLine = `Day ${photo.day} · ${base.getFullYear()}年${base.getMonth() + 1}月${base.getDate()}日${photo.time ? ' ' + photo.time : ''}`;
+              }
+            }
+            return <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>{dateLine}</Text>;
+          })() : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
             <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
             <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
@@ -178,12 +191,16 @@ export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
   const days = info.totalDays || 3;
   const out: WallPhoto[] = [];
   for (let i = 0; i < total; i++) {
+    const d = 1 + Math.floor(rng() * days);
+    const hr = 6 + Math.floor(rng() * 13);
+    const mn = Math.floor(rng() * 60);
     out.push({
       id: 'p' + i,
       tone: pick(rng, TONES),
       ratio: pick(rng, ratios),
       caption: pick(rng, CAPTIONS),
-      day: 1 + Math.floor(rng() * days),
+      day: d,
+      time: `${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}`,
       author: pick(rng, roster),
     });
   }
