@@ -36,40 +36,87 @@ interface WallPhoto {
   kind?: 'image' | 'video';
 }
 
-// ── Lightbox: swipe left/right to navigate, tap to dismiss ──
+// ── Lightbox: fluid swipe with follow-finger + spring transitions ──
 function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav }: {
   visible: WallPhoto[]; index: number; setIndex: (i: number) => void; onClose: () => void;
   info: Poi; theme: Theme; insets: { top: number; bottom: number }; nav: ReturnType<typeof useNav>;
 }) {
   const t = theme;
+  const { width: W } = useWindowDimensions();
   const photo = visible[index];
-  const swipePan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderRelease: (_e, g) => {
-        if (g.dx < -50 && index < visible.length - 1) setIndex(index + 1);
-        else if (g.dx > 50 && index > 0) setIndex(index - 1);
-      },
-    })
-  ).current;
+  const panX = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const swiped = useRef(false);
+  const idxRef = useRef(index);
+  idxRef.current = index;
+
+  const swipePan = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy * 1.5),
+    onPanResponderGrant: () => { swiped.current = false; },
+    onPanResponderMove: (_e, g) => {
+      swiped.current = true;
+      const i = idxRef.current;
+      if ((i === 0 && g.dx > 0) || (i === visible.length - 1 && g.dx < 0)) {
+        panX.setValue(g.dx * 0.3);
+      } else {
+        panX.setValue(g.dx);
+      }
+    },
+    onPanResponderRelease: (_e, g) => {
+      const i = idxRef.current;
+      if (Math.abs(g.dx) > W * 0.25 || Math.abs(g.vx) > 0.5) {
+        const dir = g.dx < 0 ? 1 : -1;
+        const next = i + dir;
+        if (next >= 0 && next < visible.length) {
+          Animated.timing(panX, { toValue: -dir * W, duration: 200, useNativeDriver: true }).start(() => {
+            panX.setValue(0);
+            setIndex(next);
+          });
+          return;
+        }
+      }
+      Animated.spring(panX, { toValue: 0, useNativeDriver: true, bounciness: 6, speed: 14 }).start();
+    },
+  }), [visible.length, W]);
+
+  const dismiss = () => {
+    Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }).start(onClose);
+  };
+  const handleTap = () => {
+    if (!swiped.current) dismiss();
+  };
 
   if (!photo) return null;
+
+  const renderPhoto = (p: WallPhoto) => p.uri
+    ? <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
+    : <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />;
+
+  const prev = index > 0 ? visible[index - 1] : null;
+  const next = index < visible.length - 1 ? visible[index + 1] : null;
+
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000' }]}>
-      {/* photo + swipe + tap-to-close */}
+    <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity }]}>
+      {/* photo strip: prev + current + next, translated by panX */}
       <View {...swipePan.panHandlers} style={{ flex: 1 }}>
-        <Press onPress={onClose} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          {photo.uri ? (
-            <Image source={{ uri: photo.uri }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
-          ) : (
-            <PhotoTile tone={photo.tone} seed={info.id + photo.id} resWidth={1200} style={{ width: '100%', aspectRatio: Math.max(0.66, photo.ratio) }} />
-          )}
+        <Press onPress={handleTap} style={{ flex: 1 }}>
+          <Animated.View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', width: W * 3, marginLeft: -W, transform: [{ translateX: Animated.add(panX, new Animated.Value(0)) }] }}>
+            <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+              {prev ? renderPhoto(prev) : null}
+            </View>
+            <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+              {renderPhoto(photo)}
+            </View>
+            <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+              {next ? renderPhoto(next) : null}
+            </View>
+          </Animated.View>
         </Press>
       </View>
 
       {/* top bar */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Press onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+        <Press onPress={dismiss} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="close" color="#fff" size={15} />
         </Press>
         <Text style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: '600', color: '#fff', letterSpacing: 0.5 }}>{index + 1} / {visible.length}</Text>
@@ -87,7 +134,7 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
           <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
