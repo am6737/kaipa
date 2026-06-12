@@ -141,7 +141,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       {menu ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.18, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: Math.max(insets.bottom, 8), shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.18, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
