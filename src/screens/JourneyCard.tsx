@@ -1,8 +1,7 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet and (full-bleed) in the JourneyCardFull overlay.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Share, Platform, Image, Alert } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Share, Platform, Image } from 'react-native';
 import Svg, { Path as SvgPath, Circle, Rect } from 'react-native-svg';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
@@ -59,85 +58,27 @@ function IconButton({ theme, name, onPress, color }: { theme: Theme; name: IconN
   );
 }
 
-// 瞬间 for 计划中 journeys: a plan has no real moments yet, so instead of hiding
-// the section we let the user pre-collect 灵感 (inspiration) — 拍照 or pick a photo
-// / video from the library via expo-image-picker. Picks are session-local
-// (useInspo) and grow into a media grid; once 出发, the card switches back to the
-// real moments grid above.
-function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
+// 瞬间 inline card for 计划中 journeys. Tapping opens the full-screen PhotoWall
+// detail page where the user can add / remove real photos and videos. This card
+// is a preview: it shows up to 6 thumbnails from the inspo store, or an empty
+// state that opens the same detail page.
+function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; status: string }) {
   const nav = useNav();
   const inspo = useInspo(poi.id);
   const has = inspo.media.length > 0;
-  const [pending, setPending] = useState<'camera' | 'library' | null>(null);
-  const inspoRef = useRef(inspo);
-  inspoRef.current = inspo;
 
-  useEffect(() => {
-    if (!pending) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (pending === 'camera') {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast('需要相机权限'); return; }
-          const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets) {
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
-          }
-        } else {
-          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast('需要相册访问权限'); return; }
-          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets) {
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
-          }
-        }
-      } catch (e) {
-        if (!cancelled) Alert.alert('出错了', String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
-      } finally {
-        if (!cancelled) setPending(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [pending]);
-
-  const chooseSource = () =>
-    nav.openActionSheet({
-      title: '添加瞬间',
-      items: [
-        { label: '拍照', onPress: () => setPending('camera') },
-        { label: '从相册选择照片或视频', onPress: () => setPending('library') },
-      ],
-    });
-
-  const addTile = (
-    <Press
-      onPress={chooseSource}
-      style={{
-        width: '31.7%',
-        aspectRatio: 1,
-        borderRadius: 9,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
-        borderWidth: 1,
-        borderStyle: 'dashed',
-        borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
-      }}
-    >
-      <Icon name="plus" color={theme.text2} size={16} strokeWidth={2.2} />
-    </Press>
-  );
+  const openDetail = () => nav.openPhotoWall({ info: poi, mode: 'mine', status });
 
   const count = inspo.media.length;
+  const preview = inspo.media.slice(0, 6);
 
   return (
     <View style={{ paddingBottom: 18 }}>
-      <SectionHeader theme={theme} title="瞬间" action={`${count} 张`} onAction={chooseSource} />
+      <SectionHeader theme={theme} title="瞬间" action={`${count} 张`} onAction={openDetail} />
       {has ? (
-        <>
+        <Press onPress={openDetail}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-            {inspo.media.map((m) => (
+            {preview.map((m) => (
               <View
                 key={m.id}
                 style={{ width: '31.7%', aspectRatio: 1, borderRadius: 9, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
@@ -156,17 +97,13 @@ function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
                     <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>视频</Text>
                   </View>
                 ) : null}
-                <Press onPress={() => inspo.remove(m.id)} style={{ position: 'absolute', right: 5, top: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="close" color="#fff" size={10} />
-                </Press>
               </View>
             ))}
-            {addTile}
           </View>
-        </>
+        </Press>
       ) : (
         <Press
-          onPress={chooseSource}
+          onPress={openDetail}
           style={{
             borderRadius: 14,
             paddingVertical: 24,
@@ -416,7 +353,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
 
       {/* photo grid — 计划中旅程没有真实瞬间，改为引导预收集灵感图的空状态 */}
       {isJourney && status === 'planning' ? (
-        <PlanningMoments theme={theme} poi={poi} />
+        <PlanningMoments theme={theme} poi={poi} status={status} />
       ) : photos.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={isJourney ? '瞬间' : '用户照片'} action="全部" onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
