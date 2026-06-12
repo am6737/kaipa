@@ -46,6 +46,12 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
   const photo = visible[index];
   const scrollRef = useRef<ScrollView>(null);
   const idxRef = useRef(index);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const closingRef = useRef(false);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  }, [fadeAnim]);
 
   useEffect(() => {
     if (idxRef.current !== index) {
@@ -54,10 +60,16 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
     }
   }, [index, W]);
 
+  const dismiss = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(onClose);
+  };
+
   if (!photo) return null;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000' }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity: fadeAnim }]}>
       {/* native paging scroll — all gesture handling is in the native layer */}
       <ScrollView
         ref={scrollRef}
@@ -76,7 +88,7 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
         style={{ flex: 1 }}
       >
         {visible.map((p, i) => (
-          <Press key={p.id} onPress={onClose} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <Press key={p.id} onPress={dismiss} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             {p.uri ? (
               <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
             ) : (
@@ -88,7 +100,7 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
 
       {/* top bar */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Press onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+        <Press onPress={dismiss} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="close" color="#fff" size={15} />
         </Press>
         <Text style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: '600', color: '#fff', letterSpacing: 0.5 }}>{index + 1} / {visible.length}</Text>
@@ -106,7 +118,7 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
           <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
