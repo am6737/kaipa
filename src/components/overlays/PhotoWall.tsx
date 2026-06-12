@@ -33,12 +33,13 @@ interface WallPhoto {
   day: number;
   author: Companion;
   uri?: string;
-  kind?: 'image' | 'video';
+  kind?: 'image' | 'video' | 'livePhoto';
 }
 
-// ── Lightbox: native paging ScrollView for buttery-smooth swipe ──
-function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav }: {
+// ── Lightbox: tap to close, swipe to navigate, long-press for actions ──
+function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, insets, nav }: {
   visible: WallPhoto[]; index: number; setIndex: (i: number) => void; onClose: () => void;
+  onDelete?: (id: string) => void;
   info: Poi; theme: Theme; insets: { top: number; bottom: number }; nav: ReturnType<typeof useNav>;
 }) {
   const t = theme;
@@ -66,11 +67,23 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(onClose);
   };
 
+  const showActions = () => {
+    const items: { label: string; onPress: () => void; destructive?: boolean }[] = [
+      { label: '保存到相册', onPress: () => nav.showToast('已保存到相册') },
+      { label: '分享', onPress: () => nav.showToast('已分享') },
+    ];
+    if (onDelete && photo) {
+      items.push({ label: '删除', destructive: true, onPress: () => { onDelete(photo.id); dismiss(); } });
+    }
+    nav.openActionSheet({ items });
+  };
+
   if (!photo) return null;
+
+  const isLive = photo.kind === 'livePhoto';
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity: fadeAnim }]}>
-      {/* native paging scroll — all gesture handling is in the native layer */}
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -87,8 +100,8 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
         }}
         style={{ flex: 1 }}
       >
-        {visible.map((p, i) => (
-          <Press key={p.id} onPress={dismiss} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+        {visible.map((p) => (
+          <Press key={p.id} onPress={dismiss} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             {p.uri ? (
               <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
             ) : (
@@ -98,16 +111,18 @@ function Lightbox({ visible, index, setIndex, onClose, info, theme, insets, nav 
         ))}
       </ScrollView>
 
-      {/* top bar */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Press onPress={dismiss} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="close" color="#fff" size={15} />
-        </Press>
-        <Text style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: '600', color: '#fff', letterSpacing: 0.5 }}>{index + 1} / {visible.length}</Text>
-        <Press onPress={() => nav.showToast('已保存')} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="share" color="#fff" size={16} />
-        </Press>
-      </View>
+      {/* live photo badge — bottom-left */}
+      {isLive ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 18, bottom: insets.bottom + 80 }}>
+          <Press onPress={() => nav.showToast('播放实况照片')} style={{
+            flexDirection: 'row', alignItems: 'center', gap: 5,
+            paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+            backgroundColor: 'rgba(255,255,255,0.18)',
+          }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 0.5 }}>LIVE</Text>
+          </Press>
+        </View>
+      ) : null}
 
       {/* bottom info */}
       <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
@@ -192,13 +207,13 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
           if (!perm.granted) { if (!cancelled) nav.showToast('需要相机权限'); return; }
           const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
           if (!cancelled && !res.canceled && res.assets)
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
+            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
         } else {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) { if (!cancelled) nav.showToast('需要相册访问权限'); return; }
-          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
+          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
           if (!cancelled && !res.canceled && res.assets)
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : 'image' }));
+            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
         }
       } catch (e) {
         if (!cancelled) Alert.alert('出错了', String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
@@ -399,7 +414,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       ) : null}
 
       {/* ── Lightbox ── */}
-      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} info={info} theme={t} insets={insets} nav={nav} /> : null}
+      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={isPlanning ? (id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); } : undefined} info={info} theme={t} insets={insets} nav={nav} /> : null}
 
       {/* ── Companions bottom sheet ── */}
       {compSheet && !filter ? (

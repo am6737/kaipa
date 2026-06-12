@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 export interface InspoMedia {
   id: string;
   uri: string;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'livePhoto';
 }
 
 const store: { data: Record<string, InspoMedia[]>; subs: Set<() => void> } = { data: {}, subs: new Set() };
