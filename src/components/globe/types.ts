@@ -1,5 +1,6 @@
 import { Theme } from '../../theme/theme';
 import { JourneyStatus } from '../../data/pois';
+import { Tone } from '../../data/tones';
 
 export interface GlobePoi {
   id: string;
@@ -7,6 +8,8 @@ export interface GlobePoi {
   lat: number;
   status?: JourneyStatus;
   mine?: boolean;
+  /** scenery tone — picks the marker's circular photo (with id as the seed) */
+  tone?: Tone;
 }
 
 export interface GlobeProps {
@@ -15,6 +18,8 @@ export interface GlobeProps {
   pois: GlobePoi[];
   activePoiId?: string | null;
   onPoiPress?: (id: string) => void;
+  /** tap on the empty map background (not a marker) — used to dismiss the sheet */
+  onBackgroundPress?: () => void;
   center?: { lon: number; lat: number };
   /** show the current-location pin at this coordinate */
   pin?: { lng: number; lat: number } | null;

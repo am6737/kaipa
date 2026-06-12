@@ -29,6 +29,14 @@ module.exports = ({ config }) => ({
         RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN || '',
       },
     ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Kaipa 需要访问你的相册，以便把照片或视频加入旅程瞬间。',
+        cameraPermission: 'Kaipa 需要使用相机，以便为旅程拍摄照片或视频。',
+        microphonePermission: 'Kaipa 在录制视频时需要使用麦克风。',
+      },
+    ],
     'expo-font',
   ],
 });

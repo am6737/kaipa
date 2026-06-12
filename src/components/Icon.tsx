@@ -1,10 +1,11 @@
 // Icon.tsx — line-icon set drawn with react-native-svg, matching the prototype's
 // 1.7–2px stroke iOS visual language. <Icon name=... color=... size=... />.
 import React from 'react';
-import Svg, { Path, Circle, Rect, Line, Polyline } from 'react-native-svg';
+import Svg, { Path, Circle, Rect, Line, Polyline, Text as SvgText } from 'react-native-svg';
 
 export type IconName =
   | 'compass'
+  | 'compassN'
   | 'bag'
   | 'user'
   | 'search'
@@ -15,6 +16,7 @@ export type IconName =
   | 'chevronL'
   | 'chevronR'
   | 'chevronDown'
+  | 'arrowL'
   | 'plus'
   | 'close'
   | 'pin'
@@ -41,6 +43,7 @@ export type IconName =
   | 'eye'
   | 'eyeOff'
   | 'flag'
+  | 'play'
   | 'people';
 
 interface Props {
@@ -61,6 +64,17 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Circle cx={12} cy={12} r={9} {...common} />
           <Path d="M15.5 8.5 13 13l-4.5 2.5L11 11z" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" fill={fill} />
+        </Svg>
+      );
+    case 'compassN':
+      // map-chrome compass: a faint ring + two needles (red north, dim south)
+      // and a tiny "N" — matches the prototype's recenter/正北 button.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={12} cy={12} r={10} stroke={stroke} strokeWidth={1.2} opacity={0.4} fill="none" />
+          <Path d="M12 4 14 12 12 11 10 12 12 4Z" fill="#FF453A" />
+          <Path d="M12 20 10 12 12 13 14 12 12 20Z" fill={stroke} opacity={0.55} />
+          <SvgText x={12} y={3.6} textAnchor="middle" fontSize={3.6} fontWeight="700" fill="#FF453A">N</SvgText>
         </Svg>
       );
     case 'bag':
@@ -95,13 +109,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
     case 'heart':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
-          <Path d="M12 20s-7-4.6-7-9.5A3.8 3.8 0 0 1 12 8a3.8 3.8 0 0 1 7-2.5C19 10.4 12 20 12 20Z" {...common} />
+          <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" {...common} />
         </Svg>
       );
     case 'heartFill':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
-          <Path d="M12 20s-7-4.6-7-9.5A3.8 3.8 0 0 1 12 8a3.8 3.8 0 0 1 7-2.5C19 10.4 12 20 12 20Z" fill={color} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+          <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" fill={color} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
         </Svg>
       );
     case 'share':
@@ -138,6 +152,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Polyline points="5 9 12 16 19 9" {...common} strokeWidth={strokeWidth + 0.4} />
         </Svg>
       );
+    case 'arrowL':
+      // long back arrow — matches the settings push-page nav bar
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M20 12H5M12 19l-7-7 7-7" {...common} strokeWidth={2} />
+        </Svg>
+      );
     case 'arrowUp':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
@@ -167,13 +188,17 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         </Svg>
       );
     case 'locate':
+      // Apple-Maps style "locate me" arrow — a filled paper-plane pointing
+      // up-right (matches the prototype's locate button).
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
-          <Circle cx={12} cy={12} r={4} {...common} />
-          <Line x1={12} y1={2} x2={12} y2={5} {...common} />
-          <Line x1={12} y1={19} x2={12} y2={22} {...common} />
-          <Line x1={2} y1={12} x2={5} y2={12} {...common} />
-          <Line x1={19} y1={12} x2={22} y2={12} {...common} />
+          <Path
+            d="M20.5 3.5 4 10.2c-.7.3-.7 1.3 0 1.6l6.4 2.5a1 1 0 0 1 .56.56l2.5 6.4c.3.7 1.3.7 1.6 0L21.7 4.8a.9.9 0 0 0-1.2-1.2Z"
+            fill={color}
+            stroke={color}
+            strokeWidth={0.6}
+            strokeLinejoin="round"
+          />
         </Svg>
       );
     case 'filter':
@@ -321,6 +346,12 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M6 21V4M6 5h11l-2 3 2 3H6" {...common} />
+        </Svg>
+      );
+    case 'play':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M8 5v14l11-7z" fill={color} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
         </Svg>
       );
     default:

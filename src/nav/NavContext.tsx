@@ -69,6 +69,11 @@ export interface NavValue {
   openAddRoute: () => void;
   closeAddRoute: () => void;
 
+  // 新增旅程 flow (旅程 tab "+")
+  newJourneyOpen: boolean;
+  openNewJourney: () => void;
+  closeNewJourney: () => void;
+
   elevFull: OverlayCfg | null;
   openElevation: (c: OverlayCfg) => void;
   closeElevation: () => void;
@@ -76,6 +81,25 @@ export interface NavValue {
   photoWall: (OverlayCfg & { mode?: string }) | null;
   openPhotoWall: (c: OverlayCfg & { mode?: string }) => void;
   closePhotoWall: () => void;
+
+  // full 行程 timeline (journey detail → 行程 → 全部)
+  timeline: Poi | null;
+  openTimeline: (p: Poi) => void;
+  closeTimeline: () => void;
+
+  // journey "更多" surfaces (edit info / settings)
+  editJourney: Poi | null;
+  openEditJourney: (p: Poi) => void;
+  closeEditJourney: () => void;
+
+  journeySettings: Poi | null;
+  openJourneySettings: (p: Poi) => void;
+  closeJourneySettings: () => void;
+
+  // 同行管理 (journey detail → 同行 → 管理)
+  manageCompanions: Poi | null;
+  openManageCompanions: (p: Poi) => void;
+  closeManageCompanions: () => void;
 
   // saved / joined
   savedRoutes: Poi[];
@@ -109,8 +133,13 @@ export function NavProvider({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [actionSheet, setActionSheet] = useState<ActionSheetConfig | null>(null);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
+  const [timeline, setTimeline] = useState<Poi | null>(null);
+  const [editJourney, setEditJourney] = useState<Poi | null>(null);
+  const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
+  const [manageCompanions, setManageCompanions] = useState<Poi | null>(null);
   const [savedRoutes, setSavedRoutes] = useState<Poi[]>([]);
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -127,8 +156,13 @@ export function NavProvider({
   const closeOverlays = () => {
     setActionSheet(null);
     setAddRouteOpen(false);
+    setNewJourneyOpen(false);
     setElevFull(null);
     setPhotoWall(null);
+    setTimeline(null);
+    setEditJourney(null);
+    setJourneySettings(null);
+    setManageCompanions(null);
   };
 
   const setMainTab = (t: MainTab) => {
@@ -158,6 +192,8 @@ export function NavProvider({
     if (id) setJourneyPatch((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
     setPointInfo((p) => (p ? { ...p, ...patch } : p));
     setDetail((d) => (d ? { ...d, ...patch } : d));
+    // keep the settings overlay's snapshot live when editing on top of it
+    setJourneySettings((s) => (s ? { ...s, ...patch } : s));
   };
   const removeCurrent = () => {
     const cur = pointInfo || detail;
@@ -206,7 +242,7 @@ export function NavProvider({
       completeJourney: () => patchCurrent({ status: 'completed' }),
       removeJourney: removeCurrent,
       toggleFav: () => {
-        const cur = pointInfo;
+        const cur = pointInfo || detail;
         patchCurrent({ fav: !(cur && cur.fav) });
       },
       merged,
@@ -216,12 +252,27 @@ export function NavProvider({
       addRouteOpen,
       openAddRoute: () => setAddRouteOpen(true),
       closeAddRoute: () => setAddRouteOpen(false),
+      newJourneyOpen,
+      openNewJourney: () => setNewJourneyOpen(true),
+      closeNewJourney: () => setNewJourneyOpen(false),
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
       photoWall,
       openPhotoWall: (c) => setPhotoWall(c),
       closePhotoWall: () => setPhotoWall(null),
+      timeline,
+      openTimeline: (p) => setTimeline(merged(p)),
+      closeTimeline: () => setTimeline(null),
+      editJourney,
+      openEditJourney: (p) => setEditJourney(merged(p)),
+      closeEditJourney: () => setEditJourney(null),
+      journeySettings,
+      openJourneySettings: (p) => setJourneySettings(merged(p)),
+      closeJourneySettings: () => setJourneySettings(null),
+      manageCompanions,
+      openManageCompanions: (p) => setManageCompanions(merged(p)),
+      closeManageCompanions: () => setManageCompanions(null),
       savedRoutes,
       extraJourneys,
       addSavedRoute: (p) => setSavedRoutes((s) => [p, ...s]),
@@ -241,8 +292,13 @@ export function NavProvider({
       removedIds,
       actionSheet,
       addRouteOpen,
+      newJourneyOpen,
       elevFull,
       photoWall,
+      timeline,
+      editJourney,
+      journeySettings,
+      manageCompanions,
       savedRoutes,
       extraJourneys,
       toast,

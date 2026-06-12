@@ -62,7 +62,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   });
 
   return (
-    <FullOverlay theme={theme} title="瞬间" subtitle={`${info.name} · ${photos.length} 张`} onClose={onClose} zIndex={132}>
+    <FullOverlay theme={theme} title={info.kind === 'journey' ? '瞬间' : '用户照片'} subtitle={`${info.name} · ${photos.length} 张`} onClose={onClose} zIndex={132}>
       {photos.length === 0 ? (
         <View style={{ padding: 40, alignItems: 'center' }}>
           <Text style={{ color: theme.text2, fontSize: 13.5 }}>计划中的旅程还没有照片</Text>

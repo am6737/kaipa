@@ -1,10 +1,24 @@
 // MapGlobe.tsx — the real Mapbox 3D globe (@rnmapbox/maps). Only imported when a
 // public token is configured; the native module is required for it to run, so
 // this lives behind token-gating + an ErrorBoundary (see index.tsx).
-import React, { useMemo } from 'react';
-import { View } from 'react-native';
-import Mapbox, { MapView, Camera, ShapeSource, CircleLayer } from '@rnmapbox/maps';
-import { GlobeProps, poiColor } from './types';
+//
+// Styled to match the prototype's stylized globe: a sphere floating on the app
+// background. We use the `globe` projection, clip the map into a circle, and set
+// the Atmosphere `spaceColor` to the theme background so there is no visible
+// "outer space" — just the earth in clean whitespace (Apple-minimal).
+//
+// Route/journey points are drawn as circular photo markers (PhotoPin via
+// MarkerView) — the default style — rather than flat colored dots, so each point
+// previews its real scenery. The current-location pin stays a plain locating dot.
+import React from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
+import Mapbox, { MapView, Camera, Atmosphere, StyleImport, MarkerView } from '@rnmapbox/maps';
+import { GlobeProps } from './types';
+import { PhotoPin } from './PhotoPin';
+
+// Mapbox Standard — the same style as Mapbox's own globe demo. Configured below
+// (via StyleImport) to hide every label so it reads as a clean, minimal earth.
+const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
 
 const TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '';
 let tokenSet = false;
@@ -15,95 +29,90 @@ function ensureToken() {
   }
 }
 
-export default function MapGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin }: GlobeProps) {
+export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackgroundPress, center, pin }: GlobeProps) {
   ensureToken();
   const lon0 = center?.lon ?? 100;
   const lat0 = center?.lat ?? 32;
 
-  const featureCollection = useMemo(() => {
-    const features = pois.map((p) => {
-      const { fill, hollow } = poiColor(p, theme);
-      const active = activePoiId != null && p.id === activePoiId;
-      return {
-        type: 'Feature' as const,
-        id: p.id,
-        properties: {
-          id: p.id,
-          fillColor: hollow ? theme.bg : fill,
-          strokeColor: hollow ? fill : theme.dark ? '#000000' : '#FFFFFF',
-          ringColor: fill,
-          radius: active ? 8 : 6,
-          strokeW: active ? 2.4 : 1.6,
-        },
-        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
-      };
-    });
-    if (pin) {
-      features.push({
-        type: 'Feature' as const,
-        id: '__me__',
-        properties: {
-          id: '__me__',
-          fillColor: theme.dotCore,
-          strokeColor: theme.dotRing,
-          ringColor: theme.dotRing,
-          radius: 6,
-          strokeW: 3,
-        },
-        geometry: { type: 'Point' as const, coordinates: [pin.lng, pin.lat] },
-      });
-    }
-    return { type: 'FeatureCollection' as const, features };
-  }, [pois, activePoiId, theme, pin]);
-
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: theme.bg }}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg }]}>
       <MapView
         style={{ flex: 1 }}
         projection="globe"
-        styleURL={theme.mapStyleURL}
+        styleURL={STANDARD_STYLE}
+        onPress={() => onBackgroundPress?.()}
         scaleBarEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
         rotateEnabled
         zoomEnabled
-        pitchEnabled={false}
+        scrollEnabled
+        pitchEnabled
       >
-        <Camera
-          defaultSettings={{ centerCoordinate: [lon0, lat0], zoomLevel: 1.35 }}
-          centerCoordinate={[lon0, lat0]}
-          zoomLevel={1.35}
-          animationMode="easeTo"
-          animationDuration={400}
+        {/* defaultSettings only (NOT controlled) so pinch-zoom / pan / rotate
+            stick and the camera never snaps back on re-render. Opens framed on
+            the globe; the user can freely zoom all the way into a detailed map,
+            Apple-Maps style. */}
+        <Camera defaultSettings={{ centerCoordinate: [lon0, lat0], zoomLevel: 1.6 }} />
+        {/* Standard style basemap config: strip every label for a minimal earth,
+            and follow the app's light/dark mode via the light preset. */}
+        <StyleImport
+          id="basemap"
+          existing
+          config={{
+            lightPreset: theme.mapLightPreset,
+            showPlaceLabels: false,
+            showRoadLabels: false,
+            showPointOfInterestLabels: false,
+            showTransitLabels: false,
+          } as any}
         />
-        <ShapeSource
-          id="kaipa-pois"
-          shape={featureCollection as any}
-          onPress={(e: any) => {
-            const f = e?.features?.[0];
-            const id = f?.properties?.id;
-            if (id && id !== '__me__' && onPoiPress) onPoiPress(id);
+        {/* Recolor the WHOLE atmosphere (near-horizon glow, high sky, and outer
+            space) to the app background, so there is no blue sky filling the
+            square — just the earth sphere floating on clean whitespace. */}
+        <Atmosphere
+          style={{
+            color: theme.bg,
+            highColor: theme.bg,
+            spaceColor: theme.bg,
+            horizonBlend: 0.02,
+            starIntensity: 0,
           }}
-        >
-          <CircleLayer
-            id="kaipa-poi-ring"
-            style={{
-              circleRadius: ['+', ['get', 'radius'], 4] as any,
-              circleColor: ['get', 'ringColor'] as any,
-              circleOpacity: 0.18,
-            }}
-          />
-          <CircleLayer
-            id="kaipa-poi-dot"
-            style={{
-              circleRadius: ['get', 'radius'] as any,
-              circleColor: ['get', 'fillColor'] as any,
-              circleStrokeColor: ['get', 'strokeColor'] as any,
-              circleStrokeWidth: ['get', 'strokeW'] as any,
-            }}
-          />
-        </ShapeSource>
+        />
+
+        {/* Circular photo markers — the default point style. allowOverlap keeps
+            every photo visible even when the globe is zoomed far out. Press is
+            handled by the Pressable child (MarkerView has no onPress). */}
+        {pois.map((p) => (
+          <MarkerView
+            key={p.id}
+            coordinate={[p.lng, p.lat]}
+            anchor={{ x: 0.5, y: 0.5 }}
+            allowOverlap
+            isSelected={activePoiId === p.id}
+          >
+            <Pressable onPress={() => onPoiPress && onPoiPress(p.id)} hitSlop={6}>
+              <PhotoPin theme={theme} poi={p} active={activePoiId === p.id} />
+            </Pressable>
+          </MarkerView>
+        ))}
+
+        {/* current-location pin — a plain locating dot, not a photo */}
+        {pin && (
+          <MarkerView coordinate={[pin.lng, pin.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                backgroundColor: theme.dotCore,
+                borderWidth: 3,
+                borderColor: theme.dotRing,
+              }}
+            />
+          </MarkerView>
+        )}
       </MapView>
     </View>
   );

@@ -6,6 +6,7 @@ import { View, Animated, Easing, Pressable } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G } from 'react-native-svg';
 import { GlobeProps, poiColor } from './types';
 import { project, graticule } from './projection';
+import { PhotoPin } from './PhotoPin';
 
 export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin }: GlobeProps) {
   const t = theme;
@@ -70,53 +71,44 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
         <Circle cx={cx} cy={cy} r={R} fill="none" stroke={t.globeRim} strokeWidth={1} />
       </Svg>
 
-      {/* projected, tappable POIs */}
+      {/* projected, tappable POIs — circular photo markers (the default style) */}
       {pois.map((p) => {
         const pr = project(p.lng, p.lat, lon0, lat0, R - 4, cx, cy);
         if (!pr.visible) return null;
         const active = activePoiId != null && p.id === activePoiId;
-        const { fill, hollow } = poiColor(p, t);
+        const { fill } = poiColor(p, t);
         const isOngoing = p.status === 'ongoing';
-        const r = active ? 7 : 6;
+        const box = active ? 66 : 44; // big enough to hold the pin + its halo
         return (
           <Pressable
             key={p.id}
             onPress={() => onPoiPress && onPoiPress(p.id)}
             style={{
               position: 'absolute',
-              left: pr.x - 14,
-              top: pr.y - 14,
-              width: 28,
-              height: 28,
+              left: pr.x - box / 2,
+              top: pr.y - box / 2,
+              width: box,
+              height: box,
               alignItems: 'center',
               justifyContent: 'center',
             }}
             hitSlop={6}
           >
-            {(isOngoing || active) && (
+            {isOngoing && (
               <Animated.View
                 style={{
                   position: 'absolute',
-                  width: r * 2,
-                  height: r * 2,
-                  borderRadius: r,
-                  borderWidth: 1.2,
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  borderWidth: 1.4,
                   borderColor: fill,
                   opacity: pulseOpacity,
                   transform: [{ scale: pulseScale }],
                 }}
               />
             )}
-            <View
-              style={{
-                width: r,
-                height: r,
-                borderRadius: r / 2,
-                backgroundColor: hollow ? t.bg : fill,
-                borderWidth: active ? 2 : 1.4,
-                borderColor: hollow ? fill : t.dark ? '#000' : '#fff',
-              }}
-            />
+            <PhotoPin theme={t} poi={p} active={active} />
           </Pressable>
         );
       })}

@@ -1,11 +1,11 @@
-// PhotoTile.tsx — deterministic "photo" surface: a palette gradient with a
-// layered mountain-ridge silhouette (ported from the prototype's Tile fallback).
-// No network images — the tone + seed fully determine the look.
+// PhotoTile.tsx — "photo" surface: a real scenery photo (Unsplash, picked from
+// tone + seed) layered over a palette gradient + mountain-ridge silhouette. The
+// gradient/ridge is the fallback shown while the photo loads or if it fails.
 import React from 'react';
-import { View, ViewStyle, StyleProp, StyleSheet } from 'react-native';
+import { View, ViewStyle, StyleProp, StyleSheet, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
-import { paletteFor, hashStr } from '../data/tones';
+import { paletteFor, hashStr, photoUrlFor } from '../data/tones';
 
 interface Props {
   tone?: string;
@@ -14,13 +14,16 @@ interface Props {
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
   darken?: boolean; // dark gradient overlay for legible text on top
+  resWidth?: number; // requested photo width (resolution hint for the CDN)
 }
 
-export function PhotoTile({ tone, seed = '', radius = 0, style, children, darken }: Props) {
+export function PhotoTile({ tone, seed = '', radius = 0, style, children, darken, resWidth = 800 }: Props) {
   const p = paletteFor(tone);
   const h = hashStr((tone || 'ridge') + seed);
   // vary the ridge heights a little per-seed for visual variety
   const v = (n: number) => 0.78 + ((h >> n) & 7) * 0.02;
+  const [failed, setFailed] = React.useState(false);
+  const uri = photoUrlFor(tone, seed, resWidth);
 
   return (
     <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: p[1] }, style]}>
@@ -46,6 +49,14 @@ export function PhotoTile({ tone, seed = '', radius = 0, style, children, darken
           opacity={0.85}
         />
       </Svg>
+      {!failed && (
+        <Image
+          source={{ uri }}
+          onError={() => setFailed(true)}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       {darken && (
         <LinearGradient
           colors={['rgba(0,0,0,0.30)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}

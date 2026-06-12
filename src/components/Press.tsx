@@ -3,6 +3,11 @@
 import React, { useRef } from 'react';
 import { Animated, Pressable, PressableProps, ViewStyle, StyleProp } from 'react-native';
 
+// The style (flex/layout/background) must land on the Pressable itself so it
+// participates in its parent's layout — otherwise a `flex: 1` caller can't
+// stretch. Animate the Pressable directly so the whole box scales on press.
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 interface Props extends PressableProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
@@ -22,12 +27,13 @@ export function Press({ children, style, scaleTo = 0.97, ...rest }: Props) {
   };
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPressIn={() => animate(scaleTo, 0.82)}
       onPressOut={() => animate(1, 1)}
+      style={[style, { transform: [{ scale }], opacity }]}
       {...rest}
     >
-      <Animated.View style={[{ transform: [{ scale }], opacity }, style]}>{children}</Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressable>
   );
 }

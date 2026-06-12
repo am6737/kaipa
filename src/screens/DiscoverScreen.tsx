@@ -13,9 +13,10 @@ import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import { FilterChip } from '../components/Chip';
 import { PoiRow } from '../components/ListRow';
-import { TrailSheet } from '../components/Sheet';
+import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { SelectedPoiCard } from './JourneyCard';
 import { KPState, KPSkeletonLine } from '../components/State';
+import { elevFloat } from '../theme/shadow';
 
 const EXPLORE_CHIPS = ['全部', '简单', '高爬升', '近距离', '我的'];
 const MEMORY_CHIPS = ['全部', '计划中', '进行中', '已完成', '收藏'];
@@ -31,6 +32,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const { width, height } = useWindowDimensions();
   const isMemory = nav.subTab === 'memory';
   const [chip, setChip] = React.useState(0);
+  const sheetRef = React.useRef<TrailSheetHandle>(null);
 
   React.useEffect(() => setChip(0), [isMemory]);
 
@@ -63,92 +65,91 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   }, [basePois, chip, isMemory]);
 
   const globeSize = Math.min(width * 0.86, 360);
-  const tabSpace = insets.bottom + 76; // floating tab bar clearance
-  const avail = height - insets.top - tabSpace - 12;
-  const collapsed = 120;
-  const mid = Math.round(avail * 0.55);
-  const full = Math.round(avail);
+  const tabSpace = insets.bottom + 76; // floating tab bar clearance (when shown)
+  // Apple-Maps-style detents. The tab bar hides while the sheet is open, so the
+  // sheet reaches the very bottom; the largest detent stops ~12% below the top
+  // so a strip of map stays visible (a full-height card felt too tall).
+  const collapsed = 120; // peek
+  const mid = Math.round(height * 0.52); // ~half screen (Apple "medium")
+  const full = Math.round(height * 0.88); // large detent (~12% map peek at top)
+
+  // The sheet is hidden by default; a pull-up pill peeks above the tab bar and
+  // opens it. Selecting a POI on the globe also opens it (to show that card).
+  const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
 
   // sheet stats
   const totalKm = useMemo(() => pois.reduce((s, p) => s + num(p.dist), 0), [pois]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
+  // List-mode header (kicker + title + filter/add + chips). When a POI is
+  // selected the sheet switches to compact mode and this header is not shown —
+  // the card's hero fills the top and the floating grab handle dismisses it.
   const header = (
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-      {nav.pointInfo ? (
-        <Press
-          onPress={() => nav.closePoint()}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 2 }}
-        >
-          <Icon name="chevronL" color={theme.accent} size={16} />
-          <Text style={{ fontSize: 14, fontWeight: '600', color: theme.accent }}>{isMemory ? '我的旅程' : '为你推荐'}</Text>
-        </Press>
-      ) : (
-        <>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <View>
-              <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-                {isMemory ? 'MY JOURNEYS' : 'FEATURED'}
-              </Text>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
-                {isMemory ? '我的旅程' : '为你推荐'}
-              </Text>
-              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-                {isMemory
-                  ? `${pois.length} 段旅程 · ${Math.round(totalKm)} km`
-                  : `${pois.length} 条路线 · 持续更新`}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-              <Press
-                onPress={() => nav.showToast('筛选')}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 15,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-                }}
-              >
-                <Icon name="filter" color={theme.text2} size={17} />
-              </Press>
-              <Press
-                onPress={() => nav.openAddRoute()}
-                style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}
-              >
-                <Icon name="plus" color="#fff" size={18} />
-              </Press>
-            </View>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 6, paddingTop: 12, paddingRight: 16 }}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <View>
+          <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            {isMemory ? 'MY JOURNEYS' : 'FEATURED'}
+          </Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
+            {isMemory ? '我的旅程' : '为你推荐'}
+          </Text>
+          <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
+            {isMemory
+              ? `${pois.length} 段旅程 · ${Math.round(totalKm)} km`
+              : `${pois.length} 条路线 · 持续更新`}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+          <Press
+            onPress={() => nav.showToast('筛选')}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 15,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+            }}
           >
-            {(isMemory ? MEMORY_CHIPS : EXPLORE_CHIPS).map((c, i) => (
-              <FilterChip key={c} theme={theme} label={c} active={chip === i} onPress={() => setChip(i)} />
-            ))}
-          </ScrollView>
-        </>
-      )}
+            <Icon name="filter" color={theme.text2} size={17} />
+          </Press>
+          <Press
+            onPress={() => (isMemory ? nav.openNewJourney() : nav.openAddRoute())}
+            style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}
+          >
+            <Icon name="plus" color="#fff" size={18} />
+          </Press>
+        </View>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 6, paddingTop: 12, paddingRight: 16 }}
+      >
+        {(isMemory ? MEMORY_CHIPS : EXPLORE_CHIPS).map((c, i) => (
+          <FilterChip key={c} theme={theme} label={c} active={chip === i} onPress={() => setChip(i)} />
+        ))}
+      </ScrollView>
     </View>
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* globe */}
-      <View style={{ position: 'absolute', top: insets.top + 96, left: 0, right: 0, alignItems: 'center' }}>
+      {/* full-screen interactive map (Apple-Maps style) — subtabs, top-right
+          chrome, locate button and the bottom sheet all float on top of it */}
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
         <Globe
           theme={theme}
           size={globeSize}
-          pois={pois.map((p) => ({ id: p.id, lng: p.lng, lat: p.lat, status: p.status, mine: p.mine }))}
+          pois={pois.map((p) => ({ id: p.id, lng: p.lng, lat: p.lat, status: p.status, mine: p.mine, tone: p.tone }))}
           activePoiId={nav.pointInfo?.id}
           onPoiPress={(id) => {
             const found = pois.find((p) => p.id === id);
             if (found) nav.openPoint(found);
           }}
+          onBackgroundPress={() => sheetRef.current?.dismiss()}
         />
       </View>
 
@@ -197,26 +198,60 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         </GlassIconBtn>
         <GlassIconBtn theme={theme} onPress={() => nav.showToast('正北')}>
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="compass" color={theme.text} size={19} />
+            <Icon name="compassN" color={theme.text} size={22} />
           </View>
         </GlassIconBtn>
       </View>
 
-      {/* locate button (sits above the collapsed sheet) */}
-      <View style={{ position: 'absolute', right: 16, bottom: tabSpace + collapsed + 16 }}>
+      {/* locate button — sits above the pull-up pill (closed) or the open sheet */}
+      <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? mid + 16 : tabSpace + 56 }}>
         <GlassIconBtn theme={theme} size={44} strong onPress={() => nav.showToast('定位到当前位置')}>
           <Icon name="locate" color={theme.accent} size={21} />
         </GlassIconBtn>
       </View>
 
-      {/* draggable sheet */}
+      {/* closed state: a pull-up pill that opens the sheet (matches prototype) */}
+      {!sheetVisible && (
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: tabSpace + 8, alignItems: 'center' }}>
+          <Press
+            onPress={() => nav.openSheet()}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              paddingVertical: 8,
+              paddingHorizontal: 18,
+              borderRadius: 999,
+              backgroundColor: theme.surfaceTop,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.border,
+              ...elevFloat(theme),
+            }}
+          >
+            <View style={{ transform: [{ rotate: '180deg' }] }}>
+              <Icon name="chevronDown" color={theme.accent} size={15} />
+            </View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{isMemory ? '我的旅程' : '为你推荐'}</Text>
+          </Press>
+        </View>
+      )}
+
+      {/* draggable sheet — only mounted when open (default is the pill above) */}
+      {sheetVisible && (
       <TrailSheet
-        key={(nav.pointInfo?.id || 'list') + nav.subTab}
+        ref={sheetRef}
+        // remount when switching between the list sheet and a POI card so the
+        // detent set / start position reset cleanly
+        key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        snapHeights={[collapsed, mid, full]}
-        initialIndex={nav.pointInfo ? 1 : 0}
+        // the POI card has no tiny peek detent — swiping down past "normal" just
+        // closes it; the list sheet keeps its collapsed peek
+        snapHeights={nav.pointInfo ? [mid, full] : [collapsed, mid, full]}
+        initialIndex={nav.pointInfo ? 0 : 1}
         header={header}
-        bottomOffset={tabSpace}
+        compact={!!nav.pointInfo}
+        bottomOffset={0}
+        onDismiss={() => nav.closeSheet()}
       >
         <View style={{ paddingHorizontal: 16 }}>
           {nav.pointInfo ? (
@@ -247,6 +282,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           )}
         </View>
       </TrailSheet>
+      )}
     </View>
   );
 }

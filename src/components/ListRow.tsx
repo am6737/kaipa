@@ -15,7 +15,7 @@ export function PoiRow({ theme, poi, onPress }: { theme: Theme; poi: Poi; onPres
   return (
     <Press onPress={onPress} style={{ paddingVertical: 9 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 2 }}>
-        <PhotoTile tone={poi.tone} seed={poi.id} radius={14} style={{ width: 60, height: 60 }} />
+        <PhotoTile tone={poi.tone} seed={poi.id} radius={14} style={{ width: 60, height: 60 }} resWidth={240} />
         <View style={{ flex: 1, gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {isJourney && poi.status && (
