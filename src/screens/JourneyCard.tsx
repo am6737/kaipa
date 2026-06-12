@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Share, Platform, Image, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import Svg, { Path as SvgPath, Circle, Rect } from 'react-native-svg';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
 import { Poi, STATUS_LABEL, STATUS_COLOR, JourneyStatus } from '../data/pois';
@@ -115,31 +116,31 @@ function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
       style={{
         width: '31.7%',
         aspectRatio: 1,
-        borderRadius: 11,
+        borderRadius: 9,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 5,
-        backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-        borderWidth: 1.5,
+        backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+        borderWidth: 1,
         borderStyle: 'dashed',
-        borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)',
+        borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
       }}
     >
-      <Icon name="plus" color={theme.accent} size={20} strokeWidth={2.2} />
-      <Text style={{ fontSize: 11, fontWeight: '600', color: theme.accent }}>添加</Text>
+      <Icon name="plus" color={theme.text2} size={16} strokeWidth={2.2} />
     </Press>
   );
 
+  const count = inspo.media.length;
+
   return (
     <View style={{ paddingBottom: 18 }}>
-      <SectionHeader theme={theme} title="瞬间" />
+      <SectionHeader theme={theme} title="瞬间" action={`${count} 张`} onAction={chooseSource} />
       {has ? (
         <>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
             {inspo.media.map((m) => (
               <View
                 key={m.id}
-                style={{ width: '31.7%', aspectRatio: 1, borderRadius: 11, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+                style={{ width: '31.7%', aspectRatio: 1, borderRadius: 9, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
               >
                 {m.kind === 'video' ? (
                   <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#1c1c1e' : '#2a2a2c' }}>
@@ -162,30 +163,30 @@ function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
             ))}
             {addTile}
           </View>
-          <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 10 }}>出发后，这里会记录这段旅程的真实瞬间</Text>
         </>
       ) : (
         <Press
           onPress={chooseSource}
           style={{
-            borderRadius: 16,
+            borderRadius: 14,
             paddingVertical: 24,
-            paddingHorizontal: 18,
+            paddingHorizontal: 16,
             alignItems: 'center',
-            gap: 9,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            borderWidth: 1.5,
+            gap: 8,
+            backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+            borderWidth: 1,
             borderStyle: 'dashed',
-            borderColor: theme.dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.16)',
+            borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
           }}
         >
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="camera" color={theme.accent} size={26} />
-          </View>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>预先收集灵感</Text>
-          <Text style={{ fontSize: 12.5, color: theme.text3, textAlign: 'center', lineHeight: 18 }}>
-            拍照或从相册选择照片 · 视频{'\n'}出发后这里会记录这段旅程的真实瞬间
-          </Text>
+          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+            <Rect x={3} y={6} width={18} height={14} rx={2.5} stroke={theme.text2} strokeWidth={1.6} />
+            <Circle cx={12} cy={13} r={3.5} stroke={theme.text2} strokeWidth={1.6} />
+            <SvgPath d="M9 6 10 4h4l1 2" stroke={theme.text2} strokeWidth={1.6} strokeLinejoin="round" />
+            <SvgPath d="M17 9.5h2M18 8.5v2" stroke={theme.text2} strokeWidth={1.4} strokeLinecap="round" />
+          </Svg>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>添加出发前的准备 / 灵感</Text>
+          <Text style={{ fontSize: 11, color: theme.text2 }}>装备照、地图、参考图都可以放进来</Text>
         </Press>
       )}
     </View>
