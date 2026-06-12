@@ -4,10 +4,10 @@
 import React, { useMemo } from 'react';
 import { View, Text, ScrollView, useWindowDimensions, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Theme } from '../theme/theme';
+import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
 import { EXPLORE_POIS, MEMORY_POIS, Poi } from '../data/pois';
-import { Globe } from '../components/globe';
+import { Globe, MAPBOX_ENABLED } from '../components/globe';
 import { GlassIconBtn } from '../components/Glass';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -33,6 +33,13 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const isMemory = nav.subTab === 'memory';
   const [chip, setChip] = React.useState(0);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
+
+  // The real Mapbox globe sits on black starry space in BOTH appearance modes,
+  // so chrome floating over the map always uses the dark treatment to stay
+  // legible. The bottom sheet (a separate surface) keeps the real theme,
+  // Apple-Maps style. The no-token SVG fallback renders on the app background,
+  // so there we leave the chrome on the real theme.
+  const chromeTheme = MAPBOX_ENABLED && !theme.dark ? makeTheme('dark', theme.accent) : theme;
 
   React.useEffect(() => setChip(0), [isMemory]);
 
@@ -161,7 +168,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             padding: 3,
             borderRadius: 16,
             gap: 3,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+            backgroundColor: chromeTheme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
           }}
         >
           {[
@@ -179,10 +186,10 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                   borderRadius: 13,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: active ? (theme.dark ? 'rgba(120,120,128,0.5)' : '#fff') : 'transparent',
+                  backgroundColor: active ? (chromeTheme.dark ? 'rgba(120,120,128,0.5)' : '#fff') : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? theme.text : theme.text2 }}>
+                <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? chromeTheme.text : chromeTheme.text2 }}>
                   {tab.label}
                 </Text>
               </Press>
@@ -193,20 +200,20 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
       {/* top-right chrome */}
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
-        <GlassIconBtn theme={theme} onPress={() => nav.showToast('搜索')}>
-          <Icon name="search" color={theme.text} size={19} />
+        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast('搜索')}>
+          <Icon name="search" color={chromeTheme.text} size={19} />
         </GlassIconBtn>
-        <GlassIconBtn theme={theme} onPress={() => nav.showToast('正北')}>
+        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast('正北')}>
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="compassN" color={theme.text} size={22} />
+            <Icon name="compassN" color={chromeTheme.text} size={22} />
           </View>
         </GlassIconBtn>
       </View>
 
       {/* locate button — sits above the pull-up pill (closed) or the open sheet */}
       <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? mid + 16 : tabSpace + 56 }}>
-        <GlassIconBtn theme={theme} size={44} strong onPress={() => nav.showToast('定位到当前位置')}>
-          <Icon name="locate" color={theme.accent} size={21} />
+        <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast('定位到当前位置')}>
+          <Icon name="locate" color={chromeTheme.accent} size={21} />
         </GlassIconBtn>
       </View>
 
@@ -222,16 +229,16 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               paddingVertical: 8,
               paddingHorizontal: 18,
               borderRadius: 999,
-              backgroundColor: theme.surfaceTop,
+              backgroundColor: chromeTheme.surfaceTop,
               borderWidth: StyleSheet.hairlineWidth,
-              borderColor: theme.border,
-              ...elevFloat(theme),
+              borderColor: chromeTheme.border,
+              ...elevFloat(chromeTheme),
             }}
           >
             <View style={{ transform: [{ rotate: '180deg' }] }}>
-              <Icon name="chevronDown" color={theme.accent} size={15} />
+              <Icon name="chevronDown" color={chromeTheme.accent} size={15} />
             </View>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{isMemory ? '我的旅程' : '为你推荐'}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: chromeTheme.text }}>{isMemory ? '我的旅程' : '为你推荐'}</Text>
           </Press>
         </View>
       )}

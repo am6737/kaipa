@@ -2,10 +2,10 @@
 // public token is configured; the native module is required for it to run, so
 // this lives behind token-gating + an ErrorBoundary (see index.tsx).
 //
-// Styled to match the prototype's stylized globe: a sphere floating on the app
-// background. We use the `globe` projection, clip the map into a circle, and set
-// the Atmosphere `spaceColor` to the theme background so there is no visible
-// "outer space" — just the earth in clean whitespace (Apple-minimal).
+// The earth sits in real space: the `globe` projection with Mapbox's atmosphere
+// kept intact — a blue horizon rim fading into black outer space with a star
+// field (see the Atmosphere config below). The backdrop is space-black so the
+// globe never flashes the app background before the map paints.
 //
 // Route/journey points are drawn as circular photo markers (PhotoPin via
 // MarkerView) — the default style — rather than flat colored dots, so each point
@@ -19,6 +19,10 @@ import { PhotoPin } from './PhotoPin';
 // Mapbox Standard — the same style as Mapbox's own globe demo. Configured below
 // (via StyleImport) to hide every label so it reads as a clean, minimal earth.
 const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
+
+// Deep-space backdrop — the color of "outer space" beyond the atmosphere, used
+// both for the Atmosphere spaceColor and the wrapper bg (so no app-bg flash).
+const SPACE = '#000010';
 
 const TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '';
 let tokenSet = false;
@@ -35,7 +39,7 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
   const lat0 = center?.lat ?? 32;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: SPACE }]}>
       <MapView
         style={{ flex: 1 }}
         projection="globe"
@@ -68,16 +72,17 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
             showTransitLabels: false,
           } as any}
         />
-        {/* Recolor the WHOLE atmosphere (near-horizon glow, high sky, and outer
-            space) to the app background, so there is no blue sky filling the
-            square — just the earth sphere floating on clean whitespace. */}
+        {/* The earth in real space: a faint, dim atmosphere rim (low near-horizon
+            glow → dark-blue high sky) fading into black outer space with a
+            visible star field. Keep `color`/`highColor` dark so the rim never
+            glows bright; raise them toward white/blue for a stronger halo. */}
         <Atmosphere
           style={{
-            color: theme.bg,
-            highColor: theme.bg,
-            spaceColor: theme.bg,
+            color: '#1e3a5f',
+            highColor: '#0a1730',
+            spaceColor: SPACE,
             horizonBlend: 0.02,
-            starIntensity: 0,
+            starIntensity: 0.55,
           }}
         />
 
