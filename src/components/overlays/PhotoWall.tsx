@@ -3,9 +3,8 @@
 // FAB to add. For 计划中 it uses real inspoStore media; ongoing/completed use
 // deterministic placeholders attributed to the journey's real companions.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, ActionSheetIOS, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -68,10 +67,36 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(onClose);
   };
 
-  const [menu, setMenu] = useState(false);
-  const showActions = () => setMenu(true);
+  const longPressedRef = useRef(false);
   const canDel = !!(onDelete && photo);
-  const act = (fn: () => void) => { setMenu(false); fn(); };
+
+  const showActions = () => {
+    longPressedRef.current = true;
+    const options = canDel ? ['保存到相册', '分享', '删除', '取消'] : ['保存到相册', '分享', '取消'];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: options.length - 1, destructiveButtonIndex: canDel ? 2 : undefined },
+        (i) => {
+          if (i === 0) nav.showToast('已保存到相册');
+          else if (i === 1) nav.showToast('已分享');
+          else if (canDel && i === 2) { onDelete!(photo.id); dismiss(); }
+        },
+      );
+    } else {
+      nav.openActionSheet({
+        items: [
+          { label: '保存到相册', onPress: () => nav.showToast('已保存到相册') },
+          { label: '分享', onPress: () => nav.showToast('已分享') },
+          ...(canDel ? [{ label: '删除', destructive: true, onPress: () => { onDelete!(photo.id); dismiss(); } }] : []),
+        ],
+      });
+    }
+  };
+
+  const handlePress = () => {
+    if (longPressedRef.current) { longPressedRef.current = false; return; }
+    dismiss();
+  };
 
   if (!photo) return null;
 
@@ -96,7 +121,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         style={{ flex: 1 }}
       >
         {visible.map((p) => (
-          <Pressable key={p.id} onPress={menu ? () => setMenu(false) : dismiss} onLongPress={menu ? undefined : showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable key={p.id} onPress={handlePress} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
             {p.uri ? (
               <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
             ) : (
@@ -129,53 +154,6 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         </View>
       </View>
 
-      {/* ── iOS-native-style action sheet with real blur ── */}
-      {menu ? (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'flex-end' }]}>
-          <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
-          <View style={{ paddingHorizontal: 8, paddingBottom: insets.bottom + 10 }}>
-            <View style={{ borderRadius: 14, overflow: 'hidden' }}>
-              <BlurView intensity={96} tint="systemChromeMaterialLight" style={{ overflow: 'hidden' }}>
-                {([
-                  { label: '保存到相册', color: '#007AFF', onPress: () => act(() => nav.showToast('已保存到相册')) },
-                  { label: '分享', color: '#007AFF', onPress: () => act(() => nav.showToast('已分享')) },
-                  ...(canDel ? [{ label: '删除', color: '#FF453A', onPress: () => act(() => { onDelete!(photo.id); dismiss(); }) }] : []),
-                ] as { label: string; color: string; onPress: () => void }[]).map((item, i) => (
-                  <Pressable
-                    key={i}
-                    onPress={item.onPress}
-                    style={({ pressed }) => ({
-                      height: 57,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: pressed ? 'rgba(0,0,0,0.06)' : 'transparent',
-                      borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
-                      borderTopColor: 'rgba(60,60,67,0.36)',
-                    })}
-                  >
-                    <Text style={{ fontSize: 20, color: item.color }}>{item.label}</Text>
-                  </Pressable>
-                ))}
-              </BlurView>
-            </View>
-            <View style={{ borderRadius: 14, overflow: 'hidden', marginTop: 8 }}>
-              <BlurView intensity={96} tint="systemChromeMaterialLight">
-                <Pressable
-                  onPress={() => setMenu(false)}
-                  style={({ pressed }) => ({
-                    height: 57,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: pressed ? 'rgba(0,0,0,0.06)' : 'transparent',
-                  })}
-                >
-                  <Text style={{ fontSize: 20, fontWeight: '600', color: '#007AFF' }}>取消</Text>
-                </Pressable>
-              </BlurView>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </Animated.View>
   );
 }
