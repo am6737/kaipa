@@ -69,6 +69,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const [pending, setPending] = useState<'camera' | 'library' | null>(null);
   const [filter, setFilter] = useState<Companion | null>(null);
   const [compSheet, setCompSheet] = useState(false);
+  const [boxIdx, setBoxIdx] = useState(-1);
 
   const roster = info.companionList || [];
   const self = roster.find((c) => c.self || c.host) || roster[0];
@@ -258,35 +259,37 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               {cols.map((col, ci) => (
                 <View key={ci} style={{ flex: 1, gap }}>
                   {col.map((p) => (
-                    <View key={p.id} style={{ borderRadius: 12, overflow: 'hidden' }}>
-                      {p.uri ? (
-                        <View style={{ backgroundColor: t.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-                          {p.kind === 'video' ? (
-                            <View style={{ width: '100%', height: colW, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? '#1c1c1e' : '#2a2a2c' }}>
-                              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-                                <Icon name="play" color="#fff" size={16} />
+                    <Press key={p.id} onPress={() => setBoxIdx(visible.indexOf(p))}>
+                      <View style={{ borderRadius: 12, overflow: 'hidden' }}>
+                        {p.uri ? (
+                          <View style={{ backgroundColor: t.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
+                            {p.kind === 'video' ? (
+                              <View style={{ width: '100%', height: colW, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? '#1c1c1e' : '#2a2a2c' }}>
+                                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Icon name="play" color="#fff" size={16} />
+                                </View>
                               </View>
-                            </View>
-                          ) : (
-                            <Image source={{ uri: p.uri }} resizeMode="cover" style={{ width: '100%', height: colW }} />
-                          )}
-                          {isPlanning ? (
-                            <Press onPress={() => inspo.remove(p.id)} style={{ position: 'absolute', right: 7, top: 7, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
-                              <Icon name="close" color="#fff" size={11} />
-                            </Press>
-                          ) : null}
-                        </View>
-                      ) : (
-                        <PhotoTile tone={p.tone} seed={info.id + p.id} radius={12} style={{ width: '100%', height: colW / p.ratio }}>
-                          {!filter ? (
-                            <View style={{ position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-                              <Avatar ini={p.author.ini} color={p.author.color} tone={p.author.tone} size={18} />
-                              <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{p.author.name}</Text>
-                            </View>
-                          ) : null}
-                        </PhotoTile>
-                      )}
-                    </View>
+                            ) : (
+                              <Image source={{ uri: p.uri }} resizeMode="cover" style={{ width: '100%', height: colW }} />
+                            )}
+                            {isPlanning ? (
+                              <Press onPress={() => inspo.remove(p.id)} style={{ position: 'absolute', right: 7, top: 7, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+                                <Icon name="close" color="#fff" size={11} />
+                              </Press>
+                            ) : null}
+                          </View>
+                        ) : (
+                          <PhotoTile tone={p.tone} seed={info.id + p.id} radius={12} style={{ width: '100%', height: colW / p.ratio }}>
+                            {!filter ? (
+                              <View style={{ position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.42)' }}>
+                                <Avatar ini={p.author.ini} color={p.author.color} tone={p.author.tone} size={18} />
+                                <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{p.author.name}</Text>
+                              </View>
+                            ) : null}
+                          </PhotoTile>
+                        )}
+                      </View>
+                    </Press>
                   ))}
                 </View>
               ))}
@@ -308,6 +311,49 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
           <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />
         </Press>
       ) : null}
+
+      {/* ── Lightbox ── */}
+      {boxIdx >= 0 && visible[boxIdx] ? (() => {
+        const photo = visible[boxIdx];
+        const go = (d: number) => { const n = boxIdx + d; if (n >= 0 && n < visible.length) setBoxIdx(n); };
+        return (
+          <View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000' }]}>
+            {/* photo */}
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              {photo.uri ? (
+                <Image source={{ uri: photo.uri }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <PhotoTile tone={photo.tone} seed={info.id + photo.id} resWidth={1200} style={{ width: '100%', aspectRatio: Math.max(0.66, photo.ratio) }} />
+              )}
+            </View>
+
+            {/* prev / next tap zones */}
+            {boxIdx > 0 ? <Press onPress={() => go(-1)} style={{ position: 'absolute', left: 0, top: 90, bottom: 160, width: '34%' }}><View /></Press> : null}
+            {boxIdx < visible.length - 1 ? <Press onPress={() => go(1)} style={{ position: 'absolute', right: 0, top: 90, bottom: 160, width: '34%' }}><View /></Press> : null}
+
+            {/* top bar */}
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Press onPress={() => setBoxIdx(-1)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="close" color="#fff" size={15} />
+              </Press>
+              <Text style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: '600', color: '#fff', letterSpacing: 0.5 }}>{boxIdx + 1} / {visible.length}</Text>
+              <Press onPress={() => nav.showToast('已保存')} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="share" color="#fff" size={16} />
+              </Press>
+            </View>
+
+            {/* bottom info */}
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
+              {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
+              {photo.day ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>Day {photo.day}</Text> : null}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
+                <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
+                <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
+              </View>
+            </View>
+          </View>
+        );
+      })() : null}
 
       {/* ── Companions bottom sheet ── */}
       {compSheet && !filter ? (
