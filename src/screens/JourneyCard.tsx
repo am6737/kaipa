@@ -17,6 +17,7 @@ import { useNav } from '../nav/NavContext';
 import { elevAccent } from '../theme/shadow';
 import { TONES } from '../data/tones';
 import { useInspo } from '../data/inspoStore';
+import { genPhotos } from '../components/overlays/PhotoWall';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   return (
@@ -138,13 +139,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const isMine = isJourney;
   const series = useMemo(() => buildElevation(poi), [poi.id, poi.dist, poi.asc]);
 
-  // a deterministic photo grid
-  const photos = useMemo(() => {
-    const arr: string[] = [];
-    const n = status === 'planning' ? 0 : status === 'ongoing' ? 6 : 9;
-    for (let i = 0; i < n; i++) arr.push(TONES[(i * 3 + poi.id.length) % TONES.length]);
-    return arr;
-  }, [poi.id, status]);
+  // photo preview — same genPhotos as PhotoWall so thumbnails match the detail
+  const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays]);
+  const previewPhotos = wallPhotos.slice(0, status === 'ongoing' ? 6 : 9);
 
   let ctaLabel = '开始旅程';
   let ctaAction = () => nav.showToast('开始规划这条路线');
@@ -354,13 +351,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       {/* photo grid — 计划中旅程没有真实瞬间，改为引导预收集灵感图的空状态 */}
       {isJourney && status === 'planning' ? (
         <PlanningMoments theme={theme} poi={poi} status={status} />
-      ) : photos.length > 0 ? (
+      ) : previewPhotos.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={isJourney ? '瞬间' : '用户照片'} action="全部" onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {photos.map((tone, i) => (
-              <Press key={i} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
-                <PhotoTile tone={tone} seed={poi.id + 'p' + i} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
+            {previewPhotos.map((p) => (
+              <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
+                <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
               </Press>
             ))}
           </View>

@@ -36,7 +36,7 @@ interface WallPhoto {
   kind?: 'image' | 'video';
 }
 
-function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
+export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
   const roster = info.companionList || [];
   if (roster.length === 0) return [];
   const rng = mulberry32(hashStr(info.name + (status || '')));
