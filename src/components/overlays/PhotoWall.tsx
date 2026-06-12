@@ -177,10 +177,12 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               <Press onPress={onClose} style={{
                 position: 'absolute', top: insets.top + 10, left: 16,
                 width: 40, height: 40, borderRadius: 20,
-                backgroundColor: 'rgba(0,0,0,0.32)', alignItems: 'center', justifyContent: 'center',
-                borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.22)',
+                backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
+                shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.14, shadowRadius: 10,
+                shadowOffset: { width: 0, height: 2 }, elevation: 4,
+                borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
               }}>
-                <Icon name="arrowL" color="#fff" size={21} />
+                <Icon name="arrowL" color={t.text} size={21} />
               </Press>
               <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
                 <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
