@@ -323,7 +323,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                 return (
                   <View key={i}>
                     <Press
-                      onPress={n > 0 ? () => { setCompSheet(false); setFilter(c); } : undefined}
+                      onPress={n > 0 ? () => { setFilter(c); requestAnimationFrame(() => setCompSheet(false)); } : undefined}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, opacity: n > 0 ? 1 : 0.55 }}
                     >
                       <Avatar ini={c.ini} color={c.color} tone={c.tone} size={42} />
