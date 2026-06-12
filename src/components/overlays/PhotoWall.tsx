@@ -308,9 +308,10 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       ) : null}
 
       {/* ── Companions bottom sheet ── */}
-      <View pointerEvents={compSheet ? 'auto' : 'none'} style={[StyleSheet.absoluteFill, { zIndex: 140, opacity: compSheet ? 1 : 0 }]}>
-        <Press onPress={() => setCompSheet(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><View /></Press>
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: compSheet ? 0 : -400, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+      {compSheet && !filter ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 140 }]}>
+          <Press onPress={() => setCompSheet(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><View /></Press>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
@@ -322,7 +323,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                 return (
                   <View key={i}>
                     <Press
-                      onPress={n > 0 ? () => { setCompSheet(false); setFilter(c); } : undefined}
+                      onPress={n > 0 ? () => setFilter(c) : undefined}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, opacity: n > 0 ? 1 : 0.55 }}
                     >
                       <Avatar ini={c.ini} color={c.color} tone={c.tone} size={42} />
@@ -344,7 +345,8 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               })}
             </View>
           </View>
-      </View>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
