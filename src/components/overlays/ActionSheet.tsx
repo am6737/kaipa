@@ -32,7 +32,7 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
               key={i}
               onPress={() => {
                 onClose();
-                item.onPress?.();
+                if (item.onPress) setTimeout(item.onPress, 380);
               }}
               style={({ pressed }) => ({
                 height: 56,

@@ -74,21 +74,19 @@ function PlanningMoments({ theme, poi }: { theme: Theme; poi: Poi }) {
   };
 
   const takePhoto = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      nav.showToast('需要相机权限');
-      return;
-    }
-    ingest(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 }));
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { nav.showToast('需要相机权限'); return; }
+      ingest(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 }));
+    } catch { nav.showToast('无法打开相机'); }
   };
 
   const pickFromLibrary = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      nav.showToast('需要相册访问权限');
-      return;
-    }
-    ingest(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 }));
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { nav.showToast('需要相册访问权限'); return; }
+      ingest(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 }));
+    } catch { nav.showToast('无法打开相册'); }
   };
 
   const chooseSource = () =>
