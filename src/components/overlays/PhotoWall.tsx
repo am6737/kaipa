@@ -175,12 +175,12 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
           <View {...pan.panHandlers} style={{ height: 252 }}>
             <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
               <Press onPress={onClose} style={{
-                position: 'absolute', top: insets.top + 10, right: 16,
-                width: 34, height: 34, borderRadius: 17,
+                position: 'absolute', top: insets.top + 10, left: 16,
+                width: 40, height: 40, borderRadius: 20,
                 backgroundColor: 'rgba(0,0,0,0.32)', alignItems: 'center', justifyContent: 'center',
                 borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.22)',
               }}>
-                <Icon name="close" color="#fff" size={15} />
+                <Icon name="arrowL" color="#fff" size={21} />
               </Press>
               <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
                 <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
