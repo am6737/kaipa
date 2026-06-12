@@ -20,13 +20,13 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
     <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 200 }]}>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.32)' }]} onPress={onClose} />
       <Animated.View style={{ transform: [{ translateY }], paddingHorizontal: 8, paddingBottom: Math.max(insets.bottom, 10) }}>
-        {(config.title || config.message) && (
-          <View style={{ backgroundColor: groupBg, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-            {config.title ? <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2 }}>{config.title}</Text> : null}
-            {config.message ? <Text style={{ fontSize: 12.5, color: theme.text3, marginTop: 4, textAlign: 'center' }}>{config.message}</Text> : null}
-          </View>
-        )}
-        <View style={{ backgroundColor: groupBg, borderRadius: 16, overflow: 'hidden', marginTop: config.title || config.message ? 0 : 0 }}>
+        <View style={{ backgroundColor: groupBg, borderRadius: 16, overflow: 'hidden' }}>
+          {(config.title || config.message) && (
+            <View style={{ paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+              {config.title ? <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2 }}>{config.title}</Text> : null}
+              {config.message ? <Text style={{ fontSize: 12.5, color: theme.text3, marginTop: 4, textAlign: 'center' }}>{config.message}</Text> : null}
+            </View>
+          )}
           {config.items.map((item, i) => (
             <Pressable
               key={i}
@@ -40,7 +40,7 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                borderTopWidth: i === 0 && !(config.title || config.message) ? 0 : StyleSheet.hairlineWidth,
                 borderColor: theme.hairline,
                 backgroundColor: pressed ? (theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)') : 'transparent',
               })}
