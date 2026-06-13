@@ -71,7 +71,8 @@ export interface NavValue {
 
   // 新增旅程 flow (旅程 tab "+")
   newJourneyOpen: boolean;
-  openNewJourney: () => void;
+  newJourneyPreset: Poi | null;
+  openNewJourney: (preset?: Poi) => void;
   closeNewJourney: () => void;
 
   elevFull: OverlayCfg | null;
@@ -111,6 +112,11 @@ export interface NavValue {
   toast: string | null;
   showToast: (msg: string) => void;
 
+  // hide the floating tab bar while a full-screen pushed page is open
+  // (e.g. the 我 screen's 账户与登录 / 消息中心 sub-pages).
+  tabBarHidden: boolean;
+  setTabBarHidden: (v: boolean) => void;
+
   auth: { signOut: () => void };
 }
 
@@ -134,6 +140,7 @@ export function NavProvider({
   const [actionSheet, setActionSheet] = useState<ActionSheetConfig | null>(null);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
+  const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
   const [timeline, setTimeline] = useState<Poi | null>(null);
@@ -143,6 +150,7 @@ export function NavProvider({
   const [savedRoutes, setSavedRoutes] = useState<Poi[]>([]);
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [tabBarHidden, setTabBarHidden] = useState(false);
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   const showToast = (msg: string) => {
@@ -157,6 +165,7 @@ export function NavProvider({
     setActionSheet(null);
     setAddRouteOpen(false);
     setNewJourneyOpen(false);
+    setNewJourneyPreset(null);
     setElevFull(null);
     setPhotoWall(null);
     setTimeline(null);
@@ -253,8 +262,15 @@ export function NavProvider({
       openAddRoute: () => setAddRouteOpen(true),
       closeAddRoute: () => setAddRouteOpen(false),
       newJourneyOpen,
-      openNewJourney: () => setNewJourneyOpen(true),
-      closeNewJourney: () => setNewJourneyOpen(false),
+      newJourneyPreset,
+      openNewJourney: (preset?: Poi) => {
+        setNewJourneyPreset(preset ? merged(preset) : null);
+        setNewJourneyOpen(true);
+      },
+      closeNewJourney: () => {
+        setNewJourneyOpen(false);
+        setNewJourneyPreset(null);
+      },
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
@@ -279,6 +295,8 @@ export function NavProvider({
       addJoinedJourney: (p) => setExtraJourneys((s) => (s.some((x) => x.id === p.id) ? s : [p, ...s])),
       toast,
       showToast,
+      tabBarHidden,
+      setTabBarHidden,
       auth,
     }),
     [
@@ -293,6 +311,7 @@ export function NavProvider({
       actionSheet,
       addRouteOpen,
       newJourneyOpen,
+      newJourneyPreset,
       elevFull,
       photoWall,
       timeline,
@@ -302,6 +321,7 @@ export function NavProvider({
       savedRoutes,
       extraJourneys,
       toast,
+      tabBarHidden,
     ]
   );
 

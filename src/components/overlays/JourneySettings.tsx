@@ -9,6 +9,7 @@ import { Poi } from '../../data/pois';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
 import { FullOverlay } from './FullOverlay';
+import { useI18n } from '../../i18n';
 
 function Toggle({ theme, on, onChange }: { theme: Theme; on: boolean; onChange: (v: boolean) => void }) {
   const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
@@ -120,44 +121,45 @@ export function JourneySettings({
   onToast: (msg: string) => void;
   onEdit: () => void;
 }) {
+  const { t } = useI18n();
   const [linkOn, setLinkOn] = useState(true);
   const [allowUpload, setAllowUpload] = useState(true);
   const [moderate, setModerate] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(true);
 
   return (
-    <FullOverlay theme={theme} title="旅程设置" subtitle={poi.name} onClose={onClose} zIndex={150}>
+    <FullOverlay theme={theme} title={t('journey.settings.title')} subtitle={poi.name} onClose={onClose} zIndex={150}>
       <View style={{ padding: 16, paddingTop: 18 }}>
-        <Section theme={theme} title="旅程信息">
+        <Section theme={theme} title={t('journey.settings.infoSection')}>
           <Row
             theme={theme}
-            title="编辑旅程信息"
-            sub="名称、地区、行程与简介"
+            title={t('journey.settings.editInfo')}
+            sub={t('journey.settings.editInfoSub')}
             onPress={onEdit}
             trailing={<Icon name="chevronR" color={theme.text3} size={16} />}
             last
           />
         </Section>
 
-        <Section theme={theme} title="同行与分享" footer="任何拿到链接的人都能通过邀请链接加入并上传照片。需要时可随时停用链接。">
-          <Row theme={theme} title="启用邀请链接" sub="关闭后旧链接立即失效" trailing={<Toggle theme={theme} on={linkOn} onChange={setLinkOn} />} />
-          <Row theme={theme} title="同行可上传照片" sub="允许加入的人把照片传到旅程瞬间" trailing={<Toggle theme={theme} on={allowUpload} onChange={setAllowUpload} />} last />
+        <Section theme={theme} title={t('journey.settings.shareSection')} footer={t('journey.settings.shareFooter')}>
+          <Row theme={theme} title={t('journey.settings.enableLink')} sub={t('journey.settings.enableLinkSub')} trailing={<Toggle theme={theme} on={linkOn} onChange={setLinkOn} />} />
+          <Row theme={theme} title={t('journey.settings.allowUpload')} sub={t('journey.settings.allowUploadSub')} trailing={<Toggle theme={theme} on={allowUpload} onChange={setAllowUpload} />} last />
         </Section>
 
-        <Section theme={theme} title="照片" footer="开启后，同行上传的照片需要你确认才会出现在旅程瞬间里。">
-          <Row theme={theme} title="新照片需要我确认" sub={moderate ? '上传后进入待审核' : '上传后直接显示'} trailing={<Toggle theme={theme} on={moderate} onChange={setModerate} />} last />
+        <Section theme={theme} title={t('journey.settings.photoSection')} footer={t('journey.settings.photoFooter')}>
+          <Row theme={theme} title={t('journey.settings.moderate')} sub={moderate ? t('journey.settings.moderateOnSub') : t('journey.settings.moderateOffSub')} trailing={<Toggle theme={theme} on={moderate} onChange={setModerate} />} last />
         </Section>
 
-        <Section theme={theme} title="可见范围" footer="仅受邀的人能看到这段旅程和它的照片。">
-          <Row theme={theme} title="仅受邀可见" sub="不会出现在「发现」里" trailing={<Toggle theme={theme} on={inviteVisible} onChange={setInviteVisible} />} last />
+        <Section theme={theme} title={t('journey.settings.visibilitySection')} footer={t('journey.settings.visibilityFooter')}>
+          <Row theme={theme} title={t('journey.settings.inviteOnly')} sub={t('journey.settings.inviteOnlySub')} trailing={<Toggle theme={theme} on={inviteVisible} onChange={setInviteVisible} />} last />
         </Section>
 
         <Section theme={theme}>
           <Row
             theme={theme}
-            title="预览访客看到的页面"
-            sub="以同行的视角打开链接"
-            onPress={() => onToast('预览访客视角')}
+            title={t('journey.settings.previewGuest')}
+            sub={t('journey.settings.previewGuestSub')}
+            onPress={() => onToast(t('journey.settings.previewToast'))}
             trailing={<Icon name="chevronR" color={theme.text3} size={16} />}
             last
           />

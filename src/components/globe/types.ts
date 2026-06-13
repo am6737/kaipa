@@ -10,6 +10,9 @@ export interface GlobePoi {
   mine?: boolean;
   /** scenery tone — picks the marker's circular photo (with id as the seed) */
   tone?: Tone;
+  /** how many journeys share this place — when >1 the pin shows a count badge
+   *  (e.g. a completed trip + a 再次出发 plan at the same trailhead) */
+  count?: number;
 }
 
 export interface GlobeProps {

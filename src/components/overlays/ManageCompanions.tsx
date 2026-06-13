@@ -30,6 +30,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { KPState } from '../State';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
+import { useI18n, TKey } from '../../i18n';
 
 // New companions cycle through this palette; 分工 quick-fills + the two roles
 // that get the accent-coloured badge mirror the prototype.
@@ -60,6 +61,7 @@ function CompanionEditor({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState(draft.name || '');
   const [role, setRole] = useState(draft.role || '');
   const valid = name.trim().length > 0;
@@ -121,11 +123,11 @@ function CompanionEditor({
           <Pressable onPress={() => Keyboard.dismiss()} style={{ padding: 18 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
               <Press onPress={onClose} hitSlop={8} style={{ padding: 4 }}>
-                <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>取消</Text>
+                <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
               </Press>
-              <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{isNew ? '添加同行' : '编辑同行'}</Text>
+              <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{isNew ? t('journey.manage.addCompanion') : t('journey.manage.editCompanion')}</Text>
               <Press onPress={save} disabled={!valid} hitSlop={8} style={{ padding: 4 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>完成</Text>
+                <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>{t('common.done')}</Text>
               </Press>
             </View>
 
@@ -137,7 +139,7 @@ function CompanionEditor({
             <TextInput
               value={name}
               onChangeText={setName}
-              placeholder="输入伙伴名称"
+              placeholder={t('journey.manage.namePlaceholder')}
               placeholderTextColor={theme.text3}
               maxLength={16}
               returnKeyType="done"
@@ -145,11 +147,11 @@ function CompanionEditor({
               style={[inputStyle, { textAlign: 'center', fontWeight: '600', fontSize: 16 }]}
             />
 
-            <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 16, marginBottom: 8, marginLeft: 2 }}>分工</Text>
+            <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 16, marginBottom: 8, marginLeft: 2 }}>{t('journey.manage.roleLabel')}</Text>
             <TextInput
               value={role}
               onChangeText={setRole}
-              placeholder="如 领队 / 摄影（可留空）"
+              placeholder={t('journey.manage.rolePlaceholder')}
               placeholderTextColor={theme.text3}
               maxLength={6}
               returnKeyType="done"
@@ -172,7 +174,7 @@ function CompanionEditor({
                       borderColor: on ? theme.accent : theme.hairline,
                     }}
                   >
-                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : theme.text2 }}>{r}</Text>
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : theme.text2 }}>{t(`journey.roles.${r}` as TKey)}</Text>
                   </Press>
                 );
               })}
@@ -180,7 +182,7 @@ function CompanionEditor({
 
             {!isNew && (
               <Press onPress={onDelete} style={{ marginTop: 18, paddingVertical: 12, borderRadius: 14, alignItems: 'center', backgroundColor: theme.dangerSoft }}>
-                <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.danger }}>移出同行</Text>
+                <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.danger }}>{t('journey.manage.removeCompanion')}</Text>
               </Press>
             )}
           </Pressable>
@@ -192,6 +194,7 @@ function CompanionEditor({
 
 // ── Add chooser: 邀请 vs 手动 ────────────────────────────────────
 function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onInvite: () => void; onManual: () => void; onClose: () => void }) {
+  const { t } = useI18n();
   const Row = ({ icon, title, sub, onPress, last }: { icon: React.ReactNode; title: string; sub: string; onPress: () => void; last?: boolean }) => (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, paddingVertical: 14 }}>
@@ -208,13 +211,13 @@ function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onIn
   return (
     <NJBottomSheet theme={theme} onClose={onClose} full>
       <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
-        <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>添加同行</Text>
+        <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>{t('journey.manage.addCompanion')}</Text>
         <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <Row icon={<Icon name="share" color={theme.accent} size={20} />} title="邀请伙伴加入" sub="发送链接或二维码，对方加入后自动同步" onPress={onInvite} />
-          <Row icon={<Icon name="user" color={theme.accent} size={20} />} title="手动添加" sub="直接填写名字和分工" onPress={onManual} last />
+          <Row icon={<Icon name="share" color={theme.accent} size={20} />} title={t('journey.manage.inviteTitle')} sub={t('journey.manage.inviteSub')} onPress={onInvite} />
+          <Row icon={<Icon name="user" color={theme.accent} size={20} />} title={t('journey.manage.manualTitle')} sub={t('journey.manage.manualSub')} onPress={onManual} last />
         </View>
         <Press onPress={onClose} style={{ marginTop: 10, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text2 }}>取消</Text>
+          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text2 }}>{t('common.cancel')}</Text>
         </Press>
       </View>
     </NJBottomSheet>
@@ -235,6 +238,7 @@ export function ManageCompanions({
   onClose: () => void;
   onToast: (m: string) => void;
 }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
   // Split the roster: the 发起人 (self, else host) anchors the top and can't be
@@ -332,28 +336,28 @@ export function ManageCompanions({
   const dividerInset = 13 + (selectMode ? 34 : 0) + 42 + 12; // padding + checkbox + avatar + gap → align under name
   const anchorSub = anchor
     ? anchor.self && anchor.host
-      ? '你发起的旅程'
+      ? t('journey.manage.subSelfHost')
       : anchor.host
-      ? '行程发起人'
+      ? t('journey.manage.subHost')
       : anchor.self
-      ? '你'
+      ? t('journey.manage.subSelf')
       : anchor.trips
-      ? `${anchor.trips} 次同行`
-      : '同行'
+      ? t('journey.manage.tripsCount', { count: anchor.trips })
+      : t('journey.manage.subCompanion')
     : '';
 
   const rightActions = selectMode ? (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
       <Press onPress={toggleAll}>
-        <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{allSelected ? '取消全选' : '全选'}</Text>
+        <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{allSelected ? t('journey.manage.deselectAll') : t('journey.manage.selectAll')}</Text>
       </Press>
       <Press onPress={exitSelect}>
-        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>完成</Text>
+        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
       </Press>
     </View>
   ) : others.length > 0 ? (
     <Press onPress={() => { setSelectMode(true); setSelected(new Set()); }}>
-      <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>选择</Text>
+      <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{t('journey.manage.select')}</Text>
     </Press>
   ) : null;
 
@@ -388,9 +392,9 @@ export function ManageCompanions({
             </Press>
             <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>
-                {selectMode ? `已选 ${selected.size} 人` : '同行'}
+                {selectMode ? t('journey.manage.selectedCount', { count: selected.size }) : t('journey.section.companions')}
               </Text>
-              {!selectMode ? <Text style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>共 {total} 人</Text> : null}
+              {!selectMode ? <Text style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>{t('journey.manage.totalCount', { count: total })}</Text> : null}
             </View>
             {rightActions ? <View style={{ position: 'absolute', right: 0, top: 0, height: 40, justifyContent: 'center' }}>{rightActions}</View> : null}
           </View>
@@ -409,8 +413,8 @@ export function ManageCompanions({
                     <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text, flexShrink: 1 }} numberOfLines={1}>
                       {anchor.name}
                     </Text>
-                    {anchor.self ? <Badge label="我" /> : null}
-                    {anchor.host ? <Badge label="发起人" accent /> : null}
+                    {anchor.self ? <Badge label={t('journey.companions.meBadge')} /> : null}
+                    {anchor.host ? <Badge label={t('journey.companions.host')} accent /> : null}
                   </View>
                   <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>{anchorSub}</Text>
                 </View>
@@ -459,10 +463,10 @@ export function ManageCompanions({
                       <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
                         {c.trips ? (
                           <Text>
-                            <Text style={{ fontFamily: MONO, fontWeight: '700' }}>{c.trips}</Text> 次同行
+                            <Text style={{ fontFamily: MONO, fontWeight: '700' }}>{c.trips}</Text> {t('journey.manage.tripsUnit')}
                           </Text>
                         ) : (
-                          '首次同行'
+                          t('journey.manage.firstTrip')
                         )}
                       </Text>
                     </View>
@@ -475,18 +479,18 @@ export function ManageCompanions({
           </View>
 
           {others.length === 0 ? (
-            <KPState theme={theme} icon="people" title="还没有其他同行" body="把伙伴加进来，行程、共享墙和装备清单都会同步给他们。" style={{ paddingVertical: 32 }} />
+            <KPState theme={theme} icon="people" title={t('journey.manage.emptyTitle')} body={t('journey.manage.emptyBody')} style={{ paddingVertical: 32 }} />
           ) : null}
 
           {!selectMode ? (
             <Press onPress={() => setAddMode('choose')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.accentSoft }}>
               <Icon name="plus" color={theme.accent} size={18} strokeWidth={2.4} />
-              <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>添加同行</Text>
+              <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('journey.manage.addCompanion')}</Text>
             </Press>
           ) : null}
 
           {!selectMode && others.length > 0 ? (
-            <Text style={{ fontSize: 11.5, color: theme.text3, textAlign: 'center', marginTop: 14, lineHeight: 18 }}>点按编辑 · 长按可多选移出</Text>
+            <Text style={{ fontSize: 11.5, color: theme.text3, textAlign: 'center', marginTop: 14, lineHeight: 18 }}>{t('journey.manage.hint')}</Text>
           ) : null}
         </ScrollView>
 
@@ -497,7 +501,7 @@ export function ManageCompanions({
               onPress={selected.size ? deleteSelected : undefined}
               style={{ paddingVertical: 15, borderRadius: 14, alignItems: 'center', backgroundColor: selected.size ? theme.danger : theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
             >
-              <Text style={{ fontSize: 15, fontWeight: '700', color: selected.size ? '#fff' : theme.text3 }}>{selected.size ? `移出所选 ${selected.size} 人` : '请选择要移出的伙伴'}</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: selected.size ? '#fff' : theme.text3 }}>{selected.size ? t('journey.manage.removeSelected', { count: selected.size }) : t('journey.manage.removeSelectPrompt')}</Text>
             </Press>
           </View>
         ) : null}

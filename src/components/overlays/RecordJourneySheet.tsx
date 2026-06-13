@@ -20,6 +20,9 @@ import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneySheet';
+import { useI18n, TKey, TVars } from '../../i18n';
+
+type TFn = (key: TKey, vars?: TVars) => string;
 
 // ──────────────────────────────────────────────────────────────
 // Types
@@ -138,16 +141,16 @@ function fmtDist(m: number): string {
   if (m >= 1000) return (m / 1000).toFixed(m >= 10000 ? 1 : 2) + ' km';
   return Math.round(m) + ' m';
 }
-function fmtDur(ms: number): string {
+function fmtDur(ms: number, t: TFn): string {
   if (!ms || ms < 0) return '—';
   const min = Math.round(ms / 60000);
-  if (min < 60) return min + ' 分钟';
+  if (min < 60) return t('record.dur.minutes', { n: min });
   const h = Math.floor(min / 60);
   const m = min % 60;
-  if (h < 24) return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+  if (h < 24) return m ? t('record.dur.hoursMinutes', { h, m }) : t('record.dur.hours', { h });
   const d = Math.floor(h / 24);
   const hr = h % 24;
-  return hr ? `${d} 天 ${hr} 小时` : `${d} 天`;
+  return hr ? t('record.dur.daysHours', { d, h: hr }) : t('record.dur.days', { d });
 }
 function fmtCoord(lat: number, lon: number): string {
   const ns = lat >= 0 ? 'N' : 'S';
@@ -164,7 +167,7 @@ const REGION_HINTS = [
   { name: '安徽 · 黄山', lat: 30.13, lon: 118.17, r: 0.8 },
   { name: '四川 · 阿坝', lat: 31.9, lon: 102.2, r: 2.5 },
 ];
-function guessRegion(lat: number, lon: number): string {
+function guessRegion(lat: number, lon: number, t: TFn): string {
   let best: typeof REGION_HINTS[number] | null = null;
   let bestD = Infinity;
   for (const h of REGION_HINTS) {
@@ -177,9 +180,9 @@ function guessRegion(lat: number, lon: number): string {
     }
   }
   if (best) return best.name;
-  const ns = lat >= 0 ? '北纬' : '南纬';
-  const ew = lon >= 0 ? '东经' : '西经';
-  return `${ns}${Math.abs(lat).toFixed(1)}° ${ew}${Math.abs(lon).toFixed(1)}° 附近`;
+  const ns = lat >= 0 ? t('record.geo.north') : t('record.geo.south');
+  const ew = lon >= 0 ? t('record.geo.east') : t('record.geo.west');
+  return t('record.geo.nearCoord', { ns, lat: Math.abs(lat).toFixed(1), ew, lon: Math.abs(lon).toFixed(1) });
 }
 function suggestDifficulty(stats: TrackStats): string {
   const km = stats.distM / 1000;
@@ -195,7 +198,7 @@ function suggestDifficulty(stats: TrackStats): string {
 // Lightweight GPX / KML parser — no DOMParser in RN, so we read the
 // well-formed tags by regex. Handles the sample tracks + typical files.
 // ──────────────────────────────────────────────────────────────
-function parseTrack(text: string, filename: string): { error?: string; name?: string; points?: TrackPt[]; format?: string } {
+function parseTrack(text: string, filename: string, t: TFn): { error?: string; name?: string; points?: TrackPt[]; format?: string } {
   const ext = (filename.split('.').pop() || '').toLowerCase();
   const isKml = ext === 'kml' || /<kml[\s>]/i.test(text);
   const points: TrackPt[] = [];
@@ -244,7 +247,7 @@ function parseTrack(text: string, filename: string): { error?: string; name?: st
       }
     }
   }
-  if (points.length < 2) return { error: '文件里没有找到有效的轨迹点' };
+  if (points.length < 2) return { error: t('record.track.errNoPoints') };
   return { name, points, format: isKml ? 'KML' : 'GPX' };
 }
 
@@ -316,36 +319,44 @@ const SAMPLES: { key: string; label: string; region: string; tone: Tone; spec: S
 // ──────────────────────────────────────────────────────────────
 // Date helpers (past-friendly)
 // ──────────────────────────────────────────────────────────────
-const RJ_WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+const RJ_WEEK_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 function rjMidnight(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-function rjFmtDateLong(d: Date): string {
-  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${RJ_WEEK[d.getDay()]}`;
+function rjFmtDateLong(d: Date, t: TFn): string {
+  const weekday = t(`record.weekday.${RJ_WEEK_KEYS[d.getDay()]}` as TKey);
+  return t('record.date.longFull', { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), weekday });
 }
-function rjFmtDateShort(d: Date): string {
-  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+function rjFmtDateShort(d: Date, t: TFn): string {
+  return t('record.date.short', { m: d.getMonth() + 1, d: d.getDate() });
 }
 function rjRangeDays(a: Date, b: Date): number {
   return Math.max(1, Math.round((rjMidnight(b).getTime() - rjMidnight(a).getTime()) / 86400000) + 1);
 }
-function rjDaysLabel(a: Date, b: Date): string {
+function rjDaysLabel(a: Date, b: Date, t: TFn): string {
   const n = rjRangeDays(a, b);
-  return n <= 1 ? '当天往返' : `${n} 天`;
+  return n <= 1 ? t('record.days.sameDay') : t('record.days.n', { n });
 }
-function rjPastLabel(d: Date): string {
+function rjPastLabel(d: Date, t: TFn): string {
   const today = rjMidnight(new Date());
   const diff = Math.round((today.getTime() - rjMidnight(d).getTime()) / 86400000);
-  if (diff <= 0) return '今天';
-  if (diff === 1) return '昨天';
-  if (diff === 2) return '前天';
-  if (diff < 7) return `${diff} 天前`;
-  if (diff < 30) return `${Math.floor(diff / 7)} 周前`;
-  if (diff < 365) return `${Math.floor(diff / 30)} 个月前`;
-  return `${Math.floor(diff / 365)} 年前`;
+  if (diff <= 0) return t('record.past.today');
+  if (diff === 1) return t('record.past.yesterday');
+  if (diff === 2) return t('record.past.dayBefore');
+  if (diff < 7) return t('record.past.daysAgo', { n: diff });
+  if (diff < 30) return t('record.past.weeksAgo', { n: Math.floor(diff / 7) });
+  if (diff < 365) return t('record.past.monthsAgo', { n: Math.floor(diff / 30) });
+  return t('record.past.yearsAgo', { n: Math.floor(diff / 365) });
 }
 
 const RJ_DIFFS: Poi['diff'][] = ['易', '中', '中高', '高'];
+// Preset companion roles. The id is the stable stored value; the visible label
+// is translated at render. Free-typed roles fall through unchanged.
+const RJ_ROLE_PRESETS = ['leader', 'guide', 'medical', 'logistics', 'photo'] as const;
+const RJ_ROLE_ACCENT = new Set<string>(['leader', 'guide']);
+function roleLabel(role: string, t: TFn): string {
+  return (RJ_ROLE_PRESETS as readonly string[]).includes(role) ? t(`record.role.${role}` as TKey) : role;
+}
 const PHOTO_TONES: Tone[] = ['ridge', 'forest', 'dusk', 'snow', 'river', 'moss', 'rock', 'sand'];
 const RJ_AVATAR_POOL = ['#0A84FF', '#34C759', '#FF9F0A', '#AF52DE', '#FF5C3A', '#5AC8FA'];
 function iniOf(n: string): string {
@@ -357,6 +368,7 @@ function iniOf(n: string): string {
 // Track-shape preview — projects real lat/lon into an SVG polyline
 // ──────────────────────────────────────────────────────────────
 function UTTrackMap({ stats, theme, height = 158 }: { stats: TrackStats; theme: Theme; height?: number }) {
+  const { t } = useI18n();
   const W = 360;
   const H = height;
   const pad = 22;
@@ -404,15 +416,15 @@ function UTTrackMap({ stats, theme, height = 158 }: { stats: TrackStats; theme: 
       <View style={{ position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#34C759' }} />
-          <Text style={{ fontSize: 10.5, color: theme.text2 }}>起点</Text>
+          <Text style={{ fontSize: 10.5, color: theme.text2 }}>{t('record.track.start')}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.danger }} />
-          <Text style={{ fontSize: 10.5, color: theme.text2 }}>终点</Text>
+          <Text style={{ fontSize: 10.5, color: theme.text2 }}>{t('record.track.end')}</Text>
         </View>
       </View>
       <View style={{ position: 'absolute', right: 12, top: 10, backgroundColor: theme.dark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.6)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7 }}>
-        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3, letterSpacing: 0.3 }}>{stats.count} 个轨迹点</Text>
+        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3, letterSpacing: 0.3 }}>{t('record.track.pointCount', { n: stats.count })}</Text>
       </View>
     </View>
   );
@@ -420,6 +432,7 @@ function UTTrackMap({ stats, theme, height = 158 }: { stats: TrackStats; theme: 
 
 // Elevation profile — area chart from real ele samples
 function UTElevation({ stats, theme }: { stats: TrackStats; theme: Theme }) {
+  const { t } = useI18n();
   if (!stats.hasEle || stats.minEle === null || stats.maxEle === null) return null;
   const W = 360;
   const H = 92;
@@ -453,7 +466,7 @@ function UTElevation({ stats, theme }: { stats: TrackStats; theme: Theme }) {
       </Svg>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2, paddingHorizontal: 2 }}>
         <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{lo} m</Text>
-        <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>距离 {fmtDist(stats.distM)}</Text>
+        <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{t('record.track.distanceLabel', { dist: fmtDist(stats.distM) })}</Text>
         <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{hi} m</Text>
       </View>
     </View>
@@ -473,9 +486,10 @@ function UTStatTile({ theme, label, value, accent }: { theme: Theme; label: stri
 // Visibility (私人记录 / 公开路线)
 // ──────────────────────────────────────────────────────────────
 function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string; onChange: (v: string) => void }) {
+  const { t } = useI18n();
   const opts = [
-    { v: 'private', label: '私人记录', sub: '只有自己能看到这段回忆', icon: 'eye' as const },
-    { v: 'public', label: '公开路线', sub: '同时生成可被搜索 · 收藏的路线', icon: 'route' as const },
+    { v: 'private', label: t('record.visibility.privateLabel'), sub: t('record.visibility.privateSub'), icon: 'eye' as const },
+    { v: 'public', label: t('record.visibility.publicLabel'), sub: t('record.visibility.publicSub'), icon: 'route' as const },
   ];
   return (
     <View style={{ gap: 8 }}>
@@ -508,6 +522,7 @@ function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string;
 // Track block — sample-driven (no native file picker)
 // ──────────────────────────────────────────────────────────────
 function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; onToast: (m: string) => void }) {
+  const { t } = useI18n();
   if (track) {
     const stats = track.stats;
     return (
@@ -523,9 +538,9 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { the
         </View>
         <UTTrackMap stats={stats} theme={theme} height={158} />
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-          <UTStatTile theme={theme} label="总距离" value={fmtDist(stats.distM)} accent />
-          <UTStatTile theme={theme} label="累计爬升" value={stats.hasEle ? `${stats.ascent} m` : '—'} />
-          <UTStatTile theme={theme} label="用时" value={stats.hasTime ? fmtDur(stats.durationMs) : '—'} />
+          <UTStatTile theme={theme} label={t('record.track.totalDistance')} value={fmtDist(stats.distM)} accent />
+          <UTStatTile theme={theme} label={t('record.track.totalAscent')} value={stats.hasEle ? `${stats.ascent} m` : '—'} />
+          <UTStatTile theme={theme} label={t('record.track.duration')} value={stats.hasTime ? fmtDur(stats.durationMs, t) : '—'} />
         </View>
       </View>
     );
@@ -533,17 +548,17 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { the
   return (
     <View>
       <Press
-        onPress={() => !busy && onToast('本地演示 · 请选择下方示例轨迹')}
+        onPress={() => !busy && onToast(t('record.track.demoToast'))}
         style={{ borderRadius: 16, paddingVertical: 22, paddingHorizontal: 18, alignItems: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }}
       >
         <View style={{ width: 46, height: 46, borderRadius: 23, marginBottom: 10, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
           {busy ? <ActivityIndicator color={theme.accent} /> : <Icon name="upload" color={theme.accent} size={24} />}
         </View>
-        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{busy ? '正在解析轨迹…' : '添加轨迹文件'}</Text>
-        <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 6, letterSpacing: 0.3 }}>支持 .GPX · .KML</Text>
+        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{busy ? t('record.track.parsing') : t('record.track.addFile')}</Text>
+        <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 6, letterSpacing: 0.3 }}>{t('record.track.formats')}</Text>
       </Press>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>
-        <Text style={{ fontSize: 11, color: theme.text3, marginRight: 2 }}>没有文件？</Text>
+        <Text style={{ fontSize: 11, color: theme.text3, marginRight: 2 }}>{t('record.track.noFile')}</Text>
         {SAMPLES.map((sp) => (
           <Press
             key={sp.key}
@@ -567,6 +582,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { the
 // Hero — cover photo (placeholder) + title
 // ──────────────────────────────────────────────────────────────
 function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: { theme: Theme; photos: RJPhoto[]; onAdd: () => void; onRemove: (id: string) => void; name: string; setName: (v: string) => void; nameMissing: boolean }) {
+  const { t } = useI18n();
   const cover = photos[0];
   return (
     <View style={{ marginBottom: 26 }}>
@@ -574,7 +590,7 @@ function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: 
         <View style={{ width: '100%', height: 210, borderRadius: 22, overflow: 'hidden' }}>
           <PhotoTile tone={cover.tone} seed={cover.id} radius={22} darken style={{ width: '100%', height: '100%' }} resWidth={1200} />
           <View style={{ position: 'absolute', left: 12, top: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.4 }}>封面</Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.4 }}>{t('record.hero.coverBadge')}</Text>
           </View>
           <Press onPress={() => onRemove(cover.id)} style={{ position: 'absolute', right: 10, top: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" color="#fff" size={14} />
@@ -585,32 +601,33 @@ function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: 
           <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="camera" color={theme.accent} size={26} />
           </View>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>添加封面照片</Text>
-          <Text style={{ fontSize: 12, color: theme.text3 }}>这段旅程的封面 · 没有也可以</Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{t('record.hero.addCover')}</Text>
+          <Text style={{ fontSize: 12, color: theme.text3 }}>{t('record.hero.addCoverHint')}</Text>
         </Press>
       )}
       <TextInput
         value={name}
         onChangeText={setName}
-        placeholder="给这段旅程起个名字"
+        placeholder={t('record.hero.namePlaceholder')}
         placeholderTextColor={theme.text3}
         maxLength={32}
         style={{ marginTop: 18, paddingBottom: 11, paddingHorizontal: 2, borderBottomWidth: 1.5, borderBottomColor: nameMissing ? (theme.dark ? 'rgba(255,69,58,0.5)' : 'rgba(255,59,48,0.4)') : theme.hairline, fontSize: 25, fontWeight: '700', letterSpacing: -0.5, color: theme.text }}
       />
-      <Text style={{ fontSize: 11.5, color: nameMissing ? theme.danger : theme.text3, marginTop: 8, paddingLeft: 2 }}>{nameMissing ? '给这段旅程起个名字（必填）' : '点击上方可重新命名'}</Text>
+      <Text style={{ fontSize: 11.5, color: nameMissing ? theme.danger : theme.text3, marginTop: 8, paddingLeft: 2 }}>{nameMissing ? t('record.hero.nameRequired') : t('record.hero.nameRename')}</Text>
     </View>
   );
 }
 
 // Moments — photo gallery (placeholders), separate from the cover
 function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: Theme; moments: RJPhoto[]; onAdd: () => void; onRemove: (id: string) => void; onSetCover: (id: string) => void }) {
+  const { t } = useI18n();
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
       {moments.map((p) => (
         <View key={p.id} style={{ width: '31.7%', aspectRatio: 1, borderRadius: 11, overflow: 'hidden' }}>
           <PhotoTile tone={p.tone} seed={p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
           <Press onPress={() => onSetCover(p.id)} style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>设为封面</Text>
+            <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>{t('record.moments.setCover')}</Text>
           </Press>
           <Press onPress={() => onRemove(p.id)} style={{ position: 'absolute', right: 5, top: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" color="#fff" size={10} />
@@ -619,7 +636,7 @@ function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: The
       ))}
       <Press onPress={onAdd} style={{ width: '31.7%', aspectRatio: 1, borderRadius: 11, alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)' }}>
         <Icon name="plus" color={theme.accent} size={20} strokeWidth={2.2} />
-        <Text style={{ fontSize: 11, fontWeight: '600', color: theme.accent }}>添加</Text>
+        <Text style={{ fontSize: 11, fontWeight: '600', color: theme.accent }}>{t('common.add')}</Text>
       </Press>
     </View>
   );
@@ -627,6 +644,7 @@ function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: The
 
 // When & where — date range + region
 function RJFacts({ theme, date, endDate, onOpenDate, region, setRegion, onOpenMap, hasTrack }: { theme: Theme; date: Date; endDate: Date; onOpenDate: (f: 'start' | 'end') => void; region: string; setRegion: (v: string) => void; onOpenMap: () => void; hasTrack: boolean }) {
+  const { t } = useI18n();
   return (
     <View style={{ marginBottom: 22, borderRadius: 16, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)' }}>
       {/* When */}
@@ -635,16 +653,16 @@ function RJFacts({ theme, date, endDate, onOpenDate, region, setRegion, onOpenMa
           <Icon name="calendar" color={theme.accent} size={17} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ fontSize: 11.5, color: theme.text2 }}>日期 · {rjDaysLabel(date, endDate)}</Text>
+          <Text style={{ fontSize: 11.5, color: theme.text2 }}>{t('record.facts.dateLabel', { days: rjDaysLabel(date, endDate, t) })}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3 }}>
             <Press onPress={() => onOpenDate('start')}>
-              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{rjFmtDateShort(date)}</Text>
+              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{rjFmtDateShort(date, t)}</Text>
             </Press>
             <Svg width={16} height={7} viewBox="0 0 22 8" fill="none">
               <Path d="M1 4h18m0 0-3-3m3 3-3 3" stroke={theme.text3} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
             <Press onPress={() => onOpenDate('end')}>
-              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{rjFmtDateShort(endDate)}</Text>
+              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{rjFmtDateShort(endDate, t)}</Text>
             </Press>
           </View>
         </View>
@@ -656,12 +674,12 @@ function RJFacts({ theme, date, endDate, onOpenDate, region, setRegion, onOpenMa
           <Icon name="pin" color={theme.accent} size={17} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ fontSize: 11.5, color: theme.text2 }}>地点{hasTrack ? ' · 由轨迹推得' : ''}</Text>
-          <TextInput value={region} onChangeText={setRegion} placeholder="例如 杭州 · 西湖" placeholderTextColor={theme.text3} style={{ fontSize: 15.5, fontWeight: '600', color: theme.text, padding: 0, marginTop: 1 }} />
+          <Text style={{ fontSize: 11.5, color: theme.text2 }}>{hasTrack ? t('record.facts.locationFromTrack') : t('record.facts.location')}</Text>
+          <TextInput value={region} onChangeText={setRegion} placeholder={t('record.facts.locationPlaceholder')} placeholderTextColor={theme.text3} style={{ fontSize: 15.5, fontWeight: '600', color: theme.text, padding: 0, marginTop: 1 }} />
         </View>
         <Press onPress={onOpenMap} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.accentSoft }}>
           <Icon name="route" color={theme.accent} size={13} />
-          <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.accent }}>地图</Text>
+          <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.accent }}>{t('record.facts.map')}</Text>
         </Press>
       </View>
     </View>
@@ -670,6 +688,7 @@ function RJFacts({ theme, date, endDate, onOpenDate, region, setRegion, onOpenMa
 
 // Collapsible "更多"
 function RJMore({ theme, summary, children }: { theme: Theme; summary: string; children: React.ReactNode }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const rot = useRef(new Animated.Value(0)).current;
   const toggle = () => {
@@ -680,7 +699,7 @@ function RJMore({ theme, summary, children }: { theme: Theme; summary: string; c
   return (
     <View style={{ marginBottom: 22, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.hairline }}>
       <Press onPress={toggle} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 15, paddingHorizontal: 2 }}>
-        <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>更多</Text>
+        <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{t('record.more.title')}</Text>
         <Text numberOfLines={1} style={{ flex: 1, textAlign: 'right', fontSize: 12.5, color: theme.text3, opacity: open ? 0 : 1 }}>{summary}</Text>
         <Animated.View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center', transform: [{ rotate }] }}>
           <Icon name="chevronDown" color={theme.accent} size={14} />
@@ -693,6 +712,7 @@ function RJMore({ theme, summary, children }: { theme: Theme; summary: string; c
 
 // Companions roster
 function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; companions: RJCompanion[]; onAdd: () => void; onRemove: (id: string) => void }) {
+  const { t } = useI18n();
   const Avatar = ({ color, label }: { color: string; label: string }) => (
     <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ fontWeight: '700', fontSize: 14, color: '#fff' }}>{label}</Text>
@@ -711,8 +731,8 @@ function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; co
           <Avatar color={theme.accent} label="陈" />
           <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>陈泽宇</Text>
-            <Badge text="我" />
-            <Badge text="发起人" accent />
+            <Badge text={t('record.companions.selfBadge')} />
+            <Badge text={t('record.companions.hostBadge')} accent />
           </View>
         </View>
         {companions.map((c, i) => (
@@ -722,7 +742,7 @@ function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; co
               <Avatar color={RJ_AVATAR_POOL[i % RJ_AVATAR_POOL.length]} label={iniOf(c.name)} />
               <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '600', color: theme.text, flexShrink: 1 }}>{c.name}</Text>
-                {c.role ? <Badge text={c.role} accent={c.role === '领队' || c.role === '向导'} /> : null}
+                {c.role ? <Badge text={roleLabel(c.role, t)} accent={RJ_ROLE_ACCENT.has(c.role)} /> : null}
               </View>
               <Press onPress={() => onRemove(c.id)} style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
                 <Icon name="close" color={theme.text2} size={12} />
@@ -733,7 +753,7 @@ function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; co
       </View>
       <Press onPress={onAdd} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, paddingVertical: 13, borderRadius: 14, backgroundColor: theme.accentSoft }}>
         <Icon name="plus" color={theme.accent} size={18} strokeWidth={2.4} />
-        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>添加同行</Text>
+        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('record.companions.add')}</Text>
       </Press>
     </View>
   );
@@ -741,6 +761,7 @@ function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; co
 
 // Companion add sheet — name (required) + optional role
 function RJCompanionSheet({ theme, color, onAdd, onClose }: { theme: Theme; color: string; onAdd: (c: { name: string; role: string }) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const valid = name.trim().length > 0;
@@ -756,11 +777,11 @@ function RJCompanionSheet({ theme, color, onAdd, onClose }: { theme: Theme; colo
         <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
             <Press onPress={onClose} style={{ padding: 4 }}>
-              <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>取消</Text>
+              <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
             </Press>
-            <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>添加同行</Text>
+            <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{t('record.companions.add')}</Text>
             <Press onPress={submit} style={{ padding: 4 }}>
-              <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>完成</Text>
+              <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>{t('common.done')}</Text>
             </Press>
           </View>
           <View style={{ alignItems: 'center', marginBottom: 18 }}>
@@ -768,15 +789,15 @@ function RJCompanionSheet({ theme, color, onAdd, onClose }: { theme: Theme; colo
               <Text style={{ fontSize: 30, fontWeight: '700', color: '#fff' }}>{initial}</Text>
             </View>
           </View>
-          <TextInput value={name} onChangeText={setName} placeholder="输入伙伴名称" placeholderTextColor={theme.text3} maxLength={16} textAlign="center" style={{ paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline, fontSize: 16, fontWeight: '600', color: theme.text }} />
-          <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 18, marginBottom: 8, marginLeft: 2 }}>分工</Text>
-          <TextInput value={role} onChangeText={setRole} placeholder="如 领队 / 摄影（可留空）" placeholderTextColor={theme.text3} maxLength={6} style={{ paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline, fontSize: 15.5, color: theme.text }} />
+          <TextInput value={name} onChangeText={setName} placeholder={t('record.companions.namePlaceholder')} placeholderTextColor={theme.text3} maxLength={16} textAlign="center" style={{ paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline, fontSize: 16, fontWeight: '600', color: theme.text }} />
+          <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 18, marginBottom: 8, marginLeft: 2 }}>{t('record.companions.roleLabel')}</Text>
+          <TextInput value={roleLabel(role, t)} onChangeText={setRole} placeholder={t('record.companions.rolePlaceholder')} placeholderTextColor={theme.text3} maxLength={6} style={{ paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline, fontSize: 15.5, color: theme.text }} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            {['领队', '向导', '医疗', '后勤', '摄影'].map((r) => {
+            {RJ_ROLE_PRESETS.map((r) => {
               const on = r === role.trim();
               return (
                 <Press key={r} onPress={() => setRole(on ? '' : r)} style={{ paddingHorizontal: 13, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderWidth: 1, borderColor: on ? theme.accent : theme.hairline }}>
-                  <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : theme.text2 }}>{r}</Text>
+                  <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : theme.text2 }}>{t(`record.role.${r}` as TKey)}</Text>
                 </Press>
               );
             })}
@@ -789,6 +810,7 @@ function RJCompanionSheet({ theme, color, onAdd, onClose }: { theme: Theme; colo
 
 // Add chooser — invite vs manual
 function RJAddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onInvite: () => void; onManual: () => void; onClose: () => void }) {
+  const { t } = useI18n();
   const Row = ({ icon, title, sub, onPress }: { icon: 'share' | 'user'; title: string; sub: string; onPress: () => void }) => (
     <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, paddingVertical: 14 }}>
       <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -804,14 +826,14 @@ function RJAddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; on
   return (
     <NJBottomSheet theme={theme} onClose={onClose} full>
       <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
-        <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>添加同行</Text>
+        <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>{t('record.companions.add')}</Text>
         <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <Row icon="share" title="邀请伙伴加入" sub="发送链接，对方加入后可一起补充照片" onPress={onInvite} />
+          <Row icon="share" title={t('record.companions.inviteTitle')} sub={t('record.companions.inviteSub')} onPress={onInvite} />
           <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 67 }} />
-          <Row icon="user" title="手动添加" sub="直接填写名字和分工" onPress={onManual} />
+          <Row icon="user" title={t('record.companions.manualTitle')} sub={t('record.companions.manualSub')} onPress={onManual} />
         </View>
         <Press onPress={onClose} style={{ marginTop: 10, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text2 }}>取消</Text>
+          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text2 }}>{t('common.cancel')}</Text>
         </Press>
       </View>
     </NJBottomSheet>
@@ -820,23 +842,24 @@ function RJAddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; on
 
 // Date sheet (past dates allowed)
 function RJDateSheet({ theme, date, field, onPick, onClose }: { theme: Theme; date: Date; field: 'start' | 'end'; onPick: (d: Date) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(date);
-  const title = field === 'end' ? '结束日期' : '出发日期';
+  const title = field === 'end' ? t('record.date.endTitle') : t('record.date.startTitle');
   return (
     <NJBottomSheet theme={theme} onClose={onClose} full>
       <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
           <Press onPress={onClose} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>取消</Text>
+            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
           </Press>
           <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{title}</Text>
           <Press onPress={() => { onPick(draft); onClose(); }} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>完成</Text>
+            <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
           </Press>
         </View>
         <NJMiniCalendar theme={theme} selectedDate={draft} onSelect={setDraft} allowPast />
         <Text style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: theme.text2 }}>
-          {rjFmtDateLong(draft)} <Text style={{ color: theme.text3 }}>· {rjPastLabel(draft)}</Text>
+          {rjFmtDateLong(draft, t)} <Text style={{ color: theme.text3 }}>· {rjPastLabel(draft, t)}</Text>
         </Text>
       </View>
     </NJBottomSheet>
@@ -846,6 +869,7 @@ function RJDateSheet({ theme, date, field, onPick, onClose }: { theme: Theme; da
 // Map location picker — tap a stylized China map to drop a pin → region
 const MAP_BOUNDS = { lonMin: 96, lonMax: 123, latMin: 26, latMax: 42 };
 function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (label: string) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const H = 230;
   const [box, setBox] = useState({ w: 320, h: H });
   const [pin, setPin] = useState<{ lat: number; lon: number; label: string } | null>(null);
@@ -854,7 +878,7 @@ function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (lab
     y: box.h - ((lat - MAP_BOUNDS.latMin) / (MAP_BOUNDS.latMax - MAP_BOUNDS.latMin)) * box.h,
   });
   const place = (lat: number, lon: number, knownLabel?: string) => {
-    setPin({ lat, lon, label: knownLabel || guessRegion(lat, lon) });
+    setPin({ lat, lon, label: knownLabel || guessRegion(lat, lon, t) });
   };
   const onTap = (e: GestureResponderEvent) => {
     const { locationX, locationY } = e.nativeEvent;
@@ -872,14 +896,14 @@ function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (lab
       <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
           <Press onPress={onClose} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>取消</Text>
+            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
           </Press>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>选择地点</Text>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{t('record.map.title')}</Text>
           <Press onPress={() => pin && (onPick(pin.label), onClose())} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, fontWeight: '700', color: pin ? theme.accent : theme.text3 }}>完成</Text>
+            <Text style={{ fontSize: 14.5, fontWeight: '700', color: pin ? theme.accent : theme.text3 }}>{t('common.done')}</Text>
           </Press>
         </View>
-        <Text style={{ fontSize: 12, color: theme.text2, textAlign: 'center', marginBottom: 12 }}>点选常去的山域，或点地图任意位置放一个标记</Text>
+        <Text style={{ fontSize: 12, color: theme.text2, textAlign: 'center', marginBottom: 12 }}>{t('record.map.hint')}</Text>
 
         <View onLayout={onBoxLayout} style={{ height: H, borderRadius: 18, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? '#16181a' : '#e7ecee' }}>
           {/* tap layer */}
@@ -920,7 +944,7 @@ function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (lab
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 13, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <Icon name="pin" color={pin ? theme.accent : theme.text3} size={18} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: pin ? theme.text : theme.text3 }}>{pin ? pin.label : '尚未选择地点'}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: pin ? theme.text : theme.text3 }}>{pin ? pin.label : t('record.map.noPin')}</Text>
             {pin ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 2, letterSpacing: 0.2 }}>{fmtCoord(pin.lat, pin.lon)}</Text> : null}
           </View>
         </View>
@@ -933,6 +957,7 @@ function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (lab
 // Success
 // ──────────────────────────────────────────────────────────────
 function RJSuccess({ theme, name, dateLabel, distLabel, visibility }: { theme: Theme; name: string; dateLabel: string; distLabel: string; visibility: string }) {
+  const { t } = useI18n();
   const pop = useRef(new Animated.Value(0)).current;
   React.useEffect(() => {
     Animated.spring(pop, { toValue: 1, useNativeDriver: true, bounciness: 12, speed: 6 }).start();
@@ -943,15 +968,15 @@ function RJSuccess({ theme, name, dateLabel, distLabel, visibility }: { theme: T
       <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}>
         <Icon name="check" color="#fff" size={48} strokeWidth={3.2} />
       </Animated.View>
-      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>已记录回忆</Text>
+      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{t('record.success.title')}</Text>
       <Text style={{ fontSize: 14.5, color: theme.text2, marginTop: 8, lineHeight: 21, textAlign: 'center', maxWidth: 280 }}>
-        <Text style={{ color: theme.text, fontWeight: '600' }}>《{name}》</Text>
+        <Text style={{ color: theme.text, fontWeight: '600' }}>{t('record.success.nameQuoted', { name })}</Text>
         {'\n'}
         {dateLabel}
         {distLabel ? ` · ${distLabel}` : ''}
-        {visibility === 'public' ? '\n已同步生成一条公开路线' : ''}
+        {visibility === 'public' ? `\n${t('record.success.publicGenerated')}` : ''}
       </Text>
-      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>正在跳转至我的回忆…</Text>
+      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>{t('record.success.redirecting')}</Text>
     </View>
   );
 }
@@ -972,8 +997,9 @@ function buildRecordJourney(args: {
   notes: string;
   companions: RJCompanion[];
   photoCount: number;
+  t: TFn;
 }): Poi {
-  const { name, region, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions } = args;
+  const { name, region, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions, t } = args;
   const start = track ? track.stats.points[0] : null;
   const lng = start ? start.lon : 104.0;
   const lat = start ? start.lat : 35.0;
@@ -988,8 +1014,8 @@ function buildRecordJourney(args: {
     id: `j-${Date.now()}`,
     kind: 'journey',
     status: 'completed' as JourneyStatus,
-    name: name.trim() || '未命名旅程',
-    region: region.trim() || '未命名地点',
+    name: name.trim() || t('record.build.untitledJourney'),
+    region: region.trim() || t('record.build.untitledRegion'),
     coord: `${lat.toFixed(2)} N · ${lng.toFixed(2)} E`,
     lng,
     lat,
@@ -997,8 +1023,8 @@ function buildRecordJourney(args: {
     asc: ascLabel,
     diff,
     tone,
-    days: rjDaysLabel(date, endDate),
-    date: `${date.getFullYear()} · ${date.getMonth() + 1} 月`,
+    days: rjDaysLabel(date, endDate, t),
+    date: t('record.build.yearMonth', { y: date.getFullYear(), m: date.getMonth() + 1 }),
     totalDays,
     companions: companions.length,
     companionList,
@@ -1012,6 +1038,7 @@ function buildRecordJourney(args: {
 // Main flow
 // ──────────────────────────────────────────────────────────────
 export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme: Theme; onBack: () => void; onClose: () => void; onCreate: (poi: Poi) => void; onToast: (m: string) => void }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0); // 0 form · 1 success
   const [error, setError] = useState<string | null>(null);
@@ -1043,16 +1070,16 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     setError(null);
     setBusy(true);
     setTimeout(() => {
-      const parsed = parseTrack(text, fname);
+      const parsed = parseTrack(text, fname, t);
       if (parsed.error || !parsed.points) {
         setBusy(false);
-        setError(parsed.error || '无法解析轨迹');
+        setError(parsed.error || t('record.track.errParse'));
         return;
       }
       const st = computeStats(parsed.points);
       if (!st) {
         setBusy(false);
-        setError('轨迹点太少，无法生成路线');
+        setError(t('record.track.errTooFew'));
         return;
       }
       const tn = presetTone || PHOTO_TONES[Math.floor((st.distM + st.count) % PHOTO_TONES.length)];
@@ -1063,7 +1090,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         setName(base);
         nameInit.current = true;
       }
-      if (!region) setRegion(presetRegion || guessRegion(st.points[0].lat, st.points[0].lon));
+      if (!region) setRegion(presetRegion || guessRegion(st.points[0].lat, st.points[0].lon, t));
       setDiff(suggestDifficulty(st) as Poi['diff']);
       if (st.hasTime && st.startTime) {
         const s = rjMidnight(st.startTime);
@@ -1105,12 +1132,15 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
 
   const nameValid = name.trim().length > 0;
   const distLabel = track ? fmtDist(track.stats.distM) : manualDist ? `${manualDist} km` : '';
-  const moreSummary = [companions.length > 0 ? `${companions.length + 1} 人同行` : '只有自己', `难度 ${diff}`].join(' · ');
+  const moreSummary = [
+    companions.length > 0 ? t('record.more.companionCount', { n: companions.length + 1 }) : t('record.more.soloOnly'),
+    t('record.more.difficultySummary', { diff: t(`common.diff.${diff}` as TKey) }),
+  ].join(' · ');
 
   const finish = () => {
     setStep(1);
     const jTone = photos[0] ? photos[0].tone : tone;
-    const poi = buildRecordJourney({ name, region, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photoCount: photos.length });
+    const poi = buildRecordJourney({ name, region, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photoCount: photos.length, t });
     setTimeout(() => onCreate(poi), 1500);
   };
   const next = () => {
@@ -1119,7 +1149,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     finish();
   };
 
-  const cta = nameValid ? '完成记录' : '请填写旅程名称';
+  const cta = nameValid ? t('record.cta.finish') : t('record.cta.needName');
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 200 }]}>
@@ -1133,7 +1163,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
           ) : (
             <View style={{ width: 38, height: 38 }} />
           )}
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{step === 0 ? '旅程回忆' : ''}</Text>
+          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{step === 0 ? t('record.topTitle') : ''}</Text>
           <View style={{ width: 38, height: 38 }} />
         </View>
 
@@ -1146,17 +1176,17 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
             <RJHero theme={theme} photos={photos} onAdd={addPhoto} onRemove={removePhoto} name={name} setName={setName} nameMissing={!name.trim()} />
 
             {/* 2 · moments */}
-            <NJSection theme={theme} label="瞬间" hint={photos.length > 1 ? `${photos.length - 1} 张` : undefined}>
+            <NJSection theme={theme} label={t('record.sections.moments')} hint={photos.length > 1 ? t('record.sections.photoCount', { n: photos.length - 1 }) : undefined}>
               <RJMoments theme={theme} moments={photos.slice(1)} onAdd={addPhoto} onRemove={removePhoto} onSetCover={setCover} />
             </NJSection>
 
             {/* 3 · story */}
-            <NJSection theme={theme} label="简介">
+            <NJSection theme={theme} label={t('record.sections.story')}>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 multiline
-                placeholder="写下这段旅程的故事 · 天气、风景、同行、难忘的瞬间…"
+                placeholder={t('record.sections.storyPlaceholder')}
                 placeholderTextColor={theme.text3}
                 style={{ minHeight: 84, paddingHorizontal: 14, paddingVertical: 13, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, fontSize: 14.5, lineHeight: 22, color: theme.text, textAlignVertical: 'top' }}
               />
@@ -1166,7 +1196,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
             <RJFacts theme={theme} date={date} endDate={endDate} onOpenDate={openDate} region={region} setRegion={setRegion} onOpenMap={() => setMapOpen(true)} hasTrack={!!track} />
 
             {/* 5 · the route */}
-            <NJSection theme={theme} label="轨迹" hint={track ? '来自轨迹' : undefined}>
+            <NJSection theme={theme} label={t('record.sections.track')} hint={track ? t('record.sections.fromTrack') : undefined}>
               <RJTrackBlock theme={theme} track={track} onIngest={onIngest} onRemove={() => setTrack(null)} busy={busy} onToast={onToast} />
               {track && track.stats.hasEle ? (
                 <View style={{ marginTop: 12 }}>
@@ -1178,9 +1208,9 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
             {/* 6 · more (manual data / companions / difficulty) */}
             <RJMore theme={theme} summary={moreSummary}>
               {!track ? (
-                <NJSection theme={theme} label="数据">
+                <NJSection theme={theme} label={t('record.sections.data')}>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {([['距离', manualDist, setManualDist, 'km'], ['爬升', manualAsc, setManualAsc, 'm']] as const).map(([lab, val, set, unit], i) => (
+                    {([[t('record.data.distance'), manualDist, setManualDist, 'km'], [t('record.data.ascent'), manualAsc, setManualAsc, 'm']] as const).map(([lab, val, set, unit], i) => (
                       <View key={i} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 48, borderRadius: 13, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
                         <Text style={{ fontSize: 12.5, color: theme.text2 }}>{lab}</Text>
                         <TextInput value={val} onChangeText={(t) => set(t.replace(/[^0-9.]/g, ''))} placeholder="—" placeholderTextColor={theme.text3} keyboardType="decimal-pad" style={{ flex: 1, fontSize: 15, fontWeight: '700', color: theme.text, textAlign: 'right', padding: 0 }} />
@@ -1191,17 +1221,17 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
                 </NJSection>
               ) : null}
 
-              <NJSection theme={theme} label="同行伙伴" hint={companions.length > 0 ? `共 ${companions.length + 1} 人` : '默认只有自己'}>
+              <NJSection theme={theme} label={t('record.sections.companions')} hint={companions.length > 0 ? t('record.sections.companionTotal', { n: companions.length + 1 }) : t('record.sections.soloDefault')}>
                 <RJCompanions theme={theme} companions={companions} onAdd={() => setCompanionAdd('choose')} onRemove={removeCompanion} />
               </NJSection>
 
-              <NJSection theme={theme} label="难度" hint={track ? '已按距离与爬升预估' : undefined} style={{ marginBottom: 0 }}>
+              <NJSection theme={theme} label={t('record.sections.difficulty')} hint={track ? t('record.sections.difficultyEstimated') : undefined} style={{ marginBottom: 0 }}>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   {RJ_DIFFS.map((d) => {
                     const on = d === diff;
                     return (
                       <Press key={d} onPress={() => setDiff(d)} style={{ flex: 1, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: 1, borderColor: on ? theme.accent : theme.hairline }}>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: on ? '#fff' : theme.text }}>{d}</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: on ? '#fff' : theme.text }}>{t(`common.diff.${d}` as TKey)}</Text>
                       </Press>
                     );
                   })}
@@ -1210,7 +1240,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
             </RJMore>
 
             {/* 7 · visibility */}
-            <NJSection theme={theme} label="可见性">
+            <NJSection theme={theme} label={t('record.sections.visibility')}>
               <RJVisibility theme={theme} value={visibility} onChange={setVisibility} />
             </NJSection>
           </ScrollView>
@@ -1252,7 +1282,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
       {mapOpen ? <RJMapPickSheet theme={theme} onPick={(label) => setRegion(label)} onClose={() => setMapOpen(false)} /> : null}
       {companionAdd === 'choose' ? <RJAddChooser theme={theme} onInvite={() => setCompanionAdd('invite')} onManual={() => setCompanionAdd('manual')} onClose={() => setCompanionAdd(null)} /> : null}
       {companionAdd === 'manual' ? <RJCompanionSheet theme={theme} color={RJ_AVATAR_POOL[companions.length % RJ_AVATAR_POOL.length]} onAdd={addCompanion} onClose={() => setCompanionAdd(null)} /> : null}
-      {companionAdd === 'invite' ? <NJSharePanel theme={theme} tripName={name.trim() || '这段旅程'} onClose={() => setCompanionAdd(null)} onToast={onToast} /> : null}
+      {companionAdd === 'invite' ? <NJSharePanel theme={theme} tripName={name.trim() || t('record.build.thisJourney')} onClose={() => setCompanionAdd(null)} onToast={onToast} /> : null}
     </View>
   );
 }

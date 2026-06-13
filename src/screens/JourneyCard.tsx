@@ -5,7 +5,7 @@ import { View, Text, StyleSheet, Share, Platform, Image } from 'react-native';
 import Svg, { Path as SvgPath, Circle, Rect } from 'react-native-svg';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
-import { Poi, STATUS_LABEL, STATUS_COLOR, JourneyStatus } from '../data/pois';
+import { Poi, STATUS_COLOR, JourneyStatus } from '../data/pois';
 import { buildElevation } from '../data/elevation';
 import { JourneyTimelineCard } from '../components/overlays/JourneyTimeline';
 import { PhotoTile } from '../components/PhotoTile';
@@ -18,6 +18,7 @@ import { elevAccent } from '../theme/shadow';
 import { TONES } from '../data/tones';
 import { useInspo } from '../data/inspoStore';
 import { genPhotos } from '../components/overlays/PhotoWall';
+import { useI18n, TKey } from '../i18n';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   return (
@@ -65,6 +66,7 @@ function IconButton({ theme, name, onPress, color }: { theme: Theme; name: IconN
 // state that opens the same detail page.
 function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; status: string }) {
   const nav = useNav();
+  const { t } = useI18n();
   const inspo = useInspo(poi.id);
   const has = inspo.media.length > 0;
 
@@ -75,7 +77,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
 
   return (
     <View style={{ paddingBottom: 18 }}>
-      <SectionHeader theme={theme} title="瞬间" action={`${count} 张`} onAction={openDetail} />
+      <SectionHeader theme={theme} title={t('journey.moments.title')} action={t('journey.moments.countPhotos', { count })} onAction={openDetail} />
       {has ? (
         <Press onPress={openDetail}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
@@ -95,7 +97,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
                 )}
                 {m.kind === 'video' ? (
                   <View style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>视频</Text>
+                    <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>{t('journey.media.video')}</Text>
                   </View>
                 ) : null}
               </View>
@@ -123,8 +125,8 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
             <SvgPath d="M9 6 10 4h4l1 2" stroke={theme.text2} strokeWidth={1.6} strokeLinejoin="round" />
             <SvgPath d="M17 9.5h2M18 8.5v2" stroke={theme.text2} strokeWidth={1.4} strokeLinecap="round" />
           </Svg>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>添加出发前的准备 / 灵感</Text>
-          <Text style={{ fontSize: 11, color: theme.text2 }}>装备照、地图、参考图都可以放进来</Text>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{t('journey.moments.planningEmptyTitle')}</Text>
+          <Text style={{ fontSize: 11, color: theme.text2 }}>{t('journey.moments.planningEmptyBody')}</Text>
         </Press>
       )}
     </View>
@@ -133,6 +135,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
 
 export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: Poi; fullBleed?: boolean }) {
   const nav = useNav();
+  const { t } = useI18n();
   const [chartW, setChartW] = useState(320);
   const isJourney = poi.kind === 'journey';
   const status = (poi.status || 'completed') as JourneyStatus;
@@ -143,35 +146,41 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays]);
   const previewPhotos = wallPhotos.slice(0, status === 'ongoing' ? 6 : 9);
 
-  let ctaLabel = '开始旅程';
-  let ctaAction = () => nav.showToast('开始规划这条路线');
+  let ctaLabel = t('journey.cta.startTrip');
+  let ctaAction = () => nav.showToast(t('journey.toast.startPlanning'));
+  // CTA bg follows the journey status (prototype: `st ? st.color : t.accent`).
+  // Only a completed journey diverges from accent — it uses the muted gray.
+  let ctaBg = theme.accent;
   if (isJourney) {
     if (status === 'planning') {
-      ctaLabel = '出发';
+      ctaLabel = t('journey.cta.depart');
       ctaAction = () => {
         nav.startJourney();
-        nav.showToast('旅程已开始');
+        nav.showToast(t('journey.toast.journeyStarted'));
       };
     } else if (status === 'ongoing') {
-      ctaLabel = '完成旅程';
+      ctaLabel = t('journey.cta.complete');
       ctaAction = () => {
         nav.completeJourney();
-        nav.showToast('旅程已完成');
+        nav.showToast(t('journey.toast.journeyCompleted'));
       };
     } else {
-      ctaLabel = '再次出发';
-      ctaAction = () => nav.showToast('已基于这段旅程创建新计划');
+      ctaLabel = t('journey.cta.departAgain');
+      ctaBg = STATUS_COLOR('completed', theme.accent, theme.dark);
+      // Clone this finished journey into a fresh planned journey — reuses the
+      // new-journey flow, seeded with this route and jumping past route picking.
+      ctaAction = () => nav.openNewJourney(poi);
     }
   }
 
   // Destructive label + confirm copy adapt to the journey's status (a plan is
   // "cancelled", an in-progress trip is "abandoned", a finished one "deleted").
-  const removeLabel = status === 'planning' ? '取消旅程' : status === 'ongoing' ? '放弃旅程' : '删除旅程';
-  const confirmTitle = status === 'planning' ? '取消这段旅程的计划？' : status === 'ongoing' ? '放弃进行中的旅程？' : '删除这段旅程？';
+  const removeLabel = status === 'planning' ? t('journey.remove.labelPlanning') : status === 'ongoing' ? t('journey.remove.labelOngoing') : t('journey.remove.labelCompleted');
+  const confirmTitle = status === 'planning' ? t('journey.remove.confirmPlanning') : status === 'ongoing' ? t('journey.remove.confirmOngoing') : t('journey.remove.confirmCompleted');
   const confirmRemove = () =>
     nav.openActionSheet({
       title: confirmTitle,
-      message: '此操作无法撤销，旅程会从列表中移除。',
+      message: t('journey.remove.confirmMessage'),
       items: [{ label: removeLabel, destructive: true, onPress: () => nav.removeJourney() }],
     });
 
@@ -179,12 +188,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   // iOS-standard style
   const moreItems = isJourney
     ? [
-        { label: '旅程设置', onPress: () => nav.openJourneySettings(poi) },
+        { label: t('journey.more.settings'), onPress: () => nav.openJourneySettings(poi) },
         { label: removeLabel, destructive: true, onPress: confirmRemove },
       ]
     : [
-        { label: poi.fav ? '取消收藏' : '收藏路线', onPress: () => nav.toggleFav() },
-        { label: '举报', destructive: true, onPress: () => nav.showToast('已举报') },
+        { label: poi.fav ? t('journey.more.unfavorite') : t('journey.more.favorite'), onPress: () => nav.toggleFav() },
+        { label: t('journey.more.report'), destructive: true, onPress: () => nav.showToast(t('journey.toast.reported')) },
       ];
 
   // Share via the native OS share sheet (Messages / WeChat / Copy / …). The link
@@ -199,9 +208,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
           ? { message: blurb, url: shareLink, title: poi.name }
           : { title: poi.name, message: `${blurb}\n${shareLink}` }
       );
-      if (result.action === Share.sharedAction) nav.showToast('已分享');
+      if (result.action === Share.sharedAction) nav.showToast(t('journey.toast.shared'));
     } catch {
-      nav.showToast('分享失败');
+      nav.showToast(t('journey.toast.shareFailed'));
     }
   };
 
@@ -249,7 +258,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
               >
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_COLOR(status, theme.accent, true) }} />
                 <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>
-                  {STATUS_LABEL[status]}
+                  {t(`common.status.${status}` as TKey)}
                   {status === 'ongoing' && poi.dayIndex ? ` · Day ${poi.dayIndex}/${poi.totalDays}` : ''}
                 </Text>
               </View>
@@ -275,26 +284,26 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
           borderColor: theme.hairline,
         }}
       >
-        <StatCol theme={theme} label="距离" value={poi.dist} />
+        <StatCol theme={theme} label={t('journey.stat.distance')} value={poi.dist} />
         <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
-        <StatCol theme={theme} label="累计爬升" value={poi.asc} />
+        <StatCol theme={theme} label={t('journey.stat.ascent')} value={poi.asc} />
         <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
         {isJourney ? (
-          <StatCol theme={theme} label="天数" value={poi.days || '—'} color={theme.accent} />
+          <StatCol theme={theme} label={t('journey.stat.days')} value={poi.days || '—'} color={theme.accent} />
         ) : (
-          <StatCol theme={theme} label="难度" value={poi.diff || '—'} color={theme.accent} />
+          <StatCol theme={theme} label={t('journey.stat.difficulty')} value={poi.diff ? t(`common.diff.${poi.diff}` as TKey) : '—'} color={theme.accent} />
         )}
         <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
         {isJourney ? (
-          <StatCol theme={theme} label="同行" value={String(poi.companions ?? 0) + ' 人'} />
+          <StatCol theme={theme} label={t('journey.stat.companions')} value={t('journey.companions.count', { count: poi.companions ?? 0 })} />
         ) : (
-          <StatCol theme={theme} label="评分" value={poi.rating || '—'} />
+          <StatCol theme={theme} label={t('journey.stat.rating')} value={poi.rating || '—'} />
         )}
       </View>
 
       {/* primary action row */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 16 }}>
-        <Press onPress={ctaAction} style={[{ flex: 1, height: 42, borderRadius: 13, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }, elevAccent(theme.accent)]}>
+        <Press onPress={ctaAction} style={[{ flex: 1, height: 42, borderRadius: 13, backgroundColor: ctaBg, alignItems: 'center', justifyContent: 'center' }, elevAccent(ctaBg)]}>
           <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{ctaLabel}</Text>
         </Press>
         <IconButton theme={theme} name={poi.fav ? 'heartFill' : 'heart'} color={poi.fav ? theme.trailMine : theme.text} onPress={() => nav.toggleFav()} />
@@ -305,14 +314,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       {/* description */}
       {poi.desc ? (
         <View style={{ paddingBottom: 18 }}>
-          <SectionHeader theme={theme} title="简介" />
+          <SectionHeader theme={theme} title={t('journey.section.about')} />
           <Text style={{ fontSize: 14.5, lineHeight: 22, color: theme.text2 }}>{poi.desc}</Text>
         </View>
       ) : null}
 
       {/* elevation / route track */}
       <View style={{ paddingBottom: 18 }}>
-        <SectionHeader theme={theme} title="路线轨迹" action="更多" onAction={() => nav.openElevation({ info: poi, isMine })} />
+        <SectionHeader theme={theme} title={t('journey.section.route')} action={t('journey.section.more')} onAction={() => nav.openElevation({ info: poi, isMine })} />
         <Press onPress={() => nav.openElevation({ info: poi, isMine })}>
           <View
             style={{
@@ -337,10 +346,10 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       {/* companions (journeys) */}
       {isJourney && poi.companionList && poi.companionList.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
-          <SectionHeader theme={theme} title="同行" action="管理" onAction={() => nav.openManageCompanions(poi)} />
+          <SectionHeader theme={theme} title={t('journey.section.companions')} action={t('journey.section.manage')} onAction={() => nav.openManageCompanions(poi)} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <AvatarStack people={poi.companionList} size={36} max={6} ringColor={theme.dark ? '#1c1c1e' : '#fff'} />
-            <Text style={{ fontSize: 13, color: theme.text2 }}>{poi.companions} 人同行</Text>
+            <Text style={{ fontSize: 13, color: theme.text2 }}>{t('journey.companions.companionCount', { count: poi.companions ?? 0 })}</Text>
           </View>
         </View>
       ) : null}
@@ -353,7 +362,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <PlanningMoments theme={theme} poi={poi} status={status} />
       ) : previewPhotos.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
-          <SectionHeader theme={theme} title={isJourney ? '瞬间' : '用户照片'} action="全部" onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
+          <SectionHeader theme={theme} title={isJourney ? t('journey.moments.title') : t('journey.moments.userPhotos')} action={t('common.all')} onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {previewPhotos.map((p) => (
               <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
@@ -369,8 +378,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingBottom: 26 }}>
           <Avatar ini="林" tone="forest" size={32} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>林深见鹿 上传</Text>
-            <Text style={{ fontSize: 11.5, color: theme.text2 }}>{poi.reviews ?? 0} 人走过这条路线</Text>
+            <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>{t('journey.author.uploadedBy', { name: '林深见鹿' })}</Text>
+            <Text style={{ fontSize: 11.5, color: theme.text2 }}>{t('journey.author.walkedCount', { count: poi.reviews ?? 0 })}</Text>
           </View>
         </View>
       ) : null}

@@ -1,235 +1,617 @@
-// GearScreen.tsx — the 装备 tab: a value/weight/count breakdown of your gear
-// library as a donut, plus 装备 / 分类 / 套装 views.
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TextInput } from 'react-native';
+// GearScreen.tsx — the 装备 tab, aligned to the converged gx-design prototype.
+//
+// Chrome: thin nav bar with a tap-to-switch title (装备 / 分类 / 套装 ▾ + count)
+// and a contextual add button — NO large iOS title, NO segmented pill. Each tab
+// has a list⇄grid toggle. 装备 leads with a leader-line labeled donut (thick
+// ring, empty center, callouts per category) over a 4-stat readout strip.
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, TextInput, useWindowDimensions, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
+import { elevCard } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import { Donut } from '../components/Donut';
+import { PhotoTile } from '../components/PhotoTile';
 import { useNav } from '../nav/NavContext';
-import {
-  GX_CATS,
-  GX_ITEMS,
-  GX_SETS,
-  Metric,
-  METRICS,
-  aggregateByCat,
-  metricTotals,
-  metricValue,
-  fmtMetric,
-  catById,
-} from '../data/gear';
+import { useI18n, TKey } from '../i18n';
+import { hashStr, TONES } from '../data/tones';
+import { GX_CATS, GX_ITEMS, GX_SETS, UNCAT, GearCat, GearItem, GearSet, Metric, METRICS } from '../data/gear';
+import { LabeledDonut } from '../components/gear/LabeledDonut';
+import { GearItemDetail } from '../components/gear/GearItemDetail';
+import { GearCatDetail } from '../components/gear/GearCatDetail';
+import { GearSetDetail } from '../components/gear/GearSetDetail';
+import { GearSetEditor } from '../components/gear/GearSetEditor';
+import { GearItemEditor } from '../components/gear/GearItemEditor';
+import { GearCatEditor } from '../components/gear/GearCatEditor';
 
 type Tab = 'items' | 'cats' | 'sets';
+type Layout = 'list' | 'grid';
+
+// A pushed gear detail page. Mirrors MeScreen's local page stack: tap a row/card
+// to push, back to pop, and the floating tab bar hides while any page is open.
+type GearPage = { type: 'item'; item: GearItem } | { type: 'cat'; cat: GearCat } | { type: 'set'; set: GearSet };
+
+// ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
+const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
+const selBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.045)');
+const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)');
+// Soft card shadow — shared with the 我 page via elevCard so the two tabs stay
+// in sync. NOTE: never put `overflow:'hidden'` on a view that carries this — on
+// iOS that clips the shadow.
+const cardShadow = (t: Theme): ViewStyle => elevCard(t);
+// The 0.5px ring from the prototype's glass elev — keeps card edges legible on
+// near-white surfaces even where the soft shadow is faint.
+const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
+// The white/dark round affordance (add button, layout toggle) — its own shadow.
+const iconBtnShadow = (t: Theme): ViewStyle =>
+  t.dark
+    ? { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 5 }
+    : { shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 3 };
+
+// ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
+const valOf = (it: GearItem, metric: Metric) => (metric === 'price' ? it.p : metric === 'weight' ? it.w : 1);
+const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
+const fmtVal = (metric: Metric, v: number) =>
+  metric === 'price' ? yuan(v) : metric === 'weight' ? v.toFixed(2) + ' kg' : Math.round(v) + ' 件';
+const toneFor = (name: string) => TONES[Math.abs(hashStr(name)) % TONES.length];
+
+interface Row extends GearCat {
+  value: number;
+  count: number;
+}
+
+// Aggregate every category's value/count for a metric (sorted desc), with the total.
+function designRows(cats: GearCat[], metric: Metric, items: GearItem[]): { rows: Row[]; total: number } {
+  const m: Record<string, { v: number; c: number }> = {};
+  items.forEach((it) => {
+    const e = m[it.cat] || (m[it.cat] = { v: 0, c: 0 });
+    e.v += valOf(it, metric);
+    e.c += 1;
+  });
+  const rows = cats
+    .map((c) => ({ ...c, value: m[c.id]?.v || 0, count: m[c.id]?.c || 0 }))
+    .sort((a, b) => b.value - a.value);
+  return { rows, total: rows.reduce((a, r) => a + r.value, 0) };
+}
+
+// Set composition: weight-by-category segments for the mini ring + totals.
+function setComp(set: GearSet, catMap: Record<string, GearCat>, allItems: GearItem[]) {
+  const items = allItems.filter((it) => set.items.includes(it.name));
+  const byCat = new Map<string, number>();
+  for (const it of items) byCat.set(it.cat, (byCat.get(it.cat) || 0) + it.w);
+  const comp = [...byCat.entries()]
+    .map(([id, w]) => ({ value: w, color: (catMap[id] || { color: '#8E8E93' }).color }))
+    .sort((a, b) => b.value - a.value);
+  const wt = items.reduce((a, it) => a + it.w, 0);
+  const val = items.reduce((a, it) => a + it.p, 0);
+  return { comp, wt, val, nItems: items.length, nCats: byCat.size };
+}
 
 export function GearScreen({ theme }: { theme: Theme }) {
   const insets = useSafeAreaInsets();
   const nav = useNav();
+  const { t } = useI18n();
+  const { width: winW } = useWindowDimensions();
   const [tab, setTab] = useState<Tab>('items');
   const [metric, setMetric] = useState<Metric>('price');
   const [query, setQuery] = useState('');
+  const [setsQuery, setSetsQuery] = useState('');
+  const [itemLayout, setItemLayout] = useState<Layout>('list');
+  const [catLayout, setCatLayout] = useState<Layout>('grid');
+  const [setsLayout, setSetsLayout] = useState<Layout>('list');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sel, setSel] = useState<string | null>(null);
 
-  const items = GX_ITEMS;
-  const totals = useMemo(() => metricTotals(items), [items]);
-  const agg = useMemo(() => aggregateByCat(items, metric), [items, metric]);
-  const totalForMetric = agg.reduce((s, a) => s + a.value, 0);
+  // Live library state so detail-page edits (delete) actually mutate the lists.
+  const [cats, setCats] = useState<GearCat[]>(GX_CATS);
+  const [allItems, setAllItems] = useState<GearItem[]>(GX_ITEMS);
+  const [sets, setSets] = useState<GearSet[]>(GX_SETS);
 
-  const filteredItems = items.filter(
-    (it) => !query || it.name.toLowerCase().includes(query.toLowerCase()) || catById(it.cat).name.includes(query)
-  );
+  // Pushed detail pages (装备 / 分类 / 套装), newest last.
+  const [pageStack, setPageStack] = useState<GearPage[]>([]);
+  const pushPage = (p: GearPage) => setPageStack((s) => [...s, p]);
+  const popPage = () => setPageStack((s) => s.slice(0, -1));
+  // 新建 / 编辑套装 bottom sheet.
+  const [setEditor, setSetEditor] = useState<{ mode: 'new' | 'edit'; set?: GearSet } | null>(null);
+  // 新建 / 编辑装备 full-screen form (holds the item being edited / a blank draft).
+  const [itemEditor, setItemEditor] = useState<{ mode: 'new' | 'edit'; item: GearItem } | null>(null);
+  // 新建 / 编辑分类 bottom sheet.
+  const [catEditor, setCatEditor] = useState<{ mode: 'new' | 'edit'; cat?: GearCat } | null>(null);
+  // Hide the floating tab bar whenever a detail page is open (matches MeScreen).
+  useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
+  useEffect(() => () => nav.setTabBarHidden(false), [nav]);
 
-  const metricIndex = METRICS.findIndex((m) => m.id === metric);
-  const cycleMetric = (dir: number) => setMetric(METRICS[(metricIndex + dir + METRICS.length) % METRICS.length].id);
+  // Save an edited item. A rename propagates to every set that referenced it and
+  // to any open detail page so the underlying screens stay in sync.
+  const updateItem = (oldName: string, ni: GearItem) => {
+    setAllItems((items) => items.map((it) => (it.name === oldName ? ni : it)));
+    if (ni.name !== oldName) {
+      setSets((ss) => ss.map((s) => (s.items.includes(oldName) ? { ...s, items: s.items.map((n) => (n === oldName ? ni.name : n)) } : s)));
+    }
+    setPageStack((stk) =>
+      stk.map((pg) => {
+        if (pg.type === 'item' && pg.item.name === oldName) return { type: 'item', item: ni };
+        if (pg.type === 'set' && ni.name !== oldName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === oldName ? ni.name : n)) } };
+        return pg;
+      })
+    );
+    setItemEditor(null);
+    nav.showToast(t('gear.toast.itemUpdated'));
+  };
+
+  // Add a brand-new item to the library (from the blank editor draft).
+  const addItem = (ni: GearItem) => {
+    setAllItems((items) => [ni, ...items]);
+    setItemEditor(null);
+    nav.showToast(t('gear.toast.itemAdded'));
+  };
+
+  // Real deletes — gear is also pulled from any set it belonged to.
+  const deleteItem = (name: string) => {
+    setAllItems((items) => items.filter((i) => i.name !== name));
+    setSets((ss) => ss.map((s) => (s.items.includes(name) ? { ...s, items: s.items.filter((n) => n !== name) } : s)));
+    popPage();
+    nav.showToast(t('gear.toast.itemDeleted'));
+  };
+  const deleteCat = (id: string) => {
+    setCats((cs) => cs.filter((c) => c.id !== id));
+    popPage();
+    nav.showToast(t('gear.toast.catDeleted'));
+  };
+  const deleteSet = (id: string) => {
+    setSets((ss) => ss.filter((s) => s.id !== id));
+    popPage();
+    nav.showToast(t('gear.toast.setDeleted'));
+  };
+  // Create or update a set from the editor; keep any open detail page in sync.
+  const saveSet = (name: string, itemNames: string[]) => {
+    if (setEditor?.mode === 'edit' && setEditor.set) {
+      const id = setEditor.set.id;
+      setSets((ss) => ss.map((s) => (s.id === id ? { ...s, name, items: itemNames } : s)));
+      setPageStack((stk) => stk.map((p) => (p.type === 'set' && p.set.id === id ? { type: 'set', set: { ...p.set, name, items: itemNames } } : p)));
+      nav.showToast(t('gear.toast.setUpdated'));
+    } else {
+      const ns: GearSet = { id: 's' + Date.now().toString(36), name, items: itemNames };
+      setSets((ss) => [ns, ...ss]);
+      nav.showToast(t('gear.toast.setCreated'));
+    }
+    setSetEditor(null);
+  };
+  // Create or update a category; keep any open detail page's snapshot in sync.
+  const saveCat = (name: string, color: string) => {
+    if (catEditor?.mode === 'edit' && catEditor.cat) {
+      const id = catEditor.cat.id;
+      setCats((cs) => cs.map((c) => (c.id === id ? { ...c, name, color } : c)));
+      setPageStack((stk) => stk.map((p) => (p.type === 'cat' && p.cat.id === id ? { type: 'cat', cat: { ...p.cat, name, color } } : p)));
+      nav.showToast(t('gear.toast.catUpdated'));
+    } else {
+      const nc: GearCat = { id: 'c' + Date.now().toString(36), name, color, builtin: false };
+      setCats((cs) => [...cs, nc]);
+      nav.showToast(t('gear.toast.catCreated'));
+    }
+    setCatEditor(null);
+  };
+
+  const catMap = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c])) as Record<string, GearCat>, [cats]);
+  const { rows, total } = useMemo(() => designRows(cats, metric, allItems), [cats, metric, allItems]);
+  const agg = rows.filter((r) => r.value > 0);
+
+  const q = query.trim();
+  let items = allItems.slice().sort((a, b) => b.p - a.p);
+  if (q) items = items.filter((it) => it.name.includes(q) || (catMap[it.cat] && catMap[it.cat].name.includes(q)));
+  const catRows = q ? rows.filter((c) => c.name.includes(q) || allItems.some((it) => it.cat === c.id && it.name.includes(q))) : rows;
+  const sq = setsQuery.trim();
+  const setRows = sq ? sets.filter((s) => s.name.includes(sq) || s.items.some((n) => n.includes(sq))) : sets;
+
+  const TABS: { id: Tab; label: string; n: number }[] = [
+    { id: 'items', label: t('gear.tab.items'), n: allItems.length },
+    { id: 'cats', label: t('gear.tab.cats'), n: cats.length },
+    { id: 'sets', label: t('gear.tab.sets'), n: sets.length },
+  ];
+  const curTab = TABS.find((t) => t.id === tab) || TABS[0];
+
+  const contentW = winW - 32;
+  const onAdd = () => {
+    if (tab === 'sets') { setSetEditor({ mode: 'new' }); return; }
+    if (tab === 'cats') { setCatEditor({ mode: 'new' }); return; }
+    const cat = cats.find((c) => c.id === 'misc')?.id || cats[0]?.id || 'misc';
+    setItemEditor({ mode: 'new', item: { name: '', cat, w: 0, p: 0 } });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 110 }}>
-        {/* header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 }}>
-          <Text style={{ fontSize: 30, fontWeight: '800', color: theme.text, letterSpacing: 0.2 }}>装备</Text>
-          <Press onPress={() => nav.showToast('添加装备')} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="plus" color="#fff" size={20} />
+      {/* ── Nav bar: tappable title switcher + contextual add ── */}
+      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
+          <Press onPress={() => setMenuOpen((o) => !o)} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }} scaleTo={0.98}>
+            <Text style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{curTab.label}</Text>
+            <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '600', color: theme.text3 }}>{curTab.n}</Text>
+            <View style={{ alignSelf: 'center', transform: [{ rotate: menuOpen ? '180deg' : '0deg' }] }}>
+              <Icon name="chevronDown" color={theme.text2} size={14} />
+            </View>
+          </Press>
+          <Press
+            onPress={onAdd}
+            style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF', ...iconBtnShadow(theme) }}
+          >
+            <Icon name="plus" color={theme.text} size={18} />
           </Press>
         </View>
+      </View>
 
-        {/* segmented */}
-        <View style={{ flexDirection: 'row', marginHorizontal: 16, padding: 3, borderRadius: 14, gap: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)' }}>
-          {([
-            { id: 'items', label: '装备', count: items.length },
-            { id: 'cats', label: '分类', count: GX_CATS.length },
-            { id: 'sets', label: '套装', count: GX_SETS.length },
-          ] as { id: Tab; label: string; count: number }[]).map((t) => {
-            const active = tab === t.id;
-            return (
-              <Press
-                key={t.id}
-                onPress={() => setTab(t.id)}
-                style={{
-                  flex: 1,
-                  paddingVertical: 7,
-                  borderRadius: 11,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  backgroundColor: active ? (theme.dark ? '#1C1C1E' : '#fff') : 'transparent',
-                  ...(active ? (theme.dark ? { shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 } : { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 }) : {}),
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? theme.text : theme.text2 }}>{t.label}</Text>
-                <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{t.count}</Text>
-              </Press>
-            );
-          })}
-        </View>
-
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
         {tab === 'items' && (
-          <ItemsTab
-            theme={theme}
-            metric={metric}
-            metricLabel={METRICS[metricIndex].label}
-            cycleMetric={cycleMetric}
-            agg={agg}
-            totalForMetric={totalForMetric}
-            totals={totals}
-            query={query}
-            setQuery={setQuery}
-            items={filteredItems}
-            onItem={(name: string) => nav.showToast(name)}
-          />
+          <View style={{ paddingHorizontal: 16, paddingTop: 2 }}>
+            <View style={{ alignItems: 'center' }}>
+              <MetricStepper theme={theme} metric={metric} setMetric={setMetric} />
+            </View>
+            <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={allItems} width={contentW} sel={sel} onSel={setSel} />
+            <View style={{ height: 0.5, backgroundColor: theme.hairline, marginVertical: 14 }} />
+            <ControlsRow theme={theme} value={query} onChange={setQuery} placeholder={t('gear.search.items')} layout={itemLayout} setLayout={setItemLayout} />
+            {items.length === 0 ? (
+              <EmptyText theme={theme} text={t('gear.empty.noItems')} />
+            ) : itemLayout === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {items.map((it) => (
+                  <ItemGridCard key={it.name} theme={theme} item={it} cat={catMap[it.cat]} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'item', item: it })} />
+                ))}
+              </View>
+            ) : (
+              <Card theme={theme}>
+                {items.map((it, i) => (
+                  <ItemRow key={it.name} theme={theme} item={it} cat={catMap[it.cat]} last={i === items.length - 1} onPress={() => pushPage({ type: 'item', item: it })} />
+                ))}
+              </Card>
+            )}
+            <HintText theme={theme} text={t('gear.hint.items')} />
+          </View>
         )}
-        {tab === 'cats' && <CatsTab theme={theme} metric={metric} agg={agg} totalForMetric={totalForMetric} onCat={(n: string) => nav.showToast(n)} />}
-        {tab === 'sets' && <SetsTab theme={theme} onSet={(n) => nav.showToast(n)} />}
+
+        {tab === 'cats' && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <ControlsRow theme={theme} value={query} onChange={setQuery} placeholder={t('gear.search.cats')} layout={catLayout} setLayout={setCatLayout} />
+            {catLayout === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {catRows.map((c) => (
+                  <CatCard key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'cat', cat: c })} />
+                ))}
+              </View>
+            ) : (
+              <Card theme={theme}>
+                {catRows.map((c, i) => (
+                  <CatRow key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} last={i === catRows.length - 1} onPress={() => pushPage({ type: 'cat', cat: c })} />
+                ))}
+              </Card>
+            )}
+            <HintText theme={theme} text={t('gear.hint.cats')} />
+          </View>
+        )}
+
+        {tab === 'sets' && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <ControlsRow theme={theme} value={setsQuery} onChange={setSetsQuery} placeholder={t('gear.search.sets')} layout={setsLayout} setLayout={setSetsLayout} />
+            {setRows.length === 0 ? (
+              <EmptyText theme={theme} text={sq ? t('gear.empty.noSets') : t('gear.empty.noSetsYet')} />
+            ) : setsLayout === 'grid' ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {setRows.map((s) => (
+                  <SetGridCard key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'set', set: s })} />
+                ))}
+              </View>
+            ) : (
+              <Card theme={theme}>
+                {setRows.map((s, i) => (
+                  <SetRow key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} last={i === setRows.length - 1} onPress={() => pushPage({ type: 'set', set: s })} />
+                ))}
+              </Card>
+            )}
+            {setRows.length > 0 && <HintText theme={theme} text={t('gear.hint.sets')} />}
+          </View>
+        )}
       </ScrollView>
+
+      {/* ── Title switcher dropdown ── */}
+      {menuOpen && (
+        <>
+          <Press onPress={() => setMenuOpen(false)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} scaleTo={1}>
+            <View />
+          </Press>
+          <View style={{ position: 'absolute', top: insets.top + 50, left: 16, minWidth: 200, borderRadius: 16, padding: 6, backgroundColor: theme.surfaceStrong, ...cardShadow(theme) }}>
+            {TABS.map((t) => {
+              const on = t.id === tab;
+              return (
+                <Press
+                  key={t.id}
+                  onPress={() => { setTab(t.id); setMenuOpen(false); setSel(null); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 11, backgroundColor: on ? selBg(theme) : 'transparent' }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: on ? '700' : '500', color: theme.text }}>{t.label}</Text>
+                  <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3 }}>{t.n}</Text>
+                  {on && <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={16} /></View>}
+                </Press>
+              );
+            })}
+          </View>
+        </>
+      )}
+
+      {/* ── Pushed detail pages (装备 / 分类 / 套装) ── */}
+      {pageStack.map((pg, i) => (
+        <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
+          {pg.type === 'item' ? (
+            <GearItemDetail
+              theme={theme}
+              item={pg.item}
+              cat={catMap[pg.item.cat] || UNCAT}
+              allItems={allItems}
+              sets={sets}
+              onBack={popPage}
+              onOpenSet={(s) => pushPage({ type: 'set', set: s })}
+              onDelete={() => deleteItem(pg.item.name)}
+              onEdit={() => setItemEditor({ mode: 'edit', item: pg.item })}
+            />
+          ) : pg.type === 'cat' ? (
+            <GearCatDetail
+              theme={theme}
+              cat={pg.cat}
+              allItems={allItems}
+              onBack={popPage}
+              onOpenItem={(it) => pushPage({ type: 'item', item: it })}
+              onDelete={() => deleteCat(pg.cat.id)}
+              onEdit={() => setCatEditor({ mode: 'edit', cat: pg.cat })}
+            />
+          ) : (
+            <GearSetDetail
+              theme={theme}
+              set={pg.set}
+              allItems={allItems}
+              catMap={catMap}
+              onBack={popPage}
+              onOpenItem={(it) => pushPage({ type: 'item', item: it })}
+              onDelete={() => deleteSet(pg.set.id)}
+              onEdit={() => setSetEditor({ mode: 'edit', set: pg.set })}
+            />
+          )}
+        </View>
+      ))}
+
+      {/* ── 新建 / 编辑套装 ── */}
+      {setEditor && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
+          <GearSetEditor
+            theme={theme}
+            mode={setEditor.mode}
+            initial={setEditor.set}
+            cats={cats}
+            allItems={allItems}
+            catMap={catMap}
+            onCancel={() => setSetEditor(null)}
+            onSave={saveSet}
+          />
+        </View>
+      )}
+
+      {/* ── 编辑装备 ── */}
+      {itemEditor && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 210 }]}>
+          <GearItemEditor
+            theme={theme}
+            item={itemEditor.item}
+            cats={cats}
+            mode={itemEditor.mode}
+            existingNames={allItems.map((i) => i.name)}
+            onCancel={() => setItemEditor(null)}
+            onSave={(ni) => (itemEditor.mode === 'new' ? addItem(ni) : updateItem(itemEditor.item.name, ni))}
+          />
+        </View>
+      )}
+
+      {/* ── 新建 / 编辑分类 ── */}
+      {catEditor && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
+          <GearCatEditor
+            theme={theme}
+            mode={catEditor.mode}
+            initial={catEditor.cat}
+            existing={cats.map((c) => c.name)}
+            onCancel={() => setCatEditor(null)}
+            onSave={saveCat}
+          />
+        </View>
+      )}
     </View>
   );
 }
 
-function MetricStepper({ theme, label, onLeft, onRight }: { theme: Theme; label: string; onLeft: () => void; onRight: () => void }) {
+// ── Shared chrome ───────────────────────────────────────────────────────────
+function Card({ theme, children }: { theme: Theme; children: React.ReactNode }) {
+  // No `overflow:'hidden'` (it would clip the shadow on iOS); rows carry no
+  // background of their own, so nothing pokes past the rounded corners anyway.
   return (
-    <View style={{ flexDirection: 'row', alignSelf: 'center', alignItems: 'center', padding: 3, borderRadius: 13, gap: 2, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', marginTop: 16 }}>
-      <Press onPress={onLeft} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ backgroundColor: theme.surfaceTop, borderRadius: 16, ...cardBorder(theme), ...cardShadow(theme) }}>{children}</View>
+  );
+}
+
+function HintText({ theme, text }: { theme: Theme; text: string }) {
+  return <Text style={{ fontSize: 11, color: theme.text3, paddingHorizontal: 4, paddingTop: 10 }}>{text}</Text>;
+}
+function EmptyText({ theme, text }: { theme: Theme; text: string }) {
+  return <Text style={{ paddingVertical: 40, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{text}</Text>;
+}
+
+function MetricStepper({ theme, metric, setMetric }: { theme: Theme; metric: Metric; setMetric: (m: Metric) => void }) {
+  const idx = METRICS.findIndex((m) => m.id === metric);
+  const go = (d: number) => setMetric(METRICS[(idx + d + METRICS.length) % METRICS.length].id);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 3, borderRadius: 13, gap: 2, backgroundColor: fieldBg(theme) }}>
+      <Press onPress={() => go(-1)} style={{ width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="chevronL" color={theme.text2} size={16} />
       </Press>
-      <Text style={{ minWidth: 44, textAlign: 'center', fontSize: 14, fontWeight: '700', color: theme.text }}>{label}</Text>
-      <Press onPress={onRight} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ minWidth: 40, textAlign: 'center', fontSize: 14, fontWeight: '700', color: theme.text, letterSpacing: -0.2 }}>{METRICS[idx].label}</Text>
+      <Press onPress={() => go(1)} style={{ width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="chevronR" color={theme.text2} size={16} />
       </Press>
     </View>
   );
 }
 
-function StatTiny({ theme, value, label }: { theme: Theme; value: string; label: string }) {
+function ControlsRow({ theme, value, onChange, placeholder, layout, setLayout }: { theme: Theme; value: string; onChange: (s: string) => void; placeholder: string; layout: Layout; setLayout: (l: Layout) => void }) {
   return (
-    <View style={{ flex: 1, alignItems: 'center' }}>
-      <Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{value}</Text>
-      <Text style={{ fontSize: 10.5, color: theme.text2, marginTop: 2 }}>{label}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, height: 40, borderRadius: 11, backgroundColor: fieldBg(theme) }}>
+        <Icon name="search" color={theme.text2} size={16} />
+        <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={theme.text3} style={{ flex: 1, fontSize: 15, color: theme.text, padding: 0 }} />
+        {value ? (
+          <Press onPress={() => onChange('')} style={{ padding: 2 }}>
+            <Icon name="close" color={theme.text2} size={14} />
+          </Press>
+        ) : null}
+      </View>
+      <Press onPress={() => setLayout(layout === 'list' ? 'grid' : 'list')} style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF', ...iconBtnShadow(theme) }}>
+        {/* show the view you'll switch TO */}
+        <Icon name={layout === 'list' ? 'grid' : 'list'} color={theme.text} size={18} />
+      </Press>
     </View>
   );
 }
 
-function ItemsTab({ theme, metric, metricLabel, cycleMetric, agg, totalForMetric, totals, query, setQuery, items, onItem }: any) {
+// ── 装备 rows / cards ───────────────────────────────────────────────────────
+function ItemRow({ theme, item, cat, last, onPress }: { theme: Theme; item: GearItem; cat: GearCat; last: boolean; onPress: () => void }) {
   return (
-    <View style={{ paddingHorizontal: 16 }}>
-      <MetricStepper theme={theme} label={metricLabel} onLeft={() => cycleMetric(-1)} onRight={() => cycleMetric(1)} />
-      <View style={{ alignItems: 'center', marginTop: 8 }}>
-        <Donut
-          theme={theme}
-          size={208}
-          thickness={28}
-          segments={agg.map((a: any) => ({ value: a.value, color: a.cat.color }))}
-          centerTop={metricLabel}
-          centerValue={fmtMetric(totalForMetric, metric)}
-          centerSub={`${items.length} 件 · ${agg.length} 类`}
-        />
-      </View>
-      <View style={{ flexDirection: 'row', marginTop: 16, marginBottom: 6 }}>
-        <StatTiny theme={theme} value={'¥' + Math.round(totals.price).toLocaleString('en-US')} label="装备总值" />
-        <StatTiny theme={theme} value={totals.weight.toFixed(1) + 'kg'} label="总重量" />
-        <StatTiny theme={theme} value={String(totals.count)} label="数量" />
-        <StatTiny theme={theme} value={String(agg.length)} label="分类" />
-      </View>
+    <>
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginBottom: 3 }}>{item.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            <Text style={{ fontSize: 11.5, color: theme.text2 }}>{cat.name}</Text>
+            <View style={{ width: 0.5, height: 9, backgroundColor: theme.hairline }} />
+            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, letterSpacing: 0.2 }}>{item.w.toFixed(2)} kg · ¥{item.p.toLocaleString('en-US')}</Text>
+          </View>
+        </View>
+        <Icon name="chevronR" color={theme.text3} size={14} />
+      </Press>
+      {!last && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginHorizontal: 10 }} />}
+    </>
+  );
+}
 
-      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginVertical: 14 }} />
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, height: 40, borderRadius: 11, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)' }}>
-          <Icon name="search" color={theme.text3} size={16} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="搜索装备、分类"
-            placeholderTextColor={theme.text3}
-            style={{ flex: 1, fontSize: 15, color: theme.text, padding: 0 }}
-          />
+function ItemGridCard({ theme, item, cat, w, onPress }: { theme: Theme; item: GearItem; cat: GearCat; w: number; onPress: () => void }) {
+  return (
+    <Press onPress={onPress} style={{ width: w, borderRadius: 16, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
+      {/* PhotoTile clips its own top corners so the card itself needs no
+          overflow:'hidden' (which would otherwise clip the card's shadow). */}
+      <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={0} style={{ height: 120, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+        <View style={{ position: 'absolute', top: 9, left: 9, flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4, paddingHorizontal: 7, borderRadius: 9, backgroundColor: theme.dark ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.82)' }}>
+          <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: cat.color }} />
+          <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text }}>{cat.name}</Text>
+        </View>
+      </PhotoTile>
+      <View style={{ paddingHorizontal: 12, paddingTop: 11, paddingBottom: 13 }}>
+        <Text numberOfLines={2} style={{ fontSize: 14.5, fontWeight: '600', color: theme.text, lineHeight: 19, minHeight: 38 }}>{item.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 8 }}>
+          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{item.w.toFixed(2)} kg</Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>¥{item.p.toLocaleString('en-US')}</Text>
         </View>
       </View>
-
-      {items.map((it: any, idx: number) => {
-        const cat = catById(it.cat);
-        return (
-          <Press key={it.name} onPress={() => onItem(it.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: idx === items.length - 1 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-            <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: cat.color + (theme.dark ? '52' : '26'), alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 12, fontWeight: '800', color: cat.color }}>{cat.name.slice(0, 2)}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{it.name}</Text>
-              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-                {cat.name} · <Text style={{ fontFamily: MONO }}>{it.w}kg · ¥{it.p}</Text>
-              </Text>
-            </View>
-            <Icon name="chevronR" color={theme.text3} size={15} />
-          </Press>
-        );
-      })}
-    </View>
+    </Press>
   );
 }
 
-function CatsTab({ theme, metric, agg, totalForMetric, onCat }: any) {
+// ── 分类 rows / cards ───────────────────────────────────────────────────────
+function CatCard({ theme, cat, total, metric, items, w, onPress }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; w: number; onPress: () => void }) {
+  const { t } = useI18n();
+  const pct = total ? (cat.value / total) * 100 : 0;
+  const wt = items.reduce((a, it) => a + it.w, 0);
+  const pr = items.reduce((a, it) => a + it.p, 0);
+  const stats: [string, string, Metric][] = [[t('gear.stat.value'), yuan(pr), 'price'], [t('gear.stat.weight'), wt.toFixed(2) + ' kg', 'weight'], [t('gear.stat.count'), cat.count + ' ' + t('gear.unit.items'), 'count']];
   return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 10 }}>
-      {agg.map((a: any) => {
-        const pct = Math.round((a.value / (totalForMetric || 1)) * 100);
-        return (
-          <Press key={a.cat.id} onPress={() => onCat(a.cat.name)} style={{ padding: 14, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 10 }}>
-              <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: a.cat.color }} />
-              <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: theme.text }}>{a.cat.name}</Text>
-              <Text style={{ fontFamily: MONO, fontSize: 13, fontWeight: '700', color: theme.text }}>{fmtMetric(a.value, metric)}</Text>
+    <Press onPress={onPress} style={{ width: w, borderRadius: 14, padding: 14, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ width: 11, height: 11, borderRadius: 4, backgroundColor: cat.color }} />
+        <Text numberOfLines={1} style={{ flex: 1, fontSize: 15, fontWeight: '700', color: theme.text }}>{cat.name}</Text>
+      </View>
+      <View style={{ marginTop: 10 }}>
+        {stats.map(([k, v, id]) => {
+          const on = id === metric;
+          return (
+            <View key={k} style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingVertical: 3.5 }}>
+              <Text style={{ fontSize: 12, fontWeight: on ? '600' : '500', color: on ? theme.text2 : theme.text3 }}>{k}</Text>
+              <Text style={{ fontSize: 13.5, fontWeight: '700', color: on ? theme.text : theme.text2 }}>{v}</Text>
             </View>
-            <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
-              <View style={{ width: `${pct}%`, height: 6, borderRadius: 3, backgroundColor: a.cat.color }} />
-            </View>
-            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 6 }}>{pct}% of total</Text>
-          </Press>
-        );
-      })}
-    </View>
+          );
+        })}
+      </View>
+      <View style={{ height: 4, borderRadius: 2, marginTop: 10, backgroundColor: trackBg(theme), overflow: 'hidden' }}>
+        <View style={{ width: `${pct}%`, height: '100%', backgroundColor: cat.color, borderRadius: 2 }} />
+      </View>
+    </Press>
   );
 }
 
-function SetsTab({ theme, onSet }: { theme: Theme; onSet: (n: string) => void }) {
+function CatRow({ theme, cat, total, metric, items, last, onPress }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; last: boolean; onPress: () => void }) {
+  const { t } = useI18n();
+  const pct = total ? (cat.value / total) * 100 : 0;
+  const wt = items.reduce((a, it) => a + it.w, 0);
+  const pr = items.reduce((a, it) => a + it.p, 0);
+  const parts: [Metric, string][] = [['price', yuan(pr)], ['weight', wt.toFixed(2) + ' kg'], ['count', cat.count + ' ' + t('gear.unit.items')]];
   return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 10 }}>
-      {GX_SETS.map((set) => {
-        const setItems = GX_ITEMS.filter((it) => set.items.includes(it.name));
-        const agg = aggregateByCat(setItems, 'weight');
-        const weight = setItems.reduce((s, it) => s + metricValue(it, 'weight'), 0);
-        const price = setItems.reduce((s, it) => s + metricValue(it, 'price'), 0);
-        return (
-          <Press key={set.id} onPress={() => onSet(set.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)' }}>
-            <Donut theme={theme} size={64} thickness={9} segments={agg.map((a) => ({ value: a.value, color: a.cat.color }))} centerValue={weight.toFixed(1)} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{set.name}</Text>
-              <Text style={{ fontSize: 12, color: theme.text2, marginTop: 3 }}>{setItems.length} 件 · <Text style={{ fontFamily: MONO }}>{weight.toFixed(1)}kg · ¥{Math.round(price).toLocaleString('en-US')}</Text></Text>
-            </View>
-            <Icon name="chevronR" color={theme.text3} size={16} />
-          </Press>
-        );
-      })}
-    </View>
+    <>
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 14 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>{cat.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            {parts.map(([id, v], i) => {
+              const on = id === metric;
+              return (
+                <React.Fragment key={id}>
+                  {i > 0 && <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>·</Text>}
+                  <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: on ? '700' : '500', color: on ? theme.text : theme.text3 }}>{v}</Text>
+                </React.Fragment>
+              );
+            })}
+          </View>
+          <View style={{ height: 4, borderRadius: 2, marginTop: 7, backgroundColor: trackBg(theme), overflow: 'hidden' }}>
+            <View style={{ width: `${pct}%`, height: '100%', backgroundColor: cat.color, borderRadius: 2 }} />
+          </View>
+        </View>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{pct.toFixed(0)}%</Text>
+        <Icon name="chevronR" color={theme.text3} size={14} />
+      </Press>
+      {!last && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginHorizontal: 14 }} />}
+    </>
+  );
+}
+
+// ── 套装 rows / cards ───────────────────────────────────────────────────────
+type SetG = ReturnType<typeof setComp>;
+
+function SetRow({ theme, set, g, last, onPress }: { theme: Theme; set: GearSet; g: SetG; last: boolean; onPress: () => void }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 2 }}>{set.name}</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 1 }}>{g.nCats} {t('gear.unit.cats')} · {g.nItems} {t('gear.unit.items')} · {g.wt.toFixed(1)} kg</Text>
+        </View>
+        <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, letterSpacing: -0.2 }}>¥{Math.round(g.val).toLocaleString('en-US')}</Text>
+        <Icon name="chevronR" color={theme.text3} size={15} />
+      </Press>
+      {!last && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginHorizontal: 14 }} />}
+    </>
+  );
+}
+
+function SetGridCard({ theme, set, g, w, onPress }: { theme: Theme; set: GearSet; g: SetG; w: number; onPress: () => void }) {
+  const { t } = useI18n();
+  return (
+    <Press onPress={onPress} style={{ width: w, alignItems: 'center', borderRadius: 16, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 14, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
+      <Donut theme={theme} size={80} thickness={11} segments={g.comp} centerValue={g.wt.toFixed(1)} centerSub="kg" />
+      <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginTop: 12, textAlign: 'center' }}>{set.name}</Text>
+      <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text2, marginTop: 3 }}>{g.nCats} {t('gear.unit.cats')} · {g.nItems} {t('gear.unit.items')}</Text>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginTop: 6, letterSpacing: -0.2 }}>¥{Math.round(g.val).toLocaleString('en-US')}</Text>
+    </Press>
   );
 }

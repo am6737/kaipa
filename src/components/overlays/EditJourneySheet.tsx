@@ -8,6 +8,7 @@ import { Poi } from '../../data/pois';
 import { JourneyPatch } from '../../nav/NavContext';
 import { Press } from '../Press';
 import { FullOverlay } from './FullOverlay';
+import { useI18n } from '../../i18n';
 
 function Group({ theme, title, footer, children }: { theme: Theme; title?: string; footer?: string; children: React.ReactNode }) {
   return (
@@ -93,6 +94,7 @@ export function EditJourneySheet({
   onClose: () => void;
   onSave: (patch: JourneyPatch) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState(poi.name || '');
   const [region, setRegion] = useState(poi.region || '');
   const [days, setDays] = useState(poi.days || '');
@@ -128,30 +130,30 @@ export function EditJourneySheet({
 
   const rightAction = (
     <Press onPress={save} disabled={!canSave} style={{ paddingHorizontal: 4 }}>
-      <Text style={{ fontSize: 16, fontWeight: '700', color: canSave ? theme.accent : theme.text3 }}>保存</Text>
+      <Text style={{ fontSize: 16, fontWeight: '700', color: canSave ? theme.accent : theme.text3 }}>{t('common.save')}</Text>
     </Press>
   );
 
   return (
-    <FullOverlay theme={theme} title="编辑旅程信息" subtitle={poi.name} onClose={onClose} rightAction={rightAction} zIndex={160}>
+    <FullOverlay theme={theme} title={t('journeyEdit.editTitle')} subtitle={poi.name} onClose={onClose} rightAction={rightAction} zIndex={160}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={{ padding: 16, gap: 22 }}>
-          <Group theme={theme} title="基本信息">
-            <Field theme={theme} label="名称" value={name} onChange={setName} placeholder="旅程名称" />
-            <Field theme={theme} label="地区" value={region} onChange={setRegion} placeholder="如 四川 · 阿坝" last />
+          <Group theme={theme} title={t('journeyEdit.sectionBasic')}>
+            <Field theme={theme} label={t('journeyEdit.fieldName')} value={name} onChange={setName} placeholder={t('journeyEdit.placeholderName')} />
+            <Field theme={theme} label={t('journeyEdit.fieldRegion')} value={region} onChange={setRegion} placeholder={t('journeyEdit.placeholderRegion')} last />
           </Group>
 
-          <Group theme={theme} title="行程">
-            <Field theme={theme} label="天数" value={days} onChange={setDays} placeholder="如 3 天" />
+          <Group theme={theme} title={t('journeyEdit.sectionItinerary')}>
+            <Field theme={theme} label={t('journeyEdit.fieldDays')} value={days} onChange={setDays} placeholder={t('journeyEdit.placeholderDays')} />
             {isPlanning ? (
-              <Field theme={theme} label="计划出发" value={planned} onChange={setPlanned} placeholder="如 6 月 24 日" last />
+              <Field theme={theme} label={t('journeyEdit.fieldPlannedStart')} value={planned} onChange={setPlanned} placeholder={t('journeyEdit.placeholderPlannedStart')} last />
             ) : (
-              <Field theme={theme} label="日期" value={date} onChange={setDate} placeholder="如 2025 · 10 月" last />
+              <Field theme={theme} label={t('journeyEdit.fieldDate')} value={date} onChange={setDate} placeholder={t('journeyEdit.placeholderDate')} last />
             )}
           </Group>
 
-          <Group theme={theme} title="简介" footer="一句话记录这段旅程的亮点与回忆。">
-            <Field theme={theme} value={desc} onChange={setDesc} placeholder="写点什么…" multiline last />
+          <Group theme={theme} title={t('journeyEdit.sectionDesc')} footer={t('journeyEdit.descFooter')}>
+            <Field theme={theme} value={desc} onChange={setDesc} placeholder={t('journeyEdit.placeholderDesc')} multiline last />
           </Group>
         </View>
       </KeyboardAvoidingView>

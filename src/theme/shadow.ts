@@ -20,11 +20,13 @@ export function shadow(
   };
 }
 
-// Elevated card / glass surface shadow (matches the kaipa "elev" signature).
+// Elevated card / glass surface shadow — the shared signature for the 我 + 装备
+// cards (and the gear dropdown / bell button). Kept gentle so cards lift off a
+// white page without a heavy halo; the hairline border carries edge definition.
 export function elevCard(t: Theme): ViewStyle {
   return t.dark
-    ? shadow(0.4, 16, 4, '#000', 8)
-    : shadow(0.1, 18, 6, '#000', 5);
+    ? shadow(0.33, 12, 4, '#000', 4)
+    : shadow(0.07, 14, 4, '#000', 3);
 }
 
 // Strong floating element (tab bar, FAB, nav buttons).

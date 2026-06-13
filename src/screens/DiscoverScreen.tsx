@@ -6,6 +6,7 @@ import { View, Text, ScrollView, useWindowDimensions, StyleSheet } from 'react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
+import { useI18n, TKey } from '../i18n';
 import { EXPLORE_POIS, MEMORY_POIS, Poi } from '../data/pois';
 import { Globe, MAPBOX_ENABLED } from '../components/globe';
 import { GlassIconBtn } from '../components/Glass';
@@ -18,20 +19,51 @@ import { SelectedPoiCard } from './JourneyCard';
 import { KPState, KPSkeletonLine } from '../components/State';
 import { elevFloat } from '../theme/shadow';
 
-const EXPLORE_CHIPS = ['全部', '简单', '高爬升', '近距离', '我的'];
-const MEMORY_CHIPS = ['全部', '计划中', '进行中', '已完成', '收藏'];
+// Chips carry a stable id (used by the filter logic + as the i18n key suffix);
+// their display label is resolved per-language at render time.
+const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
+const MEMORY_CHIPS = ['all', 'planning', 'ongoing', 'completed', 'fav'] as const;
 
 function num(s: string) {
   const m = s.replace(/,/g, '').match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
 }
 
+// One pin per place: journeys that share a trailhead are grouped (再次出发 clones
+// a route at the same coordinate, so the new plan would otherwise sit exactly on
+// top of the old memory and hide it). The representative pin shows the most
+// "active" status — an in-progress trip wins over an upcoming plan over a past
+// memory — and a badge with the group size.
+const STATUS_RANK: Record<string, number> = { ongoing: 0, planning: 1, completed: 2 };
+const poiRank = (p: Poi) => (p.status ? STATUS_RANK[p.status] ?? 3 : 3);
+const placeKey = (p: Poi) => `${(p.lng ?? 0).toFixed(4)},${(p.lat ?? 0).toFixed(4)}`;
+
+function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
+  const byPlace = new Map<string, Poi[]>();
+  for (const p of list) {
+    const k = placeKey(p);
+    const arr = byPlace.get(k);
+    if (arr) arr.push(p);
+    else byPlace.set(k, [p]);
+  }
+  return [...byPlace.values()].map((group) => ({
+    rep: group.reduce((best, p) => (poiRank(p) < poiRank(best) ? p : best), group[0]),
+    group,
+  }));
+}
+
 export function DiscoverScreen({ theme }: { theme: Theme }) {
   const nav = useNav();
+  const { t } = useI18n();
+  const chipLabel = (id: string) =>
+    t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const isMemory = nav.subTab === 'memory';
   const [chip, setChip] = React.useState(0);
+  // When a clustered map pin is tapped, the same journey-list sheet is scoped to
+  // that trailhead (coordinate key) — only the header copy changes to 这个地点的旅程.
+  const [placeSel, setPlaceSel] = React.useState<string | null>(null);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
 
   // The real Mapbox globe sits on black starry space in BOTH appearance modes,
@@ -41,7 +73,10 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // so there we leave the chrome on the real theme.
   const chromeTheme = MAPBOX_ENABLED && !theme.dark ? makeTheme('dark', theme.accent) : theme;
 
-  React.useEffect(() => setChip(0), [isMemory]);
+  React.useEffect(() => {
+    setChip(0);
+    setPlaceSel(null);
+  }, [isMemory]);
 
   const basePois: Poi[] = useMemo(() => {
     if (isMemory) {
@@ -57,19 +92,52 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     let list = [...basePois];
     if (isMemory) {
       const key = MEMORY_CHIPS[chip];
-      if (key === '计划中') list = list.filter((p) => p.status === 'planning');
-      else if (key === '进行中') list = list.filter((p) => p.status === 'ongoing');
-      else if (key === '已完成') list = list.filter((p) => p.status === 'completed');
-      else if (key === '收藏') list = list.filter((p) => p.fav);
+      if (key === 'planning') list = list.filter((p) => p.status === 'planning');
+      else if (key === 'ongoing') list = list.filter((p) => p.status === 'ongoing');
+      else if (key === 'completed') list = list.filter((p) => p.status === 'completed');
+      else if (key === 'fav') list = list.filter((p) => p.fav);
     } else {
       const key = EXPLORE_CHIPS[chip];
-      if (key === '简单') list = list.filter((p) => p.diff === '易' || p.diff === '中');
-      else if (key === '高爬升') list = [...list].sort((a, b) => num(b.asc) - num(a.asc));
-      else if (key === '近距离') list = [...list].sort((a, b) => num(a.dist) - num(b.dist));
-      else if (key === '我的') list = list.filter((p) => p.mine);
+      if (key === 'easy') list = list.filter((p) => p.diff === '易' || p.diff === '中');
+      else if (key === 'highAsc') list = [...list].sort((a, b) => num(b.asc) - num(a.asc));
+      else if (key === 'near') list = [...list].sort((a, b) => num(a.dist) - num(b.dist));
+      else if (key === 'mine') list = list.filter((p) => p.mine);
     }
     return list;
   }, [basePois, chip, isMemory]);
+
+  // The sheet's list: scoped to one trailhead when a clustered pin is tapped,
+  // otherwise the full (chip-filtered) list. The map still shows every place.
+  const displayPois = useMemo(
+    () => (placeSel ? pois.filter((p) => placeKey(p) === placeSel) : pois),
+    [pois, placeSel]
+  );
+
+  // In place view the header ＋ means 再次出发 on this trailhead: seed the new
+  // journey flow with the place's route (most-active journey as the template).
+  // Drawn from basePois so it survives chip filtering hiding every row.
+  const placePreset = useMemo(() => {
+    if (!placeSel) return undefined;
+    return basePois
+      .filter((p) => placeKey(p) === placeSel)
+      .reduce<Poi | undefined>((best, p) => (!best || poiRank(p) < poiRank(best) ? p : best), undefined);
+  }, [placeSel, basePois]);
+
+  // Map pins: one per place, with a count badge when several journeys share it.
+  const placeGroups = useMemo(() => groupByPlace(pois), [pois]);
+  const repIdToGroup = useMemo(() => {
+    const m = new Map<string, Poi[]>();
+    placeGroups.forEach((g) => m.set(g.rep.id, g.group));
+    return m;
+  }, [placeGroups]);
+  // Highlight the place's pin whenever any journey at that place is selected
+  // (the selected sibling may not be the representative shown on the map).
+  const activeRepId = useMemo(() => {
+    const sel = nav.pointInfo?.id;
+    if (!sel) return null;
+    const g = placeGroups.find((grp) => grp.group.some((p) => p.id === sel));
+    return g ? g.rep.id : sel;
+  }, [placeGroups, nav.pointInfo?.id]);
 
   const globeSize = Math.min(width * 0.86, 360);
   const tabSpace = insets.bottom + 76; // floating tab bar clearance (when shown)
@@ -85,7 +153,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
 
   // sheet stats
-  const totalKm = useMemo(() => pois.reduce((s, p) => s + num(p.dist), 0), [pois]);
+  const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
@@ -95,22 +163,39 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const header = (
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <View>
-          <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-            {isMemory ? 'MY JOURNEYS' : 'FEATURED'}
-          </Text>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
-            {isMemory ? '我的旅程' : '为你推荐'}
-          </Text>
-          <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-            {isMemory
-              ? `${pois.length} 段旅程 · ${Math.round(totalKm)} km`
-              : `${pois.length} 条路线 · 持续更新`}
-          </Text>
-        </View>
+        {placeSel ? (
+          // place view: the title doubles as a "‹ 我的旅程" back breadcrumb; the
+          // filter chips below stay live and filter within this trailhead.
+          <Press onPress={() => setPlaceSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
+            <Icon name="chevronL" color={theme.accent} size={16} />
+            <View style={{ flexShrink: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: theme.accent, letterSpacing: 0.4 }}>{t('discover.titleMyJourneys')}</Text>
+              <Text numberOfLines={1} style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
+                {t('discover.titlePlace')}
+              </Text>
+              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
+                {t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })}
+              </Text>
+            </View>
+          </Press>
+        ) : (
+          <View>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+              {isMemory ? t('discover.kickerMyJourneys') : t('discover.kickerFeatured')}
+            </Text>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
+              {isMemory ? t('discover.titleMyJourneys') : t('discover.titleFeatured')}
+            </Text>
+            <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
+              {isMemory
+                ? t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })
+                : t('discover.countRoutes', { count: displayPois.length })}
+            </Text>
+          </View>
+        )}
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
           <Press
-            onPress={() => nav.showToast('筛选')}
+            onPress={() => nav.showToast(t('discover.toastFilter'))}
             style={{
               width: 30,
               height: 30,
@@ -123,7 +208,9 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             <Icon name="filter" color={theme.text2} size={17} />
           </Press>
           <Press
-            onPress={() => (isMemory ? nav.openNewJourney() : nav.openAddRoute())}
+            onPress={() =>
+              placeSel ? nav.openNewJourney(placePreset) : isMemory ? nav.openNewJourney() : nav.openAddRoute()
+            }
             style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}
           >
             <Icon name="plus" color="#fff" size={18} />
@@ -136,7 +223,9 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         contentContainerStyle={{ gap: 6, paddingTop: 12, paddingRight: 16 }}
       >
         {(isMemory ? MEMORY_CHIPS : EXPLORE_CHIPS).map((c, i) => (
-          <FilterChip key={c} theme={theme} label={c} active={chip === i} onPress={() => setChip(i)} />
+          // chips filter the current list — within this trailhead in place view,
+          // or the whole journey list otherwise.
+          <FilterChip key={c} theme={theme} label={chipLabel(c)} active={chip === i} onPress={() => setChip(i)} />
         ))}
       </ScrollView>
     </View>
@@ -150,11 +239,22 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         <Globe
           theme={theme}
           size={globeSize}
-          pois={pois.map((p) => ({ id: p.id, lng: p.lng, lat: p.lat, status: p.status, mine: p.mine, tone: p.tone }))}
-          activePoiId={nav.pointInfo?.id}
+          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, status: rep.status, mine: rep.mine, tone: rep.tone, count: group.length }))}
+          activePoiId={activeRepId}
           onPoiPress={(id) => {
-            const found = pois.find((p) => p.id === id);
-            if (found) nav.openPoint(found);
+            const group = repIdToGroup.get(id);
+            if (!group) return;
+            // One journey here → open its card. Several → scope the journey-list
+            // sheet to this trailhead so the user can pick the past memory vs. the
+            // 再次出发 plan (same list, just a 这个地点的旅程 header).
+            if (group.length === 1) {
+              setPlaceSel(null);
+              nav.openPoint(group[0]);
+              return;
+            }
+            setPlaceSel(placeKey(group[0]));
+            nav.closePoint();
+            nav.openSheet();
           }}
           onBackgroundPress={() => sheetRef.current?.dismiss()}
         />
@@ -172,8 +272,8 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           }}
         >
           {[
-            { id: 'explore', label: '探索' },
-            { id: 'memory', label: '旅程' },
+            { id: 'explore', label: t('discover.tabExplore') },
+            { id: 'memory', label: t('discover.tabMemory') },
           ].map((tab) => {
             const active = nav.subTab === tab.id;
             return (
@@ -200,10 +300,10 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
       {/* top-right chrome */}
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
-        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast('搜索')}>
+        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast(t('discover.toastSearch'))}>
           <Icon name="search" color={chromeTheme.text} size={19} />
         </GlassIconBtn>
-        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast('正北')}>
+        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast(t('discover.toastNorth'))}>
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="compassN" color={chromeTheme.text} size={22} />
           </View>
@@ -212,7 +312,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
       {/* locate button — sits above the pull-up pill (closed) or the open sheet */}
       <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? mid + 16 : tabSpace + 56 }}>
-        <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast('定位到当前位置')}>
+        <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
           <Icon name="locate" color={chromeTheme.accent} size={21} />
         </GlassIconBtn>
       </View>
@@ -238,7 +338,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             <View style={{ transform: [{ rotate: '180deg' }] }}>
               <Icon name="chevronDown" color={chromeTheme.accent} size={15} />
             </View>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: chromeTheme.text }}>{isMemory ? '我的旅程' : '为你推荐'}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: chromeTheme.text }}>{isMemory ? t('discover.pillMyJourneys') : t('discover.pillFeatured')}</Text>
           </Press>
         </View>
       )}
@@ -258,21 +358,24 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         header={header}
         compact={!!nav.pointInfo}
         bottomOffset={0}
-        onDismiss={() => nav.closeSheet()}
+        onDismiss={() => {
+          setPlaceSel(null);
+          nav.closeSheet();
+        }}
       >
         <View style={{ paddingHorizontal: 16 }}>
           {nav.pointInfo ? (
             <SelectedPoiCard theme={theme} poi={nav.pointInfo} />
           ) : listState === 'normal' ? (
-            pois.length === 0 ? (
+            displayPois.length === 0 ? (
               <KPState
                 theme={theme}
                 icon={isMemory ? 'route' : 'search'}
-                title={isMemory ? '还没有这类旅程' : '没有匹配的路线'}
-                body={isMemory ? '切换筛选或发起一段新的旅程。' : '试试别的筛选条件。'}
+                title={isMemory ? t('discover.emptyJourneysTitle') : t('discover.emptyRoutesTitle')}
+                body={isMemory ? t('discover.emptyJourneysBody') : t('discover.emptyRoutesBody')}
               />
             ) : (
-              pois.map((p) => <PoiRow key={p.id} theme={theme} poi={p} onPress={() => nav.openPoint(p)} />)
+              displayPois.map((p) => <PoiRow key={p.id} theme={theme} poi={p} onPress={() => nav.openPoint(p)} />)
             )
           ) : (
             <View style={{ gap: 14, paddingTop: 8 }}>

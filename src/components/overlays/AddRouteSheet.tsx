@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
+import { useI18n } from '../../i18n';
 
 function OptionCard({
   theme,
@@ -46,6 +47,7 @@ function OptionCard({
 }
 
 export function AddRouteSheet({ theme, onClose, onUpload }: { theme: Theme; onClose: () => void; onUpload: () => void }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -71,19 +73,19 @@ export function AddRouteSheet({ theme, onClose, onUpload }: { theme: Theme; onCl
         <View style={{ alignSelf: 'center', width: 36, height: 5, borderRadius: 3, backgroundColor: theme.text3, marginBottom: 12 }} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
           <View>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6 }}>新增到路线库</Text>
-            <Text style={{ fontSize: 19, fontWeight: '700', color: theme.text, marginTop: 2 }}>添加路线</Text>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6 }}>{t('journeyEdit.addRoute.kicker')}</Text>
+            <Text style={{ fontSize: 19, fontWeight: '700', color: theme.text, marginTop: 2 }}>{t('journeyEdit.addRoute.title')}</Text>
           </View>
           <Press onPress={onClose}>
-            <Text style={{ fontSize: 15, color: theme.accent, fontWeight: '600' }}>取消</Text>
+            <Text style={{ fontSize: 15, color: theme.accent, fontWeight: '600' }}>{t('common.cancel')}</Text>
           </Press>
         </View>
         <Text style={{ fontSize: 12.5, color: theme.text2, marginBottom: 16, lineHeight: 18 }}>
-          路线是可被搜索、收藏与开始旅程的模板。
+          {t('journeyEdit.addRoute.desc')}
         </Text>
         <View style={{ gap: 10 }}>
-          <OptionCard theme={theme} icon="upload" title="上传轨迹文件" sub="从手表、设备或其他 app 导入 GPX / KML" onPress={onUpload} />
-          <OptionCard theme={theme} icon="route" title="在地图上手动绘制" sub="点选或拖动绘制新路线 · 即将上线" disabled />
+          <OptionCard theme={theme} icon="upload" title={t('journeyEdit.addRoute.uploadTitle')} sub={t('journeyEdit.addRoute.uploadSub')} onPress={onUpload} />
+          <OptionCard theme={theme} icon="route" title={t('journeyEdit.addRoute.drawTitle')} sub={t('journeyEdit.addRoute.drawSub')} disabled />
         </View>
       </Animated.View>
     </View>

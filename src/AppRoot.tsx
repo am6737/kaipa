@@ -6,7 +6,9 @@ import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from './theme/AppearanceContext';
+import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
+import { NotifProvider } from './data/notifications';
 import { AuthFlow } from './screens/AuthFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { GearScreen } from './screens/GearScreen';
@@ -26,6 +28,7 @@ import { Toast } from './components/Toast';
 
 function AppShell() {
   const theme = useTheme();
+  const { t } = useI18n();
   const nav = useNav();
 
   let screen: React.ReactNode;
@@ -40,7 +43,7 @@ function AppShell() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {screen}
-      <BottomTabs theme={theme} hidden={sheetUp} />
+      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden} />
 
       {nav.addRouteOpen && (
         <AddRouteSheet
@@ -48,19 +51,20 @@ function AppShell() {
           onClose={() => nav.closeAddRoute()}
           onUpload={() => {
             nav.closeAddRoute();
-            nav.showToast('上传轨迹文件');
+            nav.showToast(t('appShell.toastUploadTrack'));
           }}
         />
       )}
       {nav.newJourneyOpen && (
         <NewJourneySheet
           theme={theme}
+          preset={nav.newJourneyPreset}
           onClose={() => nav.closeNewJourney()}
           onToast={(m) => nav.showToast(m)}
           onCreate={(poi) => {
             nav.addJoinedJourney(poi);
             nav.closeNewJourney();
-            nav.showToast(poi.status === 'ongoing' ? '旅程已开始' : poi.status === 'completed' ? '回忆已记录' : '已加入计划');
+            nav.showToast(poi.status === 'ongoing' ? t('appShell.toastJourneyStarted') : poi.status === 'completed' ? t('appShell.toastMemoryLogged') : t('appShell.toastPlanJoined'));
             nav.openPoint(poi);
           }}
         />
@@ -77,7 +81,7 @@ function AppShell() {
           onSave={(patch) => {
             nav.patchCurrent(patch);
             nav.closeEditJourney();
-            nav.showToast('旅程信息已更新');
+            nav.showToast(t('appShell.toastJourneyUpdated'));
           }}
         />
       )}
@@ -127,7 +131,9 @@ export function AppRoot() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       {authed === null ? null : authed ? (
         <NavProvider auth={{ signOut }}>
-          <AppShell />
+          <NotifProvider>
+            <AppShell />
+          </NotifProvider>
         </NavProvider>
       ) : (
         <AuthFlow theme={theme} onSuccess={signIn} />

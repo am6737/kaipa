@@ -44,7 +44,8 @@ export type IconName =
   | 'eyeOff'
   | 'flag'
   | 'play'
-  | 'people';
+  | 'people'
+  | 'globe';
 
 interface Props {
   name: IconName;
@@ -97,6 +98,16 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Circle cx={9} cy={8} r={3} {...common} />
           <Path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" {...common} />
           <Path d="M16 6.5a3 3 0 0 1 0 5.5m1 1.2c2.3.5 4 2.4 4 4.8" {...common} />
+        </Svg>
+      );
+    case 'globe':
+      // language/translate — a globe with equator + two meridians (iOS-style)
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={12} cy={12} r={9} {...common} />
+          <Line x1={3} y1={12} x2={21} y2={12} {...common} />
+          <Path d="M12 3c-3 2.5-3 15.5 0 18" {...common} />
+          <Path d="M12 3c3 2.5 3 15.5 0 18" {...common} />
         </Svg>
       );
     case 'search':

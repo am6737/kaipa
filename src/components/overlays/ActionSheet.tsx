@@ -4,9 +4,11 @@ import { View, Text, Animated, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
+import { useI18n } from '../../i18n';
 import { ActionSheetConfig } from '../../nav/NavContext';
 
 export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: ActionSheetConfig; onClose: () => void }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -61,7 +63,7 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
             backgroundColor: pressed ? (theme.dark ? 'rgba(60,60,64,0.96)' : 'rgba(245,245,247,1)') : groupBg,
           })}
         >
-          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.accent }}>取消</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.accent }}>{t('common.cancel')}</Text>
         </Pressable>
       </Animated.View>
     </View>

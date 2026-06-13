@@ -10,6 +10,7 @@ import { Poi } from '../../data/pois';
 import { buildElevation } from '../../data/elevation';
 import { FullOverlay } from './FullOverlay';
 import { useWindowDimensions } from 'react-native';
+import { useI18n } from '../../i18n';
 
 function Stat({ theme, value, unit, label, color }: { theme: Theme; value: string; unit?: string; label: string; color?: string }) {
   return (
@@ -25,6 +26,7 @@ function Stat({ theme, value, unit, label, color }: { theme: Theme; value: strin
 
 export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; info: Poi; isMine?: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const series = useMemo(() => buildElevation(info), [info.id]);
   const [idx, setIdx] = useState(Math.round(series.peakIdx));
@@ -49,14 +51,14 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
   const gridYs = [0, 0.25, 0.5, 0.75, 1].map((f) => 16 + f * (H - 26));
 
   const waypoints = [
-    { name: '起点', km: 0 },
-    { name: '观景台', km: totalKm * 0.32 },
-    { name: '最高点', km: pts[series.peakIdx].km },
-    { name: '终点', km: totalKm },
+    { name: t('journey.elevation.waypointStart'), km: 0 },
+    { name: t('journey.elevation.waypointViewpoint'), km: totalKm * 0.32 },
+    { name: t('journey.elevation.waypointPeak'), km: pts[series.peakIdx].km },
+    { name: t('journey.elevation.waypointEnd'), km: totalKm },
   ];
 
   return (
-    <FullOverlay theme={theme} title="海拔曲线" subtitle={`${info.name} · ${info.dist}`} onClose={onClose}>
+    <FullOverlay theme={theme} title={t('journey.elevation.title')} subtitle={`${info.name} · ${info.dist}`} onClose={onClose}>
       <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
         <Svg width={W} height={H}>
           <Defs>
@@ -83,14 +85,14 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
         </View>
 
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 18 }}>
-          <Stat theme={theme} value={String(maxEle)} unit="m" label="最高" />
-          <Stat theme={theme} value={String(minEle)} unit="m" label="最低" />
-          <Stat theme={theme} value={'+' + series.ascent} unit="m" label="累计爬升" color={theme.accent} />
-          <Stat theme={theme} value={'-' + series.descent} unit="m" label="累计下降" />
+          <Stat theme={theme} value={String(maxEle)} unit="m" label={t('journey.elevation.max')} />
+          <Stat theme={theme} value={String(minEle)} unit="m" label={t('journey.elevation.min')} />
+          <Stat theme={theme} value={'+' + series.ascent} unit="m" label={t('journey.elevation.ascent')} color={theme.accent} />
+          <Stat theme={theme} value={'-' + series.descent} unit="m" label={t('journey.elevation.descent')} />
         </View>
 
         <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text3, letterSpacing: 0.6, textTransform: 'uppercase', marginTop: 22, marginBottom: 10 }}>
-          途经点
+          {t('journey.elevation.waypoints')}
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {waypoints.map((w, i) => {

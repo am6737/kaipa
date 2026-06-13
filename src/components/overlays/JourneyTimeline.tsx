@@ -18,6 +18,7 @@ import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { FullOverlay } from './FullOverlay';
 import { useNav } from '../../nav/NavContext';
+import { useI18n } from '../../i18n';
 
 // ── Check control: 'done' (filled tick) | 'current' (calm ring) | 'todo' ──────
 function Check({ theme, state, onPress }: { theme: Theme; state: 'done' | 'current' | 'todo'; onPress?: () => void }) {
@@ -51,13 +52,14 @@ function DayPill({ theme, label }: { theme: Theme; label: string }) {
 }
 
 function ProgressBar({ theme, done, total }: { theme: Theme; done: number; total: number }) {
+  const { t } = useI18n();
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <View>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
         <Text style={{ fontSize: 13, color: theme.text2 }}>
           <Text style={{ fontWeight: '800', fontSize: 17, color: theme.text }}>{done}</Text>
-          <Text style={{ fontWeight: '600' }}> / {total} 完成</Text>
+          <Text style={{ fontWeight: '600' }}> {t('journey.timeline.ofDone', { total })}</Text>
         </Text>
         <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3 }}>{pct}%</Text>
       </View>
@@ -140,6 +142,7 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
 // entry's attachments. Placeholder art for now; video shows a play affordance.
 function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme; media: TLMedia[]; index: number; seedBase: string; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const [i, setI] = useState(index || 0);
   const m = media[i] || media[0];
@@ -149,7 +152,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 210, backgroundColor: 'rgba(0,0,0,0.94)' }]}>
       <View style={{ paddingTop: insets.top + 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
-        <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' }}>{media.length > 1 ? `${i + 1} / ${media.length}` : m.video ? '视频' : '照片'}</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' }}>{media.length > 1 ? `${i + 1} / ${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}</Text>
         <Press onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="close" color="#fff" size={16} />
         </Press>
@@ -183,6 +186,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
 // ── Add sheet — bottom-sheet composer for a rich timeline entry ──────────────
 function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup[]; onAdd: (it: Omit<TLRow, 'id'>) => void; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
   const [title, setTitle] = useState('');
   const [day, setDay] = useState<DayKey>(days[0] ? days[0].key : 'pre');
   const [media, setMedia] = useState<TLMedia[]>([]);
@@ -210,7 +214,7 @@ function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup
             onChangeText={setTitle}
             autoFocus
             multiline
-            placeholder="记一条行程… 计划、提醒，或路上的见闻"
+            placeholder={t('journey.timeline.addPlaceholder')}
             placeholderTextColor={theme.text3}
             style={{
               minHeight: 76,
@@ -262,15 +266,15 @@ function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
             <Press onPress={() => addMedia(false)} style={{ flex: 1, height: 44, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
               <Icon name="photo" color={theme.text2} size={17} />
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>照片</Text>
+              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>{t('journey.media.photo')}</Text>
             </Press>
             <Press onPress={() => addMedia(true)} style={{ flex: 1, height: 44, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
               <Icon name="play" color={theme.text2} size={15} />
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>视频</Text>
+              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>{t('journey.media.video')}</Text>
             </Press>
           </View>
 
-          <Text style={{ fontSize: 11, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, marginBottom: 9 }}>安排在</Text>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, marginBottom: 9 }}>{t('journey.timeline.scheduleOn')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingBottom: 2 }} style={{ marginBottom: 20 }}>
             {dayOpts.map((d) => {
               const on = day === d.key;
@@ -284,7 +288,7 @@ function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup
 
           <Press onPress={submit} disabled={!can} style={{ height: 50, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: can ? theme.accent : theme.dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }}>
             <Icon name="plus" color={can ? '#fff' : theme.text3} size={16} strokeWidth={2.4} />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>添加到行程</Text>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>{t('journey.timeline.addToTimeline')}</Text>
           </Press>
         </View>
       </KeyboardAvoidingView>
@@ -309,6 +313,7 @@ function CardHeader({ theme, title, action, onAction }: { theme: Theme; title: s
 // ── INLINE CARD — a focused "接下来" digest on the journey detail ─────────────
 export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }) {
   const nav = useNav();
+  const { t } = useI18n();
   const store = useJStore(info.id);
   const status = (info.status || 'completed') as JourneyStatus;
   const tl = buildTimeline(info, status, store.items());
@@ -325,7 +330,7 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
 
   return (
     <View style={{ paddingBottom: 18 }}>
-      <CardHeader theme={theme} title="行程" action="全部" onAction={() => nav.openTimeline(info)} />
+      <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
       <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
         <View style={{ padding: 14, borderBottomWidth: allDone ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <ProgressBar theme={theme} done={doneCount} total={tl.total} />
@@ -333,8 +338,8 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
         {!allDone ? (
           <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2, letterSpacing: 0.6 }}>接下来</Text>
-              <Text style={{ fontSize: 11.5, color: theme.text3 }}>还有 {pending.length} 项</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2, letterSpacing: 0.6 }}>{t('journey.timeline.upNext')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text3 }}>{t('journey.timeline.remaining', { count: pending.length })}</Text>
             </View>
             {upNext.map((r, i, arr) => (
               <Row key={r.id} theme={theme} row={r} done={isDone(r)} showDay compact onToggle={() => store.toggle(r.id)} connector={i < arr.length - 1} last={i === arr.length - 1} />
@@ -348,6 +353,7 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
 
 // ── FULL-SCREEN — complete day-grouped checkable timeline ────────────────────
 export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; info: Poi; onClose: () => void }) {
+  const { t } = useI18n();
   const store = useJStore(info.id);
   const status = (info.status || 'completed') as JourneyStatus;
   const [adding, setAdding] = useState(false);
@@ -361,13 +367,13 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
   const addBtn = (
     <Press onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 10, paddingRight: 13, borderRadius: 16, backgroundColor: theme.accent }}>
       <Icon name="plus" color="#fff" size={15} strokeWidth={2.6} />
-      <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>添加</Text>
+      <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>{t('common.add')}</Text>
     </Press>
   );
 
   return (
     <>
-      <FullOverlay theme={theme} title="行程" subtitle={`${tl.total} 项安排 · 已完成 ${doneCount}`} onClose={onClose} zIndex={150} rightAction={addBtn}>
+      <FullOverlay theme={theme} title={t('journey.timeline.title')} subtitle={t('journey.timeline.fullSubtitle', { total: tl.total, done: doneCount })} onClose={onClose} zIndex={150} rightAction={addBtn}>
         <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
           <ProgressBar theme={theme} done={doneCount} total={tl.total} />
         </View>
@@ -377,7 +383,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 }}>
                 <Text style={{ fontSize: 13, fontWeight: '800', color: theme.text, letterSpacing: 0.2 }}>{g.label}</Text>
                 <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
-                <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{g.rows.length} 项</Text>
+                <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{t('journey.timeline.itemCount', { count: g.rows.length })}</Text>
               </View>
               {g.rows.map((r, i) => (
                 <Row

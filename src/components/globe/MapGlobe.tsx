@@ -44,6 +44,9 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
         style={{ flex: 1 }}
         projection="globe"
         styleURL={STANDARD_STYLE}
+        // Render labels in the device's system language (e.g. 中文 on a zh phone),
+        // not the map's default. `current` resolves the system locale natively.
+        localizeLabels={{ locale: 'current' }}
         onPress={() => onBackgroundPress?.()}
         scaleBarEnabled={false}
         logoEnabled={false}
@@ -59,17 +62,18 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
             the globe; the user can freely zoom all the way into a detailed map,
             Apple-Maps style. */}
         <Camera defaultSettings={{ centerCoordinate: [lon0, lat0], zoomLevel: 1.6 }} />
-        {/* Standard style basemap config: strip every label for a minimal earth,
-            and follow the app's light/dark mode via the light preset. */}
+        {/* Standard style basemap config: show all labels (place / road / POI /
+            transit) so zooming in reveals region, road and place names — a full
+            map experience. Follows the app's light/dark mode via the light preset. */}
         <StyleImport
           id="basemap"
           existing
           config={{
             lightPreset: theme.mapLightPreset,
-            showPlaceLabels: false,
-            showRoadLabels: false,
-            showPointOfInterestLabels: false,
-            showTransitLabels: false,
+            showPlaceLabels: true,
+            showRoadLabels: true,
+            showPointOfInterestLabels: true,
+            showTransitLabels: true,
           } as any}
         />
         {/* The earth in real space: a faint, dim atmosphere rim (low near-horizon

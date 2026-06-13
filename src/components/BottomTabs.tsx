@@ -8,17 +8,19 @@ import { Theme } from '../theme/theme';
 import { Icon, IconName } from './Icon';
 import { Press } from './Press';
 import { useNav, MainTab } from '../nav/NavContext';
+import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { elevFloat, shadow } from '../theme/shadow';
 
-const TABS: { id: MainTab; label: string; icon: IconName }[] = [
-  { id: 'gear', label: '装备', icon: 'bag' },
-  { id: 'discover', label: '发现', icon: 'compass' },
-  { id: 'me', label: '我', icon: 'user' },
+const TABS: { id: MainTab; icon: IconName }[] = [
+  { id: 'gear', icon: 'bag' },
+  { id: 'discover', icon: 'compass' },
+  { id: 'me', icon: 'user' },
 ];
 
 export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: boolean }) {
   const nav = useNav();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { unread } = useNotifCenter();
 
@@ -119,7 +121,7 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
                   )}
                 </View>
                 <Text style={{ fontSize: 11, fontWeight: active ? '700' : '500', color, letterSpacing: 0.2 }}>
-                  {tab.label}
+                  {t(`tabs.${tab.id}`)}
                 </Text>
               </Press>
             );

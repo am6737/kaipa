@@ -29,6 +29,9 @@ import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { RecordJourneySheet } from './RecordJourneySheet';
+import { useI18n, TKey, TVars } from '../../i18n';
+
+type TFn = (key: TKey, vars?: TVars) => string;
 
 // ──────────────────────────────────────────────────────────────
 // Route shape used by the picker (real explore routes + synthetic custom)
@@ -88,13 +91,13 @@ function njDayDiff(target: Date, ref: Date): number {
   const b = new Date(target.getFullYear(), target.getMonth(), target.getDate());
   return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
-function njDayLabel(target: Date, ref: Date): string {
+function njDayLabel(target: Date, ref: Date, t: TFn): string {
   const diff = njDayDiff(target, ref);
-  if (diff === 0) return '今天';
-  if (diff === 1) return '明天';
-  if (diff === 2) return '后天';
-  if (diff === -1) return '昨天';
-  if (diff < 7 && diff > 0) return `+${diff} 天`;
+  if (diff === 0) return t('journeyEdit.day.today');
+  if (diff === 1) return t('journeyEdit.day.tomorrow');
+  if (diff === 2) return t('journeyEdit.day.dayAfter');
+  if (diff === -1) return t('journeyEdit.day.yesterday');
+  if (diff < 7 && diff > 0) return t('journeyEdit.day.inDays', { count: diff });
   const m = String(target.getMonth() + 1).padStart(2, '0');
   const d = String(target.getDate()).padStart(2, '0');
   return `${m}/${d}`;
@@ -102,29 +105,30 @@ function njDayLabel(target: Date, ref: Date): string {
 function njFormatTime(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-function njFormatDateTime(d: Date, ref: Date): string {
-  return `${njDayLabel(d, ref)} · ${njFormatTime(d)}`;
+function njFormatDateTime(d: Date, ref: Date, t: TFn): string {
+  return `${njDayLabel(d, ref, t)} · ${njFormatTime(d)}`;
 }
-function njDurationLabel(mins: number): string {
-  if (mins < 60) return `${mins} 分钟`;
+function njDurationLabel(mins: number, t: TFn): string {
+  if (mins < 60) return t('journeyEdit.duration.minutes', { count: mins });
   if (mins < 60 * 24) {
     const h = mins / 60;
-    return Number.isInteger(h) ? `${h} 小时` : `${h.toFixed(1)} 小时`;
+    return t('journeyEdit.duration.hours', { count: Number.isInteger(h) ? h : h.toFixed(1) });
   }
   const days = mins / (60 * 24);
-  return Number.isInteger(days) ? `${days} 天` : `${days.toFixed(1)} 天`;
+  return t('journeyEdit.duration.days', { count: Number.isInteger(days) ? days : days.toFixed(1) });
 }
 
 const NJ_DEFAULT_DURATION = 60 * 24; // 24h
 
-const NJ_DURATION_OPTIONS = [
-  { value: 60 * 6, label: '6小时' },
-  { value: 60 * 12, label: '12小时' },
-  { value: 60 * 24, label: '1天' },
-  { value: 60 * 48, label: '2天' },
-  { value: 60 * 72, label: '3天' },
-  { value: 60 * 120, label: '5天' },
-  { value: 60 * 168, label: '7天' },
+// Quick-duration chips. Labels are i18n keys resolved at render (rules of hooks).
+const NJ_DURATION_OPTIONS: { value: number; labelKey: TKey }[] = [
+  { value: 60 * 6, labelKey: 'journeyEdit.durationChip.h6' },
+  { value: 60 * 12, labelKey: 'journeyEdit.durationChip.h12' },
+  { value: 60 * 24, labelKey: 'journeyEdit.durationChip.d1' },
+  { value: 60 * 48, labelKey: 'journeyEdit.durationChip.d2' },
+  { value: 60 * 72, labelKey: 'journeyEdit.durationChip.d3' },
+  { value: 60 * 120, labelKey: 'journeyEdit.durationChip.d5' },
+  { value: 60 * 168, labelKey: 'journeyEdit.durationChip.d7' },
 ];
 
 const NJ_TIME_OPTIONS = (() => {
@@ -283,6 +287,7 @@ function NJRouteCard({ theme, route, selected, onPress, compact }: { theme: Them
 // Calendar-style date picker — month view, navigable
 // ──────────────────────────────────────────────────────────────
 export function NJMiniCalendar({ theme, selectedDate, onSelect, allowPast }: { theme: Theme; selectedDate: Date; onSelect: (d: Date) => void; allowPast?: boolean }) {
+  const { t } = useI18n();
   const today = useMemo(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -324,7 +329,7 @@ export function NJMiniCalendar({ theme, selectedDate, onSelect, allowPast }: { t
       {/* Month header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingHorizontal: 2 }}>
         <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, letterSpacing: -0.2, flex: 1 }}>
-          {year} 年 {month + 1} 月
+          {t('journeyEdit.calendar.monthHeader', { year, month: month + 1 })}
         </Text>
         <Press onPress={() => canPrev && setCursor(new Date(year, month - 1, 1))} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', opacity: canPrev ? 1 : 0.35 }}>
           <Icon name="chevronL" color={theme.accent} size={16} />
@@ -336,7 +341,15 @@ export function NJMiniCalendar({ theme, selectedDate, onSelect, allowPast }: { t
 
       {/* Weekday labels */}
       <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-        {['日', '一', '二', '三', '四', '五', '六'].map((w, i) => (
+        {[
+          t('journeyEdit.weekday.sun'),
+          t('journeyEdit.weekday.mon'),
+          t('journeyEdit.weekday.tue'),
+          t('journeyEdit.weekday.wed'),
+          t('journeyEdit.weekday.thu'),
+          t('journeyEdit.weekday.fri'),
+          t('journeyEdit.weekday.sat'),
+        ].map((w, i) => (
           <View key={i} style={{ flex: 1, height: 22, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontSize: 10.5, fontWeight: '700', color: i === 0 || i === 6 ? '#FF5C3A' : theme.text2, letterSpacing: 0.4 }}>{w}</Text>
           </View>
@@ -531,6 +544,7 @@ export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls }: {
 // Time picker modal — calendar + time wheel + duration chips
 // ──────────────────────────────────────────────────────────────
 function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: { theme: Theme; startDt: Date; durationMins: number; onApply: (dt: Date, dur: number) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const [draftStart, setDraftStart] = useState(startDt);
   const [draftEnd, setDraftEnd] = useState(() => njAddMinutes(startDt, durationMins));
   const [active, setActive] = useState<'start' | 'end'>('start');
@@ -592,7 +606,7 @@ function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: {
         }}
       >
         <Text style={{ fontSize: 10.5, fontWeight: '700', color: on ? theme.text2 : theme.text3, letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</Text>
-        <Text style={{ fontSize: 15, fontWeight: '700', color: on ? theme.accent : theme.text2, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(dt, now)}</Text>
+        <Text style={{ fontSize: 15, fontWeight: '700', color: on ? theme.accent : theme.text2, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(dt, now, t)}</Text>
       </Press>
     );
   };
@@ -603,21 +617,21 @@ function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: {
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 2 }}>
           <Press onPress={onClose} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>取消</Text>
+            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
           </Press>
           <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, letterSpacing: -0.2 }}>选择时间</Text>
-            <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3, letterSpacing: 0.3 }}>· {njDurationLabel(draftDur)}</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, letterSpacing: -0.2 }}>{t('journeyEdit.time.pickTitle')}</Text>
+            <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3, letterSpacing: 0.3 }}>· {njDurationLabel(draftDur, t)}</Text>
           </View>
           <Press onPress={apply} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.accent, fontWeight: '700' }}>完成</Text>
+            <Text style={{ fontSize: 14.5, color: theme.accent, fontWeight: '700' }}>{t('common.done')}</Text>
           </Press>
         </View>
 
         {/* Segmented 出发 / 结束 */}
         <View style={{ flexDirection: 'row', gap: 4, padding: 4, marginBottom: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}>
-          <Tab k="start" label="出发" dt={draftStart} />
-          <Tab k="end" label="结束" dt={draftEnd} />
+          <Tab k="start" label={t('journeyEdit.time.start')} dt={draftStart} />
+          <Tab k="end" label={t('journeyEdit.time.end')} dt={draftEnd} />
         </View>
 
         {/* Calendar */}
@@ -627,13 +641,13 @@ function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: {
 
         {/* Time wheel */}
         <View style={{ alignItems: 'center', marginBottom: 6 }}>
-          <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>{active === 'start' ? '出发时刻' : '结束时刻'}</Text>
+          <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>{active === 'start' ? t('journeyEdit.time.startMoment') : t('journeyEdit.time.endMoment')}</Text>
         </View>
         <NJWheelPicker theme={theme} value={timeMins} onChange={onTimeChange} />
 
         {/* Quick durations */}
         <View style={{ marginTop: 14 }}>
-          <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>常用时长</Text>
+          <Text style={{ fontSize: 10.5, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>{t('journeyEdit.time.quickDuration')}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {NJ_DURATION_OPTIONS.map((d) => {
               const on = matchesDuration(d.value);
@@ -652,7 +666,7 @@ function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: {
                     justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ fontSize: 12.5, fontWeight: '600', color: on ? '#fff' : theme.text }}>{d.label}</Text>
+                  <Text style={{ fontSize: 12.5, fontWeight: '600', color: on ? '#fff' : theme.text }}>{t(d.labelKey)}</Text>
                 </Press>
               );
             })}
@@ -681,6 +695,7 @@ function NJQrDisplay({ seed, size = 172 }: { seed: string; size?: number }) {
 }
 
 export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: Theme; tripName: string; onClose: () => void; onToast: (m: string) => void }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const link = useMemo(() => {
@@ -693,13 +708,13 @@ export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: The
     <Press
       onPress={() => {
         setCopied(true);
-        onToast('邀请链接已复制');
+        onToast(t('journeyEdit.share.toastLinkCopied'));
         setTimeout(() => setCopied(false), 1500);
       }}
       style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: copied ? '#34C759' : theme.accent, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
     >
       <Icon name="check" color="#fff" size={13} strokeWidth={3} />
-      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{copied ? '已复制' : '复制链接'}</Text>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}</Text>
     </Press>
   );
 
@@ -707,9 +722,9 @@ export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: The
     <NJBottomSheet theme={theme} onClose={onClose} full>
       <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
         <View style={{ alignItems: 'center', marginBottom: 18 }}>
-          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>邀请同行</Text>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>{t('journeyEdit.share.title')}</Text>
           <Text style={{ fontSize: 12.5, color: theme.text2, marginTop: 4, lineHeight: 18, textAlign: 'center' }}>
-            扫码或复制链接，加入<Text style={{ color: theme.text, fontWeight: '600' }}>《{tripName || '新旅程'}》</Text>
+            {t('journeyEdit.share.lead')}<Text style={{ color: theme.text, fontWeight: '600' }}>《{tripName || t('journeyEdit.newJourneyName')}》</Text>
           </Text>
         </View>
 
@@ -727,12 +742,12 @@ export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: The
           <Press
             onPress={() => {
               setSaved(true);
-              onToast('二维码已保存');
+              onToast(t('journeyEdit.share.toastQrSaved'));
               setTimeout(() => setSaved(false), 1500);
             }}
             style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: saved ? '#34C759' : theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', borderWidth: saved ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
           >
-            <Text style={{ fontSize: 14, fontWeight: '700', color: saved ? '#fff' : theme.text }}>{saved ? '已保存' : '保存二维码'}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: saved ? '#fff' : theme.text }}>{saved ? t('common.saved') : t('journeyEdit.share.saveQr')}</Text>
           </Press>
         </View>
       </View>
@@ -750,11 +765,12 @@ function hashSeed(s: string): number {
 // Mode picker — record-past (deferred) vs plan-future
 // ──────────────────────────────────────────────────────────────
 function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; insetsTop: number; onClose: () => void; onPick: (m: 'plan' | 'record') => void }) {
+  const { t } = useI18n();
   const cards = [
     {
       key: 'record' as const,
-      title: '记录走过的',
-      sub: '上传走过的轨迹和照片，补一段回忆',
+      title: t('journeyEdit.mode.recordTitle'),
+      sub: t('journeyEdit.mode.recordSub'),
       icon: (c: string) => (
         <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
           <Path d="M4 19s3.5-1.5 6.5-6.5S17 5 20 4" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeDasharray="0.1 3.4" />
@@ -766,8 +782,8 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
     },
     {
       key: 'plan' as const,
-      title: '计划未来的',
-      sub: '选一条路线，安排出发时间和同行',
+      title: t('journeyEdit.mode.planTitle'),
+      sub: t('journeyEdit.mode.planSub'),
       icon: (c: string) => (
         <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
           <Path d="M6 3v18" stroke={c} strokeWidth={1.8} strokeLinecap="round" />
@@ -784,8 +800,8 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
         </NJRoundBtn>
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>新增旅程</Text>
-        <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 26, lineHeight: 21 }}>想记录一段走过的，还是计划一段新的？</Text>
+        <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.newTitle')}</Text>
+        <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 26, lineHeight: 21 }}>{t('journeyEdit.newSubtitle')}</Text>
         <View style={{ gap: 12 }}>
           {cards.map((c) => (
             <Press
@@ -811,16 +827,17 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
 // Step 0 — choose route
 // ──────────────────────────────────────────────────────────────
 function NJStepRoute({ theme, route, setRoute }: { theme: Theme; route: NJRoute | null; setRoute: (r: NJRoute) => void }) {
+  const { t } = useI18n();
   const [q, setQ] = useState('');
   const filtered = ROUTE_SUGGESTIONS.filter((r) => !q || r.name.includes(q) || r.region.includes(q));
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 32 }}>
-      <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>去哪儿走？</Text>
-      <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 22 }}>选一条路线，或自己起一段新的</Text>
+      <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.route.heading')}</Text>
+      <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 22 }}>{t('journeyEdit.route.subheading')}</Text>
 
-      <NJSection theme={theme} label="从头开始">
+      <NJSection theme={theme} label={t('journeyEdit.route.sectionScratch')}>
         <Press
-          onPress={() => setRoute({ id: 'custom', custom: true, name: '自定义旅程', region: '不基于已有路线', tone: 'rock', dist: '—', asc: '—', diff: '—' })}
+          onPress={() => setRoute({ id: 'custom', custom: true, name: t('journeyEdit.route.customName'), region: t('journeyEdit.route.customRegion'), tone: 'rock', dist: '—', asc: '—', diff: '—' })}
           style={{
             flexDirection: 'row',
             gap: 12,
@@ -840,22 +857,22 @@ function NJStepRoute({ theme, route, setRoute }: { theme: Theme; route: NJRoute 
             </Svg>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>自定义旅程</Text>
-            <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>没有现成路线？空白起一段</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>{t('journeyEdit.route.customName')}</Text>
+            <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>{t('journeyEdit.route.customHint')}</Text>
           </View>
         </Press>
       </NJSection>
 
-      <NJSection theme={theme} label="推荐路线">
+      <NJSection theme={theme} label={t('journeyEdit.route.sectionSuggested')}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingHorizontal: 12, borderRadius: 12, marginBottom: 10, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <Icon name="search" color={theme.text2} size={16} />
-          <TextInput value={q} onChangeText={setQ} placeholder="搜索路线 / 地区" placeholderTextColor={theme.text3} style={{ flex: 1, fontSize: 13.5, color: theme.text, padding: 0 }} />
+          <TextInput value={q} onChangeText={setQ} placeholder={t('journeyEdit.route.searchPlaceholder')} placeholderTextColor={theme.text3} style={{ flex: 1, fontSize: 13.5, color: theme.text, padding: 0 }} />
         </View>
         <View style={{ gap: 8 }}>
           {filtered.map((r) => (
             <NJRouteCard key={r.id} theme={theme} route={r} selected={!!route && route.id === r.id} onPress={() => setRoute(r)} />
           ))}
-          {filtered.length === 0 ? <Text style={{ paddingVertical: 20, textAlign: 'center', fontSize: 12, color: theme.text3 }}>没有找到匹配的路线</Text> : null}
+          {filtered.length === 0 ? <Text style={{ paddingVertical: 20, textAlign: 'center', fontSize: 12, color: theme.text3 }}>{t('journeyEdit.route.empty')}</Text> : null}
         </View>
       </NJSection>
     </View>
@@ -886,6 +903,7 @@ function NJStepDetails({
   onInvite: () => void;
   onOpenTimePicker: () => void;
 }) {
+  const { t } = useI18n();
   const now = useMemo(() => njRoundedNow(), []);
   const endDt = njAddMinutes(startDt, durationMins);
   const nameMissing = !tripName.trim();
@@ -894,17 +912,17 @@ function NJStepDetails({
     <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 32 }}>
       {!isOngoing && (
         <>
-          <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>完善行程信息</Text>
-          <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 22, lineHeight: 21 }}>出发时间、时长、伙伴都可以稍后调整</Text>
+          <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.details.heading')}</Text>
+          <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 22, lineHeight: 21 }}>{t('journeyEdit.details.subheading')}</Text>
         </>
       )}
 
       {/* Trip name */}
-      <NJSection theme={theme} label="旅程名称" hint={nameMissing ? <Text style={{ fontSize: 11, color: theme.danger }}>必填</Text> : null}>
+      <NJSection theme={theme} label={t('journeyEdit.details.nameLabel')} hint={nameMissing ? <Text style={{ fontSize: 11, color: theme.danger }}>{t('journeyEdit.details.required')}</Text> : null}>
         <TextInput
           value={tripName}
           onChangeText={setTripName}
-          placeholder="给这段旅程起个名字"
+          placeholder={t('journeyEdit.details.namePlaceholder')}
           placeholderTextColor={theme.text3}
           maxLength={32}
           style={{
@@ -922,45 +940,45 @@ function NJStepDetails({
       </NJSection>
 
       {/* Route summary */}
-      <NJSection theme={theme} label="路线">
+      <NJSection theme={theme} label={t('journeyEdit.details.routeLabel')}>
         <NJRouteCard theme={theme} route={route} compact />
       </NJSection>
 
       {/* Time + duration */}
-      <NJSection theme={theme} label="时间" hint={njDurationLabel(durationMins)}>
+      <NJSection theme={theme} label={t('journeyEdit.details.timeLabel')} hint={njDurationLabel(durationMins, t)}>
         <Press
           onPress={onOpenTimePicker}
           style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}
         >
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 10.5, color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>出发</Text>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(startDt, now)}</Text>
+            <Text style={{ fontSize: 10.5, color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>{t('journeyEdit.time.start')}</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(startDt, now, t)}</Text>
           </View>
           <Svg width={22} height={8} viewBox="0 0 22 8" fill="none">
             <Path d="M1 4h18m0 0-3-3m3 3-3 3" stroke={theme.text3} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
           <View style={{ flex: 1, alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 10.5, color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>结束</Text>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(endDt, now)}</Text>
+            <Text style={{ fontSize: 10.5, color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>{t('journeyEdit.time.end')}</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, marginTop: 2, letterSpacing: -0.2 }}>{njFormatDateTime(endDt, now, t)}</Text>
           </View>
         </Press>
       </NJSection>
 
       {/* Companions */}
       {!isOngoing && (
-        <NJSection theme={theme} label="同行伙伴" hint="默认只有自己">
+        <NJSection theme={theme} label={t('journeyEdit.details.companionsLabel')} hint={t('journeyEdit.details.companionsHint')}>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
               <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>陈</Text>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>{SELF.ini}</Text>
               </View>
               <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>
-                陈泽宇 <Text style={{ color: theme.text3, fontWeight: '500' }}>· 自己</Text>
+                {SELF.name} <Text style={{ color: theme.text3, fontWeight: '500' }}>· {t('journeyEdit.details.self')}</Text>
               </Text>
             </View>
             <Press onPress={onInvite} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 12, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.accent }}>
               <Icon name="plus" color="#fff" size={14} strokeWidth={2.2} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>邀请伙伴</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>{t('journeyEdit.details.invite')}</Text>
             </Press>
           </View>
         </NJSection>
@@ -968,14 +986,14 @@ function NJStepDetails({
 
       {/* "创建后" signpost */}
       {!isOngoing && (
-        <NJSection theme={theme} label="创建后">
+        <NJSection theme={theme} label={t('journeyEdit.details.afterCreateLabel')}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="list" color={theme.text2} size={18} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>时间线 · 待办 · 笔记</Text>
-              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2, lineHeight: 17 }}>在旅程详情里规划与编辑，随时可改</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{t('journeyEdit.details.afterCreateTitle')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2, lineHeight: 17 }}>{t('journeyEdit.details.afterCreateSub')}</Text>
             </View>
           </View>
         </NJSection>
@@ -988,6 +1006,7 @@ function NJStepDetails({
 // Step 2 — success
 // ──────────────────────────────────────────────────────────────
 function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { theme: Theme; route: NJRoute; tripName: string; isOngoing: boolean; durationMins: number }) {
+  const { t } = useI18n();
   const pop = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(pop, { toValue: 1, useNativeDriver: true, bounciness: 12, speed: 6 }).start();
@@ -1004,17 +1023,17 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
           <Icon name="check" color="#fff" size={48} strokeWidth={3.2} />
         )}
       </Animated.View>
-      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{isOngoing ? '已开始旅程' : '已加入计划'}</Text>
+      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{isOngoing ? t('journeyEdit.success.startedTitle') : t('journeyEdit.success.joinedTitle')}</Text>
       <Text style={{ fontSize: 14.5, color: theme.text2, marginTop: 8, lineHeight: 21, textAlign: 'center', maxWidth: 280 }}>
         <Text style={{ color: theme.text, fontWeight: '600' }}>《{tripName || route.name}》</Text>
         {'\n'}
-        {njDurationLabel(durationMins)}
-        {isOngoing ? '，沿途随手记' : '，可在「我的旅程」继续完善'}
+        {njDurationLabel(durationMins, t)}
+        {isOngoing ? t('journeyEdit.success.startedNote') : t('journeyEdit.success.joinedNote')}
       </Text>
       <View style={{ marginTop: 28, width: '100%', maxWidth: 320 }}>
         <NJRouteCard theme={theme} route={route} compact />
       </View>
-      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>{isOngoing ? '正在跳转至旅程详情…' : '正在跳转至我的旅程…'}</Text>
+      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>{isOngoing ? t('journeyEdit.success.redirectDetail') : t('journeyEdit.success.redirectMine')}</Text>
     </View>
   );
 }
@@ -1022,7 +1041,7 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
 // ──────────────────────────────────────────────────────────────
 // Build the journey Poi created by the flow
 // ──────────────────────────────────────────────────────────────
-function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number, status: JourneyStatus): Poi {
+function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number, status: JourneyStatus, t: TFn): Poi {
   const totalDays = Math.max(1, Math.ceil(durationMins / (60 * 24)));
   const m = startDt.getMonth() + 1;
   const d = startDt.getDate();
@@ -1041,7 +1060,7 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     asc: route.asc,
     diff: route.diff as Poi['diff'],
     tone: (route.tone as Poi['tone']) || 'rock',
-    days: `${totalDays} 天`,
+    days: t('journeyEdit.meta.days', { count: totalDays }),
     totalDays,
     companions: 0,
     companionList: [SELF],
@@ -1052,25 +1071,48 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
   };
   if (status === 'ongoing') {
     base.dayIndex = 1;
-    base.date = `记录到 Day 1/${totalDays}`;
+    base.date = t('journeyEdit.meta.recordedToDay', { total: totalDays });
   } else {
-    base.plannedDate = `${m} 月 ${d} 日`;
-    base.date = `${startDt.getFullYear()} · ${m} 月`;
+    base.plannedDate = t('journeyEdit.meta.plannedDate', { month: m, day: d });
+    base.date = t('journeyEdit.meta.yearMonth', { year: startDt.getFullYear(), month: m });
     const cd = Math.max(0, njDayDiff(startDt, njRoundedNow()));
     base.countdown = cd;
   }
   return base;
 }
 
+// Seed the route picker from an existing journey/route (再次出发 / 开始旅程).
+// We clone the route facts onto a fresh planned journey, so reuse the journey's
+// original routeId when it has one, otherwise its own id.
+function presetToRoute(p: Poi): NJRoute {
+  return {
+    id: p.routeId || p.id,
+    name: p.name,
+    region: p.region,
+    dist: p.dist,
+    asc: p.asc,
+    diff: p.diff,
+    tone: p.tone,
+    lng: p.lng,
+    lat: p.lat,
+    coord: p.coord,
+  };
+}
+
 // ──────────────────────────────────────────────────────────────
 // Main flow
 // ──────────────────────────────────────────────────────────────
-export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => void; onToast: (m: string) => void }) {
+export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => void; onToast: (m: string) => void; preset?: Poi | null }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<'plan' | 'record' | null>(null);
-  const [step, setStep] = useState(0); // 0 route · 1 details · 2 success
+  // A preset (再次出发 / 开始旅程 on an existing route) seeds the route and jumps
+  // straight to the details step — the route picker is skipped and locked.
+  const presetRoute = useMemo(() => (preset ? presetToRoute(preset) : null), [preset]);
+  const presetLocked = !!preset;
+  const [mode, setMode] = useState<'plan' | 'record' | null>(preset ? 'plan' : null);
+  const [step, setStep] = useState(preset ? 1 : 0); // 0 route · 1 details · 2 success
   const [direction, setDirection] = useState(1);
-  const [route, setRoute] = useState<NJRoute | null>(null);
+  const [route, setRoute] = useState<NJRoute | null>(presetRoute);
   const [tripName, setTripName] = useState('');
   const [startDt, setStartDt] = useState<Date>(() => njRoundedNow());
   const [durationMins, setDurationMins] = useState(NJ_DEFAULT_DURATION);
@@ -1082,8 +1124,8 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: 
   useEffect(() => {
     if (route && !nameInit.current && !tripName) {
       const today = new Date();
-      const datePart = `${today.getMonth() + 1}月${today.getDate()}日`;
-      const namePart = route.custom ? '新旅程' : route.name;
+      const datePart = t('journeyEdit.meta.monthDay', { month: today.getMonth() + 1, day: today.getDate() });
+      const namePart = route.custom ? t('journeyEdit.newJourneyName') : route.name;
       setTripName(`${datePart} · ${namePart}`);
       nameInit.current = true;
     }
@@ -1110,13 +1152,19 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: 
     } else if (step === 1 && nameValid && route) {
       setDirection(1);
       setStep(2);
-      const poi = buildJourney(route, tripName, startDt, durationMins, isOngoing ? 'ongoing' : 'planning');
+      const poi = buildJourney(route, tripName, startDt, durationMins, isOngoing ? 'ongoing' : 'planning', t);
       setTimeout(() => {
         onCreate(poi);
       }, 1500);
     }
   };
   const back = () => {
+    // With a locked preset route there's no route-picker to step back to — the
+    // details step is the only step, so back closes the whole flow.
+    if (presetLocked) {
+      onClose();
+      return;
+    }
     if (step === 0) {
       setDirection(-1);
       setMode(null);
@@ -1126,7 +1174,16 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: 
     }
   };
 
-  const cta = step === 0 ? (route ? '继续' : '请选择一条路线') : nameValid ? (isOngoing ? '现在出发' : '加入计划') : '请填写旅程名称';
+  const cta =
+    step === 0
+      ? route
+        ? t('journeyEdit.cta.continue')
+        : t('journeyEdit.cta.pickRoute')
+      : nameValid
+      ? isOngoing
+        ? t('journeyEdit.cta.startNow')
+        : t('journeyEdit.cta.joinPlan')
+      : t('journeyEdit.cta.fillName');
 
   // Mode picker first — wrapped in an absolute overlay so it covers the app shell
   if (mode === null) {
@@ -1149,14 +1206,14 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: 
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           {step < 2 ? (
             <NJRoundBtn theme={theme} onPress={back}>
-              {step === 0 ? <Icon name="close" color={theme.text} size={16} /> : <Icon name="chevronL" color={theme.text} size={16} />}
+              {step === 0 || presetLocked ? <Icon name="close" color={theme.text} size={16} /> : <Icon name="chevronL" color={theme.text} size={16} />}
             </NJRoundBtn>
           ) : (
             <View style={{ width: 38, height: 38 }} />
           )}
-          <View style={{ flex: 1, alignItems: 'center' }}>{step < 2 ? <NJStepDots count={2} current={step} theme={theme} /> : null}</View>
+          <View style={{ flex: 1, alignItems: 'center' }}>{step < 2 && !presetLocked ? <NJStepDots count={2} current={step} theme={theme} /> : null}</View>
           <View style={{ width: 38, alignItems: 'flex-end' }}>
-            {step < 2 ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, letterSpacing: 0.4 }}>{step + 1} / 2</Text> : null}
+            {step < 2 && !presetLocked ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, letterSpacing: 0.4 }}>{step + 1} / 2</Text> : null}
           </View>
         </View>
 
@@ -1208,7 +1265,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast }: { theme: 
       </KeyboardAvoidingView>
 
       {/* Invite overlay */}
-      {shareOpen && <NJSharePanel theme={theme} tripName={tripName || (route && route.name) || '新旅程'} onClose={() => setShareOpen(false)} onToast={onToast} />}
+      {shareOpen && <NJSharePanel theme={theme} tripName={tripName || (route && route.name) || t('journeyEdit.newJourneyName')} onClose={() => setShareOpen(false)} onToast={onToast} />}
 
       {/* Time picker overlay */}
       {timeOpen && (

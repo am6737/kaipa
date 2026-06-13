@@ -8,7 +8,7 @@
 // shot. While it loads — or if it fails offline — the tone palette mid-stop sits
 // behind it so the pin is never blank.
 import React from 'react';
-import { View, Image } from 'react-native';
+import { View, Image, Text } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { GlobePoi, poiColor } from './types';
 import { photoUrlFor, paletteFor } from '../../data/tones';
@@ -19,6 +19,7 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
   const ring = active ? 3 : 2.5; // single colored ring thickness
   const inner = size - ring * 2;
   const palette = paletteFor(poi.tone);
+  const count = poi.count && poi.count > 1 ? poi.count : 0;
 
   return (
     <View
@@ -39,6 +40,28 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
         source={{ uri: photoUrlFor(poi.tone, poi.id, 160) }}
         style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }}
       />
+      {/* multi-journey place — small count badge in the top-right corner. The
+          white ring keeps it legible over any scenery photo or basemap. */}
+      {count ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: -3,
+            right: -3,
+            minWidth: 17,
+            height: 17,
+            paddingHorizontal: 4,
+            borderRadius: 8.5,
+            backgroundColor: theme.accent,
+            borderWidth: 1.5,
+            borderColor: '#fff',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', lineHeight: 13 }}>{count}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -17,6 +17,7 @@ import { Avatar, AvatarStack } from '../Avatar';
 import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../data/inspoStore';
 import { elevAccent } from '../../theme/shadow';
+import { useI18n } from '../../i18n';
 
 const CAPTIONS = [
   '云海在脚下翻涌', '今天的日出值回票价', '垭口风很大，但景色绝了',
@@ -44,6 +45,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   info: Poi; theme: Theme; insets: { top: number; bottom: number }; nav: ReturnType<typeof useNav>;
 }) {
   const t = theme;
+  const { t: tr } = useI18n();
   const { width: W } = useWindowDimensions();
   const photo = visible[index];
   const scrollRef = useRef<ScrollView>(null);
@@ -116,7 +118,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       {/* live photo badge — bottom-left */}
       {isLive ? (
         <View pointerEvents="box-none" style={{ position: 'absolute', left: 18, bottom: insets.bottom + 80 }}>
-          <Press onPress={() => nav.showToast('播放实况照片')} style={{
+          <Press onPress={() => nav.showToast(tr('journey.photoWall.playLive'))} style={{
             flexDirection: 'row', alignItems: 'center', gap: 5,
             paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
             backgroundColor: 'rgba(255,255,255,0.18)',
@@ -138,14 +140,15 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
               if (m) {
                 const base = new Date(+m[1], +m[2] - 1, +m[3]);
                 base.setDate(base.getDate() + photo.day - 1);
-                dateLine = `Day ${photo.day} · ${base.getFullYear()}年${base.getMonth() + 1}月${base.getDate()}日${photo.time ? ' ' + photo.time : ''}`;
+                const fullDate = tr('journey.photoWall.dateFull', { year: base.getFullYear(), month: base.getMonth() + 1, day: base.getDate() });
+                dateLine = `Day ${photo.day} · ${fullDate}${photo.time ? ' ' + photo.time : ''}`;
               }
             }
             return <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>{dateLine}</Text>;
           })() : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
             <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
-            <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · 发起人' : ''}</Text>
+            <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · ' + tr('journey.companions.host') : ''}</Text>
           </View>
         </View>
       ) : null}
@@ -159,18 +162,18 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
             <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline }}>
-              <Pressable onPress={() => act(() => nav.showToast('已保存到相册'))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
-                <Text style={{ fontSize: 16, color: t.accent }}>保存到相册</Text>
+              <Pressable onPress={() => act(() => nav.showToast(tr('journey.photoWall.savedToAlbum')))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
+                <Text style={{ fontSize: 16, color: t.accent }}>{tr('journey.photoWall.saveToAlbum')}</Text>
               </Pressable>
               <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
-              <Pressable onPress={() => act(() => nav.showToast('已分享'))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
-                <Text style={{ fontSize: 16, color: t.accent }}>分享</Text>
+              <Pressable onPress={() => act(() => nav.showToast(tr('journey.photoWall.shared')))} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
+                <Text style={{ fontSize: 16, color: t.accent }}>{tr('journey.photoWall.share')}</Text>
               </Pressable>
               {canDel ? (
                 <>
                   <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
                   <Pressable onPress={() => act(() => { onDelete!(photo.id); dismiss(); })} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
-                    <Text style={{ fontSize: 16, color: t.danger }}>删除</Text>
+                    <Text style={{ fontSize: 16, color: t.danger }}>{tr('common.delete')}</Text>
                   </Pressable>
                 </>
               ) : null}
@@ -211,6 +214,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const nav = useNav();
+  const { t: tr } = useI18n();
   const t = theme;
   const isPlanning = status === 'planning';
   const inspo = useInspo(info.id);
@@ -253,19 +257,19 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       try {
         if (pending === 'camera') {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast('需要相机权限'); return; }
+          if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needCameraPerm')); return; }
           const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
           if (!cancelled && !res.canceled && res.assets)
             res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
         } else {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast('需要相册访问权限'); return; }
+          if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
           const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
           if (!cancelled && !res.canceled && res.assets)
             res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
         }
       } catch (e) {
-        if (!cancelled) Alert.alert('出错了', String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
+        if (!cancelled) Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
       } finally { if (!cancelled) setPending(null); }
     })();
     return () => { cancelled = true; };
@@ -273,18 +277,18 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
 
   const chooseSource = () =>
     nav.openActionSheet({
-      title: '添加瞬间',
+      title: tr('journey.photoWall.addMoment'),
       items: [
-        { label: '拍照', onPress: () => setPending('camera') },
-        { label: '从相册选择照片或视频', onPress: () => setPending('library') },
+        { label: tr('journey.photoWall.takePhoto'), onPress: () => setPending('camera') },
+        { label: tr('journey.photoWall.pickFromLibrary'), onPress: () => setPending('library') },
       ],
     });
 
   // ── photos ──
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: self || { ini: '我', name: '我', color: '#0A84FF' } as Companion, uri: m.uri, kind: m.kind })),
-    [inspo.media, self]
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion, uri: m.uri, kind: m.kind })),
+    [inspo.media, self, tr]
   );
   const allPhotos = isPlanning ? inspoPhotos : fakePhotos;
 
@@ -315,7 +319,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
 
   // ── progress label ──
   const dayLabel = status === 'ongoing' && info.dayIndex
-    ? `记录到 Day ${info.dayIndex}/${info.totalDays} · ${info.dist}`
+    ? `${tr('journey.photoWall.recordedTo', { day: info.dayIndex, total: info.totalDays ?? 0 })} · ${info.dist}`
     : info.dist ? `${info.days || ''} · ${info.dist}` : '';
 
   return (
@@ -355,10 +359,10 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               <Avatar ini={filter.ini} color={filter.color} tone={filter.tone} size={38} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, letterSpacing: -0.4 }}>{filter.self ? '我的瞬间' : filter.name}</Text>
-                  {filter.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>发起人</Text></View> : null}
+                  <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, letterSpacing: -0.4 }}>{filter.self ? tr('journey.photoWall.myMoments') : filter.name}</Text>
+                  {filter.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>{tr('journey.companions.host')}</Text></View> : null}
                 </View>
-                <Text style={{ fontSize: 12.5, color: t.text2, marginTop: 2 }}>{visible.length} 张</Text>
+                <Text style={{ fontSize: 12.5, color: t.text2, marginTop: 2 }}>{tr('journey.moments.countPhotos', { count: visible.length })}</Text>
               </View>
             </View>
           </View>
@@ -368,19 +372,19 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         {!filter ? (
           <View style={{ paddingHorizontal: 18, paddingTop: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>瞬间</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>{tr('journey.moments.title')}</Text>
               <Text style={{ fontSize: 13, color: t.text2, paddingBottom: 3 }}>
-                <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> 张
+                <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> {tr('journey.photoWall.unitPhotos')}
               </Text>
             </View>
 
             {roster.length > 0 ? (
               <Press onPress={openCompanionSheet} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 }}>
                 <AvatarStack people={roster} size={26} max={5} ringColor={t.dark ? '#1c1c1e' : '#fff'} />
-                <Text style={{ fontSize: 12.5, color: t.text2 }}>{roster.length} 人同行 ›</Text>
+                <Text style={{ fontSize: 12.5, color: t.text2 }}>{tr('journey.photoWall.companionCountChevron', { count: roster.length })}</Text>
                 {myCount > 0 ? (
                   <Press onPress={() => self && setFilter(self)} style={{ marginLeft: 'auto', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: t.accentSoft }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: t.accent }}>我的 {myCount}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: t.accent }}>{tr('journey.photoWall.mineCount', { count: myCount })}</Text>
                   </Press>
                 ) : null}
               </Press>
@@ -394,14 +398,14 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
             <View style={{ alignItems: 'center', paddingTop: 60 }}>
               <Icon name="photo" color={t.text3} size={44} />
               <Text style={{ fontSize: 17, fontWeight: '700', color: t.text, marginTop: 16 }}>
-                {filter ? 'TA 还没传照片' : '还没有瞬间'}
+                {filter ? tr('journey.photoWall.emptyFilterTitle') : tr('journey.photoWall.emptyTitle')}
               </Text>
               <Text style={{ fontSize: 13.5, color: t.text2, textAlign: 'center', lineHeight: 20, marginTop: 8, paddingHorizontal: 24 }}>
                 {filter
-                  ? '换个同行看看，或等这趟旅程有新瞬间。'
+                  ? tr('journey.photoWall.emptyFilterBody')
                   : isPlanning
-                    ? '出发前的装备照、地图、参考图都可以先放进来。'
-                    : '点右下角 ＋ 传第一张，照片会按时间汇成共享墙。'}
+                    ? tr('journey.photoWall.emptyPlanningBody')
+                    : tr('journey.photoWall.emptyBody')}
               </Text>
             </View>
           ) : (
@@ -466,8 +470,8 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
-            <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, paddingHorizontal: 18, marginBottom: 4 }}>同行的人</Text>
-            <Text style={{ fontSize: 12.5, color: t.text2, paddingHorizontal: 18, marginBottom: 14 }}>{roster.length} 人在这段旅程里</Text>
+            <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, paddingHorizontal: 18, marginBottom: 4 }}>{tr('journey.companions.sheetTitle')}</Text>
+            <Text style={{ fontSize: 12.5, color: t.text2, paddingHorizontal: 18, marginBottom: 14 }}>{tr('journey.companions.sheetSubtitle', { count: roster.length })}</Text>
             <View style={{ marginHorizontal: 18, borderRadius: 16, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline }}>
               {roster.map((c, i) => {
                 const n = counts[c.name] || 0;
@@ -481,11 +485,11 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                           <Text style={{ fontSize: 15, fontWeight: '600', color: t.text }}>{c.name}</Text>
-                          {c.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>发起人</Text></View> : null}
-                          {c.self ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>你</Text></View> : null}
+                          {c.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>{tr('journey.companions.host')}</Text></View> : null}
+                          {c.self ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>{tr('journey.companions.you')}</Text></View> : null}
                         </View>
                         <Text style={{ fontSize: 12, color: t.text2, marginTop: 2 }}>
-                          {n > 0 ? <><Text style={{ fontFamily: MONO, fontWeight: '700' }}>{n}</Text> 个瞬间</> : '还没有照片'}
+                          {n > 0 ? <><Text style={{ fontFamily: MONO, fontWeight: '700' }}>{n}</Text> {tr('journey.photoWall.unitMoments')}</> : tr('journey.photoWall.noPhotosYet')}
                         </Text>
                       </View>
                       {n > 0 ? <Icon name="chevronR" color={t.text3} size={15} /> : null}
