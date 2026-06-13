@@ -44,9 +44,12 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
         style={{ flex: 1 }}
         projection="globe"
         styleURL={STANDARD_STYLE}
-        // Render labels in the device's system language (e.g. 中文 on a zh phone),
-        // not the map's default. `current` resolves the system locale natively.
-        localizeLabels={{ locale: 'current' }}
+        // NOTE: do NOT set `localizeLabels` here. That maps to the Mapbox SDK's
+        // classic Style.localizeLabels(), which rewrites symbol-layer text-fields
+        // — but the Standard style keeps its layers inside an imported fragment,
+        // so the native call crashes the app on Android (闪退). The Standard style
+        // already labels places in their local language; to force a single
+        // language use the import config's `language` key instead (see below).
         onPress={() => onBackgroundPress?.()}
         scaleBarEnabled={false}
         logoEnabled={false}
