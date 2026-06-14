@@ -2,7 +2,7 @@
 // floating tab bar, every nav-driven overlay, and the toast. Mirrors the
 // prototype's InteractiveApp composition.
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from './theme/AppearanceContext';
@@ -31,18 +31,25 @@ function AppShell() {
   const { t } = useI18n();
   const nav = useNav();
 
-  let screen: React.ReactNode;
-  if (nav.mainTab === 'gear') screen = <GearScreen theme={theme} />;
-  else if (nav.mainTab === 'me') screen = <MeScreen theme={theme} />;
-  else screen = <DiscoverScreen theme={theme} />;
-
   // The discover sheet (list or POI card) slides up over the tab bar — hide the
   // bar while it's open, matching the prototype (the sheet then reaches bottom).
   const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
 
+  // All three screens stay mounted; inactive ones get display:'none'. This avoids
+  // the unmount→remount lag that causes a white background flash on Android.
+  const hidden = { display: 'none' as const };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {screen}
+      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'discover' && hidden]}>
+        <DiscoverScreen theme={theme} />
+      </View>
+      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'gear' && hidden]}>
+        <GearScreen theme={theme} />
+      </View>
+      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'me' && hidden]}>
+        <MeScreen theme={theme} />
+      </View>
       <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden} />
 
       {nav.addRouteOpen && (
