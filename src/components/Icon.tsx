@@ -45,7 +45,8 @@ export type IconName =
   | 'flag'
   | 'play'
   | 'people'
-  | 'globe';
+  | 'globe'
+  | 'link';
 
 interface Props {
   name: IconName;
@@ -363,6 +364,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M8 5v14l11-7z" fill={color} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+        </Svg>
+      );
+    case 'link':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.54 3.54 0 0 0-5-5l-.5.5" {...common} />
+          <Path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.54 3.54 0 0 0 5 5l.5-.5" {...common} />
         </Svg>
       );
     default:

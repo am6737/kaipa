@@ -265,6 +265,16 @@ export const en: SameShape<typeof zh> = {
       noMemberSets: 'This gear is not in any set yet',
       notePlaceholder: 'Empty — tap "···" at the top right to edit and add purchase source, maintenance records, etc.',
     },
+    add: {
+      title: 'Add Gear',
+      pasteLink: 'Paste Product Link',
+      pasteLinkSub: 'Taobao · JD · Poizon · Official · Batch import',
+      photoRecognize: 'Photo Recognition',
+      photoRecognizeSub: 'Snap a photo of the item or tag',
+      manual: 'Manual Entry',
+      manualSub: 'Fill in name and specs yourself',
+      cancel: 'Cancel',
+    },
     editor: {
       namePlaceholder: 'Untitled gear',
       dupName: 'Gear with this name already exists',
@@ -368,6 +378,7 @@ export const en: SameShape<typeof zh> = {
       totalDistance: 'Distance',
       totalAscent: 'Ascent',
       duration: 'Duration',
+      maxEle: 'Max elevation',
       demoToast: 'Local demo · pick a sample track below',
       parsing: 'Parsing track…',
       addFile: 'Add track file',
@@ -422,8 +433,9 @@ export const en: SameShape<typeof zh> = {
     },
     map: {
       title: 'Choose location',
-      hint: 'Tap a frequent range, or tap anywhere on the map to drop a pin',
+      hint: 'Search or tap the map',
       noPin: 'No location chosen yet',
+      search: 'Search places…',
     },
     data: {
       distance: 'Distance',

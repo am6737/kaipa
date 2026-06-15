@@ -3,8 +3,7 @@
 // prototype's InteractiveApp composition.
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from './theme/AppearanceContext';
@@ -60,13 +59,9 @@ function AppShell() {
           onClose={() => nav.closeAddRoute()}
           onUpload={async () => {
             try {
-              const result = await DocumentPicker.getDocumentAsync({
-                type: ['application/gpx+xml', 'application/vnd.google-earth.kml+xml', 'application/xml', 'text/xml', 'application/octet-stream'],
-                copyToCacheDirectory: true,
-              });
-              if (result.canceled || !result.assets?.length) return;
-              const asset = result.assets[0];
-              const ext = (asset.name?.split('.').pop() || '').toLowerCase();
+              const result = await FSFile.pickFileAsync({ mimeTypes: '*/*' });
+              if (result.canceled || !result.result) return;
+              const ext = (result.result.name?.split('.').pop() || '').toLowerCase();
               if (ext !== 'gpx' && ext !== 'kml') {
                 nav.showToast(t('record.track.errFormat'));
                 return;

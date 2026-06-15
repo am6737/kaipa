@@ -270,6 +270,16 @@ export const zh = {
       noMemberSets: '这件装备还没有加入任何套装',
       notePlaceholder: '未填写 — 点右上角「···」编辑，补充购买渠道、保养记录等',
     },
+    add: {
+      title: '添加装备',
+      pasteLink: '粘贴商品链接',
+      pasteLinkSub: '淘宝 · 京东 · 得物 · 官网 · 可批量导入',
+      photoRecognize: '拍照识别',
+      photoRecognizeSub: '对着实物或吊牌拍一张',
+      manual: '手动添加',
+      manualSub: '自己填写名称与参数',
+      cancel: '取消',
+    },
     editor: {
       namePlaceholder: '未命名装备',
       dupName: '装备库里已有同名装备',
@@ -373,6 +383,7 @@ export const zh = {
       totalDistance: '总距离',
       totalAscent: '累计爬升',
       duration: '用时',
+      maxEle: '最高海拔',
       demoToast: '本地演示 · 请选择下方示例轨迹',
       parsing: '正在解析轨迹…',
       addFile: '添加轨迹文件',
@@ -427,8 +438,9 @@ export const zh = {
     },
     map: {
       title: '选择地点',
-      hint: '点选常去的山域，或点地图任意位置放一个标记',
+      hint: '搜索或点击地图选点',
       noPin: '尚未选择地点',
+      search: '搜索地点…',
     },
     data: {
       distance: '距离',

@@ -25,6 +25,7 @@ import { GearSetDetail } from '../components/gear/GearSetDetail';
 import { GearSetEditor } from '../components/gear/GearSetEditor';
 import { GearItemEditor } from '../components/gear/GearItemEditor';
 import { GearCatEditor } from '../components/gear/GearCatEditor';
+import { AddGearChoose } from '../components/gear/AddGearChoose';
 
 type Tab = 'items' | 'cats' | 'sets';
 type Layout = 'list' | 'grid';
@@ -119,6 +120,8 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const [itemEditor, setItemEditor] = useState<{ mode: 'new' | 'edit'; item: GearItem } | null>(null);
   // 新建 / 编辑分类 bottom sheet.
   const [catEditor, setCatEditor] = useState<{ mode: 'new' | 'edit'; cat?: GearCat } | null>(null);
+  // 添加装备入口选择（链接 / 拍照 / 手动）
+  const [addChoose, setAddChoose] = useState(false);
   // Hide the floating tab bar whenever a detail page is open (matches MeScreen).
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
@@ -216,6 +219,10 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const onAdd = () => {
     if (tab === 'sets') { setSetEditor({ mode: 'new' }); return; }
     if (tab === 'cats') { setCatEditor({ mode: 'new' }); return; }
+    setAddChoose(true);
+  };
+  const onAddEntry = (entry: 'link' | 'camera' | 'manual') => {
+    setAddChoose(false);
     const cat = cats.find((c) => c.id === 'misc')?.id || cats[0]?.id || 'misc';
     setItemEditor({ mode: 'new', item: { name: '', cat, w: 0, p: 0 } });
   };
@@ -390,6 +397,13 @@ export function GearScreen({ theme }: { theme: Theme }) {
             onCancel={() => setSetEditor(null)}
             onSave={saveSet}
           />
+        </View>
+      )}
+
+      {/* ── 添加装备入口选择 ── */}
+      {addChoose && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 205 }]}>
+          <AddGearChoose theme={theme} onChoose={onAddEntry} onCancel={() => setAddChoose(false)} />
         </View>
       )}
 

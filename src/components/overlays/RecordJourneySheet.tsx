@@ -1,12 +1,11 @@
 // RecordJourneySheet.tsx — 记录走过的: log a PAST hike from a recorded track
 // and/or photos, producing a 已完成 journey (回忆).
-import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, LayoutChangeEvent, GestureResponderEvent, Image, Alert } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
-import Svg, { Path, Circle, Line, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import { File as FSFile } from 'expo-file-system';
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import Mapbox, { MapView, Camera, ShapeSource, LineLayer, MarkerView, Atmosphere, StyleImport } from '@rnmapbox/maps';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
@@ -16,7 +15,7 @@ import { Tone } from '../../data/tones';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
-import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneySheet';
+import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 
 type TFn = (key: TKey, vars?: TVars) => string;
@@ -156,31 +155,21 @@ function fmtCoord(lat: number, lon: number): string {
   return `${Math.abs(lat).toFixed(4)}°${ns}  ${Math.abs(lon).toFixed(4)}°${ew}`;
 }
 
-const REGION_HINTS = [
-  { name: '杭州 · 西湖', lat: 30.24, lon: 120.13, r: 0.7 },
-  { name: '北京 · 延庆', lat: 40.46, lon: 115.92, r: 1.0 },
-  { name: '云南 · 香格里拉', lat: 27.55, lon: 99.95, r: 2.0 },
-  { name: '四川 · 甘孜', lat: 29.99, lon: 101.5, r: 2.5 },
-  { name: '江西 · 萍乡', lat: 27.4, lon: 113.85, r: 1.2 },
-  { name: '安徽 · 黄山', lat: 30.13, lon: 118.17, r: 0.8 },
-  { name: '四川 · 阿坝', lat: 31.9, lon: 102.2, r: 2.5 },
-];
-function guessRegion(lat: number, lon: number, t: TFn): string {
-  let best: typeof REGION_HINTS[number] | null = null;
-  let bestD = Infinity;
-  for (const h of REGION_HINTS) {
-    const dy = lat - h.lat;
-    const dx = (lon - h.lon) * Math.cos((lat * Math.PI) / 180);
-    const d = Math.sqrt(dy * dy + dx * dx);
-    if (d < h.r && d < bestD) {
-      best = h;
-      bestD = d;
-    }
+async function reverseGeocode(lat: number, lon: number): Promise<string> {
+  if (!MAPBOX_TOKEN) return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}&language=zh&limit=1&types=place,locality,district,region`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const f = json.features?.[0];
+    if (!f) return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+    const ctx = f.context as any[] | undefined;
+    const region = ctx?.find((c: any) => c.id?.startsWith('region'))?.text;
+    const place = f.text || '';
+    return region && region !== place ? `${region} · ${place}` : place || f.place_name || '';
+  } catch {
+    return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
   }
-  if (best) return best.name;
-  const ns = lat >= 0 ? t('record.geo.north') : t('record.geo.south');
-  const ew = lon >= 0 ? t('record.geo.east') : t('record.geo.west');
-  return t('record.geo.nearCoord', { ns, lat: Math.abs(lat).toFixed(1), ew, lon: Math.abs(lon).toFixed(1) });
 }
 function suggestDifficulty(stats: TrackStats): string {
   const km = stats.distM / 1000;
@@ -198,45 +187,93 @@ function suggestDifficulty(stats: TrackStats): string {
 // ──────────────────────────────────────────────────────────────
 function parseTrack(text: string, filename: string, t: TFn): { error?: string; name?: string; points?: TrackPt[]; format?: string } {
   const ext = (filename.split('.').pop() || '').toLowerCase();
-  const isKml = ext === 'kml' || /<kml[\s>]/i.test(text);
+  // strip BOM + XML comments
+  let xml = text.replace(/^﻿/, '').replace(/<!--[\s\S]*?-->/g, '');
+  // strip namespace prefixes so <ns2:trkpt> matches as <trkpt>
+  xml = xml.replace(/<(\/?)\w+:/g, '<$1');
+
+  const isKml = ext === 'kml' || /<kml[\s>]/i.test(xml);
   const points: TrackPt[] = [];
-  const nameM = text.match(/<name>\s*([^<]+?)\s*<\/name>/i);
+  // CDATA-aware name extraction
+  const nameM = xml.match(/<name>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
   const name = nameM ? nameM[1].trim() : '';
   if (isKml) {
-    const blocks = text.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi) || [];
-    for (const b of blocks) {
-      const inner = b.replace(/<\/?coordinates>/gi, '').trim();
-      for (const tok of inner.split(/\s+/)) {
-        if (!tok) continue;
-        const parts = tok.split(',');
-        const lon = parseFloat(parts[0]);
-        const lat = parseFloat(parts[1]);
-        const ele = parseFloat(parts[2]);
-        if (isFinite(lat) && isFinite(lon)) points.push({ lat, lon, ele: isFinite(ele) ? ele : NaN, time: null });
+    // 1. gx:Track format (gx:coord → coord after ns-strip): "lon lat ele"
+    const coordRe = /<coord>\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)?\s*<\/coord>/gi;
+    let cm: RegExpExecArray | null;
+    while ((cm = coordRe.exec(xml))) {
+      const lon = parseFloat(cm[1]);
+      const lat = parseFloat(cm[2]);
+      const ele = cm[3] ? parseFloat(cm[3]) : NaN;
+      if (isFinite(lat) && isFinite(lon)) points.push({ lat, lon, ele: isFinite(ele) ? ele : NaN, time: null });
+    }
+    // pair with <when> timestamps if present
+    if (points.length > 0) {
+      const whenRe = /<when>\s*([^<]+?)\s*<\/when>/gi;
+      let wi = 0;
+      let wm: RegExpExecArray | null;
+      while ((wm = whenRe.exec(xml)) && wi < points.length) {
+        points[wi].time = new Date(wm[1].trim());
+        wi++;
+      }
+    }
+    // 2. LineString <coordinates> (not Point)
+    if (!points.length) {
+      const lsBlocks = xml.match(/<LineString>([\s\S]*?)<\/LineString>/gi) || [];
+      for (const ls of lsBlocks) {
+        const cBlocks = ls.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi) || [];
+        for (const b of cBlocks) {
+          const inner = b.replace(/<\/?coordinates>/gi, '').trim();
+          for (const tok of inner.split(/[\s\n\r]+/)) {
+            if (!tok) continue;
+            const parts = tok.split(',');
+            const lon = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            const ele = parseFloat(parts[2]);
+            if (isFinite(lat) && isFinite(lon)) points.push({ lat, lon, ele: isFinite(ele) ? ele : NaN, time: null });
+          }
+        }
+      }
+    }
+    // 3. fallback: all <coordinates> blocks (legacy single-LineString KML)
+    if (!points.length) {
+      const blocks = xml.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi) || [];
+      for (const b of blocks) {
+        const inner = b.replace(/<\/?coordinates>/gi, '').trim();
+        for (const tok of inner.split(/[\s\n\r]+/)) {
+          if (!tok) continue;
+          const parts = tok.split(',');
+          const lon = parseFloat(parts[0]);
+          const lat = parseFloat(parts[1]);
+          const ele = parseFloat(parts[2]);
+          if (isFinite(lat) && isFinite(lon)) points.push({ lat, lon, ele: isFinite(ele) ? ele : NaN, time: null });
+        }
       }
     }
   } else {
-    const re = /<(?:trkpt|rtept|wpt)\b([^>]*?)>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>/gi;
+    // trkpt/rtept only — wpt are standalone waypoints, not part of the track line
+    const re = /<(?:trkpt|rtept)\b([^>]*?)>([\s\S]*?)<\/(?:trkpt|rtept)>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(text))) {
+    while ((m = re.exec(xml))) {
       const attrs = m[1];
       const body = m[2];
-      const latM = attrs.match(/lat="([-\d.]+)"/i);
-      const lonM = attrs.match(/lon="([-\d.]+)"/i);
+      const latM = attrs.match(/lat\s*=\s*["']([-\d.eE+]+)["']/i);
+      const lonM = attrs.match(/lon\s*=\s*["']([-\d.eE+]+)["']/i);
       if (!latM || !lonM) continue;
       const lat = parseFloat(latM[1]);
       const lon = parseFloat(lonM[1]);
       if (!isFinite(lat) || !isFinite(lon)) continue;
-      const eleM = body.match(/<ele>\s*([-\d.]+)\s*<\/ele>/i);
+      const eleM = body.match(/<ele>\s*([-\d.eE+]+)\s*<\/ele>/i);
       const timeM = body.match(/<time>\s*([^<]+?)\s*<\/time>/i);
       points.push({ lat, lon, ele: eleM ? parseFloat(eleM[1]) : NaN, time: timeM ? new Date(timeM[1].trim()) : null });
     }
+    // fallback: self-closing tags or wpt-only files
     if (!points.length) {
-      const re2 = /<(?:trkpt|rtept|wpt)\b([^>]*?)\/>/gi;
-      while ((m = re2.exec(text))) {
+      const re2 = /<(?:trkpt|rtept|wpt)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:trkpt|rtept|wpt)>)/gi;
+      while ((m = re2.exec(xml))) {
         const attrs = m[1];
-        const latM = attrs.match(/lat="([-\d.]+)"/i);
-        const lonM = attrs.match(/lon="([-\d.]+)"/i);
+        const latM = attrs.match(/lat\s*=\s*["']([-\d.eE+]+)["']/i);
+        const lonM = attrs.match(/lon\s*=\s*["']([-\d.eE+]+)["']/i);
         if (latM && lonM) {
           const lat = parseFloat(latM[1]);
           const lon = parseFloat(lonM[1]);
@@ -245,7 +282,10 @@ function parseTrack(text: string, filename: string, t: TFn): { error?: string; n
       }
     }
   }
-  if (points.length < 2) return { error: t('record.track.errNoPoints') };
+  if (points.length < 2) {
+    console.warn('[Track] parseTrack found', points.length, 'points. First 200 chars:', xml.slice(0, 200));
+    return { error: t('record.track.errNoPoints') };
+  }
   return { name, points, format: isKml ? 'KML' : 'GPX' };
 }
 
@@ -461,6 +501,104 @@ function UTTrackMap({ stats, theme, height = 200 }: { stats: TrackStats; theme: 
   );
 }
 
+// ──────────────────────────────────────────────────────────────
+// Full-screen track map overlay — tap inline preview to open
+// ──────────────────────────────────────────────────────────────
+function TrackMapFull({ stats, theme, onClose }: { stats: TrackStats; theme: Theme; onClose: () => void }) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  ensureMapboxToken();
+
+  const pts = stats.points;
+  const stride = Math.max(1, Math.floor(pts.length / 800));
+  const coords: [number, number][] = [];
+  for (let i = 0; i < pts.length; i += stride) coords.push([pts[i].lon, pts[i].lat]);
+  if (coords.length > 0 && (coords[coords.length - 1][0] !== pts[pts.length - 1].lon || coords[coords.length - 1][1] !== pts[pts.length - 1].lat)) {
+    coords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
+  }
+
+  const routeGeoJSON: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
+  };
+
+  const { minLat, maxLat, minLon, maxLon } = stats.bbox;
+  const padDeg = Math.max((maxLat - minLat), (maxLon - minLon)) * 0.12;
+  const bounds = {
+    ne: [maxLon + padDeg, maxLat + padDeg] as [number, number],
+    sw: [minLon - padDeg, minLat - padDeg] as [number, number],
+  };
+  const s = pts[0];
+  const e = pts[pts.length - 1];
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 300 }]}>
+      <MapView
+        style={StyleSheet.absoluteFill}
+        styleURL={STANDARD_STYLE}
+        scaleBarEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
+        rotateEnabled
+        zoomEnabled
+        scrollEnabled
+        pitchEnabled
+      >
+        <Camera defaultSettings={{ bounds: { ...bounds, paddingLeft: 40, paddingRight: 40, paddingTop: insets.top + 70, paddingBottom: insets.bottom + 100 } }} />
+        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: true, showTransitLabels: true } as any} />
+
+        <ShapeSource id="full-track-route" shape={routeGeoJSON}>
+          <LineLayer id="full-track-shadow" style={{ lineColor: theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)', lineWidth: 7, lineBlur: 3, lineCap: 'round', lineJoin: 'round', lineTranslate: [0, 2] }} />
+          <LineLayer id="full-track-line" style={{ lineColor: theme.accent, lineWidth: 4, lineCap: 'round', lineJoin: 'round' }} />
+        </ShapeSource>
+
+        <MarkerView coordinate={[s.lon, s.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#34C759', borderWidth: 3, borderColor: '#fff' }} />
+        </MarkerView>
+        <MarkerView coordinate={[e.lon, e.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: theme.danger, borderWidth: 3, borderColor: '#fff' }} />
+        </MarkerView>
+      </MapView>
+
+      {/* top bar */}
+      <View style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Press onPress={onClose} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.dark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Icon name="chevronL" color={theme.text} size={16} />
+        </Press>
+      </View>
+
+      {/* bottom stats */}
+      <View style={{ position: 'absolute', bottom: insets.bottom + 12, left: 12, right: 12, flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.accent }}>{fmtDist(stats.distM)}</Text>
+          <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{t('record.track.totalDistance')}</Text>
+        </View>
+        <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{stats.hasEle ? `${stats.ascent} m` : '—'}</Text>
+          <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{t('record.track.totalAscent')}</Text>
+        </View>
+        <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{stats.hasTime ? fmtDur(stats.durationMs, t) : stats.hasEle && stats.maxEle !== null ? `${stats.maxEle} m` : '—'}</Text>
+          <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{stats.hasTime ? t('record.track.duration') : stats.hasEle ? t('record.track.maxEle') : '—'}</Text>
+        </View>
+      </View>
+
+      {/* legend */}
+      <View style={{ position: 'absolute', bottom: insets.bottom + 88, left: 12, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: theme.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#34C759' }} />
+          <Text style={{ fontSize: 11, color: theme.text2 }}>{t('record.track.start')}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.danger }} />
+          <Text style={{ fontSize: 11, color: theme.text2 }}>{t('record.track.end')}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // Elevation profile — area chart from real ele samples
 function UTElevation({ stats, theme }: { stats: TrackStats; theme: Theme }) {
   const { t } = useI18n();
@@ -552,19 +690,16 @@ function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string;
 // ──────────────────────────────────────────────────────────────
 // Track block — real file picker + sample fallback
 // ──────────────────────────────────────────────────────────────
-function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void }) {
+function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast, onOpenMap }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void; onOpenMap: () => void }) {
   const { t } = useI18n();
 
   const pickFile = async () => {
     if (busy) return;
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/gpx+xml', 'application/vnd.google-earth.kml+xml', 'application/xml', 'text/xml', 'application/octet-stream'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-      const asset = result.assets[0];
-      const fname = asset.name || 'track.gpx';
+      const result = await FSFile.pickFileAsync({ mimeTypes: '*/*' });
+      if (result.canceled || !result.result) return;
+      const file = result.result;
+      const fname = file.name || 'track.gpx';
       const ext = (fname.split('.').pop() || '').toLowerCase();
       if (ext !== 'gpx' && ext !== 'kml') {
         setError(t('record.track.errFormat'));
@@ -572,11 +707,14 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
       }
       setBusy(true);
       setError(null);
-      const text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      let text = await file.text();
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      console.log('[Track] read file:', fname, 'size:', text.length, 'first 120:', text.slice(0, 120));
       onIngest(text, fname, null, null);
-    } catch {
+    } catch (e) {
+      console.warn('[Track] pickFile error:', e);
       setBusy(false);
-      setError(t('record.track.errParse'));
+      setError(t('record.track.errParse') + (e instanceof Error ? `: ${e.message}` : ''));
     }
   };
 
@@ -593,7 +731,9 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
             <Icon name="close" color={theme.text3} size={12} />
           </Press>
         </View>
-        <UTTrackMap stats={stats} theme={theme} />
+        <Press onPress={onOpenMap}>
+          <UTTrackMap stats={stats} theme={theme} />
+        </Press>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
           <UTStatTile theme={theme} label={t('record.track.totalDistance')} value={fmtDist(stats.distM)} accent />
           <UTStatTile theme={theme} label={t('record.track.totalAscent')} value={stats.hasEle ? `${stats.ascent} m` : '—'} />
@@ -931,90 +1071,173 @@ function RJDateSheet({ theme, date, field, onPick, onClose }: { theme: Theme; da
   );
 }
 
-// Map location picker — tap a stylized China map to drop a pin → region
-const MAP_BOUNDS = { lonMin: 96, lonMax: 123, latMin: 26, latMax: 42 };
-function RJMapPickSheet({ theme, onPick, onClose }: { theme: Theme; onPick: (label: string) => void; onClose: () => void }) {
+// Map location picker — real Mapbox map with search
+interface GeoResult { label: string; sub: string; lat: number; lon: number }
+
+function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPick: (label: string) => void; onClose: () => void; center?: { lat: number; lon: number } | null }) {
   const { t } = useI18n();
-  const H = 230;
-  const [box, setBox] = useState({ w: 320, h: H });
+  const insets = useSafeAreaInsets();
+  ensureMapboxToken();
+  const camRef = useRef<any>(null);
+  const inputRef = useRef<TextInput>(null);
   const [pin, setPin] = useState<{ lat: number; lon: number; label: string } | null>(null);
-  const project = (lat: number, lon: number) => ({
-    x: ((lon - MAP_BOUNDS.lonMin) / (MAP_BOUNDS.lonMax - MAP_BOUNDS.lonMin)) * box.w,
-    y: box.h - ((lat - MAP_BOUNDS.latMin) / (MAP_BOUNDS.latMax - MAP_BOUNDS.latMin)) * box.h,
-  });
-  const place = (lat: number, lon: number, knownLabel?: string) => {
-    setPin({ lat, lon, label: knownLabel || guessRegion(lat, lon, t) });
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<GeoResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const initLon = center?.lon ?? 104.0;
+  const initLat = center?.lat ?? 35.0;
+  const initZoom = center ? 10 : 3.5;
+
+  const flyTo = useCallback((lon: number, lat: number, zoom = 12) => {
+    camRef.current?.setCamera({ centerCoordinate: [lon, lat], zoomLevel: zoom, animationDuration: 600 });
+  }, []);
+
+  const search = useCallback((q: string) => {
+    if (debounce.current) clearTimeout(debounce.current);
+    if (!q.trim()) { setResults([]); return; }
+    debounce.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&language=zh,en&limit=5&types=country,region,place,district,locality,neighborhood,poi`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const items: GeoResult[] = (json.features || []).map((f: any) => ({
+          label: f.text || f.place_name,
+          sub: f.place_name || '',
+          lon: f.center[0],
+          lat: f.center[1],
+        }));
+        setResults(items);
+      } catch { setResults([]); }
+      setSearching(false);
+    }, 350);
+  }, []);
+
+  useEffect(() => { search(query); }, [query, search]);
+
+  const pickResult = (r: GeoResult) => {
+    inputRef.current?.blur();
+    setPin({ lat: r.lat, lon: r.lon, label: r.label });
+    setQuery('');
+    setResults([]);
+    flyTo(r.lon, r.lat);
   };
-  const onTap = (e: GestureResponderEvent) => {
-    const { locationX, locationY } = e.nativeEvent;
-    const lon = MAP_BOUNDS.lonMin + (locationX / box.w) * (MAP_BOUNDS.lonMax - MAP_BOUNDS.lonMin);
-    const lat = MAP_BOUNDS.latMin + ((box.h - locationY) / box.h) * (MAP_BOUNDS.latMax - MAP_BOUNDS.latMin);
-    place(lat, lon);
+
+  const onMapPress = async (e: any) => {
+    inputRef.current?.blur();
+    const coords = e?.geometry?.coordinates;
+    if (!coords || coords.length < 2) return;
+    const lat = coords[1];
+    const lon = coords[0];
+    setPin({ lat, lon, label: '...' });
+    setResults([]);
+    const label = await reverseGeocode(lat, lon);
+    setPin((p) => p && Math.abs(p.lat - lat) < 0.0001 ? { ...p, label } : p);
   };
-  const onBoxLayout = (e: LayoutChangeEvent) => {
-    const { width, height } = e.nativeEvent.layout;
-    setBox({ w: width, h: height });
-  };
-  const gridColor = theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+  if (!MAPBOX_TOKEN) {
+    return (
+      <NJBottomSheet theme={theme} onClose={onClose} full>
+        <View style={{ padding: 40, alignItems: 'center' }}>
+          <Text style={{ color: theme.text3 }}>Map unavailable</Text>
+        </View>
+      </NJBottomSheet>
+    );
+  }
+
+  const cardBg = theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.95)';
+
   return (
-    <NJBottomSheet theme={theme} onClose={onClose} full>
-      <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-          <Press onPress={onClose} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
-          </Press>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{t('record.map.title')}</Text>
-          <Press onPress={() => pin && (onPick(pin.label), onClose())} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, fontWeight: '700', color: pin ? theme.accent : theme.text3 }}>{t('common.done')}</Text>
-          </Press>
-        </View>
-        <Text style={{ fontSize: 12, color: theme.text2, textAlign: 'center', marginBottom: 12 }}>{t('record.map.hint')}</Text>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 250 }]}>
+      <MapView
+        style={StyleSheet.absoluteFill}
+        styleURL={STANDARD_STYLE}
+        scaleBarEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
+        rotateEnabled
+        zoomEnabled
+        scrollEnabled
+        pitchEnabled={false}
+        onPress={onMapPress}
+      >
+        <Camera ref={camRef} defaultSettings={{ centerCoordinate: [initLon, initLat], zoomLevel: initZoom }} />
+        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: true, showTransitLabels: true } as any} />
 
-        <View onLayout={onBoxLayout} style={{ height: H, borderRadius: 18, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? '#16181a' : '#e7ecee' }}>
-          {/* tap layer */}
-          <Press onPress={onTap} style={StyleSheet.absoluteFill}>
-            <Svg width="100%" height="100%">
-              {[0.2, 0.4, 0.6, 0.8].map((g, i) => (
-                <Line key={'h' + i} x1={0} y1={box.h * g} x2={box.w} y2={box.h * g} stroke={gridColor} strokeWidth={1} />
-              ))}
-              {[0.2, 0.4, 0.6, 0.8].map((g, i) => (
-                <Line key={'v' + i} x1={box.w * g} y1={0} x2={box.w * g} y2={box.h} stroke={gridColor} strokeWidth={1} />
-              ))}
-              {pin
-                ? (() => {
-                    const { x, y } = project(pin.lat, pin.lon);
-                    return (
-                      <>
-                        <Circle cx={x} cy={y} r={9} fill={theme.accent} opacity={0.18} />
-                        <Path d={`M${x} ${y - 16} c4.4 0 8 3.4 8 7.6 0 5.4-8 12.4-8 12.4s-8-7-8-12.4c0-4.2 3.6-7.6 8-7.6Z`} fill={theme.accent} stroke="#fff" strokeWidth={1.6} />
-                        <Circle cx={x} cy={y - 8.4} r={2.6} fill="#fff" />
-                      </>
-                    );
-                  })()
-                : null}
-            </Svg>
+        {pin && (
+          <MarkerView coordinate={[pin.lon, pin.lat]} anchor={{ x: 0.5, y: 1 }} allowOverlap>
+            <View style={{ alignItems: 'center' }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff' }}>
+                <Icon name="pin" color="#fff" size={14} />
+              </View>
+              <View style={{ width: 3, height: 8, backgroundColor: theme.accent, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 }} />
+            </View>
+          </MarkerView>
+        )}
+      </MapView>
+
+      {/* top: back + search bar + confirm */}
+      <View style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Press onPress={onClose} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: cardBg, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <Icon name="chevronL" color={theme.text} size={16} />
           </Press>
-          {/* region hint hotspots */}
-          {REGION_HINTS.map((h, i) => {
-            const { x, y } = project(h.lat, h.lon);
-            const sel = pin && pin.label === h.name;
-            return (
-              <Press key={i} onPress={() => place(h.lat, h.lon, h.name)} style={{ position: 'absolute', left: x - 13, top: y - 13, width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' }}>
-                <View style={{ width: sel ? 10 : 7, height: sel ? 10 : 7, borderRadius: 5, backgroundColor: sel ? theme.accent : theme.dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.32)' }} />
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', height: 38, borderRadius: 19, backgroundColor: cardBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, paddingHorizontal: 12, gap: 8 }}>
+            <Icon name="search" color={theme.text3} size={15} />
+            <TextInput
+              ref={inputRef}
+              value={query}
+              onChangeText={setQuery}
+              placeholder={t('record.map.search')}
+              placeholderTextColor={theme.text3}
+              returnKeyType="search"
+              autoCorrect={false}
+              style={{ flex: 1, fontSize: 14, color: theme.text, padding: 0 }}
+            />
+            {query.length > 0 && (
+              <Press onPress={() => { setQuery(''); setResults([]); }} style={{ padding: 2 }}>
+                <Icon name="close" color={theme.text3} size={12} />
               </Press>
-            );
-          })}
+            )}
+          </View>
+          <Press onPress={() => pin && (onPick(pin.label), onClose())} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: pin ? theme.accent : cardBg, alignItems: 'center', justifyContent: 'center', borderWidth: pin ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <Icon name="check" color={pin ? '#fff' : theme.text3} size={16} strokeWidth={2.4} />
+          </Press>
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 13, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <Icon name="pin" color={pin ? theme.accent : theme.text3} size={18} />
+        {/* search results dropdown */}
+        {results.length > 0 && (
+          <View style={{ marginTop: 6, borderRadius: 14, overflow: 'hidden', backgroundColor: cardBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            {results.map((r, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 42 }} />}
+                <Press onPress={() => pickResult(r)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}>
+                  <Icon name="pin" color={theme.text3} size={14} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{r.label}</Text>
+                    <Text numberOfLines={1} style={{ fontSize: 11, color: theme.text3, marginTop: 1 }}>{r.sub}</Text>
+                  </View>
+                </Press>
+              </React.Fragment>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* bottom location card */}
+      <View style={{ position: 'absolute', bottom: insets.bottom + 12, left: 12, right: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 13, borderRadius: 16, backgroundColor: cardBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Icon name="pin" color={pin ? theme.accent : theme.text3} size={20} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: pin ? theme.text : theme.text3 }}>{pin ? pin.label : t('record.map.noPin')}</Text>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: pin ? theme.text : theme.text3 }}>{pin ? pin.label : t('record.map.noPin')}</Text>
             {pin ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 2, letterSpacing: 0.2 }}>{fmtCoord(pin.lat, pin.lon)}</Text> : null}
           </View>
         </View>
       </View>
-    </NJBottomSheet>
+    </View>
   );
 }
 
@@ -1127,6 +1350,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
   const [dateOpen, setDateOpen] = useState(false);
   const [dateField, setDateField] = useState<'start' | 'end'>('start');
   const [mapOpen, setMapOpen] = useState(false);
+  const [trackMapFull, setTrackMapFull] = useState(false);
   const [companionAdd, setCompanionAdd] = useState<null | 'choose' | 'manual' | 'invite'>(null);
 
   const nameInit = useRef(false);
@@ -1135,14 +1359,18 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     setError(null);
     setBusy(true);
     setTimeout(() => {
+      console.log('[Track] onIngest:', fname, 'length:', text.length);
       const parsed = parseTrack(text, fname, t);
       if (parsed.error || !parsed.points) {
+        console.warn('[Track] parse failed:', parsed.error, '| first 200 chars:', text.slice(0, 200));
         setBusy(false);
         setError(parsed.error || t('record.track.errParse'));
         return;
       }
+      console.log('[Track] parsed OK:', parsed.points.length, 'points, format:', parsed.format);
       const st = computeStats(parsed.points);
       if (!st) {
+        console.warn('[Track] computeStats returned null for', parsed.points.length, 'points');
         setBusy(false);
         setError(t('record.track.errTooFew'));
         return;
@@ -1155,7 +1383,10 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         setName(base);
         nameInit.current = true;
       }
-      if (!region) setRegion(presetRegion || guessRegion(st.points[0].lat, st.points[0].lon, t));
+      if (!region) {
+        if (presetRegion) { setRegion(presetRegion); }
+        else { reverseGeocode(st.points[0].lat, st.points[0].lon).then((label) => setRegion((r) => r || label)); }
+      }
       setDiff(suggestDifficulty(st) as Poi['diff']);
       if (st.hasTime && st.startTime) {
         const s = rjMidnight(st.startTime);
@@ -1274,7 +1505,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
 
             {/* 5 · the route */}
             <NJSection theme={theme} label={t('record.sections.track')} hint={track ? t('record.sections.fromTrack') : undefined}>
-              <RJTrackBlock theme={theme} track={track} onIngest={onIngest} onRemove={() => setTrack(null)} busy={busy} setBusy={setBusy} setError={setError} onToast={onToast} />
+              <RJTrackBlock theme={theme} track={track} onIngest={onIngest} onRemove={() => setTrack(null)} busy={busy} setBusy={setBusy} setError={setError} onToast={onToast} onOpenMap={() => track && setTrackMapFull(true)} />
               {track && track.stats.hasEle ? (
                 <View style={{ marginTop: 12 }}>
                   <UTElevation stats={track.stats} theme={theme} />
@@ -1355,8 +1586,9 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
       </KeyboardAvoidingView>
 
       {/* Overlays */}
+      {trackMapFull && track ? <TrackMapFull stats={track.stats} theme={theme} onClose={() => setTrackMapFull(false)} /> : null}
       {dateOpen ? <RJDateSheet theme={theme} date={dateField === 'end' ? endDate : date} field={dateField} onPick={pickDate} onClose={() => setDateOpen(false)} /> : null}
-      {mapOpen ? <RJMapPickSheet theme={theme} onPick={(label) => setRegion(label)} onClose={() => setMapOpen(false)} /> : null}
+      {mapOpen ? <RJMapPickSheet theme={theme} onPick={(label) => setRegion(label)} onClose={() => setMapOpen(false)} center={track ? { lat: track.stats.points[0].lat, lon: track.stats.points[0].lon } : null} /> : null}
       {companionAdd === 'choose' ? <RJAddChooser theme={theme} onInvite={() => setCompanionAdd('invite')} onManual={() => setCompanionAdd('manual')} onClose={() => setCompanionAdd(null)} /> : null}
       {companionAdd === 'manual' ? <RJCompanionSheet theme={theme} color={RJ_AVATAR_POOL[companions.length % RJ_AVATAR_POOL.length]} onAdd={addCompanion} onClose={() => setCompanionAdd(null)} /> : null}
       {companionAdd === 'invite' ? <NJSharePanel theme={theme} tripName={name.trim() || t('record.build.thisJourney')} onClose={() => setCompanionAdd(null)} onToast={onToast} /> : null}
