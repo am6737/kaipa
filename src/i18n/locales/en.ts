@@ -753,6 +753,8 @@ export const en: SameShape<typeof zh> = {
       deleteConfirmMessage: 'This cannot be undone.',
       deleteSelected: 'Delete ({count})',
       batchDeleteConfirmTitle: 'Delete {count} selected items?',
+      emptyTitle: 'No itinerary yet',
+      emptyHint: 'Tap "Add" to note plans, reminders, or trail moments',
     },
     manage: {
       addCompanion: 'Add companion',

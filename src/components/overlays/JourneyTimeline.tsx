@@ -6,6 +6,7 @@ import React, { useRef, useState } from 'react';
 import { View, Text, TextInput, Image, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -159,17 +160,47 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
   );
 }
 
-// Fullscreen media viewer — tap a thumbnail to enlarge; arrows page through the
-// entry's attachments. Placeholder art for now; video shows a play affordance.
+// Inline video player for the fullscreen viewer.
+function ViewerVideo({ uri, width, height }: { uri: string; width: number; height: number }) {
+  const player = useVideoPlayer(uri, (p) => { p.loop = true; p.play(); });
+  return <VideoView player={player} style={{ width, height }} nativeControls />;
+}
+
+// Fullscreen media viewer — swipe to page, video plays inline.
 function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme; media: TLMedia[]; index: number; seedBase: string; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
   const [i, setI] = useState(index || 0);
   const m = media[i] || media[0];
-  const go = (d: number) => setI((x) => (x + d + media.length) % media.length);
-  const tileW = width - 32;
-  const navBtn = { position: 'absolute' as const, top: '50%' as const, marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center' as const, justifyContent: 'center' as const };
+  const viewH = height - insets.top - insets.bottom - 80;
+
+  React.useEffect(() => {
+    if (index > 0) setTimeout(() => scrollRef.current?.scrollTo({ x: index * width, animated: false }), 10);
+  }, []);
+
+  const renderItem = (mm: TLMedia, idx: number) => {
+    const isActive = idx === i;
+    if (mm.video && mm.uri && isActive) {
+      return (
+        <View key={idx} style={{ width, alignItems: 'center', justifyContent: 'center' }}>
+          <ViewerVideo uri={mm.uri} width={width - 32} height={viewH} />
+        </View>
+      );
+    }
+    const displayUri = mm.video ? mm.thumb : mm.uri;
+    return (
+      <View key={idx} style={{ width, alignItems: 'center', justifyContent: 'center' }}>
+        {displayUri ? (
+          <Image source={{ uri: displayUri }} resizeMode="contain" style={{ width: width - 32, height: viewH, borderRadius: 18 }} />
+        ) : (
+          <PhotoTile tone={mm.tone} seed={seedBase + '-' + idx} radius={18} resWidth={1000} style={{ width: width - 32, height: viewH }} />
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 210, backgroundColor: 'rgba(0,0,0,0.94)' }]}>
       <View style={{ paddingTop: insets.top + 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
@@ -178,50 +209,89 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
           <Icon name="close" color="#fff" size={16} />
         </Press>
       </View>
-      <Pressable onPress={onClose} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}>
-        <Pressable onPress={() => {}} style={{ width: tileW, borderRadius: 18, overflow: 'hidden' }}>
-          <PhotoTile tone={m.tone} seed={seedBase + '-' + i} radius={18} resWidth={1000} style={{ width: tileW, height: tileW * 1.18 }} />
-          {m.video ? (
-            <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="play" color="#fff" size={26} />
-              </View>
-            </View>
-          ) : null}
-          {media.length > 1 ? (
-            <>
-              <Press onPress={() => go(-1)} style={[navBtn, { left: 8 }]}>
-                <Icon name="chevronL" color="#fff" size={16} />
-              </Press>
-              <Press onPress={() => go(1)} style={[navBtn, { right: 8 }]}>
-                <Icon name="chevronR" color="#fff" size={16} />
-              </Press>
-            </>
-          ) : null}
-        </Pressable>
-      </Pressable>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / width))}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ alignItems: 'center' }}
+      >
+        {media.map(renderItem)}
+      </ScrollView>
     </View>
   );
 }
+
+// ── Block-based content model for the editor ─────────────────────────────────
+type ContentBlock = { type: 'text'; value: string } | { type: 'media'; media: TLMedia };
 
 // ── Add page — full-screen notes-style editor for a timeline entry ───────────
 function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGroup[]; onAdd: (it: Omit<TLRow, 'id'>) => void; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
-  const [title, setTitle] = useState('');
+  const [blocks, setBlocks] = useState<ContentBlock[]>([{ type: 'text', value: '' }]);
+  const [focusIdx, setFocusIdx] = useState(0);
   const [groupText, setGroupText] = useState(groups[0]?.key ?? '');
   const [groupFocused, setGroupFocused] = useState(false);
-  const bodyRef = useRef<TextInput>(null);
-  const [media, setMedia] = useState<TLMedia[]>([]);
-  const dropMedia = (idx: number) => setMedia((mm) => mm.filter((_, x) => x !== idx));
+  const inputRefs = useRef<Map<number, TextInput>>(new Map());
+
+  const setTextAt = (idx: number, value: string) => {
+    setBlocks((prev) => prev.map((b, i) => (i === idx && b.type === 'text' ? { ...b, value } : b)));
+  };
+
+  const removeMediaAt = (idx: number) => {
+    setBlocks((prev) => {
+      const next = [...prev];
+      next.splice(idx, 1);
+      // merge adjacent text blocks
+      const merged: ContentBlock[] = [];
+      for (const b of next) {
+        const last = merged[merged.length - 1];
+        if (b.type === 'text' && last?.type === 'text') {
+          merged[merged.length - 1] = { type: 'text', value: last.value + b.value };
+        } else {
+          merged.push(b);
+        }
+      }
+      return merged.length ? merged : [{ type: 'text', value: '' }];
+    });
+  };
+
+  const insertMedia = (items: TLMedia[]) => {
+    setBlocks((prev) => {
+      const next = [...prev];
+      // find the focused text block and split it
+      let insertAt = prev.length;
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i].type === 'text') insertAt = i + 1;
+      }
+      // use focusIdx if it's a text block
+      if (prev[focusIdx]?.type === 'text') insertAt = focusIdx + 1;
+      const toInsert: ContentBlock[] = [];
+      for (const m of items) {
+        toInsert.push({ type: 'media', media: m });
+      }
+      toInsert.push({ type: 'text', value: '' });
+      next.splice(insertAt, 0, ...toInsert);
+      return next;
+    });
+    // focus the new text block after media
+    setTimeout(() => {
+      const newIdx = focusIdx + 1 + items.length;
+      setFocusIdx(newIdx);
+      inputRefs.current.get(newIdx)?.focus();
+    }, 100);
+  };
 
   const assetToMedia = async (a: ImagePicker.ImagePickerAsset): Promise<TLMedia> => {
     const isVideo = a.type === 'video';
     let thumb: string | undefined;
     if (isVideo) {
       try {
-        const t = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 });
-        thumb = t.uri;
+        const r = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 });
+        thumb = r.uri;
       } catch {}
     }
     return { tone: 'forest', uri: a.uri, thumb, video: isVideo || undefined };
@@ -233,7 +303,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
     if (res.canceled) return;
     const items = await Promise.all(res.assets.map(assetToMedia));
-    setMedia((mm) => [...mm, ...items]);
+    insertMedia(items);
   };
 
   const takePhoto = async () => {
@@ -242,21 +312,24 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
     if (res.canceled) return;
     const items = await Promise.all(res.assets.map(assetToMedia));
-    setMedia((mm) => [...mm, ...items]);
+    insertMedia(items);
   };
 
+  // Collect all text and media from blocks for submission
+  const allText = blocks.filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text').map((b) => b.value.trim()).filter(Boolean).join('\n');
+  const allMedia = blocks.filter((b): b is ContentBlock & { type: 'media' } => b.type === 'media').map((b) => b.media);
   const activeGroup = groupText.trim();
-  const can = title.trim().length > 0 && activeGroup.length > 0;
+  const can = allText.length > 0 && activeGroup.length > 0;
 
   const submit = () => {
     if (!can) return;
-    onAdd({ title: title.trim(), day: activeGroup, media });
+    onAdd({ title: allText, day: activeGroup, media: allMedia.length ? allMedia : undefined });
   };
 
   const pickSuggestion = (key: string) => {
     setGroupText(key);
     setGroupFocused(false);
-    bodyRef.current?.focus();
+    inputRefs.current.get(0)?.focus();
   };
 
   const existingKeys = groups.map((g) => g.key);
@@ -303,7 +376,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
               placeholderTextColor={theme.text3}
               maxLength={20}
               returnKeyType="next"
-              onSubmitEditing={() => bodyRef.current?.focus()}
+              onSubmitEditing={() => inputRefs.current.get(0)?.focus()}
               blurOnSubmit={false}
               style={{ flex: 1, height: 40, fontSize: 14, fontWeight: '600', color: theme.accent }}
             />
@@ -322,30 +395,36 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
 
           <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginBottom: 16 }} />
 
-          {/* Body */}
-          <TextInput
-            ref={bodyRef}
-            value={title}
-            onChangeText={setTitle}
-            autoFocus={groups.length > 0}
-            multiline
-            textAlignVertical="top"
-            scrollEnabled={false}
-            placeholder={t('journey.timeline.addPlaceholder')}
-            placeholderTextColor={theme.text3}
-            style={{
-              fontSize: 17,
-              lineHeight: 28,
-              color: theme.text,
-              fontWeight: '400',
-              padding: 0,
-            }}
-          />
-
-          {media.map((mm, i) => {
+          {/* Content blocks */}
+          {blocks.map((block, i) => {
+            if (block.type === 'text') {
+              return (
+                <TextInput
+                  key={`t-${i}`}
+                  ref={(r) => { if (r) inputRefs.current.set(i, r); else inputRefs.current.delete(i); }}
+                  value={block.value}
+                  onChangeText={(v) => setTextAt(i, v)}
+                  onFocus={() => setFocusIdx(i)}
+                  autoFocus={i === 0 && groups.length > 0}
+                  multiline
+                  textAlignVertical="top"
+                  scrollEnabled={false}
+                  placeholder={i === 0 ? t('journey.timeline.addPlaceholder') : ''}
+                  placeholderTextColor={theme.text3}
+                  style={{
+                    fontSize: 17,
+                    lineHeight: 28,
+                    color: theme.text,
+                    fontWeight: '400',
+                    padding: 0,
+                  }}
+                />
+              );
+            }
+            const mm = block.media;
             const displayUri = mm.video ? mm.thumb : mm.uri;
             return (
-              <View key={i} style={{ marginTop: 14, borderRadius: 14, overflow: 'hidden' }}>
+              <View key={`m-${i}`} style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden' }}>
                 {displayUri ? (
                   <Image source={{ uri: displayUri }} resizeMode="cover" style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 14 }} />
                 ) : (
@@ -359,7 +438,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
                   </View>
                 ) : null}
                 <Press
-                  onPress={() => dropMedia(i)}
+                  onPress={() => removeMediaAt(i)}
                   style={{
                     position: 'absolute',
                     top: 8,
@@ -534,9 +613,17 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
   return (
     <>
       <FullOverlay theme={theme} title={t('journey.timeline.title')} onClose={onClose} zIndex={150} rightAction={rightAction}>
-        <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
-          <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
-        </View>
+        {tl.rows.length > 0 ? (
+          <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+            <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
+          </View>
+        ) : (
+          <View style={{ alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 }}>
+            <Icon name="edit" color={theme.text3} size={36} />
+            <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text2, marginTop: 16 }}>{t('journey.timeline.emptyTitle')}</Text>
+            <Text style={{ fontSize: 13, color: theme.text3, marginTop: 6, textAlign: 'center', lineHeight: 20 }}>{t('journey.timeline.emptyHint')}</Text>
+          </View>
+        )}
         <View style={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: editing ? 80 : 0 }}>
           {groups.map((g) => (
             <View key={g.key} style={{ marginBottom: 6 }}>

@@ -758,6 +758,8 @@ export const zh = {
       deleteConfirmMessage: '此操作不可撤销。',
       deleteSelected: '删除（{count}）',
       batchDeleteConfirmTitle: '删除选中的 {count} 条行程？',
+      emptyTitle: '还没有行程安排',
+      emptyHint: '点右上角「添加」，记录计划、提醒或路上的见闻',
     },
     manage: {
       addCompanion: '添加同行',
