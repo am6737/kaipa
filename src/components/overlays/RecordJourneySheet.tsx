@@ -778,49 +778,25 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
 // ──────────────────────────────────────────────────────────────
 // Hero — cover photo (placeholder) + title
 // ──────────────────────────────────────────────────────────────
-function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: { theme: Theme; photos: RJPhoto[]; onAdd: () => void; onRemove: (id: string) => void; name: string; setName: (v: string) => void; nameMissing: boolean }) {
+function RJHero({ theme, name, setName, nameMissing }: { theme: Theme; name: string; setName: (v: string) => void; nameMissing: boolean }) {
   const { t } = useI18n();
-  const cover = photos[0];
   return (
     <View style={{ marginBottom: 26 }}>
-      {cover ? (
-        <View style={{ width: '100%', height: 210, borderRadius: 22, overflow: 'hidden' }}>
-          {cover.uri ? (
-            <Image source={{ uri: cover.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-          ) : (
-            <PhotoTile tone={cover.tone} seed={cover.id} radius={22} darken style={{ width: '100%', height: '100%' }} resWidth={1200} />
-          )}
-          <View style={{ position: 'absolute', left: 12, top: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.4 }}>{t('record.hero.coverBadge')}</Text>
-          </View>
-          <Press onPress={() => onRemove(cover.id)} style={{ position: 'absolute', right: 10, top: 10, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="close" color="#fff" size={14} />
-          </Press>
-        </View>
-      ) : (
-        <Press onPress={onAdd} style={{ width: '100%', height: 170, borderRadius: 22, alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.16)' }}>
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="camera" color={theme.accent} size={26} />
-          </View>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{t('record.hero.addCover')}</Text>
-          <Text style={{ fontSize: 12, color: theme.text3 }}>{t('record.hero.addCoverHint')}</Text>
-        </Press>
-      )}
       <TextInput
         value={name}
         onChangeText={setName}
         placeholder={t('record.hero.namePlaceholder')}
         placeholderTextColor={theme.text3}
         maxLength={32}
-        style={{ marginTop: 18, paddingBottom: 11, paddingHorizontal: 2, borderBottomWidth: 1.5, borderBottomColor: nameMissing ? (theme.dark ? 'rgba(255,69,58,0.5)' : 'rgba(255,59,48,0.4)') : theme.hairline, fontSize: 25, fontWeight: '700', letterSpacing: -0.5, color: theme.text }}
+        style={{ paddingBottom: 11, paddingHorizontal: 2, borderBottomWidth: 1.5, borderBottomColor: nameMissing ? (theme.dark ? 'rgba(255,69,58,0.5)' : 'rgba(255,59,48,0.4)') : theme.hairline, fontSize: 25, fontWeight: '700', letterSpacing: -0.5, color: theme.text }}
       />
       {nameMissing ? <Text style={{ fontSize: 11.5, color: theme.danger, marginTop: 8, paddingLeft: 2 }}>{t('record.hero.nameRequired')}</Text> : null}
     </View>
   );
 }
 
-// Moments — photo gallery (placeholders), separate from the cover
-function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: Theme; moments: RJPhoto[]; onAdd: () => void; onRemove: (id: string) => void; onSetCover: (id: string) => void }) {
+// Moments — photo gallery
+function RJMoments({ theme, moments, onAdd, onRemove }: { theme: Theme; moments: RJPhoto[]; onAdd: () => void; onRemove: (id: string) => void }) {
   const { t } = useI18n();
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -831,9 +807,6 @@ function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: The
           ) : (
             <PhotoTile tone={p.tone} seed={p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
           )}
-          <Press onPress={() => onSetCover(p.id)} style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>{t('record.moments.setCover')}</Text>
-          </Press>
           <Press onPress={() => onRemove(p.id)} style={{ position: 'absolute', right: 5, top: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" color="#fff" size={10} />
           </Press>
@@ -1447,15 +1420,6 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     ]);
   };
   const removePhoto = (id: string) => setPhotos((prev) => prev.filter((p) => p.id !== id));
-  const setCover = (id: string) =>
-    setPhotos((prev) => {
-      const idx = prev.findIndex((p) => p.id === id);
-      if (idx <= 0) return prev;
-      const cp = prev.slice();
-      const [item] = cp.splice(idx, 1);
-      cp.unshift(item);
-      return cp;
-    });
 
   const addCompanion = (c: { name: string; role: string }) => setCompanions((prev) => [...prev, { id: `c-${Date.now()}-${prev.length}`, name: c.name, role: c.role }]);
   const removeCompanion = (id: string) => setCompanions((prev) => prev.filter((p) => p.id !== id));
@@ -1515,11 +1479,11 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}>
             {/* 1 · cover + title */}
-            <RJHero theme={theme} photos={photos} onAdd={addPhoto} onRemove={removePhoto} name={name} setName={setName} nameMissing={!name.trim()} />
+            <RJHero theme={theme} name={name} setName={setName} nameMissing={!name.trim()} />
 
             {/* 2 · moments */}
-            <NJSection theme={theme} label={t('record.sections.moments')} hint={photos.length > 1 ? t('record.sections.photoCount', { n: photos.length - 1 }) : undefined}>
-              <RJMoments theme={theme} moments={photos.slice(1)} onAdd={addPhoto} onRemove={removePhoto} onSetCover={setCover} />
+            <NJSection theme={theme} label={t('record.sections.moments')} hint={photos.length > 0 ? t('record.sections.photoCount', { n: photos.length }) : undefined}>
+              <RJMoments theme={theme} moments={photos} onAdd={addPhoto} onRemove={removePhoto} />
             </NJSection>
 
             {/* 3 · story */}

@@ -1,15 +1,11 @@
-// PhotoWall.tsx — 瞬间 shared wall, faithful port of prototype's shared-wall.jsx.
-// Hero cover → section title + companion bar → 2-col masonry with author badges →
-// FAB to add. For 计划中 it uses real inspoStore media; ongoing/completed use
-// deterministic placeholders attributed to the journey's real companions.
+// PhotoWall.tsx — 瞬间 shared wall.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, Alert, ScrollView, Animated, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Image, Alert, ScrollView, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
-import { TONES, hashStr, mulberry32, pick } from '../../data/tones';
 import { PhotoTile } from '../PhotoTile';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -19,12 +15,6 @@ import { useInspo } from '../../data/inspoStore';
 import { elevAccent } from '../../theme/shadow';
 import { useI18n } from '../../i18n';
 
-const CAPTIONS = [
-  '云海在脚下翻涌', '今天的日出值回票价', '垭口风很大，但景色绝了',
-  '营地的第一缕光', '一路向上', '高山杜鹃开了', '星空下的帐篷',
-  '终于看到主峰', '休息一下，喝口热水', '回望来时的路',
-  '雪山在云里露了一下脸', '晨雾散开的那一瞬',
-];
 
 interface WallPhoto {
   id: string;
@@ -52,6 +42,11 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const idxRef = useRef(index);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const closingRef = useRef(false);
+  const liveScale = useRef(new Animated.Value(1)).current;
+  const liveTx = useRef(new Animated.Value(0)).current;
+  const liveTy = useRef(new Animated.Value(0)).current;
+  const [livePlaying, setLivePlaying] = useState(false);
+  const liveAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
@@ -73,6 +68,45 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const longPressedRef = useRef(false);
   const [menu, setMenu] = useState(false);
   const canDel = !!(onDelete && photo);
+
+  const playLiveEffect = () => {
+    setLivePlaying(true);
+    longPressedRef.current = true;
+    const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
+    liveAnimRef.current = Animated.parallel([
+      Animated.sequence([
+        Animated.timing(liveScale, { toValue: 1.06, duration: 900, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveScale, { toValue: 1.04, duration: 500, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveScale, { toValue: 1, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(liveTx, { toValue: -6, duration: 700, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveTx, { toValue: 4, duration: 800, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveTx, { toValue: 0, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(liveTy, { toValue: -4, duration: 800, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveTy, { toValue: 3, duration: 700, easing: ease, useNativeDriver: true }),
+        Animated.timing(liveTy, { toValue: 0, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
+    ]);
+    liveAnimRef.current.start(({ finished }) => {
+      if (finished) setLivePlaying(false);
+    });
+  };
+
+  const stopLiveEffect = () => {
+    if (liveAnimRef.current) {
+      liveAnimRef.current.stop();
+      liveAnimRef.current = null;
+    }
+    Animated.parallel([
+      Animated.spring(liveScale, { toValue: 1, useNativeDriver: true, stiffness: 200, damping: 20 }),
+      Animated.spring(liveTx, { toValue: 0, useNativeDriver: true, stiffness: 200, damping: 20 }),
+      Animated.spring(liveTy, { toValue: 0, useNativeDriver: true, stiffness: 200, damping: 20 }),
+    ]).start();
+    setLivePlaying(false);
+  };
 
   const showActions = () => { longPressedRef.current = true; setMenu(true); };
   const act = (fn: () => void) => { setMenu(false); fn(); };
@@ -104,27 +138,46 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         }}
         style={{ flex: 1 }}
       >
-        {visible.map((p) => (
-          <Pressable key={p.id} onPress={handlePress} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-            {p.uri ? (
-              <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
-            ) : (
-              <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
-            )}
-          </Pressable>
-        ))}
+        {visible.map((p) => {
+          const isThis = p.id === photo.id;
+          const applyLive = isThis && isLive;
+          return (
+            <Pressable
+              key={p.id}
+              onPress={handlePress}
+              onLongPress={p.kind === 'livePhoto' ? playLiveEffect : showActions}
+              onPressOut={p.kind === 'livePhoto' && livePlaying ? stopLiveEffect : undefined}
+              delayLongPress={p.kind === 'livePhoto' ? 200 : 400}
+              style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+            >
+              <Animated.View style={{
+                width: W, height: '100%', alignItems: 'center', justifyContent: 'center',
+                transform: applyLive
+                  ? [{ scale: liveScale }, { translateX: liveTx }, { translateY: liveTy }]
+                  : [],
+              }}>
+                {p.uri ? (
+                  <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
+                ) : (
+                  <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
+                )}
+              </Animated.View>
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
-      {/* live photo badge — bottom-left */}
+      {/* iOS-style Live Photo badge — top-left */}
       {isLive ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 18, bottom: insets.bottom + 80 }}>
-          <Press onPress={() => nav.showToast(tr('journey.photoWall.playLive'))} style={{
-            flexDirection: 'row', alignItems: 'center', gap: 5,
-            paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
-            backgroundColor: 'rgba(255,255,255,0.18)',
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, top: insets.top + 12 }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 4,
+            paddingLeft: 6, paddingRight: 9, paddingVertical: 4, borderRadius: 100,
+            backgroundColor: 'rgba(0,0,0,0.25)',
           }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 0.5 }}>LIVE</Text>
-          </Press>
+            <Icon name="livePhoto" color={livePlaying ? '#FFD60A' : '#fff'} size={20} strokeWidth={1.5} />
+            <Text style={{ fontSize: 12, fontWeight: '600', color: livePlaying ? '#FFD60A' : 'rgba(255,255,255,0.9)', letterSpacing: 0.2 }}>LIVE</Text>
+          </View>
         </View>
       ) : null}
 
@@ -202,27 +255,7 @@ export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
       uri,
     }));
   }
-  if (roster.length === 0) return [];
-  const rng = mulberry32(hashStr(info.name + (status || '')));
-  const total = status === 'ongoing' ? 12 : status === 'planning' ? 0 : 24;
-  const ratios = [0.72, 0.75, 0.8, 1, 1, 1.34, 1.5];
-  const days = info.totalDays || 3;
-  const out: WallPhoto[] = [];
-  for (let i = 0; i < total; i++) {
-    const d = 1 + Math.floor(rng() * days);
-    const hr = 6 + Math.floor(rng() * 13);
-    const mn = Math.floor(rng() * 60);
-    out.push({
-      id: 'p' + i,
-      tone: pick(rng, TONES),
-      ratio: pick(rng, ratios),
-      caption: pick(rng, CAPTIONS),
-      day: d,
-      time: `${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}`,
-      author: pick(rng, roster),
-    });
-  }
-  return out;
+  return [];
 }
 
 export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info: Poi; status?: string; onClose: () => void }) {
@@ -302,15 +335,11 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   // ── photos ──
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
   const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
-  const coverPhotos = useMemo<WallPhoto[]>(() => {
-    if (!info.photoUris?.length) return [];
-    return [{ id: 'cover-0', tone: info.tone || 'ridge', ratio: 1, caption: '', day: 1, time: '', author: selfAuthor, uri: info.photoUris[0] }];
-  }, [info.photoUris, info.tone, selfAuthor]);
   const inspoPhotos = useMemo<WallPhoto[]>(
     () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind })),
     [inspo.media, selfAuthor]
   );
-  const allPhotos = isPlanning ? inspoPhotos : [...coverPhotos, ...fakePhotos, ...inspoPhotos];
+  const allPhotos = isPlanning ? inspoPhotos : [...fakePhotos, ...inspoPhotos];
 
   // per-person counts
   const counts = useMemo(() => {
@@ -447,7 +476,14 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                                 </View>
                               </View>
                             ) : (
-                              <Image source={{ uri: p.uri }} resizeMode="cover" style={{ width: '100%', height: colW }} />
+                              <View>
+                                <Image source={{ uri: p.uri }} resizeMode="cover" style={{ width: '100%', height: colW }} />
+                                {p.kind === 'livePhoto' ? (
+                                  <View style={{ position: 'absolute', left: 6, top: 6 }}>
+                                    <Icon name="livePhoto" color="#fff" size={16} strokeWidth={1.6} />
+                                  </View>
+                                ) : null}
+                              </View>
                             )}
                             {isPlanning ? (
                               <Press onPress={() => inspo.remove(p.id)} style={{ position: 'absolute', right: 7, top: 7, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>

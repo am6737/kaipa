@@ -15,7 +15,8 @@ import { Press } from '../components/Press';
 import { ElevationStrip } from '../components/ElevationStrip';
 import { useNav } from '../nav/NavContext';
 import { elevAccent } from '../theme/shadow';
-import { TONES } from '../data/tones';
+import { paletteFor } from '../data/tones';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useInspo } from '../data/inspoStore';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey } from '../i18n';
@@ -224,7 +225,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
           {poi.photoUris?.[0] ? (
             <Image source={{ uri: poi.photoUris[0] }} resizeMode="cover" style={StyleSheet.absoluteFill} />
           ) : (
-            <PhotoTile tone={poi.tone} seed={poi.id + 'hero'} darken style={StyleSheet.absoluteFill} resWidth={1200} />
+            <LinearGradient
+              colors={[paletteFor(poi.tone)[0], paletteFor(poi.tone)[2]]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
           )}
           {nav.pointSource && (
             <Press
@@ -361,7 +367,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       </View>
 
       {/* companions (journeys) */}
-      {isJourney && poi.companionList && poi.companionList.length > 0 ? (
+      {isJourney ? (
+        poi.companionList && poi.companionList.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={t('journey.section.companions')} action={t('journey.section.manage')} onAction={() => nav.openManageCompanions(poi)} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -369,22 +376,22 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
             <Text style={{ fontSize: 13, color: theme.text2 }}>{t('journey.companions.companionCount', { count: poi.companions ?? 0 })}</Text>
           </View>
         </View>
-      ) : null}
-
-      {/* 行程 timeline */}
-      {isJourney && !isRecorded ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
-      {isJourney && isRecorded ? (
+        ) : (
         <View style={{ paddingBottom: 18 }}>
-          <SectionHeader theme={theme} title={t('journey.section.timeline')} />
-          <Press onPress={() => nav.openTimeline(poi)}>
+          <SectionHeader theme={theme} title={t('journey.section.companions')} action={t('journey.section.manage')} onAction={() => nav.openManageCompanions(poi)} />
+          <Press onPress={() => nav.openManageCompanions(poi)}>
             <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <Icon name="calendar" color={theme.text3} size={24} />
-              <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
-              <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
+              <Icon name="people" color={theme.text3} size={24} />
+              <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.companions')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.companionsHint')}</Text>
             </View>
           </Press>
         </View>
+        )
       ) : null}
+
+      {/* 行程 timeline */}
+      {isJourney ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
 
       {/* photo grid */}
       {isJourney && status === 'planning' ? (
@@ -404,7 +411,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
             ))}
           </View>
         </View>
-      ) : isJourney && isRecorded ? (
+      ) : isJourney ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={t('journey.moments.title')} />
           <Press onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}>

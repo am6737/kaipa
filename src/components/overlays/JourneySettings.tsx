@@ -3,7 +3,8 @@
 // Ported from the prototype's journey-settings.jsx (toggles are session-local —
 // a faithful, working settings surface without a backend).
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Animated, StyleSheet } from 'react-native';
+import { View, Text, Image, Animated, StyleSheet, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
 import { Icon, IconName } from '../Icon';
@@ -118,14 +119,44 @@ export function JourneySettings({
   onEdit: () => void;
 }) {
   const { t } = useI18n();
+  const [coverUri, setCoverUri] = useState<string | null>(null);
   const [linkOn, setLinkOn] = useState(true);
   const [allowUpload, setAllowUpload] = useState(true);
   const [moderate, setModerate] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(true);
 
+  const pickCover = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert(t('journey.photoWall.needLibraryPerm')); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!res.canceled && res.assets?.[0]) setCoverUri(res.assets[0].uri);
+  };
+
   return (
     <FullOverlay theme={theme} title={t('journey.settings.title')} subtitle={poi.name} onClose={onClose} zIndex={150}>
       <View style={{ padding: 16, paddingTop: 18 }}>
+        <Section theme={theme} title={t('journey.settings.coverSection')}>
+          {coverUri ? (
+            <View>
+              <Press onPress={pickCover}>
+                <Image source={{ uri: coverUri }} style={{ width: '100%', height: 180, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} resizeMode="cover" />
+              </Press>
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
+              <Row theme={theme} title={t('journey.settings.removeCover')} onPress={() => setCoverUri(null)} last />
+            </View>
+          ) : (
+            <Row
+              theme={theme}
+              icon="camera"
+              title={t('journey.settings.changeCover')}
+              sub={t('journey.settings.changeCoverSub')}
+              onPress={pickCover}
+              trailing={<Icon name="chevronR" color={theme.text3} size={16} />}
+              last
+            />
+          )}
+        </Section>
+
         <Section theme={theme} title={t('journey.settings.infoSection')}>
           <Row
             theme={theme}

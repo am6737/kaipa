@@ -1,18 +1,18 @@
-// JourneyTimeline.tsx — the unified 行程 surface, faithfully ported from the
-// prototype's journey-timeline.jsx. ONE concept: a checkable, day-grouped list of
-// rich records (each row can carry photo/video media). Progress = how many rows
-// are checked. Exposes the inline digest (JourneyTimelineCard, shown on the
-// journey detail) and the full-screen day-grouped timeline (JourneyTimelineFull,
-// opened from the digest's 「全部」). Checks + user-added rows live in journeyStore
-// so the two stay in sync. Gear checklist stays separate.
-import React, { useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
+// JourneyTimeline.tsx — the unified 行程 surface. A checkable, user-grouped list
+// of rich records (each row can carry photo/video media). Groups are user-defined
+// strings — users decide how to organize entries. Exposes the inline digest
+// (JourneyTimelineCard) and the full-screen timeline (JourneyTimelineFull).
+import React, { useRef, useState } from 'react';
+import { View, Text, TextInput, Image, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { Poi, JourneyStatus } from '../../data/pois';
-import { buildTimeline, DAY_LABEL, DAY_RANK, DayKey, TLRow, TLMedia, TLGroup } from '../../data/timeline';
-import { useJStore } from '../../data/journeyStore';
+import { Poi } from '../../data/pois';
+import { TLRow, TLMedia, TLGroup } from '../../data/timeline';
+import { useTimeline } from '../../hooks/useTimeline';
+import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
@@ -70,11 +70,16 @@ function ProgressBar({ theme, done, total }: { theme: Theme; done: number; total
   );
 }
 
-// A media attachment thumbnail (photo placeholder; video gets a play badge).
+// A media attachment thumbnail — real image when uri exists, placeholder otherwise.
 function MediaThumb({ theme, m, seed, size = 76, onPress }: { theme: Theme; m: TLMedia; seed: string; size?: number; onPress?: () => void }) {
+  const displayUri = m.video ? m.thumb : m.uri;
   const inner = (
     <View style={{ width: size, height: size, borderRadius: 11, overflow: 'hidden' }}>
-      <PhotoTile tone={m.tone} seed={seed} radius={11} resWidth={240} style={{ width: size, height: size }} />
+      {displayUri ? (
+        <Image source={{ uri: displayUri }} resizeMode="cover" style={{ width: size, height: size }} />
+      ) : (
+        <PhotoTile tone={m.tone} seed={seed} radius={11} resWidth={240} style={{ width: size, height: size }} />
+      )}
       {m.video ? (
         <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }]}>
           <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
@@ -138,7 +143,7 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
           </Text>
           {showDay ? (
             <View style={{ marginTop: 1 }}>
-              <DayPill theme={theme} label={DAY_LABEL[row.day] || row.day} />
+              <DayPill theme={theme} label={row.day} />
             </View>
           ) : null}
         </View>
@@ -199,108 +204,197 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
   );
 }
 
-// ── Add sheet — bottom-sheet composer for a rich timeline entry ──────────────
-function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup[]; onAdd: (it: Omit<TLRow, 'id'>) => void; onClose: () => void }) {
+// ── Add page — full-screen notes-style editor for a timeline entry ───────────
+function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGroup[]; onAdd: (it: Omit<TLRow, 'id'>) => void; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const [title, setTitle] = useState('');
-  const [day, setDay] = useState<DayKey>(days[0] ? days[0].key : 'pre');
+  const [groupText, setGroupText] = useState(groups[0]?.key ?? '');
+  const [groupFocused, setGroupFocused] = useState(false);
+  const bodyRef = useRef<TextInput>(null);
   const [media, setMedia] = useState<TLMedia[]>([]);
-  const can = title.trim().length > 0;
-  const MTONES = ['ridge', 'forest', 'dusk', 'river', 'sand', 'moss'];
-  const addMedia = (video: boolean) => setMedia((mm) => [...mm, { tone: MTONES[mm.length % MTONES.length], video }]);
   const dropMedia = (idx: number) => setMedia((mm) => mm.filter((_, x) => x !== idx));
+
+  const assetToMedia = async (a: ImagePicker.ImagePickerAsset): Promise<TLMedia> => {
+    const isVideo = a.type === 'video';
+    let thumb: string | undefined;
+    if (isVideo) {
+      try {
+        const t = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 });
+        thumb = t.uri;
+      } catch {}
+    }
+    return { tone: 'forest', uri: a.uri, thumb, video: isVideo || undefined };
+  };
+
+  const pickFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
+    if (res.canceled) return;
+    const items = await Promise.all(res.assets.map(assetToMedia));
+    setMedia((mm) => [...mm, ...items]);
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return;
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
+    if (res.canceled) return;
+    const items = await Promise.all(res.assets.map(assetToMedia));
+    setMedia((mm) => [...mm, ...items]);
+  };
+
+  const activeGroup = groupText.trim();
+  const can = title.trim().length > 0 && activeGroup.length > 0;
+
   const submit = () => {
     if (!can) return;
-    onAdd({ title: title.trim(), day, media });
+    onAdd({ title: title.trim(), day: activeGroup, media });
   };
-  const dayOpts: TLGroup[] = days.length ? days : [{ key: 'pre', label: '出发前', rows: [] }];
+
+  const pickSuggestion = (key: string) => {
+    setGroupText(key);
+    setGroupFocused(false);
+    bodyRef.current?.focus();
+  };
+
+  const existingKeys = groups.map((g) => g.key);
+  const suggestions = activeGroup
+    ? existingKeys.filter((k) => k !== activeGroup && k.includes(activeGroup))
+    : existingKeys;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }} pointerEvents="box-none">
-        <View style={{ backgroundColor: theme.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 18, paddingTop: 10, paddingBottom: insets.bottom + 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
-          <View style={{ alignItems: 'center', paddingBottom: 14 }}>
-            <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 200 }]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        {/* Header */}
+        <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Press onPress={onClose} style={{ paddingVertical: 4, paddingRight: 12 }}>
+            <Text style={{ fontSize: 16, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
+          </Press>
+          <Press
+            onPress={can ? submit : undefined}
+            style={{
+              paddingVertical: 6,
+              paddingHorizontal: 16,
+              borderRadius: 18,
+              backgroundColor: can ? theme.accent : theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+            }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>{t('common.done')}</Text>
+          </Press>
+        </View>
+
+        {/* Editor body */}
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80, flexGrow: 1 }}
+        >
+          {/* Group input row */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40, marginBottom: 4 }}>
+            <Text style={{ fontSize: 14, color: theme.text3, fontWeight: '600' }}>#</Text>
+            <TextInput
+              value={groupText}
+              onChangeText={setGroupText}
+              onFocus={() => setGroupFocused(true)}
+              onBlur={() => setTimeout(() => setGroupFocused(false), 150)}
+              placeholder={t('journey.timeline.groupPlaceholder')}
+              placeholderTextColor={theme.text3}
+              maxLength={20}
+              returnKeyType="next"
+              onSubmitEditing={() => bodyRef.current?.focus()}
+              blurOnSubmit={false}
+              style={{ flex: 1, height: 40, fontSize: 14, fontWeight: '600', color: theme.accent }}
+            />
           </View>
 
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            autoFocus
-            multiline
-            placeholder={t('journey.timeline.addPlaceholder')}
-            placeholderTextColor={theme.text3}
-            style={{
-              minHeight: 76,
-              borderWidth: 1.5,
-              borderColor: can ? theme.accent : 'transparent',
-              borderRadius: 14,
-              backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)',
-              paddingHorizontal: 14,
-              paddingVertical: 12,
-              fontSize: 15.5,
-              lineHeight: 22,
-              color: theme.text,
-              textAlignVertical: 'top',
-              marginBottom: 12,
-            }}
-          />
-
-          {media.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingTop: 4, paddingBottom: 2 }} style={{ marginBottom: 12 }}>
-              {media.map((mm, i) => (
-                <View key={i}>
-                  <MediaThumb theme={theme} m={mm} seed={'new-' + i} />
-                  <Press
-                    onPress={() => dropMedia(i)}
-                    style={{
-                      position: 'absolute',
-                      top: -5,
-                      right: -5,
-                      width: 20,
-                      height: 20,
-                      borderRadius: 10,
-                      backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0px 1px 5px rgba(0,0,0,0.3)',
-                    }}
-                  >
-                    <Icon name="close" color={theme.text} size={11} />
-                  </Press>
-                </View>
+          {/* Suggestions */}
+          {groupFocused && suggestions.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 12, paddingTop: 4 }} keyboardShouldPersistTaps="handled">
+              {suggestions.map((k) => (
+                <Press key={k} onPress={() => pickSuggestion(k)} style={{ height: 28, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                  <Text style={{ fontSize: 12.5, fontWeight: '500', color: theme.text2 }}>{k}</Text>
+                </Press>
               ))}
             </ScrollView>
           ) : null}
 
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
-            <Press onPress={() => addMedia(false)} style={{ flex: 1, height: 44, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <Icon name="photo" color={theme.text2} size={17} />
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>{t('journey.media.photo')}</Text>
-            </Press>
-            <Press onPress={() => addMedia(true)} style={{ flex: 1, height: 44, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <Icon name="play" color={theme.text2} size={15} />
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text2 }}>{t('journey.media.video')}</Text>
-            </Press>
-          </View>
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginBottom: 16 }} />
 
-          <Text style={{ fontSize: 11, fontWeight: '700', color: theme.text2, letterSpacing: 0.6, marginBottom: 9 }}>{t('journey.timeline.scheduleOn')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingBottom: 2 }} style={{ marginBottom: 20 }}>
-            {dayOpts.map((d) => {
-              const on = day === d.key;
-              return (
-                <Press key={d.key} onPress={() => setDay(d.key)} style={{ height: 36, paddingHorizontal: 15, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: on ? theme.accent : theme.hairline }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: on ? '#fff' : theme.text2 }}>{d.label}</Text>
+          {/* Body */}
+          <TextInput
+            ref={bodyRef}
+            value={title}
+            onChangeText={setTitle}
+            autoFocus={groups.length > 0}
+            multiline
+            textAlignVertical="top"
+            scrollEnabled={false}
+            placeholder={t('journey.timeline.addPlaceholder')}
+            placeholderTextColor={theme.text3}
+            style={{
+              fontSize: 17,
+              lineHeight: 28,
+              color: theme.text,
+              fontWeight: '400',
+              padding: 0,
+            }}
+          />
+
+          {media.map((mm, i) => {
+            const displayUri = mm.video ? mm.thumb : mm.uri;
+            return (
+              <View key={i} style={{ marginTop: 14, borderRadius: 14, overflow: 'hidden' }}>
+                {displayUri ? (
+                  <Image source={{ uri: displayUri }} resizeMode="cover" style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 14 }} />
+                ) : (
+                  <PhotoTile tone={mm.tone} seed={'new-' + i} radius={14} resWidth={600} style={{ width: '100%', aspectRatio: 4 / 3 }} />
+                )}
+                {mm.video ? (
+                  <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icon name="play" color="#fff" size={20} />
+                    </View>
+                  </View>
+                ) : null}
+                <Press
+                  onPress={() => dropMedia(i)}
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 26,
+                    height: 26,
+                    borderRadius: 13,
+                    backgroundColor: 'rgba(0,0,0,0.45)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="close" color="#fff" size={12} />
                 </Press>
-              );
-            })}
-          </ScrollView>
+              </View>
+            );
+          })}
+        </ScrollView>
 
-          <Press onPress={submit} disabled={!can} style={{ height: 50, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: can ? theme.accent : theme.dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }}>
-            <Icon name="plus" color={can ? '#fff' : theme.text3} size={16} strokeWidth={2.4} />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>{t('journey.timeline.addToTimeline')}</Text>
+        {/* Bottom toolbar */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 16,
+          paddingHorizontal: 20,
+          paddingTop: 10,
+          paddingBottom: Math.max(insets.bottom, 16) + 4,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.hairline,
+        }}>
+          <Press onPress={pickFromLibrary} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="photo" color={theme.text2} size={24} />
+          </Press>
+          <Press onPress={takePhoto} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="camera" color={theme.text2} size={24} />
           </Press>
         </View>
       </KeyboardAvoidingView>
@@ -322,30 +416,51 @@ function CardHeader({ theme, title, action, onAction }: { theme: Theme; title: s
   );
 }
 
-// ── INLINE CARD — a focused "接下来" digest on the journey detail ─────────────
+// ── Group rows by their user-defined `day` string, preserving first-seen order ─
+function groupRows(rows: TLRow[]): TLGroup[] {
+  const map = new Map<string, TLRow[]>();
+  for (const r of rows) {
+    const key = r.day || '';
+    const arr = map.get(key);
+    if (arr) arr.push(r);
+    else map.set(key, [r]);
+  }
+  return [...map.entries()].map(([key, items]) => ({ key, label: key, rows: items }));
+}
+
 export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }) {
   const nav = useNav();
   const { t } = useI18n();
-  const store = useJStore(info.id);
-  const status = (info.status || 'completed') as JourneyStatus;
-  const tl = buildTimeline(info, status, store.items());
-  store.ensureInit(tl.defaults);
+  const { userId } = useData();
+  const tl = useTimeline(info.id, userId);
 
-  const isDone = (r: TLRow) => store.isDone(r.id);
-  const doneCount = tl.rows.filter(isDone).length;
-  const pending = tl.rows.filter((r) => !isDone(r));
+  const doneCount = tl.rows.filter((r) => tl.isDone(r.id)).length;
+  const pending = tl.rows.filter((r) => !tl.isDone(r.id));
   const allDone = pending.length === 0;
 
-  // "接下来" = next few actionable items in day order
-  const ordered = [...tl.rows].sort((a, b) => (DAY_RANK[a.day] || 0) - (DAY_RANK[b.day] || 0));
-  const upNext = ordered.filter((r) => !isDone(r)).slice(0, 3);
+  const upNext = tl.rows.filter((r) => !tl.isDone(r.id)).slice(0, 3);
+
+  if (tl.rows.length === 0) {
+    return (
+      <View style={{ paddingBottom: 18 }}>
+        <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
+        <Press onPress={() => nav.openTimeline(info)}>
+          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <Icon name="calendar" color={theme.text3} size={24} />
+            <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
+            <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
+          </View>
+        </Press>
+      </View>
+    );
+  }
 
   return (
     <View style={{ paddingBottom: 18 }}>
       <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
       <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
         <View style={{ padding: 14, borderBottomWidth: allDone ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <ProgressBar theme={theme} done={doneCount} total={tl.total} />
+          <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
         </View>
         {!allDone ? (
           <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
@@ -354,7 +469,7 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
               <Text style={{ fontSize: 11.5, color: theme.text3 }}>{t('journey.timeline.remaining', { count: pending.length })}</Text>
             </View>
             {upNext.map((r, i, arr) => (
-              <Row key={r.id} theme={theme} row={r} done={isDone(r)} showDay compact onToggle={() => store.toggle(r.id)} connector={i < arr.length - 1} last={i === arr.length - 1} />
+              <Row key={r.id} theme={theme} row={r} done={tl.isDone(r.id)} showDay compact onToggle={() => tl.toggle(r.id)} connector={i < arr.length - 1} last={i === arr.length - 1} />
             ))}
           </View>
         ) : null}
@@ -367,17 +482,15 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
 export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; info: Poi; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
-  const store = useJStore(info.id);
-  const status = (info.status || 'completed') as JourneyStatus;
+  const { userId } = useData();
+  const tl = useTimeline(info.id, userId);
+  const groups = groupRows(tl.rows);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewer, setViewer] = useState<{ media: TLMedia[]; index: number; seedBase: string } | null>(null);
 
-  const tl = buildTimeline(info, status, store.items());
-  store.ensureInit(tl.defaults);
-  const isDone = (r: TLRow) => store.isDone(r.id);
-  const doneCount = tl.rows.filter(isDone).length;
+  const doneCount = tl.rows.filter((r) => tl.isDone(r.id)).length;
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -400,7 +513,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
     Alert.alert(t('journey.timeline.batchDeleteConfirmTitle', { count }), t('journey.timeline.deleteConfirmMessage'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => {
-        selected.forEach((id) => store.remove(id));
+        selected.forEach((id) => tl.remove(id));
         setSelected(new Set());
         setEditing(false);
       }},
@@ -420,12 +533,12 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
 
   return (
     <>
-      <FullOverlay theme={theme} title={t('journey.timeline.title')} subtitle={t('journey.timeline.fullSubtitle', { total: tl.total, done: doneCount })} onClose={onClose} zIndex={150} rightAction={rightAction}>
+      <FullOverlay theme={theme} title={t('journey.timeline.title')} onClose={onClose} zIndex={150} rightAction={rightAction}>
         <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
-          <ProgressBar theme={theme} done={doneCount} total={tl.total} />
+          <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
         </View>
         <View style={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: editing ? 80 : 0 }}>
-          {tl.groups.map((g) => (
+          {groups.map((g) => (
             <View key={g.key} style={{ marginBottom: 6 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 }}>
                 <Text style={{ fontSize: 13, fontWeight: '800', color: theme.text, letterSpacing: 0.2 }}>{g.label}</Text>
@@ -437,8 +550,8 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
                   key={r.id}
                   theme={theme}
                   row={r}
-                  done={isDone(r)}
-                  onToggle={editing && r.custom ? () => toggleSelect(r.id) : () => store.toggle(r.id)}
+                  done={tl.isDone(r.id)}
+                  onToggle={editing && r.custom ? () => toggleSelect(r.id) : () => tl.toggle(r.id)}
                   connector={i < g.rows.length - 1}
                   last={i === g.rows.length - 1}
                   onOpenMedia={editing ? undefined : (media, idx, id) => setViewer({ media, index: idx, seedBase: id })}
@@ -459,7 +572,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
           </Press>
         </View>
       ) : null}
-      {adding ? <AddSheet theme={theme} days={tl.groups} onClose={() => setAdding(false)} onAdd={(it) => { store.add(it); setAdding(false); }} /> : null}
+      {adding ? <AddPage theme={theme} groups={groups} onClose={() => setAdding(false)} onAdd={(it) => { tl.add(it); setAdding(false); }} /> : null}
       {viewer ? <MediaViewer theme={theme} media={viewer.media} index={viewer.index} seedBase={viewer.seedBase} onClose={() => setViewer(null)} /> : null}
     </>
   );
