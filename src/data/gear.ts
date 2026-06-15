@@ -9,6 +9,7 @@ export interface GearCat {
 }
 
 export interface GearItem {
+  id?: number;
   name: string;
   cat: string;
   w: number; // kg

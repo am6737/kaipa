@@ -21,6 +21,7 @@ export interface TLRow {
   media?: TLMedia[];
   synth?: boolean;
   custom?: boolean;
+  checked?: boolean;
 }
 export interface TLGroup {
   key: DayKey;
@@ -59,6 +60,7 @@ const SYNTH: TLRow[] = [
 // Build the grouped timeline + a defaults map (id → done) for store seeding.
 export function buildTimeline(info: Poi, status: JourneyStatus, customItems: TLRow[]): Timeline {
   const dayIndex = status === 'ongoing' ? info.dayIndex || 2 : 0;
+  const isRecorded = !!info.photoUris;
   const defDone = (day: DayKey): boolean => {
     if (status === 'completed') return true;
     if (status === 'ongoing') return day === 'pre' || (DAY_RANK[day] || 0) < dayIndex;
@@ -66,7 +68,7 @@ export function buildTimeline(info: Poi, status: JourneyStatus, customItems: TLR
   };
 
   const rows: TLRow[] = [];
-  SYNTH.forEach((it) => rows.push({ ...it, synth: true }));
+  if (!isRecorded) SYNTH.forEach((it) => rows.push({ ...it, synth: true }));
   (customItems || []).forEach((it) => rows.push({ ...it, custom: true }));
 
   // defaults

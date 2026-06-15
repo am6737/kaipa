@@ -17,7 +17,8 @@ import { PhotoTile } from '../components/PhotoTile';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { hashStr, TONES } from '../data/tones';
-import { GX_CATS, GX_ITEMS, GX_SETS, UNCAT, GearCat, GearItem, GearSet, Metric, METRICS } from '../data/gear';
+import { UNCAT, GearCat, GearItem, GearSet, Metric, METRICS } from '../data/gear';
+import { useData } from '../data/DataContext';
 import { LabeledDonut } from '../components/gear/LabeledDonut';
 import { GearItemDetail } from '../components/gear/GearItemDetail';
 import { GearCatDetail } from '../components/gear/GearCatDetail';
@@ -94,6 +95,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const insets = useSafeAreaInsets();
   const nav = useNav();
   const { t } = useI18n();
+  const data = useData();
   const { width: winW } = useWindowDimensions();
   const [tab, setTab] = useState<Tab>('items');
   const [metric, setMetric] = useState<Metric>('price');
@@ -105,10 +107,9 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
 
-  // Live library state so detail-page edits (delete) actually mutate the lists.
-  const [cats, setCats] = useState<GearCat[]>(GX_CATS);
-  const [allItems, setAllItems] = useState<GearItem[]>(GX_ITEMS);
-  const [sets, setSets] = useState<GearSet[]>(GX_SETS);
+  const cats = data.cats;
+  const allItems = data.items;
+  const sets = data.sets;
 
   // Pushed detail pages (装备 / 分类 / 套装), newest last.
   const [pageStack, setPageStack] = useState<GearPage[]>([]);
@@ -126,13 +127,9 @@ export function GearScreen({ theme }: { theme: Theme }) {
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
 
-  // Save an edited item. A rename propagates to every set that referenced it and
-  // to any open detail page so the underlying screens stay in sync.
   const updateItem = (oldName: string, ni: GearItem) => {
-    setAllItems((items) => items.map((it) => (it.name === oldName ? ni : it)));
-    if (ni.name !== oldName) {
-      setSets((ss) => ss.map((s) => (s.items.includes(oldName) ? { ...s, items: s.items.map((n) => (n === oldName ? ni.name : n)) } : s)));
-    }
+    const oldItem = allItems.find(it => it.name === oldName);
+    if (oldItem?.id) data.updateItem(oldItem.id, ni);
     setPageStack((stk) =>
       stk.map((pg) => {
         if (pg.type === 'item' && pg.item.name === oldName) return { type: 'item', item: ni };
@@ -144,54 +141,49 @@ export function GearScreen({ theme }: { theme: Theme }) {
     nav.showToast(t('gear.toast.itemUpdated'));
   };
 
-  // Add a brand-new item to the library (from the blank editor draft).
   const addItem = (ni: GearItem) => {
-    setAllItems((items) => [ni, ...items]);
+    data.addItem(ni);
     setItemEditor(null);
     nav.showToast(t('gear.toast.itemAdded'));
   };
 
-  // Real deletes — gear is also pulled from any set it belonged to.
   const deleteItem = (name: string) => {
-    setAllItems((items) => items.filter((i) => i.name !== name));
-    setSets((ss) => ss.map((s) => (s.items.includes(name) ? { ...s, items: s.items.filter((n) => n !== name) } : s)));
+    const item = allItems.find(i => i.name === name);
+    if (item?.id) data.deleteItem(item.id);
     popPage();
     nav.showToast(t('gear.toast.itemDeleted'));
   };
   const deleteCat = (id: string) => {
-    setCats((cs) => cs.filter((c) => c.id !== id));
+    data.deleteCat(id);
     popPage();
     nav.showToast(t('gear.toast.catDeleted'));
   };
   const deleteSet = (id: string) => {
-    setSets((ss) => ss.filter((s) => s.id !== id));
+    data.deleteSet(id);
     popPage();
     nav.showToast(t('gear.toast.setDeleted'));
   };
-  // Create or update a set from the editor; keep any open detail page in sync.
   const saveSet = (name: string, itemNames: string[]) => {
+    const itemIds = itemNames.map(n => allItems.find(i => i.name === n)?.id).filter(Boolean) as number[];
     if (setEditor?.mode === 'edit' && setEditor.set) {
       const id = setEditor.set.id;
-      setSets((ss) => ss.map((s) => (s.id === id ? { ...s, name, items: itemNames } : s)));
+      data.updateSet(id, name, itemIds);
       setPageStack((stk) => stk.map((p) => (p.type === 'set' && p.set.id === id ? { type: 'set', set: { ...p.set, name, items: itemNames } } : p)));
       nav.showToast(t('gear.toast.setUpdated'));
     } else {
-      const ns: GearSet = { id: 's' + Date.now().toString(36), name, items: itemNames };
-      setSets((ss) => [ns, ...ss]);
+      data.addSet(name, itemIds);
       nav.showToast(t('gear.toast.setCreated'));
     }
     setSetEditor(null);
   };
-  // Create or update a category; keep any open detail page's snapshot in sync.
   const saveCat = (name: string, color: string) => {
     if (catEditor?.mode === 'edit' && catEditor.cat) {
       const id = catEditor.cat.id;
-      setCats((cs) => cs.map((c) => (c.id === id ? { ...c, name, color } : c)));
+      data.updateCat(id, { name, color });
       setPageStack((stk) => stk.map((p) => (p.type === 'cat' && p.cat.id === id ? { type: 'cat', cat: { ...p.cat, name, color } } : p)));
       nav.showToast(t('gear.toast.catUpdated'));
     } else {
-      const nc: GearCat = { id: 'c' + Date.now().toString(36), name, color, builtin: false };
-      setCats((cs) => [...cs, nc]);
+      data.addCat({ name, color });
       nav.showToast(t('gear.toast.catCreated'));
     }
     setCatEditor(null);
@@ -221,10 +213,9 @@ export function GearScreen({ theme }: { theme: Theme }) {
     if (tab === 'cats') { setCatEditor({ mode: 'new' }); return; }
     setAddChoose(true);
   };
-  const onAddEntry = (entry: 'link' | 'camera' | 'manual') => {
+  const onAddResult = (item: GearItem) => {
     setAddChoose(false);
-    const cat = cats.find((c) => c.id === 'misc')?.id || cats[0]?.id || 'misc';
-    setItemEditor({ mode: 'new', item: { name: '', cat, w: 0, p: 0 } });
+    setItemEditor({ mode: 'new', item });
   };
 
   return (
@@ -403,7 +394,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
       {/* ── 添加装备入口选择 ── */}
       {addChoose && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 205 }]}>
-          <AddGearChoose theme={theme} onChoose={onAddEntry} onCancel={() => setAddChoose(false)} />
+          <AddGearChoose theme={theme} cats={cats} onResult={onAddResult} onCancel={() => setAddChoose(false)} />
         </View>
       )}
 

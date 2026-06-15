@@ -24,7 +24,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
-import { Poi, Companion, JourneyStatus, EXPLORE_POIS } from '../../data/pois';
+import { Poi, Companion, JourneyStatus } from '../../data/pois';
+import { useData } from '../../data/DataContext';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
@@ -53,18 +54,21 @@ interface NJRoute {
   custom?: boolean;
 }
 
-const ROUTE_SUGGESTIONS: NJRoute[] = EXPLORE_POIS.map((p) => ({
-  id: p.id,
-  name: p.name,
-  region: p.region,
-  dist: p.dist,
-  asc: p.asc,
-  diff: p.diff,
-  tone: p.tone,
-  lng: p.lng,
-  lat: p.lat,
-  coord: p.coord,
-}));
+function useRouteSuggestions(): NJRoute[] {
+  const { routes } = useData();
+  return useMemo(() => routes.map((p) => ({
+    id: p.id,
+    name: p.name,
+    region: p.region,
+    dist: p.dist,
+    asc: p.asc,
+    diff: p.diff,
+    tone: p.tone,
+    lng: p.lng,
+    lat: p.lat,
+    coord: p.coord,
+  })), [routes]);
+}
 
 // ──────────────────────────────────────────────────────────────
 // Time helpers (ported 1:1 from the prototype)
@@ -510,8 +514,9 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
 // ──────────────────────────────────────────────────────────────
 function NJStepRoute({ theme, route, setRoute }: { theme: Theme; route: NJRoute | null; setRoute: (r: NJRoute) => void }) {
   const { t } = useI18n();
+  const suggestions = useRouteSuggestions();
   const [q, setQ] = useState('');
-  const filtered = ROUTE_SUGGESTIONS.filter((r) => !q || r.name.includes(q) || r.region.includes(q));
+  const filtered = suggestions.filter((r) => !q || r.name.includes(q) || r.region.includes(q));
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 32 }}>
       <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.route.heading')}</Text>

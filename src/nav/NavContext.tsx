@@ -122,12 +122,21 @@ export interface NavValue {
 
 const NavContext = createContext<NavValue | null>(null);
 
+export interface NavDB {
+  updateJourney?: (id: string, patch: Partial<Poi>) => Promise<void>;
+  deleteJourney?: (id: string) => Promise<void>;
+  toggleFav?: (id: string, current: boolean) => Promise<void>;
+  createJourney?: (poi: Partial<Poi>) => Promise<Poi | null>;
+}
+
 export function NavProvider({
   children,
   auth,
+  db,
 }: {
   children: React.ReactNode;
   auth: { signOut: () => void };
+  db?: NavDB;
 }) {
   const [mainTab, setMainTabRaw] = useState<MainTab>('discover');
   const [subTab, setSubTabRaw] = useState<SubTab>('explore');
@@ -198,16 +207,21 @@ export function NavProvider({
   const patchCurrent = (patch: JourneyPatch) => {
     const cur = pointInfo || detail;
     const id = cur?.id;
-    if (id) setJourneyPatch((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
+    if (id) {
+      setJourneyPatch((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
+      db?.updateJourney?.(id, patch);
+    }
     setPointInfo((p) => (p ? { ...p, ...patch } : p));
     setDetail((d) => (d ? { ...d, ...patch } : d));
-    // keep the settings overlay's snapshot live when editing on top of it
     setJourneySettings((s) => (s ? { ...s, ...patch } : s));
   };
   const removeCurrent = () => {
     const cur = pointInfo || detail;
     const id = cur?.id;
-    if (id) setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
+    if (id) {
+      setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
+      db?.deleteJourney?.(id);
+    }
     setActionSheet(null);
     setPointInfo(null);
     setDetail(null);
@@ -252,7 +266,9 @@ export function NavProvider({
       removeJourney: removeCurrent,
       toggleFav: () => {
         const cur = pointInfo || detail;
-        patchCurrent({ fav: !(cur && cur.fav) });
+        const newFav = !(cur && cur.fav);
+        patchCurrent({ fav: newFav });
+        if (cur?.id) db?.toggleFav?.(cur.id, cur.fav ?? false);
       },
       merged,
       actionSheet,
@@ -292,7 +308,10 @@ export function NavProvider({
       savedRoutes,
       extraJourneys,
       addSavedRoute: (p) => setSavedRoutes((s) => [p, ...s]),
-      addJoinedJourney: (p) => setExtraJourneys((s) => (s.some((x) => x.id === p.id) ? s : [p, ...s])),
+      addJoinedJourney: (p) => {
+        setExtraJourneys((s) => (s.some((x) => x.id === p.id) ? s : [p, ...s]));
+        db?.createJourney?.(p);
+      },
       toast,
       showToast,
       tabBarHidden,

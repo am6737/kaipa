@@ -1,15 +1,13 @@
-// AppRoot.tsx — auth gate + app shell. Renders the active main screen, the
-// floating tab bar, every nav-driven overlay, and the toast. Mirrors the
-// prototype's InteractiveApp composition.
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
 import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
-import { NotifProvider } from './data/notifications';
+import { DataProvider, useData } from './data/DataContext';
+import { supabase } from './lib/supabase';
 import { AuthFlow } from './screens/AuthFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { GearScreen } from './screens/GearScreen';
@@ -32,12 +30,7 @@ function AppShell() {
   const { t } = useI18n();
   const nav = useNav();
 
-  // The discover sheet (list or POI card) slides up over the tab bar — hide the
-  // bar while it's open, matching the prototype (the sheet then reaches bottom).
   const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
-
-  // All three screens stay mounted; inactive ones get display:'none'. This avoids
-  // the unmount→remount lag that causes a white background flash on Android.
   const hidden = { display: 'none' as const };
 
   return (
@@ -128,34 +121,48 @@ function AppShell() {
   );
 }
 
+function NavBridge({ signOut }: { signOut: () => void }) {
+  const data = useData();
+  return (
+    <NavProvider
+      auth={{ signOut }}
+      db={{
+        updateJourney: data.updateJourney,
+        deleteJourney: data.deleteJourney,
+        toggleFav: data.toggleFav,
+        createJourney: data.createJourney,
+      }}
+    >
+      <AppShell />
+    </NavProvider>
+  );
+}
+
 export function AppRoot() {
   const theme = useTheme();
-  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
 
   useEffect(() => {
-    AsyncStorage.getItem('kaipa_authed_v1').then((v) => setAuthed(v === '1')).catch(() => setAuthed(false));
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => subscription.unsubscribe();
   }, []);
 
-  const signIn = () => {
-    AsyncStorage.setItem('kaipa_authed_v1', '1').catch(() => {});
-    setAuthed(true);
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
-  const signOut = () => {
-    AsyncStorage.removeItem('kaipa_authed_v1').catch(() => {});
-    setAuthed(false);
-  };
+
+  const userId = session?.user?.id;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
-      {authed === null ? null : authed ? (
-        <NavProvider auth={{ signOut }}>
-          <NotifProvider>
-            <AppShell />
-          </NotifProvider>
-        </NavProvider>
+      {session === undefined ? null : session && userId ? (
+        <DataProvider userId={userId}>
+          <NavBridge signOut={handleSignOut} />
+        </DataProvider>
       ) : (
-        <AuthFlow theme={theme} onSuccess={signIn} />
+        <AuthFlow theme={theme} onSuccess={() => {}} />
       )}
     </View>
   );

@@ -33,7 +33,7 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
       }}
     >
       <Image
-        source={{ uri: photoUrlFor(poi.tone, poi.id, 160) }}
+        source={{ uri: poi.coverUri || photoUrlFor(poi.tone, poi.id, 160) }}
         style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }}
       />
       {/* multi-journey place — small count badge in the top-right corner. The

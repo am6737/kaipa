@@ -1074,7 +1074,7 @@ function RJDateSheet({ theme, date, field, onPick, onClose }: { theme: Theme; da
 // Map location picker — real Mapbox map with search
 interface GeoResult { label: string; sub: string; lat: number; lon: number }
 
-function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPick: (label: string) => void; onClose: () => void; center?: { lat: number; lon: number } | null }) {
+function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPick: (label: string, lat: number, lon: number) => void; onClose: () => void; center?: { lat: number; lon: number } | null }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   ensureMapboxToken();
@@ -1203,7 +1203,7 @@ function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPi
               </Press>
             )}
           </View>
-          <Press onPress={() => pin && (onPick(pin.label), onClose())} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: pin ? theme.accent : cardBg, alignItems: 'center', justifyContent: 'center', borderWidth: pin ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Press onPress={() => pin && (onPick(pin.label, pin.lat, pin.lon), onClose())} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: pin ? theme.accent : cardBg, alignItems: 'center', justifyContent: 'center', borderWidth: pin ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <Icon name="check" color={pin ? '#fff' : theme.text3} size={16} strokeWidth={2.4} />
           </Press>
         </View>
@@ -1275,6 +1275,7 @@ function RJSuccess({ theme, name, dateLabel, distLabel, visibility }: { theme: T
 function buildRecordJourney(args: {
   name: string;
   region: string;
+  regionCoord: { lat: number; lon: number } | null;
   date: Date;
   endDate: Date;
   diff: Poi['diff'];
@@ -1284,13 +1285,13 @@ function buildRecordJourney(args: {
   manualAsc: string;
   notes: string;
   companions: RJCompanion[];
-  photoCount: number;
+  photos: RJPhoto[];
   t: TFn;
 }): Poi {
-  const { name, region, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions, t } = args;
+  const { name, region, regionCoord, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions, photos, t } = args;
   const start = track ? track.stats.points[0] : null;
-  const lng = start ? start.lon : 104.0;
-  const lat = start ? start.lat : 35.0;
+  const lng = regionCoord?.lon ?? (start ? start.lon : 104.0);
+  const lat = regionCoord?.lat ?? (start ? start.lat : 35.0);
   const distLabel = track ? fmtDist(track.stats.distM) : manualDist ? `${manualDist} km` : '—';
   const ascLabel = track ? (track.stats.hasEle ? `+${track.stats.ascent} m` : '—') : manualAsc ? `+${manualAsc} m` : '—';
   const totalDays = rjRangeDays(date, endDate);
@@ -1298,6 +1299,31 @@ function buildRecordJourney(args: {
     SELF,
     ...companions.map((c, i) => ({ ini: iniOf(c.name), name: c.name, role: c.role || undefined, color: RJ_AVATAR_POOL[i % RJ_AVATAR_POOL.length] })),
   ];
+
+  // real track data
+  let trackCoords: [number, number][] | undefined;
+  let trackElevation: { km: number; ele: number }[] | undefined;
+  let trackDurationMs: number | undefined;
+  if (track) {
+    const pts = track.stats.points;
+    const stride = Math.max(1, Math.floor(pts.length / 500));
+    trackCoords = [];
+    for (let i = 0; i < pts.length; i += stride) trackCoords.push([pts[i].lon, pts[i].lat]);
+    if (trackCoords[trackCoords.length - 1][0] !== pts[pts.length - 1].lon || trackCoords[trackCoords.length - 1][1] !== pts[pts.length - 1].lat) {
+      trackCoords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
+    }
+    if (track.stats.hasEle) {
+      const cum = track.stats.cum;
+      trackElevation = [];
+      for (let i = 0; i < pts.length; i += stride) {
+        if (isFinite(pts[i].ele)) trackElevation.push({ km: cum[i] / 1000, ele: pts[i].ele });
+      }
+    }
+    if (track.stats.hasTime) trackDurationMs = track.stats.durationMs;
+  }
+
+  const photoUris = photos.filter((p) => p.uri).map((p) => p.uri!);
+
   return {
     id: `j-${Date.now()}`,
     kind: 'journey',
@@ -1319,6 +1345,10 @@ function buildRecordJourney(args: {
     mine: true,
     fav: false,
     desc: notes.trim(),
+    photoUris,
+    ...(trackCoords ? { trackCoords } : {}),
+    ...(trackElevation ? { trackElevation } : {}),
+    ...(trackDurationMs ? { trackDurationMs } : {}),
   };
 }
 
@@ -1339,6 +1369,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
   const [date, setDate] = useState<Date>(() => rjMidnight(new Date()));
   const [endDate, setEndDate] = useState<Date>(() => rjMidnight(new Date()));
   const [region, setRegion] = useState('');
+  const [regionCoord, setRegionCoord] = useState<{ lat: number; lon: number } | null>(null);
   const [companions, setCompanions] = useState<RJCompanion[]>([]);
   const [manualDist, setManualDist] = useState('');
   const [manualAsc, setManualAsc] = useState('');
@@ -1384,8 +1415,11 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         nameInit.current = true;
       }
       if (!region) {
+        const trkLat = st.points[0].lat;
+        const trkLon = st.points[0].lon;
+        if (!regionCoord) setRegionCoord({ lat: trkLat, lon: trkLon });
         if (presetRegion) { setRegion(presetRegion); }
-        else { reverseGeocode(st.points[0].lat, st.points[0].lon).then((label) => setRegion((r) => r || label)); }
+        else { reverseGeocode(trkLat, trkLon).then((label) => setRegion((r) => r || label)); }
       }
       setDiff(suggestDifficulty(st) as Poi['diff']);
       if (st.hasTime && st.startTime) {
@@ -1448,7 +1482,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
   const finish = () => {
     setStep(1);
     const jTone = photos[0] ? photos[0].tone : tone;
-    const poi = buildRecordJourney({ name, region, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photoCount: photos.length, t });
+    const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, t });
     setTimeout(() => onCreate(poi), 1500);
   };
   const next = () => {
@@ -1588,7 +1622,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
       {/* Overlays */}
       {trackMapFull && track ? <TrackMapFull stats={track.stats} theme={theme} onClose={() => setTrackMapFull(false)} /> : null}
       {dateOpen ? <RJDateSheet theme={theme} date={dateField === 'end' ? endDate : date} field={dateField} onPick={pickDate} onClose={() => setDateOpen(false)} /> : null}
-      {mapOpen ? <RJMapPickSheet theme={theme} onPick={(label) => setRegion(label)} onClose={() => setMapOpen(false)} center={track ? { lat: track.stats.points[0].lat, lon: track.stats.points[0].lon } : null} /> : null}
+      {mapOpen ? <RJMapPickSheet theme={theme} onPick={(label, lat, lon) => { setRegion(label); setRegionCoord({ lat, lon }); }} onClose={() => setMapOpen(false)} center={regionCoord || (track ? { lat: track.stats.points[0].lat, lon: track.stats.points[0].lon } : null)} /> : null}
       {companionAdd === 'choose' ? <RJAddChooser theme={theme} onInvite={() => setCompanionAdd('invite')} onManual={() => setCompanionAdd('manual')} onClose={() => setCompanionAdd(null)} /> : null}
       {companionAdd === 'manual' ? <RJCompanionSheet theme={theme} color={RJ_AVATAR_POOL[companions.length % RJ_AVATAR_POOL.length]} onAdd={addCompanion} onClose={() => setCompanionAdd(null)} /> : null}
       {companionAdd === 'invite' ? <NJSharePanel theme={theme} tripName={name.trim() || t('record.build.thisJourney')} onClose={() => setCompanionAdd(null)} onToast={onToast} /> : null}

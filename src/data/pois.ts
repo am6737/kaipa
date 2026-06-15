@@ -45,6 +45,11 @@ export interface Poi {
   dayIndex?: number;
   totalDays?: number;
   routeId?: string;
+  // real data from track import
+  photoUris?: string[];
+  trackCoords?: [number, number][];
+  trackElevation?: { km: number; ele: number }[];
+  trackDurationMs?: number;
 }
 
 const C = (ini: string, name: string, color: string, extra: Partial<Companion> = {}): Companion => ({

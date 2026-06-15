@@ -187,6 +187,21 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
 
 export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
   const roster = info.companionList || [];
+  // real photos — skip the first one (cover), moments start from the second
+  if (info.photoUris) {
+    if (info.photoUris.length <= 1) return [];
+    const self = roster.find((c) => c.self) || roster[0] || { ini: '我', name: '我', color: '#0A84FF' };
+    return info.photoUris.slice(1).map((uri, i) => ({
+      id: `real-${i}`,
+      tone: info.tone || 'ridge',
+      ratio: 1,
+      caption: '',
+      day: 1,
+      time: '',
+      author: self,
+      uri,
+    }));
+  }
   if (roster.length === 0) return [];
   const rng = mulberry32(hashStr(info.name + (status || '')));
   const total = status === 'ongoing' ? 12 : status === 'planning' ? 0 : 24;
@@ -286,11 +301,16 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
 
   // ── photos ──
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
+  const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
+  const coverPhotos = useMemo<WallPhoto[]>(() => {
+    if (!info.photoUris?.length) return [];
+    return [{ id: 'cover-0', tone: info.tone || 'ridge', ratio: 1, caption: '', day: 1, time: '', author: selfAuthor, uri: info.photoUris[0] }];
+  }, [info.photoUris, info.tone, selfAuthor]);
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion, uri: m.uri, kind: m.kind })),
-    [inspo.media, self, tr]
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind })),
+    [inspo.media, selfAuthor]
   );
-  const allPhotos = isPlanning ? inspoPhotos : fakePhotos;
+  const allPhotos = isPlanning ? inspoPhotos : [...coverPhotos, ...fakePhotos, ...inspoPhotos];
 
   // per-person counts
   const counts = useMemo(() => {
@@ -328,25 +348,29 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         {/* ── hero cover ── */}
         {!filter ? (
           <View {...pan.panHandlers} style={{ height: 252 }}>
-            <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-              <Press onPress={onClose} style={{
-                position: 'absolute', top: insets.top + 10, left: 16,
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
-                boxShadow: t.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-                borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
-              }}>
-                <Icon name="arrowL" color={t.text} size={21} />
-              </Press>
-              <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
-                <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
-                  {info.name}
-                </Text>
-                {dayLabel ? (
-                  <Text style={{ fontFamily: MONO, fontSize: 11.5, color: 'rgba(255,255,255,0.78)', marginTop: 8, letterSpacing: 0.3 }}>{dayLabel}</Text>
-                ) : null}
-              </View>
-            </PhotoTile>
+            {info.photoUris?.[0] ? (
+              <Image source={{ uri: info.photoUris[0] }} resizeMode="cover" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+            ) : (
+              <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+            )}
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.18)' }} />
+            <Press onPress={onClose} style={{
+              position: 'absolute', top: insets.top + 10, left: 16,
+              width: 40, height: 40, borderRadius: 20,
+              backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
+              boxShadow: t.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
+              borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
+            }}>
+              <Icon name="arrowL" color={t.text} size={21} />
+            </Press>
+            <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
+              <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
+                {info.name}
+              </Text>
+              {dayLabel ? (
+                <Text style={{ fontFamily: MONO, fontSize: 11.5, color: 'rgba(255,255,255,0.78)', marginTop: 8, letterSpacing: 0.3 }}>{dayLabel}</Text>
+              ) : null}
+            </View>
           </View>
         ) : (
           // ── filter mode header ──
@@ -459,7 +483,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       ) : null}
 
       {/* ── Lightbox ── */}
-      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={isPlanning ? (id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); } : undefined} info={info} theme={t} insets={insets} nav={nav} /> : null}
+      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={(id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); }} info={info} theme={t} insets={insets} nav={nav} /> : null}
 
       {/* ── Companions bottom sheet ── */}
       {compSheet && !filter ? (

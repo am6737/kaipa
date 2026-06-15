@@ -140,10 +140,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const isJourney = poi.kind === 'journey';
   const status = (poi.status || 'completed') as JourneyStatus;
   const isMine = isJourney;
-  const series = useMemo(() => buildElevation(poi), [poi.id, poi.dist, poi.asc]);
+  const isRecorded = !!poi.photoUris;
+  const hasRealElevation = !isRecorded || !!poi.trackElevation;
+  const series = useMemo(() => buildElevation(poi), [poi.id, poi.dist, poi.asc, poi.trackElevation]);
 
   // photo preview — same genPhotos as PhotoWall so thumbnails match the detail
-  const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays]);
+  const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays, poi.photoUris]);
   const previewPhotos = wallPhotos.slice(0, status === 'ongoing' ? 6 : 9);
 
   let ctaLabel = t('journey.cta.startTrip');
@@ -218,7 +220,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
     <View onLayout={(e) => setChartW(e.nativeEvent.layout.width - (fullBleed ? 0 : 0))}>
       {/* hero */}
       <View style={{ marginHorizontal: fullBleed ? -10 : -16, marginTop: fullBleed ? 0 : -2, marginBottom: 16 }}>
-        <PhotoTile tone={poi.tone} seed={poi.id + 'hero'} darken style={{ height: 224 }} resWidth={1200}>
+        <View style={{ height: 224 }}>
+          {poi.photoUris?.[0] ? (
+            <Image source={{ uri: poi.photoUris[0] }} resizeMode="cover" style={StyleSheet.absoluteFill} />
+          ) : (
+            <PhotoTile tone={poi.tone} seed={poi.id + 'hero'} darken style={StyleSheet.absoluteFill} resWidth={1200} />
+          )}
           {nav.pointSource && (
             <Press
               onPress={() => nav.openPoint(nav.pointSource as Poi)}
@@ -271,7 +278,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
               {poi.date ? ' · ' + poi.date : ''}
             </Text>
           </View>
-        </PhotoTile>
+        </View>
       </View>
 
       {/* stats strip */}
@@ -321,7 +328,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
 
       {/* elevation / route track */}
       <View style={{ paddingBottom: 18 }}>
-        <SectionHeader theme={theme} title={t('journey.section.route')} action={t('journey.section.more')} onAction={() => nav.openElevation({ info: poi, isMine })} />
+        <SectionHeader theme={theme} title={t('journey.section.route')} action={hasRealElevation ? t('journey.section.more') : undefined} onAction={hasRealElevation ? () => nav.openElevation({ info: poi, isMine }) : undefined} />
+        {hasRealElevation ? (
         <Press onPress={() => nav.openElevation({ info: poi, isMine })}>
           <View
             style={{
@@ -341,6 +349,15 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
             </View>
           </View>
         </Press>
+        ) : (
+        <Press onPress={() => nav.openAddRoute()}>
+          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <Icon name="route" color={theme.text3} size={24} />
+            <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.route')}</Text>
+            <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.routeHint')}</Text>
+          </View>
+        </Press>
+        )}
       </View>
 
       {/* companions (journeys) */}
@@ -354,10 +371,22 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         </View>
       ) : null}
 
-      {/* 行程 timeline digest (journeys, all statuses) */}
-      {isJourney ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
+      {/* 行程 timeline */}
+      {isJourney && !isRecorded ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
+      {isJourney && isRecorded ? (
+        <View style={{ paddingBottom: 18 }}>
+          <SectionHeader theme={theme} title={t('journey.section.timeline')} />
+          <Press onPress={() => nav.openTimeline(poi)}>
+            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+              <Icon name="calendar" color={theme.text3} size={24} />
+              <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
+            </View>
+          </Press>
+        </View>
+      ) : null}
 
-      {/* photo grid — 计划中旅程没有真实瞬间，改为引导预收集灵感图的空状态 */}
+      {/* photo grid */}
       {isJourney && status === 'planning' ? (
         <PlanningMoments theme={theme} poi={poi} status={status} />
       ) : previewPhotos.length > 0 ? (
@@ -366,10 +395,25 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {previewPhotos.map((p) => (
               <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
-                <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
+                {p.uri ? (
+                  <Image source={{ uri: p.uri }} resizeMode="cover" style={{ aspectRatio: 1, borderRadius: 11, backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }} />
+                ) : (
+                  <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
+                )}
               </Press>
             ))}
           </View>
+        </View>
+      ) : isJourney && isRecorded ? (
+        <View style={{ paddingBottom: 18 }}>
+          <SectionHeader theme={theme} title={t('journey.moments.title')} />
+          <Press onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}>
+            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+              <Icon name="camera" color={theme.text3} size={24} />
+              <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.moments')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.momentsHint')}</Text>
+            </View>
+          </Press>
         </View>
       ) : null}
 

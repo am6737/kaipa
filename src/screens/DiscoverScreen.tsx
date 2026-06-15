@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
-import { EXPLORE_POIS, MEMORY_POIS, Poi } from '../data/pois';
+import { Poi } from '../data/pois';
+import { useData } from '../data/DataContext';
 import { Globe, MAPBOX_ENABLED } from '../components/globe';
 import { GlassIconBtn } from '../components/Glass';
 import { Icon } from '../components/Icon';
@@ -55,6 +56,7 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
 export function DiscoverScreen({ theme }: { theme: Theme }) {
   const nav = useNav();
   const { t } = useI18n();
+  const { routes, journeys } = useData();
   const chipLabel = (id: string) =>
     t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
@@ -80,13 +82,18 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
   const basePois: Poi[] = useMemo(() => {
     if (isMemory) {
-      return [...nav.extraJourneys, ...MEMORY_POIS]
+      const merged = [...nav.extraJourneys, ...journeys];
+      const seen = new Set<string>();
+      const deduped = merged.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+      return deduped
         .filter((p) => !nav.removedIds.includes(p.id))
         .map((p) => nav.merged(p));
     }
-    return [...nav.savedRoutes, ...EXPLORE_POIS];
+    const merged = [...nav.savedRoutes, ...routes];
+    const seen = new Set<string>();
+    return merged.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMemory, nav.extraJourneys, nav.savedRoutes, nav.removedIds, nav.journeyPatch]);
+  }, [isMemory, nav.extraJourneys, nav.savedRoutes, nav.removedIds, nav.journeyPatch, routes, journeys]);
 
   const pois = useMemo(() => {
     let list = [...basePois];
@@ -239,7 +246,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         <Globe
           theme={theme}
           size={globeSize}
-          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, status: rep.status, mine: rep.mine, tone: rep.tone, count: group.length }))}
+          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, status: rep.status, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
           activePoiId={activeRepId}
           onPoiPress={(id) => {
             const group = repIdToGroup.get(id);

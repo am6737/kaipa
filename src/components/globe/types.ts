@@ -13,6 +13,8 @@ export interface GlobePoi {
   /** how many journeys share this place — when >1 the pin shows a count badge
    *  (e.g. a completed trip + a 再次出发 plan at the same trailhead) */
   count?: number;
+  /** real cover photo URI from a recorded journey */
+  coverUri?: string;
 }
 
 export interface GlobeProps {

@@ -25,6 +25,31 @@ function num(s?: string): number {
 }
 
 export function buildElevation(poi: Poi): ElevSeries {
+  if (poi.trackElevation && poi.trackElevation.length >= 2) {
+    const raw = poi.trackElevation;
+    const stride = Math.max(1, Math.floor(raw.length / 120));
+    const pts: ElevPoint[] = [];
+    let ascent = 0, descent = 0, minEle = Infinity, maxEle = -Infinity, peakIdx = 0, prev = raw[0].ele;
+    for (let i = 0; i < raw.length; i += stride) {
+      const { km, ele } = raw[i];
+      if (i > 0) { const d = ele - prev; if (d > 0) ascent += d; else descent += -d; }
+      const dkm = i > 0 ? (raw[i].km - raw[i - stride >= 0 ? i - stride : 0].km) * 1000 : 1;
+      const grade = i > 0 ? ((ele - prev) / Math.max(dkm, 1)) * 100 : 0;
+      pts.push({ km, ele: Math.round(ele), grade });
+      if (ele > maxEle) { maxEle = ele; peakIdx = pts.length - 1; }
+      if (ele < minEle) minEle = ele;
+      prev = ele;
+    }
+    const last = raw[raw.length - 1];
+    if (pts[pts.length - 1].km !== last.km) {
+      const d = last.ele - prev; if (d > 0) ascent += d; else descent += -d;
+      pts.push({ km: last.km, ele: Math.round(last.ele), grade: 0 });
+      if (last.ele > maxEle) { maxEle = last.ele; peakIdx = pts.length - 1; }
+      if (last.ele < minEle) minEle = last.ele;
+    }
+    return { pts, totalKm: last.km, minEle: Math.round(minEle), maxEle: Math.round(maxEle), ascent: Math.round(ascent), descent: Math.round(descent), peakIdx };
+  }
+
   const totalKm = num(poi.dist) || 12;
   const targetAsc = num(poi.asc) || 800;
   const baseEle = poi.tone === 'snow' ? 3200 : poi.tone === 'ridge' ? 1400 : 800;

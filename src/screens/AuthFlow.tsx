@@ -31,6 +31,7 @@ import { Press } from '../components/Press';
 import { elevAccent, shadow } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
 import { useI18n, TKey } from '../i18n';
+import { signInWithEmail, signUpWithEmail, signInAnonymously } from '../lib/auth';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -939,10 +940,15 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   const entryEnabled = emailValid && pwd.length >= 6;
 
-  const onPrimary = () => {
+  const [authError, setAuthError] = useState('');
+  const onPrimary = async () => {
     if (!agree) { flashAgree(); return; }
     setBusy(true);
-    setTimeout(() => { setBusy(false); onSuccess(); }, 900);
+    setAuthError('');
+    const fn = intent === 'register' ? signUpWithEmail : signInWithEmail;
+    const { error } = await fn(email, pwd);
+    setBusy(false);
+    if (error) { setAuthError(error.message); return; }
   };
   const onVerify = () => { setBusy(true); setTimeout(() => onSuccess(), 700); };
   const onSocial = (id: SocialId) => {
@@ -950,7 +956,11 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     setSocial(id);
     setTimeout(() => onSuccess(), 1300);
   };
-  const onGuest = () => onSuccess();
+  const onGuest = async () => {
+    setBusy(true);
+    await signInAnonymously();
+    setBusy(false);
+  };
 
   if (doc) return <AuthDocPage t={t} doc={doc} onBack={() => setDoc(null)} />;
   if (step === 'phone')
@@ -1007,6 +1017,7 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
           </View>
 
           <AuthCTA t={t} label={intent === 'register' ? tr('auth.registerCta') : tr('auth.loginCta')} enabled={entryEnabled} busy={busy} onPress={onPrimary} />
+          {authError ? <Text style={{ color: '#FF3B30', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{authError}</Text> : null}
 
           <View style={{ marginTop: 14 }}>
             <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />

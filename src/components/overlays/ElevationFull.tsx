@@ -28,7 +28,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const { width } = useWindowDimensions();
-  const series = useMemo(() => buildElevation(info), [info.id]);
+  const series = useMemo(() => buildElevation(info), [info.id, info.trackElevation]);
   const [idx, setIdx] = useState(Math.round(series.peakIdx));
 
   const W = width - 32;
