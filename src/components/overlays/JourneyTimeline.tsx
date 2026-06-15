@@ -6,7 +6,7 @@
 // opened from the digest's 「全部」). Checks + user-added rows live in journeyStore
 // so the two stay in sync. Gear checklist stays separate.
 import React, { useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -90,7 +90,15 @@ function MediaThumb({ theme, m, seed, size = 76, onPress }: { theme: Theme; m: T
 // One timeline row: leading check + rich-text body (+ optional media), with a
 // connector line linking consecutive rows. `compact` clamps text to 2 lines and
 // hides media (used inside the inline digest card).
-function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia }: {
+function SelectCircle({ theme, selected, onPress }: { theme: Theme; selected: boolean; onPress: () => void }) {
+  return (
+    <Press onPress={onPress} hitSlop={6} style={{ width: 22, height: 22, borderRadius: 11, borderWidth: selected ? 0 : 1.8, borderColor: theme.text3, backgroundColor: selected ? theme.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+      {selected ? <Icon name="check" color="#fff" size={14} strokeWidth={2.6} /> : null}
+    </Press>
+  );
+}
+
+function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia, onRemove, editing, selectable, isSelected }: {
   theme: Theme;
   row: TLRow;
   done: boolean;
@@ -100,22 +108,30 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
   last: boolean;
   compact?: boolean;
   onOpenMedia?: (media: TLMedia[], index: number, id: string) => void;
+  onRemove?: () => void;
+  editing?: boolean;
+  selectable?: boolean;
+  isSelected?: boolean;
 }) {
   const media = row.media || [];
   return (
-    <View style={{ flexDirection: 'row', gap: 11, alignItems: 'stretch' }}>
-      {/* gutter: check + connecting line */}
+    <Pressable onLongPress={onRemove} delayLongPress={400} onPress={selectable ? onToggle : undefined} style={{ flexDirection: 'row', gap: 11, alignItems: 'stretch', opacity: editing && !selectable ? 0.35 : 1 }}>
+      {/* gutter: check/select + connecting line */}
       <View style={{ width: 22, alignItems: 'center' }}>
         {connector ? <View style={{ position: 'absolute', top: 24, bottom: -2, width: 2, backgroundColor: theme.hairline }} /> : null}
         <View style={{ paddingTop: 1 }}>
-          <Check theme={theme} state={done ? 'done' : 'todo'} onPress={onToggle} />
+          {selectable ? (
+            <SelectCircle theme={theme} selected={!!isSelected} onPress={onToggle} />
+          ) : (
+            <Check theme={theme} state={done ? 'done' : 'todo'} onPress={editing ? undefined : onToggle} />
+          )}
         </View>
       </View>
       {/* body */}
-      <View style={{ flex: 1, minWidth: 0, paddingTop: 1, paddingBottom: last ? 2 : 14, opacity: done ? 0.5 : 1 }}>
+      <View style={{ flex: 1, minWidth: 0, paddingTop: 1, paddingBottom: last ? 2 : 14, opacity: !editing && done ? 0.5 : 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
           <Text
-            style={{ flex: 1, fontSize: 14.5, lineHeight: 20.5, fontWeight: '500', color: done ? theme.text2 : theme.text }}
+            style={{ flex: 1, fontSize: 14.5, lineHeight: 20.5, fontWeight: '500', color: done && !editing ? theme.text2 : theme.text }}
             numberOfLines={compact ? 2 : undefined}
           >
             {row.title}
@@ -134,7 +150,7 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
           </View>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -249,11 +265,7 @@ function AddSheet({ theme, days, onAdd, onClose }: { theme: Theme; days: TLGroup
                       backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      shadowColor: '#000',
-                      shadowOpacity: 0.3,
-                      shadowRadius: 5,
-                      shadowOffset: { width: 0, height: 1 },
-                      elevation: 3,
+                      boxShadow: '0px 1px 5px rgba(0,0,0,0.3)',
                     }}
                   >
                     <Icon name="close" color={theme.text} size={11} />
@@ -353,10 +365,13 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
 
 // ── FULL-SCREEN — complete day-grouped checkable timeline ────────────────────
 export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; info: Poi; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const store = useJStore(info.id);
   const status = (info.status || 'completed') as JourneyStatus;
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewer, setViewer] = useState<{ media: TLMedia[]; index: number; seedBase: string } | null>(null);
 
   const tl = buildTimeline(info, status, store.items());
@@ -364,7 +379,39 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
   const isDone = (r: TLRow) => store.isDone(r.id);
   const doneCount = tl.rows.filter(isDone).length;
 
-  const addBtn = (
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const enterEditWith = (id: string) => {
+    setSelected(new Set([id]));
+    setEditing(true);
+  };
+  const exitEdit = () => { setSelected(new Set()); setEditing(false); };
+
+  const confirmBatchRemove = () => {
+    const count = selected.size;
+    if (!count) return;
+    Alert.alert(t('journey.timeline.batchDeleteConfirmTitle', { count }), t('journey.timeline.deleteConfirmMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => {
+        selected.forEach((id) => store.remove(id));
+        setSelected(new Set());
+        setEditing(false);
+      }},
+    ]);
+  };
+
+  const rightAction = editing ? (
+    <Press onPress={exitEdit}>
+      <Text style={{ fontSize: 15, fontWeight: '600', color: theme.accent }}>{t('common.done')}</Text>
+    </Press>
+  ) : (
     <Press onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 10, paddingRight: 13, borderRadius: 16, backgroundColor: theme.accent }}>
       <Icon name="plus" color="#fff" size={15} strokeWidth={2.6} />
       <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>{t('common.add')}</Text>
@@ -373,11 +420,11 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
 
   return (
     <>
-      <FullOverlay theme={theme} title={t('journey.timeline.title')} subtitle={t('journey.timeline.fullSubtitle', { total: tl.total, done: doneCount })} onClose={onClose} zIndex={150} rightAction={addBtn}>
+      <FullOverlay theme={theme} title={t('journey.timeline.title')} subtitle={t('journey.timeline.fullSubtitle', { total: tl.total, done: doneCount })} onClose={onClose} zIndex={150} rightAction={rightAction}>
         <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
           <ProgressBar theme={theme} done={doneCount} total={tl.total} />
         </View>
-        <View style={{ paddingHorizontal: 18, paddingTop: 6 }}>
+        <View style={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: editing ? 80 : 0 }}>
           {tl.groups.map((g) => (
             <View key={g.key} style={{ marginBottom: 6 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 }}>
@@ -391,16 +438,27 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
                   theme={theme}
                   row={r}
                   done={isDone(r)}
-                  onToggle={() => store.toggle(r.id)}
+                  onToggle={editing && r.custom ? () => toggleSelect(r.id) : () => store.toggle(r.id)}
                   connector={i < g.rows.length - 1}
                   last={i === g.rows.length - 1}
-                  onOpenMedia={(media, idx, id) => setViewer({ media, index: idx, seedBase: id })}
+                  onOpenMedia={editing ? undefined : (media, idx, id) => setViewer({ media, index: idx, seedBase: id })}
+                  onRemove={!editing && r.custom ? () => enterEditWith(r.id) : undefined}
+                  editing={editing}
+                  selectable={editing && !!r.custom}
+                  isSelected={selected.has(r.id)}
                 />
               ))}
             </View>
           ))}
         </View>
       </FullOverlay>
+      {editing && selected.size > 0 ? (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: 18, paddingTop: 12, paddingBottom: insets.bottom + 14, backgroundColor: theme.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Press onPress={confirmBatchRemove} style={{ height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FF3B30' }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#fff' }}>{t('journey.timeline.deleteSelected', { count: selected.size })}</Text>
+          </Press>
+        </View>
+      ) : null}
       {adding ? <AddSheet theme={theme} days={tl.groups} onClose={() => setAdding(false)} onAdd={(it) => { store.add(it); setAdding(false); }} /> : null}
       {viewer ? <MediaViewer theme={theme} media={viewer.media} index={viewer.index} seedBase={viewer.seedBase} onClose={() => setViewer(null)} /> : null}
     </>

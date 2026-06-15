@@ -297,10 +297,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
                   height: 5,
                   borderRadius: 3,
                   backgroundColor: 'rgba(255,255,255,0.7)',
-                  shadowColor: '#000',
-                  shadowOpacity: 0.25,
-                  shadowRadius: 3,
-                  shadowOffset: { width: 0, height: 1 },
+                  boxShadow: '0px 1px 3px rgba(0,0,0,0.25)',
                 }}
               />
             </View>

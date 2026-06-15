@@ -381,6 +381,7 @@ export const zh = {
       errNoPoints: '文件里没有找到有效的轨迹点',
       errParse: '无法解析轨迹',
       errTooFew: '轨迹点太少，无法生成路线',
+      errFormat: '仅支持 GPX 和 KML 格式',
     },
     visibility: {
       privateLabel: '私人记录',
@@ -718,6 +719,10 @@ export const zh = {
       addPlaceholder: '记一条行程… 计划、提醒，或路上的见闻',
       scheduleOn: '安排在',
       addToTimeline: '添加到行程',
+      deleteConfirmTitle: '删除这条行程？',
+      deleteConfirmMessage: '此操作不可撤销。',
+      deleteSelected: '删除（{count}）',
+      batchDeleteConfirmTitle: '删除选中的 {count} 条行程？',
     },
     manage: {
       addCompanion: '添加同行',

@@ -47,8 +47,8 @@ const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.hairlineW
 // The white/dark round affordance (add button, layout toggle) — its own shadow.
 const iconBtnShadow = (t: Theme): ViewStyle =>
   t.dark
-    ? { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 5 }
-    : { shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 3 };
+    ? { boxShadow: '0px 2px 10px rgba(0,0,0,0.5)' }
+    : { boxShadow: '0px 2px 10px rgba(0,0,0,0.14)' };
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
 const valOf = (it: GearItem, metric: Metric) => (metric === 'price' ? it.p : metric === 'weight' ? it.w : 1);

@@ -376,6 +376,7 @@ export const en: SameShape<typeof zh> = {
       errNoPoints: 'No valid track points found in the file',
       errParse: 'Could not parse the track',
       errTooFew: 'Too few track points to build a route',
+      errFormat: 'Only GPX and KML formats are supported',
     },
     visibility: {
       privateLabel: 'Private record',
@@ -713,6 +714,10 @@ export const en: SameShape<typeof zh> = {
       addPlaceholder: 'Note an item… a plan, reminder, or something on the trail',
       scheduleOn: 'Schedule on',
       addToTimeline: 'Add to itinerary',
+      deleteConfirmTitle: 'Delete this item?',
+      deleteConfirmMessage: 'This cannot be undone.',
+      deleteSelected: 'Delete ({count})',
+      batchDeleteConfirmTitle: 'Delete {count} selected items?',
     },
     manage: {
       addCompanion: 'Add companion',

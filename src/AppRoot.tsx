@@ -3,6 +3,8 @@
 // prototype's InteractiveApp composition.
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from './theme/AppearanceContext';
@@ -56,9 +58,24 @@ function AppShell() {
         <AddRouteSheet
           theme={theme}
           onClose={() => nav.closeAddRoute()}
-          onUpload={() => {
-            nav.closeAddRoute();
-            nav.showToast(t('appShell.toastUploadTrack'));
+          onUpload={async () => {
+            try {
+              const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/gpx+xml', 'application/vnd.google-earth.kml+xml', 'application/xml', 'text/xml', 'application/octet-stream'],
+                copyToCacheDirectory: true,
+              });
+              if (result.canceled || !result.assets?.length) return;
+              const asset = result.assets[0];
+              const ext = (asset.name?.split('.').pop() || '').toLowerCase();
+              if (ext !== 'gpx' && ext !== 'kml') {
+                nav.showToast(t('record.track.errFormat'));
+                return;
+              }
+              nav.closeAddRoute();
+              nav.showToast(t('appShell.toastUploadTrack'));
+            } catch {
+              nav.showToast(t('record.track.errParse'));
+            }
           }}
         />
       )}

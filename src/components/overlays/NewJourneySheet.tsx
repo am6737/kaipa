@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect, Circle } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../../theme/theme';
+import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion, JourneyStatus, EXPLORE_POIS } from '../../data/pois';
 import { PhotoTile } from '../PhotoTile';
@@ -203,11 +204,7 @@ export function NJRoundBtn({ theme, onPress, children, kind = 'ghost' }: { theme
         backgroundColor: ghost ? (theme.dark ? '#2C2C2E' : '#FFFFFF') : theme.accent,
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOpacity: theme.dark ? 0.5 : 0.14,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 4,
+        boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
         borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
         borderColor: 'rgba(255,255,255,0.06)',
       }}
@@ -601,7 +598,7 @@ function NJTimePickerModal({ theme, startDt, durationMins, onApply, onClose }: {
           backgroundColor: on ? theme.bg : 'transparent',
           alignItems: 'center',
           ...(on
-            ? { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 }
+            ? { boxShadow: '0px 1px 4px rgba(0,0,0,0.1)' }
             : {}),
         }}
       >
@@ -684,7 +681,7 @@ function NJQrDisplay({ seed, size = 172 }: { seed: string; size?: number }) {
   const cells = useMemo(() => njQrPattern(seed), [seed]);
   const N = cells.length;
   return (
-    <View style={{ padding: 12, borderRadius: 18, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 20, shadowOffset: { width: 0, height: 4 }, elevation: 6 }}>
+    <View style={{ padding: 12, borderRadius: 18, backgroundColor: '#fff', boxShadow: '0px 4px 20px rgba(0,0,0,0.1)' }}>
       <Svg width={size} height={size} viewBox={`0 0 ${N} ${N}`}>
         {cells.map((row, y) => row.map((on, x) => (on ? <Rect key={`${x}-${y}`} x={x} y={y} width={1.02} height={1.02} fill="#000" /> : null)))}
         <Rect x={N / 2 - 2.5} y={N / 2 - 2.5} width={5} height={5} fill="#fff" />
@@ -1014,7 +1011,7 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
-      <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}>
+      <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], ...shadow(0.4, 20, 8, theme.accent) }}>
         {isOngoing ? (
           <Svg width={40} height={40} viewBox="0 0 24 24" fill="none">
             <Path d="M5 4v16L18 12 5 4Z" fill="#fff" />
@@ -1254,7 +1251,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                ...(canAdvance ? { shadowColor: theme.accent, shadowOpacity: 0.3, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 } : {}),
+                ...(canAdvance ? shadow(0.3, 14, 6, theme.accent) : {}),
               }}
             >
               <Text style={{ fontSize: 16, fontWeight: '700', color: canAdvance ? '#fff' : theme.text3, letterSpacing: 0.2 }}>{cta}</Text>

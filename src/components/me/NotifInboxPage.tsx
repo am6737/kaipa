@@ -180,11 +180,7 @@ export function NotifInboxPage({
                 backgroundColor: on ? theme.accent : theme.dark ? '#2C2C2E' : '#fff',
                 borderWidth: on ? 0 : StyleSheet.hairlineWidth,
                 borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-                shadowColor: '#000',
-                shadowOpacity: theme.dark ? 0.5 : 0.14,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 3,
+                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
               }}
             >
               <Text style={{ fontSize: 13, fontWeight: on ? '600' : '500', color: on ? '#fff' : theme.text2 }}>

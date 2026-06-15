@@ -363,11 +363,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
                 backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
                 borderWidth: StyleSheet.hairlineWidth,
                 borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                shadowColor: '#000',
-                shadowOpacity: theme.dark ? 0.55 : 0.16,
-                shadowRadius: 20,
-                shadowOffset: { width: 0, height: 14 },
-                elevation: 16,
+                boxShadow: theme.dark ? '0px 14px 20px rgba(0,0,0,0.55)' : '0px 14px 20px rgba(0,0,0,0.16)',
               }}
             >
               {popup === 'theme'

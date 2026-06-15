@@ -157,7 +157,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       {menu ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
           <Pressable onPress={() => setMenu(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: Math.max(insets.bottom, 8), shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.18, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: Math.max(insets.bottom, 8), boxShadow: t.dark ? '0px -16px 50px rgba(0,0,0,0.5)' : '0px -16px 50px rgba(0,0,0,0.18)' }}>
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>
@@ -333,8 +333,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                 position: 'absolute', top: insets.top + 10, left: 16,
                 width: 40, height: 40, borderRadius: 20,
                 backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
-                shadowColor: '#000', shadowOpacity: t.dark ? 0.5 : 0.14, shadowRadius: 10,
-                shadowOffset: { width: 0, height: 2 }, elevation: 4,
+                boxShadow: t.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
                 borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
               }}>
                 <Icon name="arrowL" color={t.text} size={21} />
@@ -466,7 +465,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       {compSheet && !filter ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 140 }]}>
           <Press onPress={() => setCompSheet(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}><View /></Press>
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 50, shadowOffset: { width: 0, height: -16 }, elevation: 16 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: t.dark ? '#1c1c1e' : t.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 20, boxShadow: '0px -16px 50px rgba(0,0,0,0.5)' }}>
             <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 14 }}>
               <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3 }} />
             </View>

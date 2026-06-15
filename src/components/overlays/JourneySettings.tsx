@@ -31,11 +31,7 @@ function Toggle({ theme, on, onChange }: { theme: Theme; on: boolean; onChange: 
             borderRadius: 13,
             backgroundColor: '#fff',
             transform: [{ translateX }],
-            shadowColor: '#000',
-            shadowOpacity: 0.3,
-            shadowRadius: 3,
-            shadowOffset: { width: 0, height: 1 },
-            elevation: 2,
+            boxShadow: '0px 1px 3px rgba(0,0,0,0.3)',
           }}
         />
       </Animated.View>

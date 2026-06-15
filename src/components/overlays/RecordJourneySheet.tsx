@@ -1,18 +1,15 @@
 // RecordJourneySheet.tsx — 记录走过的: log a PAST hike from a recorded track
-// and/or photos, producing a 已完成 journey (回忆). Faithful RN port of the
-// prototype's record-journey-flow.jsx, adapted to be self-contained:
-//   • Tracks come from built-in sample GPX/KML (run through a real parser →
-//     real distance / ascent / track-shape / elevation), since RN has no
-//     <input type=file> without a native picker.
-//   • Photos are tone-based PhotoTile placeholders (same convention the rest of
-//     the app already uses for journey photos), tap-to-add / remove / set-cover.
-// Everything else (dates, region + map pin, companions, visibility, notes,
-// difficulty) is the full prototype flow.
+// and/or photos, producing a 已完成 journey (回忆).
 import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, LayoutChangeEvent, GestureResponderEvent } from 'react-native';
+import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, LayoutChangeEvent, GestureResponderEvent, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import Svg, { Path, Circle, Line, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import Mapbox, { MapView, Camera, ShapeSource, LineLayer, MarkerView, Atmosphere, StyleImport } from '@rnmapbox/maps';
 import { Theme } from '../../theme/theme';
+import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion, JourneyStatus } from '../../data/pois';
 import { Tone } from '../../data/tones';
@@ -56,6 +53,7 @@ interface Track {
 interface RJPhoto {
   id: string;
   tone: Tone;
+  uri?: string;
 }
 interface RJCompanion {
   id: string;
@@ -365,66 +363,99 @@ function iniOf(n: string): string {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Track-shape preview — projects real lat/lon into an SVG polyline
+// Track-shape preview — real Mapbox map with route polyline
 // ──────────────────────────────────────────────────────────────
-function UTTrackMap({ stats, theme, height = 158 }: { stats: TrackStats; theme: Theme; height?: number }) {
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '';
+let _mbTokenSet = false;
+function ensureMapboxToken() {
+  if (!_mbTokenSet && MAPBOX_TOKEN) {
+    Mapbox.setAccessToken(MAPBOX_TOKEN);
+    _mbTokenSet = true;
+  }
+}
+const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
+
+function UTTrackMap({ stats, theme, height = 200 }: { stats: TrackStats; theme: Theme; height?: number }) {
   const { t } = useI18n();
-  const W = 360;
-  const H = height;
-  const pad = 22;
-  const { minLat, maxLat, minLon, maxLon } = stats.bbox;
-  const meanLat = (minLat + maxLat) / 2;
-  const cos = Math.cos((meanLat * Math.PI) / 180) || 1;
-  const rx = (lon: number) => (lon - minLon) * cos;
-  const ry = (lat: number) => lat - minLat;
-  const spanX = Math.max(rx(maxLon), 1e-6);
-  const spanY = Math.max(ry(maxLat), 1e-6);
-  const scale = Math.min((W - pad * 2) / spanX, (H - pad * 2) / spanY);
-  const offX = (W - spanX * scale) / 2;
-  const offY = (H - spanY * scale) / 2;
-  const X = (lon: number) => offX + rx(lon) * scale;
-  const Y = (lat: number) => H - (offY + ry(lat) * scale);
+  ensureMapboxToken();
+
   const pts = stats.points;
-  const stride = Math.max(1, Math.floor(pts.length / 300));
-  const coords: TrackPt[] = [];
-  for (let i = 0; i < pts.length; i += stride) coords.push(pts[i]);
-  if (coords[coords.length - 1] !== pts[pts.length - 1]) coords.push(pts[pts.length - 1]);
-  const d = coords.map((p, i) => `${i ? 'L' : 'M'}${X(p.lon).toFixed(1)},${Y(p.lat).toFixed(1)}`).join(' ');
+  const stride = Math.max(1, Math.floor(pts.length / 500));
+  const coords: [number, number][] = [];
+  for (let i = 0; i < pts.length; i += stride) coords.push([pts[i].lon, pts[i].lat]);
+  if (coords.length > 0 && (coords[coords.length - 1][0] !== pts[pts.length - 1].lon || coords[coords.length - 1][1] !== pts[pts.length - 1].lat)) {
+    coords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
+  }
+
+  const routeGeoJSON: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: coords },
+    }],
+  };
+
+  const { minLat, maxLat, minLon, maxLon } = stats.bbox;
+  const padDeg = Math.max((maxLat - minLat), (maxLon - minLon)) * 0.15;
+  const bounds = {
+    ne: [maxLon + padDeg, maxLat + padDeg] as [number, number],
+    sw: [minLon - padDeg, minLat - padDeg] as [number, number],
+  };
+
   const s = pts[0];
   const e = pts[pts.length - 1];
-  const gridColor = theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  if (!MAPBOX_TOKEN) {
+    return (
+      <View style={{ height, borderRadius: 18, overflow: 'hidden', backgroundColor: theme.dark ? '#16181a' : '#e8edee', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 12, color: theme.text3 }}>Map unavailable</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={{ borderRadius: 18, overflow: 'hidden', backgroundColor: theme.dark ? '#16181a' : '#e8edee', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-        <Defs>
-          <SvgLinearGradient id="ut-trail" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={theme.accent} stopOpacity={0.55} />
-            <Stop offset="1" stopColor={theme.accent} stopOpacity={1} />
-          </SvgLinearGradient>
-        </Defs>
-        {[0.25, 0.5, 0.75].map((g, i) => (
-          <Line key={'h' + i} x1={0} y1={H * g} x2={W} y2={H * g} stroke={gridColor} strokeWidth={1} />
-        ))}
-        {[0.25, 0.5, 0.75].map((g, i) => (
-          <Line key={'v' + i} x1={W * g} y1={0} x2={W * g} y2={H} stroke={gridColor} strokeWidth={1} />
-        ))}
-        <Path d={d} fill="none" stroke={theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.12)'} strokeWidth={6} strokeLinecap="round" strokeLinejoin="round" translateY={1.5} />
-        <Path d={d} fill="none" stroke="url(#ut-trail)" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" />
-        <Circle cx={X(s.lon)} cy={Y(s.lat)} r={6} fill="#34C759" stroke="#fff" strokeWidth={2.2} />
-        <Circle cx={X(e.lon)} cy={Y(e.lat)} r={6} fill={theme.danger} stroke="#fff" strokeWidth={2.2} />
-      </Svg>
+    <View style={{ borderRadius: 18, overflow: 'hidden', height, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+      <MapView
+        style={{ flex: 1 }}
+        styleURL={STANDARD_STYLE}
+        scrollEnabled={false}
+        zoomEnabled={false}
+        rotateEnabled={false}
+        pitchEnabled={false}
+        scaleBarEnabled={false}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
+      >
+        <Camera defaultSettings={{ bounds: { ...bounds, paddingLeft: 28, paddingRight: 28, paddingTop: 28, paddingBottom: 28 } }} />
+        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: false, showTransitLabels: false } as any} />
+
+        <ShapeSource id="track-route" shape={routeGeoJSON}>
+          <LineLayer id="track-route-shadow" style={{ lineColor: theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)', lineWidth: 6, lineBlur: 3, lineCap: 'round', lineJoin: 'round', lineTranslate: [0, 1.5] }} />
+          <LineLayer id="track-route-line" style={{ lineColor: theme.accent, lineWidth: 3.5, lineCap: 'round', lineJoin: 'round' }} />
+        </ShapeSource>
+
+        <MarkerView coordinate={[s.lon, s.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#fff' }} />
+        </MarkerView>
+        <MarkerView coordinate={[e.lon, e.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: theme.danger, borderWidth: 2.5, borderColor: '#fff' }} />
+        </MarkerView>
+      </MapView>
+
       <View style={{ position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#34C759' }} />
-          <Text style={{ fontSize: 10.5, color: theme.text2 }}>{t('record.track.start')}</Text>
+          <Text style={{ fontSize: 10.5, color: theme.dark ? '#ccc' : theme.text2 }}>{t('record.track.start')}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.danger }} />
-          <Text style={{ fontSize: 10.5, color: theme.text2 }}>{t('record.track.end')}</Text>
+          <Text style={{ fontSize: 10.5, color: theme.dark ? '#ccc' : theme.text2 }}>{t('record.track.end')}</Text>
         </View>
       </View>
-      <View style={{ position: 'absolute', right: 12, top: 10, backgroundColor: theme.dark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.6)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7 }}>
-        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.text3, letterSpacing: 0.3 }}>{t('record.track.pointCount', { n: stats.count })}</Text>
+      <View style={{ position: 'absolute', right: 12, top: 10, backgroundColor: theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.75)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7 }}>
+        <Text style={{ fontFamily: MONO, fontSize: 9.5, color: theme.dark ? '#ccc' : theme.text3, letterSpacing: 0.3 }}>{t('record.track.pointCount', { n: stats.count })}</Text>
       </View>
     </View>
   );
@@ -519,10 +550,36 @@ function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string;
 }
 
 // ──────────────────────────────────────────────────────────────
-// Track block — sample-driven (no native file picker)
+// Track block — real file picker + sample fallback
 // ──────────────────────────────────────────────────────────────
-function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; onToast: (m: string) => void }) {
+function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void }) {
   const { t } = useI18n();
+
+  const pickFile = async () => {
+    if (busy) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/gpx+xml', 'application/vnd.google-earth.kml+xml', 'application/xml', 'text/xml', 'application/octet-stream'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      const fname = asset.name || 'track.gpx';
+      const ext = (fname.split('.').pop() || '').toLowerCase();
+      if (ext !== 'gpx' && ext !== 'kml') {
+        setError(t('record.track.errFormat'));
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      const text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      onIngest(text, fname, null, null);
+    } catch {
+      setBusy(false);
+      setError(t('record.track.errParse'));
+    }
+  };
+
   if (track) {
     const stats = track.stats;
     return (
@@ -536,7 +593,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { the
             <Icon name="close" color={theme.text3} size={12} />
           </Press>
         </View>
-        <UTTrackMap stats={stats} theme={theme} height={158} />
+        <UTTrackMap stats={stats} theme={theme} />
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
           <UTStatTile theme={theme} label={t('record.track.totalDistance')} value={fmtDist(stats.distM)} accent />
           <UTStatTile theme={theme} label={t('record.track.totalAscent')} value={stats.hasEle ? `${stats.ascent} m` : '—'} />
@@ -548,7 +605,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, onToast }: { the
   return (
     <View>
       <Press
-        onPress={() => !busy && onToast(t('record.track.demoToast'))}
+        onPress={pickFile}
         style={{ borderRadius: 16, paddingVertical: 22, paddingHorizontal: 18, alignItems: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }}
       >
         <View style={{ width: 46, height: 46, borderRadius: 23, marginBottom: 10, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -588,7 +645,11 @@ function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: 
     <View style={{ marginBottom: 26 }}>
       {cover ? (
         <View style={{ width: '100%', height: 210, borderRadius: 22, overflow: 'hidden' }}>
-          <PhotoTile tone={cover.tone} seed={cover.id} radius={22} darken style={{ width: '100%', height: '100%' }} resWidth={1200} />
+          {cover.uri ? (
+            <Image source={{ uri: cover.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          ) : (
+            <PhotoTile tone={cover.tone} seed={cover.id} radius={22} darken style={{ width: '100%', height: '100%' }} resWidth={1200} />
+          )}
           <View style={{ position: 'absolute', left: 12, top: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.42)' }}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.4 }}>{t('record.hero.coverBadge')}</Text>
           </View>
@@ -613,7 +674,7 @@ function RJHero({ theme, photos, onAdd, onRemove, name, setName, nameMissing }: 
         maxLength={32}
         style={{ marginTop: 18, paddingBottom: 11, paddingHorizontal: 2, borderBottomWidth: 1.5, borderBottomColor: nameMissing ? (theme.dark ? 'rgba(255,69,58,0.5)' : 'rgba(255,59,48,0.4)') : theme.hairline, fontSize: 25, fontWeight: '700', letterSpacing: -0.5, color: theme.text }}
       />
-      <Text style={{ fontSize: 11.5, color: nameMissing ? theme.danger : theme.text3, marginTop: 8, paddingLeft: 2 }}>{nameMissing ? t('record.hero.nameRequired') : t('record.hero.nameRename')}</Text>
+      {nameMissing ? <Text style={{ fontSize: 11.5, color: theme.danger, marginTop: 8, paddingLeft: 2 }}>{t('record.hero.nameRequired')}</Text> : null}
     </View>
   );
 }
@@ -625,7 +686,11 @@ function RJMoments({ theme, moments, onAdd, onRemove, onSetCover }: { theme: The
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
       {moments.map((p) => (
         <View key={p.id} style={{ width: '31.7%', aspectRatio: 1, borderRadius: 11, overflow: 'hidden' }}>
-          <PhotoTile tone={p.tone} seed={p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
+          {p.uri ? (
+            <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          ) : (
+            <PhotoTile tone={p.tone} seed={p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
+          )}
           <Press onPress={() => onSetCover(p.id)} style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7, backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>{t('record.moments.setCover')}</Text>
           </Press>
@@ -965,7 +1030,7 @@ function RJSuccess({ theme, name, dateLabel, distLabel, visibility }: { theme: T
   const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
-      <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}>
+      <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], ...shadow(0.4, 20, 8, theme.accent) }}>
         <Icon name="check" color="#fff" size={48} strokeWidth={3.2} />
       </Animated.View>
       <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{t('record.success.title')}</Text>
@@ -1102,8 +1167,20 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     }, 480);
   };
 
-  const addPhoto = () =>
-    setPhotos((prev) => [...prev, { id: `p-${Date.now()}-${prev.length}`, tone: PHOTO_TONES[prev.length % PHOTO_TONES.length] }]);
+  const addPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert(t('journey.photoWall.needLibraryPerm')); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.8 });
+    if (res.canceled || !res.assets) return;
+    setPhotos((prev) => [
+      ...prev,
+      ...res.assets.map((a, i) => ({
+        id: `p-${Date.now()}-${prev.length + i}`,
+        tone: PHOTO_TONES[(prev.length + i) % PHOTO_TONES.length],
+        uri: a.uri,
+      })),
+    ]);
+  };
   const removePhoto = (id: string) => setPhotos((prev) => prev.filter((p) => p.id !== id));
   const setCover = (id: string) =>
     setPhotos((prev) => {
@@ -1197,7 +1274,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
 
             {/* 5 · the route */}
             <NJSection theme={theme} label={t('record.sections.track')} hint={track ? t('record.sections.fromTrack') : undefined}>
-              <RJTrackBlock theme={theme} track={track} onIngest={onIngest} onRemove={() => setTrack(null)} busy={busy} onToast={onToast} />
+              <RJTrackBlock theme={theme} track={track} onIngest={onIngest} onRemove={() => setTrack(null)} busy={busy} setBusy={setBusy} setError={setError} onToast={onToast} />
               {track && track.stats.hasEle ? (
                 <View style={{ marginTop: 12 }}>
                   <UTElevation stats={track.stats} theme={theme} />
@@ -1205,7 +1282,12 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
               ) : null}
             </NJSection>
 
-            {/* 6 · more (manual data / companions / difficulty) */}
+            {/* 6 · visibility */}
+            <NJSection theme={theme} label={t('record.sections.visibility')}>
+              <RJVisibility theme={theme} value={visibility} onChange={setVisibility} />
+            </NJSection>
+
+            {/* 7 · more (manual data / companions / difficulty) */}
             <RJMore theme={theme} summary={moreSummary}>
               {!track ? (
                 <NJSection theme={theme} label={t('record.sections.data')}>
@@ -1238,11 +1320,6 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
                 </View>
               </NJSection>
             </RJMore>
-
-            {/* 7 · visibility */}
-            <NJSection theme={theme} label={t('record.sections.visibility')}>
-              <RJVisibility theme={theme} value={visibility} onChange={setVisibility} />
-            </NJSection>
           </ScrollView>
         )}
 
@@ -1267,7 +1344,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                ...(nameValid ? { shadowColor: theme.accent, shadowOpacity: 0.3, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 } : {}),
+                ...(nameValid ? shadow(0.3, 14, 6, theme.accent) : {}),
               }}
             >
               <Text style={{ fontSize: 16, fontWeight: '700', color: nameValid ? '#fff' : theme.text3, letterSpacing: 0.2 }}>{cta}</Text>

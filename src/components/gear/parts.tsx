@@ -18,14 +18,14 @@ import { GearItem, GearCat } from '../../data/gear';
 // ── Shared theme tokens (mirror GearScreen) ─────────────────────────────────
 export const cardShadow = (t: Theme): ViewStyle =>
   t.dark
-    ? { shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 8 }
-    : { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 5 };
+    ? { boxShadow: '0px 5px 14px rgba(0,0,0,0.45)' }
+    : { boxShadow: '0px 8px 16px rgba(0,0,0,0.1)' };
 export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
 export const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)');
 const iconBtnShadow = (t: Theme): ViewStyle =>
   t.dark
-    ? { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 5 }
-    : { shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 3 };
+    ? { boxShadow: '0px 2px 10px rgba(0,0,0,0.5)' }
+    : { boxShadow: '0px 2px 10px rgba(0,0,0,0.14)' };
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');

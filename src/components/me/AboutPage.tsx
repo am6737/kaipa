@@ -33,11 +33,7 @@ export function AboutPage({
               borderRadius: 18,
               alignItems: 'center',
               justifyContent: 'center',
-              shadowColor: '#000',
-              shadowOpacity: 0.22,
-              shadowRadius: 13,
-              shadowOffset: { width: 0, height: 10 },
-              elevation: 6,
+              boxShadow: '0px 10px 13px rgba(0,0,0,0.22)',
             }}
           >
             <Text style={{ fontSize: 38, fontWeight: '700', color: '#fff' }}>开</Text>

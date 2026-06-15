@@ -1,49 +1,32 @@
-// shadow.ts — helpers to translate the prototype's CSS box-shadows into RN
-// shadow props. iOS reads shadowColor/Offset/Opacity/Radius; Android uses
-// elevation. We approximate the layered glass shadows with a single soft shadow.
 import { ViewStyle } from 'react-native';
 import { Theme } from './theme';
+
+function toRgba(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  const n = h.length === 3
+    ? parseInt(h[0] + h[0] + h[1] + h[1] + h[2] + h[2], 16)
+    : parseInt(h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
 
 export function shadow(
   opacity: number,
   radius: number,
   offsetY: number,
   color = '#000',
-  elevation?: number
 ): ViewStyle {
-  return {
-    shadowColor: color,
-    shadowOffset: { width: 0, height: offsetY },
-    shadowOpacity: opacity,
-    shadowRadius: radius,
-    elevation: elevation ?? Math.round(radius / 2),
-  };
+  return { boxShadow: `0px ${offsetY}px ${radius}px ${toRgba(color, opacity)}` };
 }
 
-// Elevated card / glass surface shadow — the shared signature for the 我 + 装备
-// cards (and the gear dropdown / bell button). Kept gentle so cards lift off a
-// white page without a heavy halo; the hairline border carries edge definition.
 export function elevCard(t: Theme): ViewStyle {
-  return t.dark
-    ? shadow(0.33, 12, 4, '#000', 4)
-    : shadow(0.07, 14, 4, '#000', 3);
+  return t.dark ? shadow(0.33, 12, 4) : shadow(0.07, 14, 4);
 }
 
-// Strong floating element (tab bar, FAB, nav buttons).
 export function elevFloat(t: Theme): ViewStyle {
-  return t.dark
-    ? shadow(0.5, 14, 6, '#000', 12)
-    : shadow(0.14, 12, 4, '#000', 8);
+  return t.dark ? shadow(0.5, 14, 6) : shadow(0.14, 12, 4);
 }
 
-// Accent-tinted shadow for primary CTAs.
 export function elevAccent(t: ViewStyle | string): ViewStyle {
   const color = typeof t === 'string' ? t : '#0A84FF';
-  return {
-    shadowColor: color,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.32,
-    shadowRadius: 14,
-    elevation: 8,
-  };
+  return shadow(0.32, 14, 6, color);
 }

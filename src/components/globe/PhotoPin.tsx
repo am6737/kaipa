@@ -29,11 +29,7 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
         borderRadius: size / 2,
         backgroundColor: fill,
         padding: ring,
-        shadowColor: '#000',
-        shadowOpacity: theme.dark ? 0.45 : 0.22,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 4,
+        boxShadow: theme.dark ? '0px 2px 6px rgba(0,0,0,0.45)' : '0px 2px 6px rgba(0,0,0,0.22)',
       }}
     >
       <Image

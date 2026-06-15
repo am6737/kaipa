@@ -56,11 +56,7 @@ export function MePushPage({ theme, title, onBack, right, children, scroll = tru
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-            shadowColor: '#000',
-            shadowOpacity: theme.dark ? 0.5 : 0.14,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 4,
+            boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
             borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
             borderColor: 'rgba(255,255,255,0.06)',
           }}

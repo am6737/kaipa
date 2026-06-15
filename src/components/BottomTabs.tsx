@@ -75,12 +75,12 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
               ? {
                   borderWidth: StyleSheet.hairlineWidth,
                   borderColor: 'rgba(255,255,255,0.18)',
-                  ...shadow(0.25, 4, 1, '#000', 3),
+                  ...shadow(0.25, 4, 1),
                 }
               : {
                   borderWidth: StyleSheet.hairlineWidth,
                   borderColor: 'rgba(0,0,0,0.05)',
-                  ...shadow(0.06, 2, 1, '#000', 2),
+                  ...shadow(0.06, 2, 1),
                 };
             return (
               <Press

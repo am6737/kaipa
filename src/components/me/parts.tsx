@@ -103,8 +103,8 @@ export function MeRow({
         alignItems: 'center',
         gap: leading ? 12 : 0,
         paddingHorizontal: 14,
-        minHeight: 50,
-        paddingVertical: 11,
+        minHeight: 56,
+        paddingVertical: 14,
         borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
         borderColor: theme.hairline,
       }}
@@ -154,11 +154,7 @@ export function MeSwitch({ theme, on }: { theme: Theme; on: boolean }) {
           height: 22,
           borderRadius: 11,
           backgroundColor: '#fff',
-          shadowColor: '#000',
-          shadowOpacity: 0.25,
-          shadowRadius: 2.5,
-          shadowOffset: { width: 0, height: 1 },
-          elevation: 2,
+          boxShadow: '0px 1px 2.5px rgba(0,0,0,0.25)',
         }}
       />
     </View>
@@ -188,8 +184,8 @@ export function SwitchRow({
           alignItems: 'center',
           gap: 12,
           paddingHorizontal: 14,
-          minHeight: 50,
-          paddingVertical: 9,
+          minHeight: 56,
+          paddingVertical: 14,
           borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
           borderColor: theme.hairline,
         }}

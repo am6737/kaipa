@@ -112,11 +112,7 @@ function CompanionEditor({
             borderRadius: 26,
             borderWidth: StyleSheet.hairlineWidth,
             borderColor: theme.border,
-            shadowColor: '#000',
-            shadowOpacity: theme.dark ? 0.5 : 0.18,
-            shadowRadius: 30,
-            shadowOffset: { width: 0, height: 12 },
-            elevation: 12,
+            boxShadow: theme.dark ? '0px 12px 30px rgba(0,0,0,0.5)' : '0px 12px 30px rgba(0,0,0,0.18)',
           }}
         >
           {/* tapping anywhere that isn't a field / button resigns focus */}
@@ -379,11 +375,7 @@ export function ManageCompanions({
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                shadowColor: '#000',
-                shadowOpacity: theme.dark ? 0.5 : 0.14,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 4,
+                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
                 borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
                 borderColor: 'rgba(255,255,255,0.06)',
               }}
