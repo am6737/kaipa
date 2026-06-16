@@ -15,12 +15,9 @@ import {
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
@@ -30,7 +27,7 @@ import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { RecordJourneySheet } from './RecordJourneySheet';
-import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneyParts';
+import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
@@ -107,9 +104,6 @@ function njDayLabel(target: Date, ref: Date, t: TFn): string {
   const d = String(target.getDate()).padStart(2, '0');
   return `${m}/${d}`;
 }
-function njFormatTime(d: Date): string {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 function njFormatDateTime(d: Date, ref: Date, t: TFn): string {
   return `${njDayLabel(d, ref, t)} · ${njFormatTime(d)}`;
 }
@@ -135,16 +129,6 @@ const NJ_DURATION_OPTIONS: { value: number; labelKey: TKey }[] = [
   { value: 60 * 120, labelKey: 'journeyEdit.durationChip.d5' },
   { value: 60 * 168, labelKey: 'journeyEdit.durationChip.d7' },
 ];
-
-const NJ_TIME_OPTIONS = (() => {
-  const out: { value: number; label: string }[] = [];
-  for (let h = 0; h < 24; h++) {
-    for (const mm of [0, 30]) {
-      out.push({ value: h * 60 + mm, label: `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}` });
-    }
-  }
-  return out;
-})();
 
 function NJStepDots({ count, current, theme }: { count: number; current: number; theme: Theme }) {
   return (
@@ -210,104 +194,6 @@ function NJRouteCard({ theme, route, selected, onPress, compact }: { theme: Them
     </View>
   );
   return onPress ? <Press onPress={onPress}>{body}</Press> : body;
-}
-
-// ──────────────────────────────────────────────────────────────
-// iOS-style wheel column (single-column time picker)
-// ──────────────────────────────────────────────────────────────
-const WHEEL_ITEM_H = 38;
-const WHEEL_VISIBLE = 5;
-
-function NJWheelColumn({ theme, items, value, onChange, width = 140 }: { theme: Theme; items: { value: number; label: string }[]; value: number; onChange: (v: number) => void; width?: number }) {
-  const padding = ((WHEEL_VISIBLE - 1) / 2) * WHEEL_ITEM_H;
-  const containerH = WHEEL_VISIBLE * WHEEL_ITEM_H;
-  const ref = useRef<ScrollView>(null);
-  const offsetRef = useRef(0);
-
-  // External value -> scroll position
-  useEffect(() => {
-    const idx = items.findIndex((it) => it.value === value);
-    if (idx < 0) return;
-    const target = idx * WHEEL_ITEM_H;
-    if (Math.abs(offsetRef.current - target) > 2) {
-      offsetRef.current = target;
-      ref.current?.scrollTo({ y: target, animated: false });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, items]);
-
-  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    offsetRef.current = y;
-    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / WHEEL_ITEM_H)));
-    const item = items[idx];
-    if (item && item.value !== value) onChange(item.value);
-  };
-
-  const edge = theme.bg;
-  const edgeT = theme.dark ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,0)';
-  return (
-    <View style={{ width, height: containerH }}>
-      <ScrollView
-        ref={ref}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={WHEEL_ITEM_H}
-        decelerationRate="fast"
-        onScroll={(e) => {
-          offsetRef.current = e.nativeEvent.contentOffset.y;
-        }}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={settle}
-        onScrollEndDrag={settle}
-        contentContainerStyle={{ paddingVertical: padding }}
-      >
-        {items.map((it) => {
-          const isSel = it.value === value;
-          return (
-            <View key={it.value} style={{ height: WHEEL_ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: isSel ? '600' : '500', color: isSel ? theme.text : theme.text2 }}>{it.label}</Text>
-            </View>
-          );
-        })}
-      </ScrollView>
-      {/* fade masks (top/bottom) so the wheel edges dissolve into the panel */}
-      <LinearGradient colors={[edge, edgeT]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
-      <LinearGradient colors={[edgeT, edge]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
-    </View>
-  );
-}
-
-function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number; onChange: (v: number) => void }) {
-  return (
-    <View
-      style={{
-        paddingVertical: 6,
-        paddingHorizontal: 4,
-        borderRadius: 16,
-        backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
-        overflow: 'hidden',
-        alignItems: 'center',
-      }}
-    >
-      {/* center selection bar */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: 6,
-          right: 6,
-          top: '50%',
-          height: WHEEL_ITEM_H,
-          marginTop: -WHEEL_ITEM_H / 2,
-          backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
-          borderRadius: 10,
-        }}
-      />
-      <NJWheelColumn theme={theme} items={NJ_TIME_OPTIONS} value={value} onChange={onChange} width={140} />
-    </View>
-  );
 }
 
 // ──────────────────────────────────────────────────────────────

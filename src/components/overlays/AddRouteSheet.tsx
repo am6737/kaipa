@@ -1,6 +1,6 @@
 // AddRouteSheet.tsx — "新增到路线库" bottom sheet (upload track / draw on map).
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Animated, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
@@ -13,6 +13,7 @@ function OptionCard({
   title,
   sub,
   disabled,
+  loading,
   onPress,
 }: {
   theme: Theme;
@@ -20,11 +21,13 @@ function OptionCard({
   title: string;
   sub: string;
   disabled?: boolean;
+  loading?: boolean;
   onPress?: () => void;
 }) {
+  const inactive = disabled || loading;
   return (
     <Press
-      onPress={disabled ? undefined : onPress}
+      onPress={inactive ? undefined : onPress}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
@@ -36,7 +39,7 @@ function OptionCard({
       }}
     >
       <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name={icon} color={theme.accent} size={22} />
+        {loading ? <ActivityIndicator color={theme.accent} /> : <Icon name={icon} color={theme.accent} size={22} />}
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{title}</Text>
@@ -46,7 +49,7 @@ function OptionCard({
   );
 }
 
-export function AddRouteSheet({ theme, onClose, onUpload }: { theme: Theme; onClose: () => void; onUpload: () => void }) {
+export function AddRouteSheet({ theme, onClose, onUpload, loading }: { theme: Theme; onClose: () => void; onUpload: () => void; loading?: boolean }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
@@ -84,7 +87,7 @@ export function AddRouteSheet({ theme, onClose, onUpload }: { theme: Theme; onCl
           {t('journeyEdit.addRoute.desc')}
         </Text>
         <View style={{ gap: 10 }}>
-          <OptionCard theme={theme} icon="upload" title={t('journeyEdit.addRoute.uploadTitle')} sub={t('journeyEdit.addRoute.uploadSub')} onPress={onUpload} />
+          <OptionCard theme={theme} icon="upload" title={t('journeyEdit.addRoute.uploadTitle')} sub={loading ? t('journeyEdit.addRoute.parsing') : t('journeyEdit.addRoute.uploadSub')} loading={loading} onPress={onUpload} />
           <OptionCard theme={theme} icon="route" title={t('journeyEdit.addRoute.drawTitle')} sub={t('journeyEdit.addRoute.drawSub')} disabled />
         </View>
       </Animated.View>

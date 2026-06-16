@@ -3,8 +3,37 @@ import { supabase } from '../lib/supabase';
 import { toTLRow } from '../lib/mappers';
 import type { TLRow } from '../data/timeline';
 
+interface TLState {
+  rows: TLRow[];
+  knownGroups: string[];
+}
+
+const cache = new Map<string, TLState>();
+const listeners = new Map<string, Set<() => void>>();
+
+function getState(key: string): TLState {
+  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [] });
+  return cache.get(key)!;
+}
+
+function setState(key: string, updater: (prev: TLState) => TLState) {
+  cache.set(key, updater(getState(key)));
+  listeners.get(key)?.forEach((fn) => fn());
+}
+
 export function useTimeline(journeyId: string | undefined, userId: string | undefined) {
-  const [rows, setRows] = useState<TLRow[]>([]);
+  const key = journeyId || '';
+  const [, bump] = useState(0);
+  const rerender = useCallback(() => bump((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!key) return;
+    let subs = listeners.get(key);
+    if (!subs) { subs = new Set(); listeners.set(key, subs); }
+    subs.add(rerender);
+    return () => { subs!.delete(rerender); };
+  }, [key, rerender]);
+
   const [loading, setLoading] = useState(true);
 
   const fetchRows = useCallback(async () => {
@@ -14,18 +43,27 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       .select('*')
       .eq('journey_id', journeyId)
       .order('sort_order');
-    if (data) setRows(data.map(toTLRow));
+    if (data) {
+      const mapped = data.map(toTLRow);
+      setState(key, (prev) => {
+        const fromRows = mapped.map((r) => r.day).filter(Boolean);
+        const merged = [...new Set([...prev.knownGroups, ...fromRows])];
+        return { rows: mapped, knownGroups: merged };
+      });
+    }
     setLoading(false);
-  }, [journeyId, userId]);
+  }, [journeyId, userId, key]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
-  const isDone = (id: string) => rows.find(r => r.id === id)?.checked ?? false;
+  const state = getState(key);
+
+  const isDone = (id: string) => state.rows.find(r => r.id === id)?.checked ?? false;
 
   const toggle = async (id: string) => {
     const current = isDone(id);
     await supabase.from('timeline_rows').update({ checked: !current }).eq('id', id);
-    setRows(prev => prev.map(r => r.id === id ? { ...r, checked: !current } : r));
+    setState(key, (s) => ({ ...s, rows: s.rows.map(r => r.id === id ? { ...r, checked: !current } : r) }));
   };
 
   const add = async (item: Omit<TLRow, 'id'>) => {
@@ -41,16 +79,43 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       is_synth: false,
       is_custom: true,
       checked: false,
-      sort_order: rows.length,
+      sort_order: state.rows.length,
     };
     await supabase.from('timeline_rows').insert(row);
-    setRows(prev => [...prev, toTLRow(row)]);
+    setState(key, (s) => ({
+      rows: [...s.rows, toTLRow(row)],
+      knownGroups: item.day && !s.knownGroups.includes(item.day) ? [...s.knownGroups, item.day] : s.knownGroups,
+    }));
+  };
+
+  const update = async (id: string, patch: Partial<Omit<TLRow, 'id'>>) => {
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.title !== undefined) dbPatch.title = patch.title;
+    if (patch.day !== undefined) dbPatch.day = patch.day;
+    if (patch.media !== undefined) dbPatch.media = patch.media ?? null;
+    await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
+    setState(key, (s) => ({
+      ...s,
+      rows: s.rows.map(r => r.id === id ? { ...r, ...patch } : r),
+      knownGroups: patch.day && !s.knownGroups.includes(patch.day) ? [...s.knownGroups, patch.day] : s.knownGroups,
+    }));
   };
 
   const remove = async (id: string) => {
     await supabase.from('timeline_rows').delete().eq('id', id);
-    setRows(prev => prev.filter(r => r.id !== id));
+    setState(key, (s) => ({ ...s, rows: s.rows.filter(r => r.id !== id) }));
   };
 
-  return { rows, loading, isDone, toggle, add, remove };
+  const removeGroup = async (day: string) => {
+    const ids = state.rows.filter(r => r.day === day).map(r => r.id);
+    if (ids.length) {
+      await supabase.from('timeline_rows').delete().in('id', ids);
+    }
+    setState(key, (s) => ({
+      rows: s.rows.filter(r => r.day !== day),
+      knownGroups: s.knownGroups.filter(g => g !== day),
+    }));
+  };
+
+  return { rows: state.rows, knownGroups: state.knownGroups, loading, isDone, toggle, add, update, remove, removeGroup };
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
+import { parseTrack, computeStats, buildTrackData, snapWaypoints } from './lib/trackParser';
 import { StatusBar } from 'expo-status-bar';
 import type { Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
@@ -29,6 +30,7 @@ function AppShell() {
   const theme = useTheme();
   const { t } = useI18n();
   const nav = useNav();
+  const [trackLoading, setTrackLoading] = useState(false);
 
   const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
   const hidden = { display: 'none' as const };
@@ -49,19 +51,49 @@ function AppShell() {
       {nav.addRouteOpen && (
         <AddRouteSheet
           theme={theme}
-          onClose={() => nav.closeAddRoute()}
+          loading={trackLoading}
+          onClose={() => { if (!trackLoading) nav.closeAddRoute(); }}
           onUpload={async () => {
             try {
               const result = await FSFile.pickFileAsync({ mimeTypes: '*/*' });
               if (result.canceled || !result.result) return;
-              const ext = (result.result.name?.split('.').pop() || '').toLowerCase();
+              const filename = result.result.name || '';
+              const ext = (filename.split('.').pop() || '').toLowerCase();
               if (ext !== 'gpx' && ext !== 'kml') {
                 nav.showToast(t('record.track.errFormat'));
                 return;
               }
-              nav.closeAddRoute();
-              nav.showToast(t('appShell.toastUploadTrack'));
-            } catch {
+              setTrackLoading(true);
+              try {
+                const text = await result.result.text();
+                const parsed = parseTrack(text, filename, t as any);
+                if (parsed.error || !parsed.points) {
+                  nav.showToast(parsed.error || t('record.track.errParse'));
+                  return;
+                }
+                const stats = computeStats(parsed.points);
+                if (!stats) {
+                  nav.showToast(t('record.track.errParse'));
+                  return;
+                }
+                const { trackCoords, trackElevation, trackDurationMs, dist, asc } = buildTrackData(stats);
+                const trackWaypoints = parsed.waypoints ? snapWaypoints(parsed.waypoints, stats) : undefined;
+                nav.patchCurrent({
+                  trackCoords,
+                  trackElevation,
+                  trackDurationMs,
+                  dist,
+                  ...(asc ? { asc } : {}),
+                  ...(trackWaypoints ? { trackWaypoints } : {}),
+                });
+                nav.closeAddRoute();
+                nav.showToast(t('appShell.toastUploadTrack'));
+              } finally {
+                setTrackLoading(false);
+              }
+            } catch (e) {
+              console.warn('[Upload] track parse error:', e);
+              setTrackLoading(false);
               nav.showToast(t('record.track.errParse'));
             }
           }}

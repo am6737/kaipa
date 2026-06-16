@@ -1,9 +1,12 @@
 // PhotoWall.tsx — 瞬间 shared wall.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Alert, ScrollView, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Alert, ScrollView, Animated, PanResponder, Pressable, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import { LinearGradient } from 'expo-linear-gradient';
+import { LivePhotoView, type LivePhotoViewType } from 'expo-live-photo';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
@@ -12,7 +15,8 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { Avatar, AvatarStack } from '../Avatar';
 import { useNav } from '../../nav/NavContext';
-import { useInspo } from '../../data/inspoStore';
+import { useInspo } from '../../hooks/useInspo';
+import { useData } from '../../data/DataContext';
 import { elevAccent } from '../../theme/shadow';
 import { useI18n } from '../../i18n';
 
@@ -27,6 +31,9 @@ interface WallPhoto {
   author: Companion;
   uri?: string;
   kind?: 'image' | 'video' | 'livePhoto';
+  thumbnail?: string;
+  duration?: number;
+  pairedVideoUri?: string;
 }
 
 // ── Lightbox: tap to close, swipe to navigate, long-press for actions ──
@@ -43,11 +50,8 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const idxRef = useRef(index);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const closingRef = useRef(false);
-  const liveScale = useRef(new Animated.Value(1)).current;
-  const liveTx = useRef(new Animated.Value(0)).current;
-  const liveTy = useRef(new Animated.Value(0)).current;
   const [livePlaying, setLivePlaying] = useState(false);
-  const liveAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const liveRef = useRef<LivePhotoViewType>(null);
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
@@ -57,6 +61,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
     if (idxRef.current !== index) {
       idxRef.current = index;
       scrollRef.current?.scrollTo({ x: index * W, animated: false });
+      setLivePlaying(false);
     }
   }, [index, W]);
 
@@ -70,44 +75,15 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const [menu, setMenu] = useState(false);
   const canDel = !!(onDelete && photo);
 
-  const playLiveEffect = () => {
-    setLivePlaying(true);
-    longPressedRef.current = true;
-    const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
-    liveAnimRef.current = Animated.parallel([
-      Animated.sequence([
-        Animated.timing(liveScale, { toValue: 1.06, duration: 900, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveScale, { toValue: 1.04, duration: 500, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveScale, { toValue: 1, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ]),
-      Animated.sequence([
-        Animated.timing(liveTx, { toValue: -6, duration: 700, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveTx, { toValue: 4, duration: 800, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveTx, { toValue: 0, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ]),
-      Animated.sequence([
-        Animated.timing(liveTy, { toValue: -4, duration: 800, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveTy, { toValue: 3, duration: 700, easing: ease, useNativeDriver: true }),
-        Animated.timing(liveTy, { toValue: 0, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      ]),
-    ]);
-    liveAnimRef.current.start(({ finished }) => {
-      if (finished) setLivePlaying(false);
-    });
-  };
-
-  const stopLiveEffect = () => {
-    if (liveAnimRef.current) {
-      liveAnimRef.current.stop();
-      liveAnimRef.current = null;
+  const toggleLive = useCallback(() => {
+    if (livePlaying) {
+      liveRef.current?.stopPlayback();
+      setLivePlaying(false);
+    } else {
+      liveRef.current?.startPlayback('full');
+      setLivePlaying(true);
     }
-    Animated.parallel([
-      Animated.spring(liveScale, { toValue: 1, useNativeDriver: true, stiffness: 200, damping: 20 }),
-      Animated.spring(liveTx, { toValue: 0, useNativeDriver: true, stiffness: 200, damping: 20 }),
-      Animated.spring(liveTy, { toValue: 0, useNativeDriver: true, stiffness: 200, damping: 20 }),
-    ]).start();
-    setLivePlaying(false);
-  };
+  }, [livePlaying]);
 
   const showActions = () => { longPressedRef.current = true; setMenu(true); };
   const act = (fn: () => void) => { setMenu(false); fn(); };
@@ -119,7 +95,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
 
   if (!photo) return null;
 
-  const isLive = photo.kind === 'livePhoto';
+  const isLive = photo.kind === 'livePhoto' && !!photo.pairedVideoUri;
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity: fadeAnim }]}>
@@ -140,51 +116,52 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         style={{ flex: 1 }}
       >
         {visible.map((p) => {
+          const pIsLive = p.kind === 'livePhoto' && !!p.pairedVideoUri;
           const isThis = p.id === photo.id;
-          const applyLive = isThis && isLive;
           return (
             <Pressable
               key={p.id}
               onPress={handlePress}
-              onLongPress={p.kind === 'livePhoto' ? playLiveEffect : showActions}
-              onPressOut={p.kind === 'livePhoto' && livePlaying ? stopLiveEffect : undefined}
-              delayLongPress={p.kind === 'livePhoto' ? 200 : 400}
+              onLongPress={showActions}
+              delayLongPress={400}
               style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
             >
-              <Animated.View style={{
-                width: W, height: '100%', alignItems: 'center', justifyContent: 'center',
-                transform: applyLive
-                  ? [{ scale: liveScale }, { translateX: liveTx }, { translateY: liveTy }]
-                  : [],
-              }}>
-                {p.uri ? (
+              <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                {pIsLive && isThis ? (
+                  <LivePhotoView
+                    ref={liveRef}
+                    source={{ photoUri: p.uri!, pairedVideoUri: p.pairedVideoUri! }}
+                    contentFit="contain"
+                    useDefaultGestureRecognizer={false}
+                    onPlaybackStop={() => setLivePlaying(false)}
+                    style={{ width: W, height: '100%' }}
+                  />
+                ) : p.uri ? (
                   <Image source={{ uri: p.uri }} contentFit="contain" style={{ width: W, height: '100%' }} />
                 ) : (
                   <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
                 )}
-              </Animated.View>
+              </View>
             </Pressable>
           );
         })}
       </ScrollView>
 
-      {/* iOS-style Live Photo badge — top-left */}
-      {isLive ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, top: insets.top + 12 }}>
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 4,
-            paddingLeft: 6, paddingRight: 9, paddingVertical: 4, borderRadius: 100,
-            backgroundColor: 'rgba(0,0,0,0.25)',
-          }}>
-            <Icon name="livePhoto" color={livePlaying ? '#FFD60A' : '#fff'} size={20} strokeWidth={1.5} />
-            <Text style={{ fontSize: 12, fontWeight: '600', color: livePlaying ? '#FFD60A' : 'rgba(255,255,255,0.9)', letterSpacing: 0.2 }}>LIVE</Text>
-          </View>
-        </View>
-      ) : null}
-
       {/* bottom info (hidden when menu is open) */}
       {!menu ? (
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
+          {isLive ? (
+            <Press onPress={toggleLive} style={{ alignSelf: 'flex-start', marginBottom: 12 }}>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                paddingLeft: 6, paddingRight: 9, paddingVertical: 4, borderRadius: 100,
+                backgroundColor: livePlaying ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.25)',
+              }}>
+                <Icon name="livePhoto" color={livePlaying ? '#FFD60A' : '#fff'} size={20} strokeWidth={1.5} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: livePlaying ? '#FFD60A' : 'rgba(255,255,255,0.9)', letterSpacing: 0.2 }}>LIVE</Text>
+              </View>
+            </Press>
+          ) : null}
           {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
           {photo.day ? (() => {
             let dateLine = `Day ${photo.day}`;
@@ -259,14 +236,22 @@ export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
   return [];
 }
 
+function fmtDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info: Poi; status?: string; onClose: () => void }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const nav = useNav();
   const { t: tr } = useI18n();
   const t = theme;
+  const { userId } = useData();
   const isPlanning = status === 'planning';
-  const inspo = useInspo(info.id);
+  const inspo = useInspo(info.id, userId);
   const inspoRef = useRef(inspo);
   inspoRef.current = inspo;
   const [pending, setPending] = useState<'camera' | 'library' | null>(null);
@@ -298,6 +283,27 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     })
   ).current;
 
+  const addAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
+    for (const a of assets) {
+      const kind = a.type === 'video' ? 'video' as const : a.type === 'livePhoto' ? 'livePhoto' as const : 'image' as const;
+      let thumbnail: string | undefined;
+      let duration: number | undefined;
+      let pairedVideoUri: string | undefined;
+      if (kind === 'video') {
+        try { const r = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 }); thumbnail = r.uri; } catch {}
+        if (a.duration) duration = a.duration;
+      }
+      if (kind === 'livePhoto' && (a as any).pairedVideoAsset?.uri) {
+        pairedVideoUri = (a as any).pairedVideoAsset.uri;
+      }
+      try {
+        await inspoRef.current.add({ uri: a.uri, kind, thumbnail, duration, pairedVideoUri });
+      } catch {
+        nav.showToast(tr('journey.photoWall.errorTitle'));
+      }
+    }
+  };
+
   // ── picker effect ──
   useEffect(() => {
     if (!pending) return;
@@ -308,14 +314,12 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needCameraPerm')); return; }
           const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets)
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
+          if (!cancelled && !res.canceled && res.assets) await addAssets(res.assets);
         } else {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
           const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets)
-            res.assets.forEach((a) => inspoRef.current.add({ uri: a.uri, kind: a.type === 'video' ? 'video' : a.type === 'livePhoto' ? 'livePhoto' : 'image' }));
+          if (!cancelled && !res.canceled && res.assets) await addAssets(res.assets);
         }
       } catch (e) {
         if (!cancelled) Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
@@ -337,7 +341,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
   const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind })),
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
     [inspo.media, selfAuthor]
   );
   const allPhotos = isPlanning ? inspoPhotos : [...fakePhotos, ...inspoPhotos];
@@ -471,18 +475,28 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                         {p.uri ? (
                           <View style={{ backgroundColor: t.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
                             {p.kind === 'video' ? (
-                              <View style={{ width: '100%', height: colW, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? '#1c1c1e' : '#2a2a2c' }}>
-                                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-                                  <Icon name="play" color="#fff" size={16} />
-                                </View>
+                              <View style={{ width: '100%', height: colW }}>
+                                {p.thumbnail ? (
+                                  <Image source={{ uri: p.thumbnail }} contentFit="cover" style={{ width: '100%', height: colW }} />
+                                ) : (
+                                  <View style={{ width: '100%', height: colW, backgroundColor: t.dark ? '#1c1c1e' : '#2a2a2c' }} />
+                                )}
+                                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.35)']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 32, justifyContent: 'flex-end' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingBottom: 5 }}>
+                                    <Icon name="play" color="#fff" size={8} />
+                                    {p.duration ? <Text style={{ fontSize: 10.5, fontWeight: '600', color: '#fff', fontFamily: MONO }}>{fmtDuration(p.duration)}</Text> : null}
+                                  </View>
+                                </LinearGradient>
                               </View>
                             ) : (
                               <View>
                                 <Image source={{ uri: p.uri }} contentFit="cover" style={{ width: '100%', height: colW }} />
                                 {p.kind === 'livePhoto' ? (
-                                  <View style={{ position: 'absolute', left: 6, top: 6 }}>
-                                    <Icon name="livePhoto" color="#fff" size={16} strokeWidth={1.6} />
-                                  </View>
+                                  <LinearGradient colors={['transparent', 'rgba(0,0,0,0.35)']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28, justifyContent: 'flex-end' }}>
+                                    <View style={{ paddingHorizontal: 6, paddingBottom: 5 }}>
+                                      <Icon name="livePhoto" color="#fff" size={14} strokeWidth={1.6} />
+                                    </View>
+                                  </LinearGradient>
                                 ) : null}
                               </View>
                             )}
@@ -508,14 +522,17 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       {/* ── FAB (hidden in filter mode) ── */}
       {!filter ? (
         <Press
-          onPress={chooseSource}
+          onPress={inspo.uploading ? undefined : chooseSource}
           style={[{
             position: 'absolute', right: 20, bottom: insets.bottom + 30,
             width: 58, height: 58, borderRadius: 29, backgroundColor: t.accent,
             alignItems: 'center', justifyContent: 'center',
+            opacity: inspo.uploading ? 0.6 : 1,
           }, elevAccent(t.accent)]}
         >
-          <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />
+          {inspo.uploading
+            ? <ActivityIndicator color="#fff" />
+            : <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />}
         </Press>
       ) : null}
 

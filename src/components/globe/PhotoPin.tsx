@@ -12,7 +12,7 @@ import { View, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
 import { GlobePoi, poiColor } from './types';
-import { paletteFor } from '../../data/tones';
+import { paletteFor, photoUrlFor } from '../../data/tones';
 
 export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; active?: boolean }) {
   const { fill } = poiColor(poi, theme); // status-colored ring (planning/ongoing/completed/route)
@@ -33,14 +33,10 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
         boxShadow: theme.dark ? '0px 2px 6px rgba(0,0,0,0.45)' : '0px 2px 6px rgba(0,0,0,0.22)',
       }}
     >
-      {poi.coverUri ? (
-        <Image
-          source={{ uri: poi.coverUri }}
-          style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }}
-        />
-      ) : (
-        <View style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }} />
-      )}
+      <Image
+        source={{ uri: poi.coverUri || photoUrlFor(poi.tone, poi.id, 240) }}
+        style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }}
+      />
       {/* multi-journey place — small count badge in the top-right corner. The
           white ring keeps it legible over any scenery photo or basemap. */}
       {count ? (

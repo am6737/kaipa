@@ -23,6 +23,7 @@ export function toRoutePoi(r: any): Poi {
     trackCoords: r.track_coords,
     trackElevation: r.track_elevation,
     trackDurationMs: r.track_duration_ms,
+    trackWaypoints: r.track_waypoints,
     photoUris: r.photo_uris,
   };
 }
@@ -67,6 +68,7 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     trackCoords: j.track_coords,
     trackElevation: j.track_elevation,
     trackDurationMs: j.track_duration_ms,
+    trackWaypoints: j.track_waypoints,
     photoUris: j.photo_uris,
   };
 }
@@ -124,5 +126,12 @@ export function toTLRow(r: any): TLRow {
 }
 
 export function toInspoMedia(r: any): InspoMedia {
-  return { id: r.id, uri: r.uri, kind: r.kind };
+  return {
+    id: r.id,
+    uri: r.uri,
+    kind: r.kind,
+    thumbnail: r.thumbnail ?? undefined,
+    duration: r.duration ?? undefined,
+    pairedVideoUri: r.paired_video_uri ?? undefined,
+  };
 }

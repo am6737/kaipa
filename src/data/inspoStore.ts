@@ -12,6 +12,9 @@ export interface InspoMedia {
   id: string;
   uri: string;
   kind: 'image' | 'video' | 'livePhoto';
+  thumbnail?: string;
+  duration?: number;
+  pairedVideoUri?: string;
 }
 
 const store: { data: Record<string, InspoMedia[]>; subs: Set<() => void> } = { data: {}, subs: new Set() };

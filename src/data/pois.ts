@@ -50,6 +50,7 @@ export interface Poi {
   trackCoords?: [number, number][];
   trackElevation?: { km: number; ele: number }[];
   trackDurationMs?: number;
+  trackWaypoints?: { name: string; km: number }[];
 }
 
 const C = (ini: string, name: string, color: string, extra: Partial<Companion> = {}): Companion => ({

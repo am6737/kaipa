@@ -206,12 +206,15 @@ create policy "tl_all" on timeline_rows for all to authenticated
 
 -- ─── inspo_media ─────────────────────────────────────────────────────────────
 create table if not exists inspo_media (
-  id         text primary key default 'im_' || gen_random_uuid()::text,
-  journey_id text not null references journeys(id) on delete cascade,
-  user_id    uuid not null references profiles(id) on delete cascade,
-  uri        text not null,
-  kind       text not null,
-  created_at timestamptz default now()
+  id               text primary key default 'im_' || gen_random_uuid()::text,
+  journey_id       text not null references journeys(id) on delete cascade,
+  user_id          uuid not null references profiles(id) on delete cascade,
+  uri              text not null,
+  kind             text not null,
+  thumbnail        text,
+  duration         float8,
+  paired_video_uri text,
+  created_at       timestamptz default now()
 );
 alter table inspo_media enable row level security;
 create policy "inspo_all" on inspo_media for all to authenticated

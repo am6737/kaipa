@@ -16,7 +16,8 @@ import { Press } from '../components/Press';
 import { ElevationStrip } from '../components/ElevationStrip';
 import { useNav } from '../nav/NavContext';
 import { elevAccent } from '../theme/shadow';
-import { useInspo } from '../data/inspoStore';
+import { useInspo } from '../hooks/useInspo';
+import { useData } from '../data/DataContext';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey } from '../i18n';
 
@@ -67,7 +68,8 @@ function IconButton({ theme, name, onPress, color }: { theme: Theme; name: IconN
 function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; status: string }) {
   const nav = useNav();
   const { t } = useI18n();
-  const inspo = useInspo(poi.id);
+  const { userId } = useData();
+  const inspo = useInspo(poi.id, userId);
   const has = inspo.media.length > 0;
 
   const openDetail = () => nav.openPhotoWall({ info: poi, mode: 'mine', status });

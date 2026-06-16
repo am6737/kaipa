@@ -105,7 +105,7 @@ function SelectCircle({ theme, selected, onPress }: { theme: Theme; selected: bo
   );
 }
 
-function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia, onRemove, editing, selectable, isSelected }: {
+function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia, onRemove, onTap, editing, selectable, isSelected }: {
   theme: Theme;
   row: TLRow;
   done: boolean;
@@ -116,13 +116,14 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
   compact?: boolean;
   onOpenMedia?: (media: TLMedia[], index: number, id: string) => void;
   onRemove?: () => void;
+  onTap?: () => void;
   editing?: boolean;
   selectable?: boolean;
   isSelected?: boolean;
 }) {
   const media = row.media || [];
   return (
-    <Pressable onLongPress={onRemove} delayLongPress={400} onPress={selectable ? onToggle : undefined} style={{ flexDirection: 'row', gap: 11, alignItems: 'stretch', opacity: editing && !selectable ? 0.35 : 1 }}>
+    <Pressable onLongPress={onRemove} delayLongPress={400} onPress={selectable ? onToggle : onTap} style={{ flexDirection: 'row', gap: 11, alignItems: 'stretch', opacity: editing && !selectable ? 0.35 : 1 }}>
       {/* gutter: check/select + connecting line */}
       <View style={{ width: 22, alignItems: 'center' }}>
         {connector ? <View style={{ position: 'absolute', top: 24, bottom: -2, width: 2, backgroundColor: theme.hairline }} /> : null}
@@ -228,15 +229,33 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
 // ── Block-based content model for the editor ─────────────────────────────────
 type ContentBlock = { type: 'text'; value: string } | { type: 'media'; media: TLMedia };
 
-// ── Add page — full-screen notes-style editor for a timeline entry ───────────
-function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGroup[]; onAdd: (it: Omit<TLRow, 'id'>) => void; onClose: () => void }) {
+function rowToBlocks(row: TLRow): ContentBlock[] {
+  const out: ContentBlock[] = [{ type: 'text', value: row.title }];
+  if (row.media?.length) {
+    for (const m of row.media) out.push({ type: 'media', media: m });
+    out.push({ type: 'text', value: '' });
+  }
+  return out;
+}
+
+// ── Editor page — create or edit a timeline entry ────────────────────────────
+function EditorPage({ theme, groups, editRow, onSave, onDeleteGroup, onClose }: {
+  theme: Theme;
+  groups: TLGroup[];
+  editRow?: TLRow;
+  onSave: (it: Omit<TLRow, 'id'>) => void;
+  onDeleteGroup?: (day: string) => void;
+  onClose: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
-  const [blocks, setBlocks] = useState<ContentBlock[]>([{ type: 'text', value: '' }]);
+  const [blocks, setBlocks] = useState<ContentBlock[]>(editRow ? rowToBlocks(editRow) : [{ type: 'text', value: '' }]);
   const [focusIdx, setFocusIdx] = useState(0);
-  const [groupText, setGroupText] = useState(groups[0]?.key ?? '');
+  const [activeGroup, setActiveGroup] = useState(editRow?.day ?? groups[0]?.key ?? '');
   const [groupFocused, setGroupFocused] = useState(false);
   const inputRefs = useRef<Map<number, TextInput>>(new Map());
+
+  const existingKeys = groups.map((g) => g.key);
 
   const setTextAt = (idx: number, value: string) => {
     setBlocks((prev) => prev.map((b, i) => (i === idx && b.type === 'text' ? { ...b, value } : b)));
@@ -246,7 +265,6 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     setBlocks((prev) => {
       const next = [...prev];
       next.splice(idx, 1);
-      // merge adjacent text blocks
       const merged: ContentBlock[] = [];
       for (const b of next) {
         const last = merged[merged.length - 1];
@@ -263,22 +281,14 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
   const insertMedia = (items: TLMedia[]) => {
     setBlocks((prev) => {
       const next = [...prev];
-      // find the focused text block and split it
       let insertAt = prev.length;
-      for (let i = 0; i < prev.length; i++) {
-        if (prev[i].type === 'text') insertAt = i + 1;
-      }
-      // use focusIdx if it's a text block
       if (prev[focusIdx]?.type === 'text') insertAt = focusIdx + 1;
       const toInsert: ContentBlock[] = [];
-      for (const m of items) {
-        toInsert.push({ type: 'media', media: m });
-      }
+      for (const m of items) toInsert.push({ type: 'media', media: m });
       toInsert.push({ type: 'text', value: '' });
       next.splice(insertAt, 0, ...toInsert);
       return next;
     });
-    // focus the new text block after media
     setTimeout(() => {
       const newIdx = focusIdx + 1 + items.length;
       setFocusIdx(newIdx);
@@ -290,10 +300,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     const isVideo = a.type === 'video';
     let thumb: string | undefined;
     if (isVideo) {
-      try {
-        const r = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 });
-        thumb = r.uri;
-      } catch {}
+      try { const r = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 }); thumb = r.uri; } catch {}
     }
     return { tone: 'forest', uri: a.uri, thumb, video: isVideo || undefined };
   };
@@ -303,8 +310,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     if (!perm.granted) return;
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, quality: 0.8 });
     if (res.canceled) return;
-    const items = await Promise.all(res.assets.map(assetToMedia));
-    insertMedia(items);
+    insertMedia(await Promise.all(res.assets.map(assetToMedia)));
   };
 
   const takePhoto = async () => {
@@ -312,31 +318,18 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
     if (!perm.granted) return;
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
     if (res.canceled) return;
-    const items = await Promise.all(res.assets.map(assetToMedia));
-    insertMedia(items);
+    insertMedia(await Promise.all(res.assets.map(assetToMedia)));
   };
 
-  // Collect all text and media from blocks for submission
+
   const allText = blocks.filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text').map((b) => b.value.trim()).filter(Boolean).join('\n');
   const allMedia = blocks.filter((b): b is ContentBlock & { type: 'media' } => b.type === 'media').map((b) => b.media);
-  const activeGroup = groupText.trim();
   const can = allText.length > 0 && activeGroup.length > 0;
 
   const submit = () => {
     if (!can) return;
-    onAdd({ title: allText, day: activeGroup, media: allMedia.length ? allMedia : undefined });
+    onSave({ title: allText, day: activeGroup, media: allMedia.length ? allMedia : undefined });
   };
-
-  const pickSuggestion = (key: string) => {
-    setGroupText(key);
-    setGroupFocused(false);
-    inputRefs.current.get(0)?.focus();
-  };
-
-  const existingKeys = groups.map((g) => g.key);
-  const suggestions = activeGroup
-    ? existingKeys.filter((k) => k !== activeGroup && k.includes(activeGroup))
-    : existingKeys;
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 200 }]}>
@@ -355,7 +348,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
               backgroundColor: can ? theme.accent : theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
             }}
           >
-            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>{t('common.done')}</Text>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: can ? '#fff' : theme.text3 }}>{editRow ? t('common.save') : t('common.done')}</Text>
           </Press>
         </View>
 
@@ -363,18 +356,23 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80, flexGrow: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
         >
-          {/* Group input row */}
+          <Pressable
+            style={{ flex: 1, paddingHorizontal: 20, paddingBottom: 80 }}
+            onPress={() => {
+              const lastTextIdx = blocks.reduce((acc, b, i) => b.type === 'text' ? i : acc, 0);
+              inputRefs.current.get(lastTextIdx)?.focus();
+            }}
+          >
+          {/* Group input */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40, marginBottom: 4 }}>
             <Text style={{ fontSize: 14, color: theme.text3, fontWeight: '600' }}>#</Text>
             <TextInput
-              value={groupText}
-              onChangeText={setGroupText}
+              value={activeGroup}
+              onChangeText={setActiveGroup}
               onFocus={() => setGroupFocused(true)}
               onBlur={() => setTimeout(() => setGroupFocused(false), 150)}
-              placeholder={t('journey.timeline.groupPlaceholder')}
-              placeholderTextColor={theme.text3}
               maxLength={20}
               returnKeyType="next"
               onSubmitEditing={() => inputRefs.current.get(0)?.focus()}
@@ -382,18 +380,34 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
               style={{ flex: 1, height: 40, fontSize: 14, fontWeight: '600', color: theme.accent }}
             />
           </View>
-
-          {/* Suggestions */}
-          {groupFocused && suggestions.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 12, paddingTop: 4 }} keyboardShouldPersistTaps="handled">
-              {suggestions.map((k) => (
-                <Press key={k} onPress={() => pickSuggestion(k)} style={{ height: 28, paddingHorizontal: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-                  <Text style={{ fontSize: 12.5, fontWeight: '500', color: theme.text2 }}>{k}</Text>
-                </Press>
-              ))}
-            </ScrollView>
+          {groupFocused && existingKeys.length > 0 ? (
+            <View style={{ marginBottom: 4 }}>
+              {existingKeys.map((k) => {
+                const count = groups.find((g) => g.key === k)?.rows.length ?? 0;
+                return (
+                  <Pressable
+                    key={k}
+                    onPress={() => { setActiveGroup(k); setGroupFocused(false); inputRefs.current.get(0)?.focus(); }}
+                    onLongPress={() => {
+                      Alert.alert(
+                        t('journey.timeline.deleteGroupTitle', { name: k }),
+                        t('journey.timeline.deleteGroupMessage', { count }),
+                        [
+                          { text: t('common.cancel'), style: 'cancel' },
+                          { text: t('common.delete'), style: 'destructive', onPress: () => { onDeleteGroup?.(k); if (activeGroup === k) setActiveGroup(''); } },
+                        ],
+                      );
+                    }}
+                    delayLongPress={500}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 40, paddingHorizontal: 4 }}
+                  >
+                    <Text style={{ fontSize: 15, color: activeGroup === k ? theme.accent : theme.text }}>{k}</Text>
+                    {activeGroup === k ? <Icon name="check" color={theme.accent} size={15} strokeWidth={2.4} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
           ) : null}
-
           <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginBottom: 16 }} />
 
           {/* Content blocks */}
@@ -406,19 +420,13 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
                   value={block.value}
                   onChangeText={(v) => setTextAt(i, v)}
                   onFocus={() => setFocusIdx(i)}
-                  autoFocus={i === 0 && groups.length > 0}
+                  autoFocus={i === 0}
                   multiline
                   textAlignVertical="top"
                   scrollEnabled={false}
                   placeholder={i === 0 ? t('journey.timeline.addPlaceholder') : ''}
                   placeholderTextColor={theme.text3}
-                  style={{
-                    fontSize: 17,
-                    lineHeight: 28,
-                    color: theme.text,
-                    fontWeight: '400',
-                    padding: 0,
-                  }}
+                  style={{ fontSize: 17, lineHeight: 28, color: theme.text, fontWeight: '400', padding: 0 }}
                 />
               );
             }
@@ -438,38 +446,17 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
                     </View>
                   </View>
                 ) : null}
-                <Press
-                  onPress={() => removeMediaAt(i)}
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    width: 26,
-                    height: 26,
-                    borderRadius: 13,
-                    backgroundColor: 'rgba(0,0,0,0.45)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
+                <Press onPress={() => removeMediaAt(i)} style={{ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="close" color="#fff" size={12} />
                 </Press>
               </View>
             );
           })}
+          </Pressable>
         </ScrollView>
 
         {/* Bottom toolbar */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 16,
-          paddingHorizontal: 20,
-          paddingTop: 10,
-          paddingBottom: Math.max(insets.bottom, 16) + 4,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
-        }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 16) + 4, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <Press onPress={pickFromLibrary} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="photo" color={theme.text2} size={24} />
           </Press>
@@ -497,8 +484,9 @@ function CardHeader({ theme, title, action, onAction }: { theme: Theme; title: s
 }
 
 // ── Group rows by their user-defined `day` string, preserving first-seen order ─
-function groupRows(rows: TLRow[]): TLGroup[] {
+function groupRows(rows: TLRow[], knownGroups: string[]): TLGroup[] {
   const map = new Map<string, TLRow[]>();
+  for (const g of knownGroups) map.set(g, []);
   for (const r of rows) {
     const key = r.day || '';
     const arr = map.get(key);
@@ -564,8 +552,9 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
   const { t } = useI18n();
   const { userId } = useData();
   const tl = useTimeline(info.id, userId);
-  const groups = groupRows(tl.rows);
-  const [adding, setAdding] = useState(false);
+  const groups = groupRows(tl.rows, tl.knownGroups);
+  const [editorRow, setEditorRow] = useState<TLRow | null | undefined>(undefined);
+  const editorOpen = editorRow !== undefined;
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewer, setViewer] = useState<{ media: TLMedia[]; index: number; seedBase: string } | null>(null);
@@ -605,7 +594,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
       <Text style={{ fontSize: 15, fontWeight: '600', color: theme.accent }}>{t('common.done')}</Text>
     </Press>
   ) : (
-    <Press onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 10, paddingRight: 13, borderRadius: 16, backgroundColor: theme.accent }}>
+    <Press onPress={() => setEditorRow(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 10, paddingRight: 13, borderRadius: 16, backgroundColor: theme.accent }}>
       <Icon name="plus" color="#fff" size={15} strokeWidth={2.6} />
       <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>{t('common.add')}</Text>
     </Press>
@@ -628,11 +617,24 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
         <View style={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: editing ? 80 : 0 }}>
           {groups.map((g) => (
             <View key={g.key} style={{ marginBottom: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 }}>
+              <Pressable
+                onLongPress={() => {
+                  Alert.alert(
+                    t('journey.timeline.deleteGroupTitle', { name: g.label }),
+                    t('journey.timeline.deleteGroupMessage', { count: g.rows.length }),
+                    [
+                      { text: t('common.cancel'), style: 'cancel' },
+                      { text: t('common.delete'), style: 'destructive', onPress: () => tl.removeGroup(g.key) },
+                    ],
+                  );
+                }}
+                delayLongPress={500}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 }}
+              >
                 <Text style={{ fontSize: 13, fontWeight: '800', color: theme.text, letterSpacing: 0.2 }}>{g.label}</Text>
                 <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
                 <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{t('journey.timeline.itemCount', { count: g.rows.length })}</Text>
-              </View>
+              </Pressable>
               {g.rows.map((r, i) => (
                 <Row
                   key={r.id}
@@ -640,6 +642,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
                   row={r}
                   done={tl.isDone(r.id)}
                   onToggle={editing && r.custom ? () => toggleSelect(r.id) : () => tl.toggle(r.id)}
+                  onTap={!editing && !tl.isDone(r.id) ? () => setEditorRow(r) : undefined}
                   connector={i < g.rows.length - 1}
                   last={i === g.rows.length - 1}
                   onOpenMedia={editing ? undefined : (media, idx, id) => setViewer({ media, index: idx, seedBase: id })}
@@ -660,7 +663,19 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
           </Press>
         </View>
       ) : null}
-      {adding ? <AddPage theme={theme} groups={groups} onClose={() => setAdding(false)} onAdd={(it) => { tl.add(it); setAdding(false); }} /> : null}
+      {editorOpen ? (
+        <EditorPage
+          theme={theme}
+          groups={groups}
+          editRow={editorRow ?? undefined}
+          onClose={() => setEditorRow(undefined)}
+          onSave={(it) => {
+            if (editorRow) { tl.update(editorRow.id, it); } else { tl.add(it); }
+            setEditorRow(undefined);
+          }}
+          onDeleteGroup={(day) => { tl.removeGroup(day); setEditorRow(undefined); }}
+        />
+      ) : null}
       {viewer ? <MediaViewer theme={theme} media={viewer.media} index={viewer.index} seedBase={viewer.seedBase} onClose={() => setViewer(null)} /> : null}
     </>
   );

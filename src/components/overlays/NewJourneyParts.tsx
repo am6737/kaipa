@@ -7,8 +7,12 @@ import {
   Animated,
   StyleSheet,
   PanResponder,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import Svg, { Rect, Circle } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -145,6 +149,141 @@ export function NJMiniCalendar({ theme, selectedDate, onSelect, allowPast }: { t
           );
         })}
       </View>
+    </View>
+  );
+}
+
+// ── Time wheel (shared between NewJourneySheet + EditJourneySheet) ──
+
+const WHEEL_ITEM_H = 38;
+const WHEEL_VISIBLE = 5;
+
+export const NJ_TIME_OPTIONS = (() => {
+  const out: { value: number; label: string }[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (const mm of [0, 30]) {
+      out.push({ value: h * 60 + mm, label: `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}` });
+    }
+  }
+  return out;
+})();
+
+export function njFormatTime(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function NJWheelColumn({ theme, items, value, onChange, width = 140 }: { theme: Theme; items: { value: number; label: string }[]; value: number; onChange: (v: number) => void; width?: number }) {
+  const padding = ((WHEEL_VISIBLE - 1) / 2) * WHEEL_ITEM_H;
+  const containerH = WHEEL_VISIBLE * WHEEL_ITEM_H;
+  const ref = useRef<ScrollView>(null);
+  const offsetRef = useRef(0);
+
+  useEffect(() => {
+    const idx = items.findIndex((it) => it.value === value);
+    if (idx < 0) return;
+    const target = idx * WHEEL_ITEM_H;
+    if (Math.abs(offsetRef.current - target) > 2) {
+      offsetRef.current = target;
+      ref.current?.scrollTo({ y: target, animated: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, items]);
+
+  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    offsetRef.current = y;
+    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / WHEEL_ITEM_H)));
+    const item = items[idx];
+    if (item && item.value !== value) { Haptics.selectionAsync(); onChange(item.value); }
+  };
+
+  const edge = theme.bg;
+  const edgeT = theme.dark ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,0)';
+  return (
+    <View style={{ width, height: containerH }}>
+      <ScrollView
+        ref={ref}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={WHEEL_ITEM_H}
+        decelerationRate="fast"
+        onScroll={(e) => { offsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={settle}
+        onScrollEndDrag={settle}
+        contentContainerStyle={{ paddingVertical: padding }}
+      >
+        {items.map((it) => {
+          const isSel = it.value === value;
+          return (
+            <View key={it.value} style={{ height: WHEEL_ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: isSel ? '600' : '500', color: isSel ? theme.text : theme.text2 }}>{it.label}</Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+      <LinearGradient colors={[edge, edgeT]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
+      <LinearGradient colors={[edgeT, edge]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
+    </View>
+  );
+}
+
+export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number; onChange: (v: number) => void }) {
+  return (
+    <View style={{ overflow: 'hidden', alignItems: 'center' }}>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: '50%',
+          height: WHEEL_ITEM_H,
+          marginTop: -WHEEL_ITEM_H / 2,
+          backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
+          borderRadius: 10,
+        }}
+      />
+      <NJWheelColumn theme={theme} items={NJ_TIME_OPTIONS} value={value} onChange={onChange} width={140} />
+    </View>
+  );
+}
+
+export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme: Theme; year: number; month: number; day: number; onChange: (y: number, m: number, d: number) => void }) {
+  const years = useMemo(() => {
+    const out: { value: number; label: string }[] = [];
+    for (let y = 2020; y <= 2035; y++) out.push({ value: y, label: `${y}年` });
+    return out;
+  }, []);
+  const months = useMemo(() => {
+    const out: { value: number; label: string }[] = [];
+    for (let m = 1; m <= 12; m++) out.push({ value: m, label: `${m}月` });
+    return out;
+  }, []);
+  const days = useMemo(() => {
+    const dim = new Date(year, month, 0).getDate();
+    const out: { value: number; label: string }[] = [];
+    for (let d = 1; d <= dim; d++) out.push({ value: d, label: `${d}日` });
+    return out;
+  }, [year, month]);
+  const safeDay = Math.min(day, days.length);
+  return (
+    <View style={{ overflow: 'hidden', flexDirection: 'row', justifyContent: 'center' }}>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: '50%',
+          height: WHEEL_ITEM_H,
+          marginTop: -WHEEL_ITEM_H / 2,
+          backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
+          borderRadius: 10,
+        }}
+      />
+      <NJWheelColumn theme={theme} items={years} value={year} onChange={(v) => onChange(v, month, safeDay)} width={100} />
+      <NJWheelColumn theme={theme} items={months} value={month} onChange={(v) => onChange(year, v, safeDay)} width={80} />
+      <NJWheelColumn theme={theme} items={days} value={safeDay} onChange={(v) => onChange(year, month, v)} width={80} />
     </View>
   );
 }

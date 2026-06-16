@@ -9,17 +9,16 @@ export function useJourneys(userId: string | undefined) {
 
   const fetchJourneys = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('journeys')
       .select(`
-        id, name, region, coord, lng, lat, dist, asc:asc_, diff, tone, desc,
-        status, date, days, planned_date, countdown, day_index, total_days,
-        fav, route_id, track_coords, track_elevation, track_duration_ms, photo_uris,
+        *,
         companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-    if (data) setJourneys(data.map((j: any) => toJourneyPoi(j)));
+    if (error) console.warn('[useJourneys] fetch error:', error.message);
+    if (data) setJourneys(data.map((j: any) => toJourneyPoi({ ...j, asc: j.asc_ })));
     setLoading(false);
   }, [userId]);
 
@@ -94,6 +93,7 @@ export function useJourneys(userId: string | undefined) {
     if (patch.trackCoords !== undefined) row.track_coords = patch.trackCoords;
     if (patch.trackElevation !== undefined) row.track_elevation = patch.trackElevation;
     if (patch.trackDurationMs !== undefined) row.track_duration_ms = patch.trackDurationMs;
+    if (patch.trackWaypoints !== undefined) row.track_waypoints = patch.trackWaypoints;
     if (patch.photoUris !== undefined) row.photo_uris = patch.photoUris;
     row.updated_at = new Date().toISOString();
 

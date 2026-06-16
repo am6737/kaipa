@@ -9,11 +9,12 @@ export function useRoutes() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('routes')
-        .select('id, name, region, coord, lng, lat, dist, asc:asc_, diff, rating, reviews, tone, desc')
+        .select('*')
         .order('created_at');
-      if (data) setRoutes(data.map(toRoutePoi));
+      if (error) console.warn('[useRoutes] fetch error:', error.message);
+      if (data) setRoutes(data.map((r: any) => toRoutePoi({ ...r, asc: r.asc_ })));
       setLoading(false);
     })();
   }, []);
