@@ -3,12 +3,16 @@ import { useRoutes } from '../hooks/useRoutes';
 import { useJourneys } from '../hooks/useJourneys';
 import { useGear } from '../hooks/useGear';
 import { useNotifications } from '../hooks/useNotifications';
+import { useProfile } from '../hooks/useProfile';
+import type { UserProfile } from '../hooks/useProfile';
 import type { Poi } from './pois';
 import type { GearCat, GearItem, GearSet } from './gear';
 import type { Notif } from './notifications';
 
 export interface DataValue {
   userId: string;
+  profile: UserProfile;
+  updateProfile: (field: string, value: string) => Promise<void>;
   routes: Poi[];
   routesLoading: boolean;
   journeys: Poi[];
@@ -55,12 +59,16 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     refetch: refetchGear,
   } = useGear(userId);
   const {
+    profile, updateProfile,
+  } = useProfile(userId);
+  const {
     list: notifList, unread: notifUnread,
     markRead: markNotifRead, markAllRead: markAllNotifsRead,
   } = useNotifications(userId);
 
   const value: DataValue = {
     userId,
+    profile, updateProfile,
     routes, routesLoading,
     journeys, journeysLoading, createJourney, updateJourney, deleteJourney, toggleFav, refetchJourneys,
     cats, items, sets, gearLoading,

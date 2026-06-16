@@ -2,7 +2,8 @@
 // tone + seed) layered over a palette gradient + mountain-ridge silhouette. The
 // gradient/ridge is the fallback shown while the photo loads or if it fails.
 import React from 'react';
-import { View, ViewStyle, StyleProp, StyleSheet, Image } from 'react-native';
+import { View, ViewStyle, StyleProp, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { paletteFor, hashStr, photoUrlFor } from '../data/tones';
@@ -53,7 +54,7 @@ export function PhotoTile({ tone, seed = '', radius = 0, style, children, darken
         <Image
           source={{ uri }}
           onError={() => setFailed(true)}
-          resizeMode="cover"
+          contentFit="cover"
           style={StyleSheet.absoluteFill}
         />
       )}

@@ -83,6 +83,7 @@ export const en: SameShape<typeof zh> = {
     notifications: 'Notifications',
     helpFeedback: 'Help & Feedback',
     about: 'About',
+    unnamed: 'No Name Set',
     signOut: 'Sign Out',
     signOutMessage: 'You will need to sign in again to sync your journeys and companions.',
     inbox: 'Notifications',

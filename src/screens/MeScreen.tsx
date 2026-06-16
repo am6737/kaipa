@@ -12,10 +12,12 @@ import { Press } from '../components/Press';
 import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
+import { useData } from '../data/DataContext';
 import { useNotifCenter } from '../data/notifications';
 import { elevCard } from '../theme/shadow';
 import { MeSection, MeCard, MeRow, ColorDot } from '../components/me/parts';
-import { AccountPage, MeProfile } from '../components/me/AccountPage';
+import { AccountPage } from '../components/me/AccountPage';
+import type { MeProfile } from '../components/me/AccountPage';
 import { EditFieldPage, MeEditField } from '../components/me/EditFieldPage';
 import { DevicesPage } from '../components/me/DevicesPage';
 import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettingsPage';
@@ -120,15 +122,16 @@ export function MeScreen({ theme }: { theme: Theme }) {
   const { mode, accent, resolved, setMode, setAccent } = useAppearance();
   const { t, lang, setLang } = useI18n();
   const nav = useNav();
+  const data = useData();
   const { unread } = useNotifCenter();
 
-  const [profile, setProfile] = useState<MeProfile>({
-    nick: '陈泽宇',
-    username: '@chenzy',
-    bio: '山野徒步爱好者',
-    phone: '+86 138 **** 4521',
-    email: 'chenzy@kaipa.app',
-  });
+  const profile: MeProfile = {
+    nick: data.profile.nick,
+    username: data.profile.username ? `@${data.profile.username}` : '',
+    bio: data.profile.bio,
+    phone: data.profile.phone,
+    email: data.profile.email,
+  };
   const [twoFA, setTwoFA] = useState(false);
   const [notif, setNotif] = useState<NotifSettings>({ push: true, social: true, system: false });
 
@@ -149,9 +152,13 @@ export function MeScreen({ theme }: { theme: Theme }) {
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
 
   const showToast = nav.showToast;
-  const saveEdit = (field: MeEditField, val: string) => {
+  const saveEdit = async (field: MeEditField, val: string) => {
     pop();
-    if (field.key) setProfile((p) => ({ ...p, [field.key as keyof MeProfile]: val }));
+    if (field.key) {
+      const dbKey = field.key === 'username' ? 'username' : field.key;
+      const dbVal = field.key === 'username' ? val.replace(/^@/, '') : val;
+      await data.updateProfile(dbKey, dbVal);
+    }
     showToast(field.toast || t('common.saved'));
   };
 
@@ -256,11 +263,15 @@ export function MeScreen({ theme }: { theme: Theme }) {
               justifyContent: 'center',
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
+            {profile.nick ? (
+              <Text style={{ fontSize: 20, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
+            ) : (
+              <Icon name="user" color={theme.text3} size={22} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text }}>{profile.nick}</Text>
-            <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>{profile.username}</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
+            {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>{profile.username}</Text> : null}
           </View>
           {/* bell → 消息中心 */}
           <Press

@@ -3,7 +3,8 @@
 // strings — users decide how to organize entries. Exposes the inline digest
 // (JourneyTimelineCard) and the full-screen timeline (JourneyTimelineFull).
 import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, Image, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -77,7 +78,7 @@ function MediaThumb({ theme, m, seed, size = 76, onPress }: { theme: Theme; m: T
   const inner = (
     <View style={{ width: size, height: size, borderRadius: 11, overflow: 'hidden' }}>
       {displayUri ? (
-        <Image source={{ uri: displayUri }} resizeMode="cover" style={{ width: size, height: size }} />
+        <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: size, height: size }} />
       ) : (
         <PhotoTile tone={m.tone} seed={seed} radius={11} resWidth={240} style={{ width: size, height: size }} />
       )}
@@ -193,7 +194,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
     return (
       <View key={idx} style={{ width, alignItems: 'center', justifyContent: 'center' }}>
         {displayUri ? (
-          <Image source={{ uri: displayUri }} resizeMode="contain" style={{ width: width - 32, height: viewH, borderRadius: 18 }} />
+          <Image source={{ uri: displayUri }} contentFit="contain" style={{ width: width - 32, height: viewH, borderRadius: 18 }} />
         ) : (
           <PhotoTile tone={mm.tone} seed={seedBase + '-' + idx} radius={18} resWidth={1000} style={{ width: width - 32, height: viewH }} />
         )}
@@ -426,7 +427,7 @@ function AddPage({ theme, groups, onAdd, onClose }: { theme: Theme; groups: TLGr
             return (
               <View key={`m-${i}`} style={{ marginVertical: 10, borderRadius: 14, overflow: 'hidden' }}>
                 {displayUri ? (
-                  <Image source={{ uri: displayUri }} resizeMode="cover" style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 14 }} />
+                  <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: 14 }} />
                 ) : (
                   <PhotoTile tone={mm.tone} seed={'new-' + i} radius={14} resWidth={600} style={{ width: '100%', aspectRatio: 4 / 3 }} />
                 )}
@@ -524,7 +525,7 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
       <View style={{ paddingBottom: 18 }}>
         <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
         <Press onPress={() => nav.openTimeline(info)}>
-          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <Icon name="calendar" color={theme.text3} size={24} />
             <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
             <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
@@ -537,7 +538,7 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
   return (
     <View style={{ paddingBottom: 18 }}>
       <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
-      <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
+      <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
         <View style={{ padding: 14, borderBottomWidth: allDone ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
         </View>

@@ -88,6 +88,7 @@ export const zh = {
     notifications: '通知',
     helpFeedback: '帮助与反馈',
     about: '关于',
+    unnamed: '未设置昵称',
     signOut: '退出登录',
     signOutMessage: '退出后需重新登录才能同步你的旅程与同行动态。',
     inbox: '消息中心',

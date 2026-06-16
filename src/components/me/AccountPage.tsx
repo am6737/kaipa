@@ -8,6 +8,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
+import { useData } from '../../data/DataContext';
 import { MePushPage } from './MePushPage';
 import { MeSection, MeCard, MeRow, SwitchRow } from './parts';
 import { MeEditField } from './EditFieldPage';
@@ -41,6 +42,9 @@ export function AccountPage({
 }) {
   const nav = useNav();
   const { t } = useI18n();
+  const data = useData();
+  const uid = data.profile.uid;
+  const createdAt = data.profile.createdAt;
 
   const avatarSheet = () =>
     nav.openActionSheet({
@@ -79,7 +83,11 @@ export function AccountPage({
               justifyContent: 'center',
             }}
           >
-            <Text style={{ fontSize: 32, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
+            {profile.nick ? (
+              <Text style={{ fontSize: 32, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
+            ) : (
+              <Icon name="user" color={theme.text3} size={32} />
+            )}
             <View
               style={{
                 position: 'absolute',
@@ -99,8 +107,8 @@ export function AccountPage({
             </View>
           </View>
         </Press>
-        <Text style={{ fontSize: 17, fontWeight: '600', color: theme.text, marginTop: 14 }}>{profile.nick}</Text>
-        <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 3 }}>{profile.username}</Text>
+        <Text style={{ fontSize: 17, fontWeight: '600', color: theme.text, marginTop: 14 }}>{profile.nick || t('me.unnamed')}</Text>
+        {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 3 }}>{profile.username}</Text> : null}
       </View>
 
       <MeSection theme={theme} title={t('account.profile.sectionProfile')}>
@@ -200,7 +208,7 @@ export function AccountPage({
           marginTop: 32,
         }}
       >
-        UID 8472301{'\n'}{t('account.profile.joinedAt', { date: '2024 · 09 · 22' })}
+        UID {uid.slice(0, 8)}{'\n'}{t('account.profile.joinedAt', { date: createdAt ? new Date(createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, ' · ') : '—' })}
       </Text>
     </MePushPage>
   );

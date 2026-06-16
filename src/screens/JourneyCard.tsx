@@ -1,7 +1,8 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet and (full-bleed) in the JourneyCardFull overlay.
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Share, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, Share, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path as SvgPath, Circle, Rect } from 'react-native-svg';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
@@ -15,8 +16,6 @@ import { Press } from '../components/Press';
 import { ElevationStrip } from '../components/ElevationStrip';
 import { useNav } from '../nav/NavContext';
 import { elevAccent } from '../theme/shadow';
-import { paletteFor } from '../data/tones';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useInspo } from '../data/inspoStore';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey } from '../i18n';
@@ -94,7 +93,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
                     </View>
                   </View>
                 ) : (
-                  <Image source={{ uri: m.uri }} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
+                  <Image source={{ uri: m.uri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
                 )}
                 {m.kind === 'video' ? (
                   <View style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.5)' }}>
@@ -114,7 +113,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
             paddingHorizontal: 16,
             alignItems: 'center',
             gap: 8,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+            backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
             borderWidth: 1,
             borderStyle: 'dashed',
             borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
@@ -223,14 +222,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       <View style={{ marginHorizontal: fullBleed ? -10 : -16, marginTop: fullBleed ? 0 : -2, marginBottom: 16 }}>
         <View style={{ height: 224 }}>
           {poi.photoUris?.[0] ? (
-            <Image source={{ uri: poi.photoUris[0] }} resizeMode="cover" style={StyleSheet.absoluteFill} />
+            <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} />
           ) : (
-            <LinearGradient
-              colors={[paletteFor(poi.tone)[0], paletteFor(poi.tone)[2]]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? '#2c2c2e' : '#e5e5ea' }]} />
           )}
           {nav.pointSource && (
             <Press
@@ -339,7 +333,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <Press onPress={() => nav.openElevation({ info: poi, isMine })}>
           <View
             style={{
-              backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.022)',
+              backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
               borderRadius: 16,
               padding: 12,
               borderWidth: StyleSheet.hairlineWidth,
@@ -357,7 +351,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         </Press>
         ) : (
         <Press onPress={() => nav.openAddRoute()}>
-          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <Icon name="route" color={theme.text3} size={24} />
             <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.route')}</Text>
             <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.routeHint')}</Text>
@@ -380,7 +374,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={t('journey.section.companions')} action={t('journey.section.manage')} onAction={() => nav.openManageCompanions(poi)} />
           <Press onPress={() => nav.openManageCompanions(poi)}>
-            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
               <Icon name="people" color={theme.text3} size={24} />
               <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.companions')}</Text>
               <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.companionsHint')}</Text>
@@ -403,7 +397,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
             {previewPhotos.map((p) => (
               <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
                 {p.uri ? (
-                  <Image source={{ uri: p.uri }} resizeMode="cover" style={{ aspectRatio: 1, borderRadius: 11, backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }} />
+                  <Image source={{ uri: p.uri }} contentFit="cover" style={{ aspectRatio: 1, borderRadius: 11, backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }} />
                 ) : (
                   <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
                 )}
@@ -415,7 +409,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={t('journey.moments.title')} />
           <Press onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}>
-            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
               <Icon name="camera" color={theme.text3} size={24} />
               <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.moments')}</Text>
               <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.momentsHint')}</Text>

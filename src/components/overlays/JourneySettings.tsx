@@ -3,7 +3,8 @@
 // Ported from the prototype's journey-settings.jsx (toggles are session-local —
 // a faithful, working settings surface without a backend).
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, Animated, StyleSheet, Alert } from 'react-native';
+import { View, Text, Animated, StyleSheet, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
@@ -139,7 +140,7 @@ export function JourneySettings({
           {coverUri ? (
             <View>
               <Press onPress={pickCover}>
-                <Image source={{ uri: coverUri }} style={{ width: '100%', height: 180, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} resizeMode="cover" />
+                <Image source={{ uri: coverUri }} style={{ width: '100%', height: 180, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} contentFit="cover" />
               </Press>
               <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
               <Row theme={theme} title={t('journey.settings.removeCover')} onPress={() => setCoverUri(null)} last />

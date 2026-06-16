@@ -232,6 +232,14 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   compactRef.current = compact;
   expandedRef.current = expanded;
 
+  const expandedY = yFor(snapHeights[snapHeights.length - 1]);
+  const collapsedY = yFor(snapHeights[0]);
+  const expandBg = translateY.interpolate({
+    inputRange: [expandedY, collapsedY],
+    outputRange: [0.85, 0],
+    extrapolate: 'clamp',
+  });
+
   return (
     <Animated.View
       style={[
@@ -252,11 +260,22 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           style={[
             StyleSheet.absoluteFill,
             {
-              backgroundColor: theme.dark ? 'rgba(28,28,30,0.72)' : 'rgba(255,255,255,0.78)',
+              backgroundColor: theme.dark ? 'rgba(28,28,30,0.88)' : 'rgba(255,255,255,0.92)',
               borderTopLeftRadius: 26,
               borderTopRightRadius: 26,
               borderWidth: StyleSheet.hairlineWidth,
               borderColor: theme.border,
+            },
+          ]}
+        />
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
+              borderTopLeftRadius: 26,
+              borderTopRightRadius: 26,
+              opacity: expandBg,
             },
           ]}
         />

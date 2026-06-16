@@ -1,7 +1,8 @@
 // RecordJourneySheet.tsx — 记录走过的: log a PAST hike from a recorded track
 // and/or photos, producing a 已完成 journey (回忆).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { File as FSFile } from 'expo-file-system';
@@ -803,7 +804,7 @@ function RJMoments({ theme, moments, onAdd, onRemove }: { theme: Theme; moments:
       {moments.map((p) => (
         <View key={p.id} style={{ width: '31.7%', aspectRatio: 1, borderRadius: 11, overflow: 'hidden' }}>
           {p.uri ? (
-            <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <Image source={{ uri: p.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
           ) : (
             <PhotoTile tone={p.tone} seed={p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
           )}

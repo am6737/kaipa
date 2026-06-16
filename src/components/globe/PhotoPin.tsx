@@ -8,7 +8,8 @@
 // shot. While it loads — or if it fails offline — the tone palette mid-stop sits
 // behind it so the pin is never blank.
 import React from 'react';
-import { View, Image, Text } from 'react-native';
+import { View, Text } from 'react-native';
+import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
 import { GlobePoi, poiColor } from './types';
 import { paletteFor } from '../../data/tones';

@@ -1,6 +1,7 @@
 // PhotoWall.tsx — 瞬间 shared wall.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, Alert, ScrollView, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Alert, ScrollView, Animated, Easing, PanResponder, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
@@ -157,7 +158,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
                   : [],
               }}>
                 {p.uri ? (
-                  <Image source={{ uri: p.uri }} resizeMode="contain" style={{ width: W, height: '100%' }} />
+                  <Image source={{ uri: p.uri }} contentFit="contain" style={{ width: W, height: '100%' }} />
                 ) : (
                   <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
                 )}
@@ -378,7 +379,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         {!filter ? (
           <View {...pan.panHandlers} style={{ height: 252 }}>
             {info.photoUris?.[0] ? (
-              <Image source={{ uri: info.photoUris[0] }} resizeMode="cover" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+              <Image source={{ uri: info.photoUris[0] }} contentFit="cover" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
             ) : (
               <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
             )}
@@ -477,7 +478,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                               </View>
                             ) : (
                               <View>
-                                <Image source={{ uri: p.uri }} resizeMode="cover" style={{ width: '100%', height: colW }} />
+                                <Image source={{ uri: p.uri }} contentFit="cover" style={{ width: '100%', height: colW }} />
                                 {p.kind === 'livePhoto' ? (
                                   <View style={{ position: 'absolute', left: 6, top: 6 }}>
                                     <Icon name="livePhoto" color="#fff" size={16} strokeWidth={1.6} />

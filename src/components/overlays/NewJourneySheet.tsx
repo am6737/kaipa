@@ -172,7 +172,7 @@ function NJRouteCard({ theme, route, selected, onPress, compact }: { theme: Them
         alignItems: 'center',
         padding: 10,
         borderRadius: 16,
-        backgroundColor: selected ? theme.accentSoft : theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+        backgroundColor: selected ? theme.accentSoft : theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
         borderWidth: 1,
         borderColor: selected ? theme.accent : theme.hairline,
       }}
@@ -284,7 +284,7 @@ function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number
         paddingVertical: 6,
         paddingHorizontal: 4,
         borderRadius: 16,
-        backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
+        backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.hairline,
         overflow: 'hidden',
@@ -493,7 +493,7 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
             <Press
               key={c.key}
               onPress={() => onPick(c.key)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingVertical: 18, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingVertical: 18, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: 1, borderColor: theme.hairline }}
             >
               <View style={{ width: 52, height: 52, borderRadius: 15, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>{c.icon(theme.accent)}</View>
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -616,7 +616,7 @@ function NJStepDetails({
             paddingHorizontal: 16,
             paddingVertical: 14,
             borderRadius: 14,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
+            backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
             borderWidth: 1,
             borderColor: nameMissing ? (theme.dark ? 'rgba(255,69,58,0.45)' : 'rgba(255,69,58,0.32)') : theme.hairline,
             fontSize: 16,
@@ -635,7 +635,7 @@ function NJStepDetails({
       <NJSection theme={theme} label={t('journeyEdit.details.timeLabel')} hint={njDurationLabel(durationMins, t)}>
         <Press
           onPress={onOpenTimePicker}
-          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}
+          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}
         >
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 10.5, color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>{t('journeyEdit.time.start')}</Text>
@@ -674,7 +674,7 @@ function NJStepDetails({
       {/* "创建后" signpost */}
       {!isOngoing && (
         <NJSection theme={theme} label={t('journeyEdit.details.afterCreateLabel')}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="list" color={theme.text2} size={18} />
             </View>
