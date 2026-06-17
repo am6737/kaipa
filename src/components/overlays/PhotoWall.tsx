@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LivePhotoView, type LivePhotoViewType } from 'expo-live-photo';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 const livePhotoAvailable = requireOptionalNativeModule('ExpoLivePhoto') != null;
@@ -20,7 +21,6 @@ import { Avatar, AvatarStack } from '../Avatar';
 import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../hooks/useInspo';
 import { useData } from '../../data/DataContext';
-import { elevAccent } from '../../theme/shadow';
 import { useI18n } from '../../i18n';
 
 
@@ -56,6 +56,21 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const [livePlaying, setLivePlaying] = useState(false);
   const liveRef = useRef<LivePhotoViewType>(null);
 
+  const isLivePhoto = photo?.kind === 'livePhoto' && !!photo.pairedVideoUri;
+  const isVideo = photo?.kind === 'video';
+  const isLocal = !!photo?.uri?.startsWith('file://');
+  const useNativeLive = livePhotoAvailable && isLivePhoto && isLocal;
+
+  const videoUri = isVideo ? (photo?.uri ?? null)
+    : (isLivePhoto && !isLocal ? (photo?.pairedVideoUri ?? null) : null);
+  const videoPlayer = useVideoPlayer(videoUri, (p) => { p.loop = false; });
+
+  useEffect(() => {
+    if (!videoPlayer) return;
+    const sub = videoPlayer.addListener('playToEnd', () => setLivePlaying(false));
+    return () => sub.remove();
+  }, [videoPlayer]);
+
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   }, [fadeAnim]);
@@ -65,6 +80,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       idxRef.current = index;
       scrollRef.current?.scrollTo({ x: index * W, animated: false });
       setLivePlaying(false);
+      videoPlayer?.pause();
     }
   }, [index, W]);
 
@@ -80,25 +96,33 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
 
   const toggleLive = useCallback(() => {
     if (livePlaying) {
-      liveRef.current?.stopPlayback();
+      if (useNativeLive) {
+        liveRef.current?.stopPlayback();
+      } else if (videoPlayer) {
+        videoPlayer.pause();
+      }
       setLivePlaying(false);
     } else {
-      liveRef.current?.startPlayback('full');
+      if (useNativeLive) {
+        liveRef.current?.startPlayback('full');
+      } else if (videoPlayer) {
+        videoPlayer.currentTime = 0;
+        videoPlayer.play();
+      }
       setLivePlaying(true);
     }
-  }, [livePlaying]);
+  }, [livePlaying, useNativeLive, videoPlayer]);
 
   const showActions = () => { longPressedRef.current = true; setMenu(true); };
   const act = (fn: () => void) => { setMenu(false); fn(); };
   const handlePress = () => {
     if (longPressedRef.current) { longPressedRef.current = false; return; }
     if (menu) { setMenu(false); return; }
+    if (isVideo && livePlaying) return;
     dismiss();
   };
 
   if (!photo) return null;
-
-  const isLive = livePhotoAvailable && photo.kind === 'livePhoto' && !!photo.pairedVideoUri;
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity: fadeAnim }]}>
@@ -119,8 +143,9 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         style={{ flex: 1 }}
       >
         {visible.map((p) => {
-          const pIsLive = p.kind === 'livePhoto' && !!p.pairedVideoUri;
           const isThis = p.id === photo.id;
+          const pIsVideo = p.kind === 'video';
+          const imgUri = pIsVideo ? (p.thumbnail || p.uri) : p.uri;
           return (
             <Pressable
               key={p.id}
@@ -130,7 +155,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
               style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
             >
               <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                {pIsLive && isThis && livePhotoAvailable ? (
+                {isThis && useNativeLive ? (
                   <LivePhotoView
                     ref={liveRef}
                     source={{ photoUri: p.uri!, pairedVideoUri: p.pairedVideoUri! }}
@@ -139,8 +164,30 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
                     onPlaybackStop={() => setLivePlaying(false)}
                     style={{ width: W, height: '100%' }}
                   />
-                ) : p.uri ? (
-                  <Image source={{ uri: p.uri }} contentFit="contain" style={{ width: W, height: '100%' }} />
+                ) : isThis && pIsVideo && livePlaying && videoPlayer ? (
+                  <VideoView
+                    player={videoPlayer}
+                    style={{ width: W, height: '100%' }}
+                    nativeControls
+                  />
+                ) : imgUri ? (
+                  <>
+                    <Image source={{ uri: imgUri }} contentFit="contain" style={{ width: W, height: '100%' }} />
+                    {isThis && !pIsVideo && livePlaying && videoPlayer ? (
+                      <VideoView
+                        player={videoPlayer}
+                        style={[StyleSheet.absoluteFill]}
+                        nativeControls={false}
+                      />
+                    ) : null}
+                    {isThis && pIsVideo && !livePlaying ? (
+                      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]} pointerEvents="box-none">
+                        <Pressable onPress={toggleLive} style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name="play" color="#fff" size={28} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </>
                 ) : (
                   <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
                 )}
@@ -150,10 +197,17 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         })}
       </ScrollView>
 
-      {/* bottom info (hidden when menu is open) */}
-      {!menu ? (
+      {/* close button during video playback */}
+      {isVideo && livePlaying ? (
+        <Press onPress={dismiss} style={{ position: 'absolute', top: insets.top + 10, left: 16, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="close" color="#fff" size={18} />
+        </Press>
+      ) : null}
+
+      {/* bottom info (hidden when menu is open or video is playing) */}
+      {!menu && !(isVideo && livePlaying) ? (
         <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
-          {isLive ? (
+          {isLivePhoto ? (
             <Press onPress={toggleLive} style={{ alignSelf: 'flex-start', marginBottom: 12 }}>
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -431,11 +485,26 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         {/* ── section header (hidden in filter mode) ── */}
         {!filter ? (
           <View style={{ paddingHorizontal: 18, paddingTop: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>{tr('journey.moments.title')}</Text>
-              <Text style={{ fontSize: 13, color: t.text2, paddingBottom: 3 }}>
-                <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> {tr('journey.photoWall.unitPhotos')}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: t.text, letterSpacing: -0.5 }}>{tr('journey.moments.title')}</Text>
+                <Text style={{ fontSize: 13, color: t.text2, paddingBottom: 3 }}>
+                  <Text style={{ fontFamily: MONO, fontWeight: '700', color: t.text }}>{totalCount}</Text> {tr('journey.photoWall.unitPhotos')}
+                </Text>
+              </View>
+              <Press
+                onPress={inspo.uploading ? undefined : chooseSource}
+                style={{
+                  width: 34, height: 34, borderRadius: 17,
+                  backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: t.dark ? '0px 2px 8px rgba(0,0,0,0.5)' : '0px 2px 8px rgba(0,0,0,0.10)',
+                  borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
+                }}
+              >
+                {inspo.uploading
+                  ? <ActivityIndicator color={t.text} size={14} />
+                  : <Icon name="plus" color={t.text} size={17} strokeWidth={2.2} />}
+              </Press>
             </View>
 
             {roster.length > 0 ? (
@@ -522,22 +591,6 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         </View>
       </ScrollView>
 
-      {/* ── FAB (hidden in filter mode) ── */}
-      {!filter ? (
-        <Press
-          onPress={inspo.uploading ? undefined : chooseSource}
-          style={[{
-            position: 'absolute', right: 20, bottom: insets.bottom + 30,
-            width: 58, height: 58, borderRadius: 29, backgroundColor: t.accent,
-            alignItems: 'center', justifyContent: 'center',
-            opacity: inspo.uploading ? 0.6 : 1,
-          }, elevAccent(t.accent)]}
-        >
-          {inspo.uploading
-            ? <ActivityIndicator color="#fff" />
-            : <Icon name="plus" color="#fff" size={26} strokeWidth={2.4} />}
-        </Press>
-      ) : null}
 
       {/* ── Lightbox ── */}
       {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={(id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); }} info={info} theme={t} insets={insets} nav={nav} /> : null}

@@ -142,9 +142,18 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
   const N = series.pts.length;
   const [idx, setIdx] = useState(Math.round(series.peakIdx));
   const [activeWpIdx, setActiveWpIdx] = useState<number | null>(null);
-  const scrubbed = useRef(false);
+  const [hasScrubbed, setHasScrubbed] = useState(false);
   const cur = series.pts[Math.max(0, Math.min(N - 1, idx))];
-  const showScrub = scrubbed.current || activeWpIdx != null;
+  const showScrub = hasScrubbed || activeWpIdx != null;
+  const snapThreshold = Math.max(3, Math.round(N * 0.015));
+  const nearestWpIdx = useMemo(() => {
+    let bi = 0;
+    for (let ci = 1; ci < waypoints.length; ci++) {
+      if (Math.abs(waypoints[ci].i - idx) < Math.abs(waypoints[bi].i - idx)) bi = ci;
+    }
+    return Math.abs(waypoints[bi].i - idx) <= snapThreshold ? bi : null;
+  }, [idx, waypoints, snapThreshold]);
+  const highlightWpIdx = activeWpIdx ?? nearestWpIdx;
   const ac = theme.accent;
   const totalKm = series.totalKm;
 
@@ -180,7 +189,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
         const frac = Math.max(0, Math.min(1, e.nativeEvent.locationX / plotW.current));
         setIdx(Math.round(frac * (N - 1)));
         setActiveWpIdx(null);
-        scrubbed.current = true;
+        setHasScrubbed(true);
       },
       onPanResponderMove: (e) => {
         const frac = Math.max(0, Math.min(1, e.nativeEvent.locationX / plotW.current));
@@ -436,12 +445,12 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
               backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
               borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline,
             }}>
-              {(() => { const highlightIdx = scrubbed.current ? waypoints.reduce((bi, c, ci) => Math.abs(c.i - idx) < Math.abs(waypoints[bi].i - idx) ? ci : bi, 0) : activeWpIdx; return waypoints.map((w, i) => {
-                const active = i === highlightIdx;
+              {waypoints.map((w, i) => {
+                const active = i === highlightWpIdx;
                 return (
                   <View key={i}>
                     <Press
-                      onPress={() => { const deselect = activeWpIdx === i; setActiveWpIdx(deselect ? null : i); setIdx(w.i); scrubbed.current = false; }}
+                      onPress={() => { const deselect = activeWpIdx === i; setActiveWpIdx(deselect ? null : i); setIdx(w.i); setHasScrubbed(!deselect); }}
                       style={{
                         flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, paddingHorizontal: 14,
                         backgroundColor: active ? theme.accentSoft : 'transparent',
@@ -466,7 +475,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
                     )}
                   </View>
                 );
-              }); })()}
+              })}
             </View>
           </View>
         )}

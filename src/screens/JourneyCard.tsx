@@ -3,7 +3,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Share, Platform } from 'react-native';
 import { Image } from 'expo-image';
-import Svg, { Path as SvgPath, Circle, Rect } from 'react-native-svg';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
 import { Poi, STATUS_COLOR, JourneyStatus } from '../data/pois';
@@ -58,80 +57,6 @@ function IconButton({ theme, name, onPress, color }: { theme: Theme; name: IconN
     >
       <Icon name={name} color={color || theme.text} size={21} />
     </Press>
-  );
-}
-
-// 瞬间 inline card for 计划中 journeys. Tapping opens the full-screen PhotoWall
-// detail page where the user can add / remove real photos and videos. This card
-// is a preview: it shows up to 6 thumbnails from the inspo store, or an empty
-// state that opens the same detail page.
-function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; status: string }) {
-  const nav = useNav();
-  const { t } = useI18n();
-  const { userId } = useData();
-  const inspo = useInspo(poi.id, userId);
-  const has = inspo.media.length > 0;
-
-  const openDetail = () => nav.openPhotoWall({ info: poi, mode: 'mine', status });
-
-  const count = inspo.media.length;
-  const preview = inspo.media.slice(0, 6);
-
-  return (
-    <View style={{ paddingBottom: 18 }}>
-      <SectionHeader theme={theme} title={t('journey.moments.title')} action={t('journey.moments.countPhotos', { count })} onAction={openDetail} />
-      {has ? (
-        <Press onPress={openDetail}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-            {preview.map((m) => (
-              <View
-                key={m.id}
-                style={{ width: '31.7%', aspectRatio: 1, borderRadius: 9, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
-              >
-                {m.kind === 'video' ? (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#1c1c1e' : '#2a2a2c' }}>
-                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon name="play" color="#fff" size={16} />
-                    </View>
-                  </View>
-                ) : (
-                  <Image source={{ uri: m.uri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
-                )}
-                {m.kind === 'video' ? (
-                  <View style={{ position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <Text style={{ fontSize: 9.5, fontWeight: '700', color: '#fff' }}>{t('journey.media.video')}</Text>
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        </Press>
-      ) : (
-        <Press
-          onPress={openDetail}
-          style={{
-            borderRadius: 14,
-            paddingVertical: 24,
-            paddingHorizontal: 16,
-            alignItems: 'center',
-            gap: 8,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)',
-            borderWidth: 1,
-            borderStyle: 'dashed',
-            borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
-          }}
-        >
-          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-            <Rect x={3} y={6} width={18} height={14} rx={2.5} stroke={theme.text2} strokeWidth={1.6} />
-            <Circle cx={12} cy={13} r={3.5} stroke={theme.text2} strokeWidth={1.6} />
-            <SvgPath d="M9 6 10 4h4l1 2" stroke={theme.text2} strokeWidth={1.6} strokeLinejoin="round" />
-            <SvgPath d="M17 9.5h2M18 8.5v2" stroke={theme.text2} strokeWidth={1.4} strokeLinecap="round" />
-          </Svg>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text }}>{t('journey.moments.planningEmptyTitle')}</Text>
-          <Text style={{ fontSize: 11, color: theme.text2 }}>{t('journey.moments.planningEmptyBody')}</Text>
-        </Press>
-      )}
-    </View>
   );
 }
 
