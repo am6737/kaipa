@@ -138,6 +138,7 @@ function PlanningMoments({ theme, poi, status }: { theme: Theme; poi: Poi; statu
 export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: Poi; fullBleed?: boolean }) {
   const nav = useNav();
   const { t } = useI18n();
+  const { userId } = useData();
   const [chartW, setChartW] = useState(320);
   const isJourney = poi.kind === 'journey';
   const status = (poi.status || 'completed') as JourneyStatus;
@@ -146,9 +147,16 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const hasRealElevation = !isRecorded || !!poi.trackElevation;
   const series = useMemo(() => buildElevation(poi), [poi.id, poi.dist, poi.asc, poi.trackElevation]);
 
-  // photo preview — same genPhotos as PhotoWall so thumbnails match the detail
+  const inspo = useInspo(isJourney ? poi.id : undefined, userId);
+
+  // photo preview — genPhotos (from poi.photoUris) + inspo (user-uploaded)
   const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays, poi.photoUris]);
-  const previewPhotos = wallPhotos.slice(0, status === 'ongoing' ? 6 : 9);
+  const inspoAsWall = useMemo(
+    () => inspo.media.map(m => ({ id: m.id, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, tone: poi.tone || 'ridge', ratio: 1 })),
+    [inspo.media, poi.tone],
+  );
+  const allPhotos = status === 'planning' ? inspoAsWall : [...wallPhotos, ...inspoAsWall];
+  const previewPhotos = allPhotos.slice(0, status === 'ongoing' ? 6 : 9);
 
   let ctaLabel = t('journey.cta.startTrip');
   let ctaAction = () => nav.showToast(t('journey.toast.startPlanning'));
@@ -390,21 +398,29 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       {isJourney ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
 
       {/* photo grid */}
-      {isJourney && status === 'planning' ? (
-        <PlanningMoments theme={theme} poi={poi} status={status} />
-      ) : previewPhotos.length > 0 ? (
+      {previewPhotos.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={isJourney ? t('journey.moments.title') : t('journey.moments.userPhotos')} action={t('common.all')} onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {previewPhotos.map((p) => (
-              <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
-                {p.uri ? (
-                  <Image source={{ uri: p.uri }} contentFit="cover" style={{ aspectRatio: 1, borderRadius: 11, backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }} />
-                ) : (
-                  <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ aspectRatio: 1 }} resWidth={420} />
-                )}
-              </Press>
-            ))}
+            {previewPhotos.map((p) => {
+              const displayUri = p.kind === 'video' ? (p.thumbnail || p.uri) : p.uri;
+              return (
+                <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
+                  <View style={{ aspectRatio: 1, borderRadius: 11, overflow: 'hidden', backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }}>
+                    {displayUri ? (
+                      <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                    ) : (
+                      <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
+                    )}
+                    {p.kind === 'video' ? (
+                      <View style={{ position: 'absolute', right: 4, top: 4, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                        <Icon name="play" color="#fff" size={7} />
+                      </View>
+                    ) : null}
+                  </View>
+                </Press>
+              );
+            })}
           </View>
         </View>
       ) : isJourney ? (

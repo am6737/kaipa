@@ -7,6 +7,9 @@ import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LivePhotoView, type LivePhotoViewType } from 'expo-live-photo';
+import { requireOptionalNativeModule } from 'expo-modules-core';
+
+const livePhotoAvailable = requireOptionalNativeModule('ExpoLivePhoto') != null;
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
@@ -95,7 +98,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
 
   if (!photo) return null;
 
-  const isLive = photo.kind === 'livePhoto' && !!photo.pairedVideoUri;
+  const isLive = livePhotoAvailable && photo.kind === 'livePhoto' && !!photo.pairedVideoUri;
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 150, backgroundColor: '#000', opacity: fadeAnim }]}>
@@ -127,7 +130,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
               style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
             >
               <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                {pIsLive && isThis ? (
+                {pIsLive && isThis && livePhotoAvailable ? (
                   <LivePhotoView
                     ref={liveRef}
                     source={{ photoUri: p.uri!, pairedVideoUri: p.pairedVideoUri! }}
