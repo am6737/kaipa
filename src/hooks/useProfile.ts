@@ -50,6 +50,10 @@ export function useProfile(userId: string | undefined) {
   const updateProfile = useCallback(async (field: string, value: string) => {
     if (!userId) return;
 
+    if (field === 'username') {
+      value = value.replace(/^@/, '');
+    }
+
     if (field === 'password') {
       const { error } = await supabase.auth.updateUser({ password: value });
       if (error) throw error;

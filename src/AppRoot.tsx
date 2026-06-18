@@ -24,7 +24,7 @@ import { JourneyCardFull } from './components/overlays/JourneyCardFull';
 import { EditJourneySheet } from './components/overlays/EditJourneySheet';
 import { JourneySettings } from './components/overlays/JourneySettings';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
-import { NJSharePanel } from './components/overlays/NewJourneySheet';
+import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
 
@@ -150,10 +150,9 @@ function AppShell() {
         />
       )}
       {nav.sharePanel && (
-        <NJSharePanel
+        <SharePoster
           theme={theme}
-          tripName={nav.sharePanel.name}
-          journeyId={nav.sharePanel.kind === 'journey' ? nav.sharePanel.id : undefined}
+          poi={nav.sharePanel}
           onClose={() => nav.closeSharePanel()}
           onToast={(m) => nav.showToast(m)}
         />

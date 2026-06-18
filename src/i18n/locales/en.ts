@@ -874,7 +874,8 @@ export const en: SameShape<typeof zh> = {
       nick: 'Nickname',
       nickPlaceholder: 'Enter a nickname',
       username: 'Username',
-      usernamePlaceholder: '@username',
+      usernamePlaceholder: 'Enter a username',
+      usernameHint: 'Your unique handle — others can find you via @username',
       bio: 'Bio',
       bioPlaceholder: 'Tell us about yourself…',
       joinedAt: 'Joined {date}',
@@ -1000,5 +1001,12 @@ export const en: SameShape<typeof zh> = {
       body: 'This invite link may have expired. Contact the journey host for a new link.',
     },
     loading: 'Loading…',
+  },
+  poster: {
+    title: 'Share Journey',
+    share: 'Share',
+    saveImage: 'Save Image',
+    saved: 'Saved',
+    slogan: 'Every step in the wild',
   },
 };

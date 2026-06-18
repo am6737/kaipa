@@ -879,7 +879,8 @@ export const zh = {
       nick: '昵称',
       nickPlaceholder: '输入昵称',
       username: '用户名',
-      usernamePlaceholder: '@用户名',
+      usernamePlaceholder: '输入用户名',
+      usernameHint: '用户名是你的唯一标识，其他人可以通过 @用户名 找到你',
       bio: '简介',
       bioPlaceholder: '介绍一下自己…',
       joinedAt: '注册于 {date}',
@@ -1005,5 +1006,12 @@ export const zh = {
       body: '这个邀请链接可能已失效，请联系发起人获取新的链接。',
     },
     loading: '加载中…',
+  },
+  poster: {
+    title: '分享旅程',
+    share: '分享',
+    saveImage: '保存图片',
+    saved: '已保存',
+    slogan: '记录每一步山野',
   },
 } as const;

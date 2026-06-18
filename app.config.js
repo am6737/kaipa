@@ -39,5 +39,6 @@ module.exports = ({ config }) => ({
     ],
     'expo-font',
     'expo-localization',
+    'expo-sharing',
   ],
 });

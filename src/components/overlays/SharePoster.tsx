@@ -1,0 +1,356 @@
+import React, { useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Animated, PanResponder, Pressable, Platform, Share } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import ViewShot, { captureRef } from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
+import { Theme } from '../../theme/theme';
+import { Poi, STATUS_COLOR, JourneyStatus } from '../../data/pois';
+import { paletteFor } from '../../data/tones';
+import { MONO } from '../../theme/fonts';
+import { Icon } from '../Icon';
+import { Press } from '../Press';
+import { ElevationStrip } from '../ElevationStrip';
+import { buildElevation } from '../../data/elevation';
+import { useI18n, TKey } from '../../i18n';
+
+function PosterStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={{ flex: 1, alignItems: 'center' }}>
+      <Text style={{ fontFamily: MONO, fontSize: 14, fontWeight: '700', color: color || '#fff' }}>{value}</Text>
+      <Text style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{label}</Text>
+    </View>
+  );
+}
+
+function PosterCard({ poi, t }: { poi: Poi; t: (k: TKey, p?: any) => string }) {
+  const isJourney = poi.kind === 'journey';
+  const status = (poi.status || 'completed') as JourneyStatus;
+  const palette = paletteFor(poi.tone);
+  const series = buildElevation(poi);
+  const hasElevation = !!poi.trackElevation;
+
+  return (
+    <View style={ps.card}>
+      {/* hero image */}
+      <View style={ps.hero}>
+        {poi.photoUris?.[0] ? (
+          <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: palette[0] }]} />
+        )}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.25)' }]} />
+
+        {/* status badge */}
+        {isJourney && (
+          <View style={ps.badge}>
+            <View style={[ps.badgeDot, { backgroundColor: STATUS_COLOR(status, '#FF6B3D', true) }]} />
+            <Text style={ps.badgeText}>
+              {t(`common.status.${status}` as TKey)}
+              {status === 'ongoing' && poi.dayIndex ? ` · Day ${poi.dayIndex}/${poi.totalDays}` : ''}
+            </Text>
+          </View>
+        )}
+
+        {/* title + region */}
+        <View style={ps.heroText}>
+          <Text style={ps.title}>{poi.name}</Text>
+          <Text style={ps.subtitle}>
+            {poi.region}
+            {poi.date ? ' · ' + poi.date : ''}
+          </Text>
+        </View>
+      </View>
+
+      {/* stats strip */}
+      <View style={[ps.statsRow, { backgroundColor: palette[0] }]}>
+        <PosterStat label={t('journey.stat.distance')} value={poi.dist} />
+        <View style={ps.statDivider} />
+        <PosterStat label={t('journey.stat.ascent')} value={poi.asc} />
+        <View style={ps.statDivider} />
+        {isJourney ? (
+          <PosterStat label={t('journey.stat.days')} value={poi.days || '—'} />
+        ) : (
+          <PosterStat label={t('journey.stat.difficulty')} value={poi.diff ? t(`common.diff.${poi.diff}` as TKey) : '—'} />
+        )}
+      </View>
+
+      {/* elevation mini chart */}
+      {hasElevation && (
+        <View style={[ps.elevSection, { backgroundColor: palette[0] }]}>
+          <ElevationStrip theme={POSTER_THEME} series={series} width={280} color="rgba(255,255,255,0.7)" gradId="poster-elev" />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+            <Text style={ps.elevLabel}>{series.minEle}–{series.maxEle} m</Text>
+            <Text style={ps.elevLabel}>↑ {series.ascent} m</Text>
+          </View>
+        </View>
+      )}
+
+      {/* branding footer */}
+      <View style={[ps.footer, { backgroundColor: palette[0] }]}>
+        <View style={ps.footerLine} />
+        <View style={ps.footerRow}>
+          <View style={ps.logoMark}>
+            <Text style={ps.logoText}>K</Text>
+          </View>
+          <Text style={ps.brandName}>Kaipa</Text>
+          <Text style={ps.brandSlogan}>{t('poster.slogan')}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const POSTER_THEME = {
+  dark: true,
+  text: '#fff',
+  text2: 'rgba(255,255,255,0.6)',
+  text3: 'rgba(255,255,255,0.4)',
+  hairline: 'rgba(255,255,255,0.15)',
+  bg: 'transparent',
+  accent: '#FF6B3D',
+} as any;
+
+export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; poi: Poi; onClose: () => void; onToast: (m: string) => void }) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const viewShotRef = useRef<any>(null);
+
+  const translateY = useRef(new Animated.Value(600)).current;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  React.useEffect(() => {
+    Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 3, speed: 16 }).start();
+  }, [translateY]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_e, g) => { if (g.dy > 0) translateY.setValue(g.dy); },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 100 || g.vy > 0.6) {
+          Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
+        }
+      },
+    })
+  ).current;
+
+  const doShare = useCallback(async () => {
+    try {
+      const uri = await captureRef(viewShotRef, { format: 'png', quality: 1 });
+      if (Platform.OS === 'web') {
+        const link = document.createElement('a');
+        link.href = uri;
+        link.download = `${poi.name || 'kaipa'}.png`;
+        link.click();
+        onToast(t('poster.saved'));
+      } else if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: poi.name });
+      } else {
+        await Share.share({ url: uri });
+      }
+    } catch (e: any) {
+      if (e?.message !== 'User did not share') {
+        console.warn('[SharePoster] share error:', e);
+      }
+    }
+  }, [poi.name, t, onToast]);
+
+  const doSave = useCallback(async () => {
+    try {
+      const uri = await captureRef(viewShotRef, { format: 'png', quality: 1 });
+      if (Platform.OS === 'web') {
+        const link = document.createElement('a');
+        link.href = uri;
+        link.download = `${poi.name || 'kaipa'}.png`;
+        link.click();
+      } else {
+        const { default: MediaLibrary } = await import('expo-media-library' as any).catch(() => ({ default: null }));
+        if (MediaLibrary) {
+          const { status } = await MediaLibrary.requestPermissionsAsync();
+          if (status === 'granted') {
+            await MediaLibrary.saveToLibraryAsync(uri);
+          }
+        }
+      }
+      onToast(t('poster.saved'));
+    } catch (e) {
+      console.warn('[SharePoster] save error:', e);
+    }
+  }, [poi.name, t, onToast]);
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 60 }]}>
+      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} />
+      <Animated.View
+        {...pan.panHandlers}
+        style={{
+          transform: [{ translateY }],
+          backgroundColor: theme.bg,
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          paddingBottom: Math.max(insets.bottom, 16) + 6,
+          maxHeight: '92%',
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.border,
+        }}
+      >
+        {/* grabber */}
+        <View style={{ paddingTop: 12, paddingBottom: 6, alignItems: 'center' }}>
+          <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
+        </View>
+
+        <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>{t('poster.title')}</Text>
+          </View>
+
+          {/* poster preview */}
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <View style={{ borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 8 }}>
+              <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1 }}>
+                <PosterCard poi={poi} t={t} />
+              </ViewShot>
+            </View>
+          </View>
+
+          {/* action buttons */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Press
+              onPress={doShare}
+              style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+            >
+              <Icon name="share" color="#fff" size={15} />
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{t('poster.share')}</Text>
+            </Press>
+            <Press
+              onPress={doSave}
+              style={{
+                flex: 1, height: 44, borderRadius: 13,
+                backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline,
+                alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
+              }}
+            >
+              <Icon name="photo" color={theme.text} size={15} />
+              <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>{t('poster.saveImage')}</Text>
+            </Press>
+          </View>
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+const ps = StyleSheet.create({
+  card: {
+    width: 320,
+    overflow: 'hidden',
+    borderRadius: 18,
+  },
+  hero: {
+    height: 200,
+    justifyContent: 'flex-end',
+  },
+  badge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  heroText: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  title: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowRadius: 6,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  elevSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  elevLabel: {
+    fontFamily: 'monospace',
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    paddingTop: 4,
+  },
+  footerLine: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    marginBottom: 10,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  logoMark: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  brandName: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  brandSlogan: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 10,
+    flex: 1,
+    textAlign: 'right',
+  },
+});

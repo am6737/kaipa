@@ -96,7 +96,7 @@ export function AccountPage({
           </View>
         </Press>
         <Text style={{ fontSize: 17, fontWeight: '600', color: theme.text, marginTop: 14 }}>{profile.nick || t('me.unnamed')}</Text>
-        {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 3 }}>{profile.username}</Text> : null}
+        {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 3 }}>@{profile.username}</Text> : null}
       </View>
 
       <MeSection theme={theme} title={t('account.profile.sectionProfile')}>
@@ -110,9 +110,9 @@ export function AccountPage({
           <MeRow
             theme={theme}
             label={t('account.profile.username')}
-            detail={profile.username}
+            detail={profile.username ? `@${profile.username}` : undefined}
             onPress={() =>
-              onEdit({ label: t('account.profile.username'), key: 'username', value: profile.username, placeholder: t('account.profile.usernamePlaceholder') })
+              onEdit({ label: t('account.profile.username'), key: 'username', value: profile.username, placeholder: t('account.profile.usernamePlaceholder'), hint: t('account.profile.usernameHint') })
             }
           />
           <MeRow

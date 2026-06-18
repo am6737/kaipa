@@ -11,7 +11,7 @@ const ID_KEY = 'kaipa_guest_identity_v1';
 
 function parseGuestPath(): { slug: string; code: string } | null {
   if (Platform.OS !== 'web') return null;
-  const path = window.location.pathname;
+  const path = decodeURIComponent(window.location.pathname);
   const match = path.match(/^\/j\/(.+)-(\d{4})$/);
   if (!match) return null;
   return { slug: match[1], code: match[2] };

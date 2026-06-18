@@ -264,7 +264,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
-            {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>{profile.username}</Text> : null}
+            {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>@{profile.username}</Text> : null}
           </View>
           {/* bell → 消息中心 */}
           <Press
