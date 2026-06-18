@@ -57,6 +57,7 @@ export interface NavValue {
   startJourney: () => void;
   completeJourney: () => void;
   removeJourney: () => void;
+  removeJourneys: (ids: string[]) => void;
   toggleFav: () => void;
   merged: (p: Poi) => Poi;
 
@@ -108,6 +109,16 @@ export interface NavValue {
   addSavedRoute: (p: Poi) => void;
   addJoinedJourney: (p: Poi) => void;
 
+  // share panel
+  sharePanel: Poi | null;
+  openSharePanel: (p: Poi) => void;
+  closeSharePanel: () => void;
+
+  // search overlay
+  searchOpen: boolean;
+  openSearch: () => void;
+  closeSearch: () => void;
+
   // toast
   toast: string | null;
   showToast: (msg: string) => void;
@@ -158,6 +169,8 @@ export function NavProvider({
   const [manageCompanions, setManageCompanions] = useState<Poi | null>(null);
   const [savedRoutes, setSavedRoutes] = useState<Poi[]>([]);
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
+  const [sharePanel, setSharePanel] = useState<Poi | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [tabBarHidden, setTabBarHidden] = useState(false);
 
@@ -181,6 +194,8 @@ export function NavProvider({
     setEditJourney(null);
     setJourneySettings(null);
     setManageCompanions(null);
+    setSharePanel(null);
+    setSearchOpen(false);
   };
 
   const setMainTab = (t: MainTab) => {
@@ -227,6 +242,10 @@ export function NavProvider({
     setDetail(null);
     setSheetOpen(false);
   };
+  const removeBatch = (ids: string[]) => {
+    setRemovedIds((s) => [...s, ...ids.filter((id) => !s.includes(id))]);
+    ids.forEach((id) => db?.deleteJourney?.(id));
+  };
 
   const value = useMemo<NavValue>(
     () => ({
@@ -264,6 +283,7 @@ export function NavProvider({
       startJourney: () => patchCurrent({ status: 'ongoing', dayIndex: 1 }),
       completeJourney: () => patchCurrent({ status: 'completed' }),
       removeJourney: removeCurrent,
+      removeJourneys: removeBatch,
       toggleFav: () => {
         const cur = pointInfo || detail;
         const newFav = !(cur && cur.fav);
@@ -305,6 +325,12 @@ export function NavProvider({
       manageCompanions,
       openManageCompanions: (p) => setManageCompanions(merged(p)),
       closeManageCompanions: () => setManageCompanions(null),
+      sharePanel,
+      openSharePanel: (p: Poi) => setSharePanel(merged(p)),
+      closeSharePanel: () => setSharePanel(null),
+      searchOpen,
+      openSearch: () => setSearchOpen(true),
+      closeSearch: () => setSearchOpen(false),
       savedRoutes,
       extraJourneys,
       addSavedRoute: (p) => setSavedRoutes((s) => [p, ...s]),
@@ -337,6 +363,8 @@ export function NavProvider({
       editJourney,
       journeySettings,
       manageCompanions,
+      sharePanel,
+      searchOpen,
       savedRoutes,
       extraJourneys,
       toast,

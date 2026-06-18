@@ -941,6 +941,22 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   const entryEnabled = emailValid && pwd.length >= 6;
 
   const [authError, setAuthError] = useState('');
+  const friendlyError = (msg: string): string => {
+    const m = msg.toLowerCase();
+    if (m.includes('invalid login credentials') || m.includes('invalid_credentials'))
+      return tr('auth.error.invalidCredentials');
+    if (m.includes('user already registered'))
+      return tr('auth.error.userAlreadyRegistered');
+    if (m.includes('email not confirmed'))
+      return tr('auth.error.emailNotConfirmed');
+    if (m.includes('rate limit') || m.includes('too many requests'))
+      return tr('auth.error.rateLimited');
+    if (m.includes('password') && (m.includes('at least') || m.includes('too short') || m.includes('weak')))
+      return tr('auth.error.weakPassword');
+    if (m.includes('fetch') || m.includes('network') || m.includes('timeout') || m.includes('econnrefused'))
+      return tr('auth.error.networkError');
+    return tr('auth.error.unknown');
+  };
   const onPrimary = async () => {
     if (!agree) { flashAgree(); return; }
     setBusy(true);
@@ -948,7 +964,7 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     const fn = intent === 'register' ? signUpWithEmail : signInWithEmail;
     const { error } = await fn(email, pwd);
     setBusy(false);
-    if (error) { setAuthError(error.message); return; }
+    if (error) { setAuthError(friendlyError(error.message)); return; }
   };
   const onVerify = () => { setBusy(true); setTimeout(() => onSuccess(), 700); };
   const onSocial = (id: SocialId) => {

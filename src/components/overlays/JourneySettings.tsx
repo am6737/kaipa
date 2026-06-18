@@ -12,6 +12,7 @@ import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
 import { FullOverlay } from './FullOverlay';
 import { useI18n } from '../../i18n';
+import { useNav } from '../../nav/NavContext';
 
 function Toggle({ theme, on, onChange }: { theme: Theme; on: boolean; onChange: (v: boolean) => void }) {
   const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
@@ -120,7 +121,8 @@ export function JourneySettings({
   onEdit: () => void;
 }) {
   const { t } = useI18n();
-  const [coverUri, setCoverUri] = useState<string | null>(null);
+  const nav = useNav();
+  const [coverUri, setCoverUri] = useState<string | null>(poi.photoUris?.[0] ?? null);
   const [linkOn, setLinkOn] = useState(true);
   const [allowUpload, setAllowUpload] = useState(true);
   const [moderate, setModerate] = useState(false);
@@ -130,7 +132,12 @@ export function JourneySettings({
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { Alert.alert(t('journey.photoWall.needLibraryPerm')); return; }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (!res.canceled && res.assets?.[0]) setCoverUri(res.assets[0].uri);
+    if (!res.canceled && res.assets?.[0]) {
+      const uri = res.assets[0].uri;
+      setCoverUri(uri);
+      const rest = poi.photoUris?.slice(1) ?? [];
+      nav.patchCurrent({ photoUris: [uri, ...rest] });
+    }
   };
 
   return (
@@ -143,7 +150,11 @@ export function JourneySettings({
                 <Image source={{ uri: coverUri }} style={{ width: '100%', height: 180, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} contentFit="cover" />
               </Press>
               <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
-              <Row theme={theme} title={t('journey.settings.removeCover')} onPress={() => setCoverUri(null)} last />
+              <Row theme={theme} title={t('journey.settings.removeCover')} onPress={() => {
+                setCoverUri(null);
+                const rest = poi.photoUris?.slice(1) ?? [];
+                nav.patchCurrent({ photoUris: rest.length ? rest : [] });
+              }} last />
             </View>
           ) : (
             <Row

@@ -19,7 +19,6 @@ import { MeSection, MeCard, MeRow, ColorDot } from '../components/me/parts';
 import { AccountPage } from '../components/me/AccountPage';
 import type { MeProfile } from '../components/me/AccountPage';
 import { EditFieldPage, MeEditField } from '../components/me/EditFieldPage';
-import { DevicesPage } from '../components/me/DevicesPage';
 import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettingsPage';
 import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
@@ -31,7 +30,6 @@ type Popup = null | 'theme' | 'accent' | 'lang';
 type MePage =
   | { type: 'account' }
   | { type: 'edit'; field: MeEditField }
-  | { type: 'devices' }
   | { type: 'notif' }
   | { type: 'inbox' }
   | { type: 'feedback' }
@@ -132,7 +130,6 @@ export function MeScreen({ theme }: { theme: Theme }) {
     phone: data.profile.phone,
     email: data.profile.email,
   };
-  const [twoFA, setTwoFA] = useState(false);
   const [notif, setNotif] = useState<NotifSettings>({ push: true, social: true, system: false });
 
   const [stack, setStack] = useState<MePage[]>([]);
@@ -153,13 +150,17 @@ export function MeScreen({ theme }: { theme: Theme }) {
 
   const showToast = nav.showToast;
   const saveEdit = async (field: MeEditField, val: string) => {
-    pop();
-    if (field.key) {
-      const dbKey = field.key === 'username' ? 'username' : field.key;
-      const dbVal = field.key === 'username' ? val.replace(/^@/, '') : val;
-      await data.updateProfile(dbKey, dbVal);
+    try {
+      if (field.key) {
+        const dbKey = field.key === 'username' ? 'username' : field.key;
+        const dbVal = field.key === 'username' ? val.replace(/^@/, '') : val;
+        await data.updateProfile(dbKey, dbVal);
+      }
+      pop();
+      showToast(field.toast || t('common.saved'));
+    } catch {
+      showToast(t('account.security.toastSaveFailed'));
     }
-    showToast(field.toast || t('common.saved'));
   };
 
   const toggle = (id: Exclude<Popup, null>, ref: React.RefObject<View | null>) => {
@@ -212,19 +213,11 @@ export function MeScreen({ theme }: { theme: Theme }) {
             profile={profile}
             onBack={pop}
             onEdit={(f) => push({ type: 'edit', field: f })}
-            onDevices={() => push({ type: 'devices' })}
-            twoFA={twoFA}
-            onToggleTwoFA={(v) => {
-              setTwoFA(v);
-              showToast(v ? t('me.twoFAOn') : t('me.twoFAOff'));
-            }}
             showToast={showToast}
           />
         );
       case 'edit':
         return <EditFieldPage theme={theme} field={pg.field} onBack={pop} onSave={(v) => saveEdit(pg.field, v)} />;
-      case 'devices':
-        return <DevicesPage theme={theme} onBack={pop} showToast={showToast} />;
       case 'notif':
         return <NotifSettingsPage theme={theme} notif={notif} setNotif={setNotif} onBack={pop} />;
       case 'inbox':

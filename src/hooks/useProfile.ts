@@ -50,10 +50,16 @@ export function useProfile(userId: string | undefined) {
   const updateProfile = useCallback(async (field: string, value: string) => {
     if (!userId) return;
 
-    if (field === 'email') {
-      await supabase.auth.updateUser({ email: value });
+    if (field === 'password') {
+      const { error } = await supabase.auth.updateUser({ password: value });
+      if (error) throw error;
+      return;
+    } else if (field === 'email') {
+      const { error } = await supabase.auth.updateUser({ email: value });
+      if (error) throw error;
     } else if (field === 'phone') {
-      await supabase.auth.updateUser({ phone: value });
+      const { error } = await supabase.auth.updateUser({ phone: value });
+      if (error) throw error;
     } else {
       await supabase.from('profiles').update({ [field]: value }).eq('id', userId);
     }

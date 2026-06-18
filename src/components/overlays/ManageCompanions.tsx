@@ -512,7 +512,7 @@ export function ManageCompanions({
           onClose={() => setAddMode(null)}
         />
       )}
-      {addMode === 'invite' && <NJSharePanel theme={theme} tripName={poi.name} onClose={() => setAddMode(null)} onToast={onToast} />}
+      {addMode === 'invite' && <NJSharePanel theme={theme} tripName={poi.name} journeyId={poi.id} onClose={() => setAddMode(null)} onToast={onToast} />}
     </Animated.View>
   );
 }

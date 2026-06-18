@@ -10,11 +10,41 @@ import { Avatar, AvatarStack } from './Avatar';
 import { Icon } from './Icon';
 import { Press } from './Press';
 
-export function PoiRow({ theme, poi, onPress }: { theme: Theme; poi: Poi; onPress?: () => void }) {
+export function PoiRow({
+  theme,
+  poi,
+  onPress,
+  onLongPress,
+  selectMode,
+  selected,
+}: {
+  theme: Theme;
+  poi: Poi;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  selectMode?: boolean;
+  selected?: boolean;
+}) {
   const isJourney = poi.kind === 'journey';
   return (
-    <Press onPress={onPress} style={{ paddingVertical: 9 }}>
+    <Press onPress={onPress} onLongPress={onLongPress} delayLongPress={380} style={{ paddingVertical: 9, backgroundColor: selected ? theme.accentSofter : 'transparent', borderRadius: selected ? 12 : 0 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 2 }}>
+        {selectMode ? (
+          <View
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              borderWidth: 2,
+              borderColor: selected ? theme.accent : theme.text3,
+              backgroundColor: selected ? theme.accent : 'transparent',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {selected ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
+          </View>
+        ) : null}
         <PhotoTile tone={poi.tone} seed={poi.id} radius={14} style={{ width: 60, height: 60 }} resWidth={240} />
         <View style={{ flex: 1, gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

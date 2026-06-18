@@ -14,12 +14,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Svg, { Rect, Circle } from 'react-native-svg';
+import QRCode from 'react-native-qrcode-svg';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Companion } from '../../data/pois';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { useI18n, TKey, TVars } from '../../i18n';
+import { supabase } from '../../lib/supabase';
 
 type TFn = (key: TKey, vars?: TVars) => string;
 
@@ -379,29 +381,47 @@ function njQrPattern(seed: string): boolean[][] {
   return cells;
 }
 
-export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: Theme; tripName: string; onClose: () => void; onToast: (m: string) => void }) {
+export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast }: { theme: Theme; tripName: string; journeyId?: string; onClose: () => void; onToast: (m: string) => void }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const link = useMemo(() => {
-    const slug = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
-    const code = 1000 + (Math.abs(hashSeed(tripName)) % 9000);
-    return `kaipa.app/j/${slug}-${code}`;
+  const { slug, code, link, fullUrl } = useMemo(() => {
+    const s = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
+    const c = String(1000 + (Math.abs(hashSeed(tripName)) % 9000));
+    const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
+    const path = `/j/${s}-${c}`;
+    return { slug: s, code: c, link: `kaipa.app${path}`, fullUrl: `${base}${path}` };
   }, [tripName]);
 
-  const copyBtn = (
-    <Press
-      onPress={() => {
-        setCopied(true);
-        onToast(t('journeyEdit.share.toastLinkCopied'));
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: copied ? '#34C759' : theme.accent, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
-    >
-      <Icon name="check" color="#fff" size={13} strokeWidth={3} />
-      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}</Text>
-    </Press>
-  );
+  useEffect(() => {
+    if (!journeyId) return;
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        await supabase.from('journey_shares').upsert(
+          { journey_id: journeyId, user_id: user.id, slug, code, active: true },
+          { onConflict: 'slug,code' },
+        );
+      } catch (e) {
+        console.warn('[NJSharePanel] persist share error:', e);
+      }
+    })();
+  }, [journeyId, slug, code]);
+
+  const doCopy = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(fullUrl);
+      } else {
+        const { default: Clipboard } = await import('expo-clipboard' as any).catch(() => ({ default: null }));
+        if (Clipboard) await Clipboard.setStringAsync(fullUrl);
+      }
+    } catch {}
+    setCopied(true);
+    onToast(t('journeyEdit.share.toastLinkCopied'));
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <NJBottomSheet theme={theme} onClose={onClose} full>
@@ -414,18 +434,24 @@ export function NJSharePanel({ theme, tripName, onClose, onToast }: { theme: The
         </View>
 
         <View style={{ alignItems: 'center', marginBottom: 16 }}>
-          <View style={{ padding: 12, borderRadius: 18, backgroundColor: '#fff', boxShadow: '0px 4px 20px rgba(0,0,0,0.1)' }}>
-            <NJQrDisplay seed={tripName + link} size={172} />
+          <View style={{ padding: 14, borderRadius: 18, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 4 }}>
+            <QRCode value={fullUrl} size={172} backgroundColor="#fff" color="#000" />
           </View>
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, marginBottom: 12 }}>
           <Icon name="share" color={theme.text2} size={14} />
-          <Text numberOfLines={1} style={{ flex: 1, fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{link}</Text>
+          <Text numberOfLines={1} style={{ flex: 1, fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{fullUrl}</Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {copyBtn}
+          <Press
+            onPress={doCopy}
+            style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: copied ? '#34C759' : theme.accent, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+          >
+            <Icon name="check" color="#fff" size={13} strokeWidth={3} />
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}</Text>
+          </Press>
           <Press
             onPress={() => {
               setSaved(true);

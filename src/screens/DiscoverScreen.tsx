@@ -1,7 +1,7 @@
 // DiscoverScreen.tsx — the 发现 tab. A Mapbox 3D globe (SVG fallback) of routes
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and a per-POI detail card.
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, ScrollView, useWindowDimensions, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, makeTheme } from '../theme/theme';
@@ -68,6 +68,27 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
 
+  // ── multi-select (long-press to enter, batch delete) ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const enterSelect = useCallback((id: string) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+
   // The real Mapbox globe sits on black starry space in BOTH appearance modes,
   // so chrome floating over the map always uses the dark treatment to stay
   // legible. The bottom sheet (a separate surface) keeps the real theme,
@@ -120,6 +141,28 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     [pois, placeSel]
   );
 
+  const allSelected = displayPois.length > 0 && selectedIds.size === displayPois.length;
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(displayPois.map((p) => p.id)));
+  }, [allSelected, displayPois]);
+  const deleteSelected = useCallback(() => {
+    nav.openActionSheet({
+      title: t('discover.selectDeleteTitle'),
+      message: t('discover.selectDeleteMessage', { count: selectedIds.size }),
+      items: [{
+        label: t('discover.selectDeleteConfirm', { count: selectedIds.size }),
+        destructive: true,
+        onPress: () => {
+          nav.removeJourneys([...selectedIds]);
+          nav.closeActionSheet();
+          exitSelect();
+        },
+      }],
+    });
+  }, [nav, selectedIds, t, exitSelect]);
+
+  React.useEffect(() => { exitSelect(); }, [isMemory, chip, exitSelect]);
+
   // In place view the header ＋ means 再次出发 on this trailhead: seed the new
   // journey flow with the place's route (most-active journey as the template).
   // Drawn from basePois so it survives chip filtering hiding every row.
@@ -167,12 +210,30 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // List-mode header (kicker + title + filter/add + chips). When a POI is
   // selected the sheet switches to compact mode and this header is not shown —
   // the card's hero fills the top and the floating grab handle dismisses it.
-  const header = (
+  const header = selectMode ? (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text }}>
+            {t('discover.selectTitle', { count: selectedIds.size })}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <Press onPress={toggleAll}>
+            <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>
+              {allSelected ? t('discover.selectDeselectAll') : t('discover.selectAll')}
+            </Text>
+          </Press>
+          <Press onPress={exitSelect}>
+            <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.accent }}>{t('common.cancel')}</Text>
+          </Press>
+        </View>
+      </View>
+    </View>
+  ) : (
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         {placeSel ? (
-          // place view: the title doubles as a "‹ 我的旅程" back breadcrumb; the
-          // filter chips below stay live and filter within this trailhead.
           <Press onPress={() => setPlaceSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
             <Icon name="chevronL" color={theme.accent} size={16} />
             <View style={{ flexShrink: 1 }}>
@@ -230,8 +291,6 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         contentContainerStyle={{ gap: 6, paddingTop: 12, paddingRight: 16 }}
       >
         {(isMemory ? MEMORY_CHIPS : EXPLORE_CHIPS).map((c, i) => (
-          // chips filter the current list — within this trailhead in place view,
-          // or the whole journey list otherwise.
           <FilterChip key={c} theme={theme} label={chipLabel(c)} active={chip === i} onPress={() => setChip(i)} />
         ))}
       </ScrollView>
@@ -307,7 +366,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
       {/* top-right chrome */}
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
-        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast(t('discover.toastSearch'))}>
+        <GlassIconBtn theme={chromeTheme} onPress={() => nav.openSearch()}>
           <Icon name="search" color={chromeTheme.text} size={19} />
         </GlassIconBtn>
         <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast(t('discover.toastNorth'))}>
@@ -382,7 +441,17 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                 body={isMemory ? t('discover.emptyJourneysBody') : t('discover.emptyRoutesBody')}
               />
             ) : (
-              displayPois.map((p) => <PoiRow key={p.id} theme={theme} poi={p} onPress={() => nav.openPoint(p)} />)
+              displayPois.map((p) => (
+                <PoiRow
+                  key={p.id}
+                  theme={theme}
+                  poi={p}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(p.id)}
+                  onPress={() => (selectMode ? toggleSelect(p.id) : nav.openPoint(p))}
+                  onLongPress={isMemory && p.kind === 'journey' ? () => (selectMode ? toggleSelect(p.id) : enterSelect(p.id)) : undefined}
+                />
+              ))
             )
           ) : (
             <View style={{ gap: 14, paddingTop: 8 }}>
@@ -398,6 +467,23 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             </View>
           )}
         </View>
+        {selectMode ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 6 }}>
+            <Press
+              onPress={selectedIds.size ? deleteSelected : undefined}
+              style={{
+                paddingVertical: 15,
+                borderRadius: 14,
+                alignItems: 'center',
+                backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size ? '#fff' : theme.text3 }}>
+                {selectedIds.size ? t('discover.selectDelete', { count: selectedIds.size }) : t('discover.selectDeletePrompt')}
+              </Text>
+            </Press>
+          </View>
+        ) : null}
       </TrailSheet>
       )}
     </View>

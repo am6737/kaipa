@@ -10,7 +10,7 @@ import { MePushPage } from './MePushPage';
 
 export interface MeEditField {
   label: string;
-  key: 'nick' | 'username' | 'bio' | 'phone' | 'email' | null;
+  key: 'nick' | 'username' | 'bio' | 'phone' | 'email' | 'password' | null;
   value: string;
   placeholder?: string;
   multiline?: boolean;

@@ -1,7 +1,7 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet and (full-bleed) in the JourneyCardFull overlay.
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Share, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
@@ -84,7 +84,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const previewPhotos = allPhotos.slice(0, status === 'ongoing' ? 6 : 9);
 
   let ctaLabel = t('journey.cta.startTrip');
-  let ctaAction = () => nav.showToast(t('journey.toast.startPlanning'));
+  let ctaAction = () => nav.openNewJourney(poi);
   // CTA bg follows the journey status (prototype: `st ? st.color : t.accent`).
   // Only a completed journey diverges from accent — it uses the muted gray.
   let ctaBg = theme.accent;
@@ -129,27 +129,10 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         { label: removeLabel, destructive: true, onPress: confirmRemove },
       ]
     : [
-        { label: poi.fav ? t('journey.more.unfavorite') : t('journey.more.favorite'), onPress: () => nav.toggleFav() },
         { label: t('journey.more.report'), destructive: true, onPress: () => nav.showToast(t('journey.toast.reported')) },
       ];
 
-  // Share via the native OS share sheet (Messages / WeChat / Copy / …). The link
-  // is a stable deep-link slug; the blurb carries the trip's key stats.
-  const shareLink = `https://kaipa.app/${isJourney ? 'j' : 'r'}/${poi.id}`;
-  const onShare = async () => {
-    const stats = [poi.dist, poi.asc, isJourney ? poi.days : poi.diff].filter(Boolean).join(' · ');
-    const blurb = `${poi.name} · ${poi.region}\n${stats}`;
-    try {
-      const result = await Share.share(
-        Platform.OS === 'ios'
-          ? { message: blurb, url: shareLink, title: poi.name }
-          : { title: poi.name, message: `${blurb}\n${shareLink}` }
-      );
-      if (result.action === Share.sharedAction) nav.showToast(t('journey.toast.shared'));
-    } catch {
-      nav.showToast(t('journey.toast.shareFailed'));
-    }
-  };
+  const onShare = () => nav.openSharePanel(poi);
 
   return (
     <View onLayout={(e) => setChartW(e.nativeEvent.layout.width - (fullBleed ? 0 : 0))}>
@@ -371,6 +354,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
           </View>
         </View>
       ) : null}
+
     </View>
   );
 }

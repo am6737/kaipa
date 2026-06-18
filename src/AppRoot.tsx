@@ -24,6 +24,8 @@ import { JourneyCardFull } from './components/overlays/JourneyCardFull';
 import { EditJourneySheet } from './components/overlays/EditJourneySheet';
 import { JourneySettings } from './components/overlays/JourneySettings';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
+import { NJSharePanel } from './components/overlays/NewJourneySheet';
+import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
 
 function AppShell() {
@@ -147,6 +149,16 @@ function AppShell() {
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
         />
       )}
+      {nav.sharePanel && (
+        <NJSharePanel
+          theme={theme}
+          tripName={nav.sharePanel.name}
+          journeyId={nav.sharePanel.kind === 'journey' ? nav.sharePanel.id : undefined}
+          onClose={() => nav.closeSharePanel()}
+          onToast={(m) => nav.showToast(m)}
+        />
+      )}
+      {nav.searchOpen && <SearchScreen theme={theme} />}
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast} dark={theme.dark} /> : null}
     </View>

@@ -10,7 +10,7 @@ import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
 import { MePushPage } from './MePushPage';
-import { MeSection, MeCard, MeRow, SwitchRow } from './parts';
+import { MeSection, MeCard, MeRow } from './parts';
 import { MeEditField } from './EditFieldPage';
 
 export interface MeProfile {
@@ -26,18 +26,12 @@ export function AccountPage({
   profile,
   onBack,
   onEdit,
-  onDevices,
-  twoFA,
-  onToggleTwoFA,
   showToast,
 }: {
   theme: Theme;
   profile: MeProfile;
   onBack: () => void;
   onEdit: (field: MeEditField) => void;
-  onDevices: () => void;
-  twoFA: boolean;
-  onToggleTwoFA: (v: boolean) => void;
   showToast: (m: string) => void;
 }) {
   const nav = useNav();
@@ -54,12 +48,6 @@ export function AccountPage({
         { label: t('account.profile.avatarLibrary'), icon: 'photo', onPress: () => showToast(t('account.profile.toastAvatarUpdated')) },
         { label: t('account.profile.avatarRemove'), icon: 'trash', destructive: true, onPress: () => showToast(t('account.profile.toastAvatarRemoved')) },
       ],
-    });
-  const unbindSheet = (name: string) =>
-    nav.openActionSheet({
-      title: t('account.security.unbindTitle', { name }),
-      message: t('account.security.unbindMessage', { name }),
-      items: [{ label: t('account.security.unbindAction'), destructive: true, onPress: () => showToast(t('account.security.toastUnbound', { name })) }],
     });
   const deleteSheet = () =>
     nav.openActionSheet({
@@ -143,16 +131,8 @@ export function AccountPage({
         <MeCard theme={theme}>
           <MeRow
             theme={theme}
-            label={t('account.security.phone')}
-            detail={profile.phone}
-            onPress={() =>
-              onEdit({ label: t('account.security.phone'), key: 'phone', value: profile.phone, type: 'tel', placeholder: t('account.security.phonePlaceholder') })
-            }
-          />
-          <MeRow
-            theme={theme}
             label={t('account.security.email')}
-            detail={profile.email}
+            detail={profile.email || t('account.security.notBound')}
             onPress={() =>
               onEdit({ label: t('account.security.email'), key: 'email', value: profile.email, type: 'email', placeholder: t('account.security.emailPlaceholder') })
             }
@@ -160,34 +140,19 @@ export function AccountPage({
           <MeRow
             theme={theme}
             label={t('account.security.password')}
-            detail={t('account.security.passwordChangedAgo')}
+            detail="••••••"
             onPress={() =>
               onEdit({
                 label: t('account.security.password'),
-                key: null,
+                key: 'password',
                 value: '',
                 type: 'password',
                 placeholder: t('account.security.passwordPlaceholder'),
                 toast: t('account.security.toastPasswordUpdated'),
               })
             }
-          />
-          <MeRow theme={theme} label={t('account.security.devices')} detail={t('account.security.devicesCount', { count: 2 })} onPress={onDevices} />
-          <SwitchRow
-            theme={theme}
-            label={t('account.security.twoFA')}
-            sub={twoFA ? t('account.security.twoFAOnSub') : t('account.security.twoFAOffSub')}
-            value={twoFA}
-            onChange={onToggleTwoFA}
             last
           />
-        </MeCard>
-      </MeSection>
-
-      <MeSection theme={theme} title={t('account.security.sectionThirdParty')}>
-        <MeCard theme={theme}>
-          <MeRow theme={theme} label="微信" detail="chen****88" onPress={() => unbindSheet('微信')} />
-          <MeRow theme={theme} label="Apple ID" detail="c***@icloud.com" onPress={() => unbindSheet('Apple ID')} last />
         </MeCard>
       </MeSection>
 
