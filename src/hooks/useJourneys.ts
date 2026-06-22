@@ -49,6 +49,14 @@ export function useJourneys(userId: string | undefined) {
       day_index: poi.dayIndex || null,
       total_days: poi.totalDays || null,
       fav: poi.fav || false,
+      track_public: poi.trackPublic || false,
+      route_show_photos: poi.routeShowPhotos ?? true,
+      route_show_timeline: poi.routeShowTimeline ?? true,
+      photo_uris: poi.photoUris || null,
+      track_coords: poi.trackCoords || null,
+      track_elevation: poi.trackElevation || null,
+      track_duration_ms: poi.trackDurationMs || null,
+      track_waypoints: poi.trackWaypoints || null,
     };
     const { data, error } = await supabase.from('journeys').insert(row).select().single();
     if (error) { console.warn('createJourney error:', error.message); return null; }
@@ -95,10 +103,14 @@ export function useJourneys(userId: string | undefined) {
     if (patch.trackDurationMs !== undefined) row.track_duration_ms = patch.trackDurationMs;
     if (patch.trackWaypoints !== undefined) row.track_waypoints = patch.trackWaypoints;
     if (patch.photoUris !== undefined) row.photo_uris = patch.photoUris;
+    if (patch.trackPublic !== undefined) row.track_public = patch.trackPublic;
+    if (patch.routeShowPhotos !== undefined) row.route_show_photos = patch.routeShowPhotos;
+    if (patch.routeShowTimeline !== undefined) row.route_show_timeline = patch.routeShowTimeline;
     row.updated_at = new Date().toISOString();
 
     if (Object.keys(row).length > 1) {
-      await supabase.from('journeys').update(row).eq('id', id);
+      const { error } = await supabase.from('journeys').update(row).eq('id', id);
+      if (error) console.warn('[updateJourney] update error:', error.message, 'row:', JSON.stringify(row));
     }
 
     if (patch.companionList) {

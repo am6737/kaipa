@@ -1055,9 +1055,10 @@ function buildRecordJourney(args: {
   notes: string;
   companions: RJCompanion[];
   photos: RJPhoto[];
+  trackPublic: boolean;
   t: TFn;
 }): Poi {
-  const { name, region, regionCoord, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions, photos, t } = args;
+  const { name, region, regionCoord, date, endDate, diff, tone, track, manualDist, manualAsc, notes, companions, photos, trackPublic, t } = args;
   const start = track ? track.stats.points[0] : null;
   const lng = regionCoord?.lon ?? (start ? start.lon : 104.0);
   const lat = regionCoord?.lat ?? (start ? start.lat : 35.0);
@@ -1118,6 +1119,7 @@ function buildRecordJourney(args: {
     ...(trackCoords ? { trackCoords } : {}),
     ...(trackElevation ? { trackElevation } : {}),
     ...(trackDurationMs ? { trackDurationMs } : {}),
+    trackPublic: trackPublic && !!trackCoords,
   };
 }
 
@@ -1160,7 +1162,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     setBusy(true);
     setTimeout(() => {
       console.log('[Track] onIngest:', fname, 'length:', text.length);
-      const parsed = parseTrack(text, fname, t);
+      const parsed = parseTrack(text, fname, t as any);
       if (parsed.error || !parsed.points) {
         console.warn('[Track] parse failed:', parsed.error, '| first 200 chars:', text.slice(0, 200));
         setBusy(false);
@@ -1242,7 +1244,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
   const finish = () => {
     setStep(1);
     const jTone = photos[0] ? photos[0].tone : tone;
-    const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, t });
+    const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, trackPublic: visibility === 'public', t });
     setTimeout(() => onCreate(poi), 1500);
   };
   const next = () => {

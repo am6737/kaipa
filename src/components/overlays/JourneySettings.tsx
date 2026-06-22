@@ -13,6 +13,8 @@ import { Press } from '../Press';
 import { FullOverlay } from './FullOverlay';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
+import type { JourneyPatch } from '../../nav/NavContext';
+import { uploadCover } from '../../lib/storage';
 
 function Toggle({ theme, on, onChange }: { theme: Theme; on: boolean; onChange: (v: boolean) => void }) {
   const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
@@ -127,16 +129,39 @@ export function JourneySettings({
   const [allowUpload, setAllowUpload] = useState(true);
   const [moderate, setModerate] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(true);
+  const [trackPublic, setTrackPublic] = useState(poi.trackPublic ?? false);
+  const [routeShowPhotos, setRouteShowPhotos] = useState(poi.routeShowPhotos ?? true);
+  const [routeShowTimeline, setRouteShowTimeline] = useState(poi.routeShowTimeline ?? true);
+
+  const hasTrack = !!poi.trackCoords && poi.trackCoords.length > 0;
+
+  const handleTrackPublic = (v: boolean) => {
+    setTrackPublic(v);
+    const patch: JourneyPatch = { trackPublic: v, routeShowPhotos, routeShowTimeline };
+    if (poi.trackCoords) patch.trackCoords = poi.trackCoords;
+    if (poi.trackElevation) patch.trackElevation = poi.trackElevation;
+    if (poi.trackDurationMs) patch.trackDurationMs = poi.trackDurationMs;
+    if (poi.photoUris) patch.photoUris = poi.photoUris;
+    nav.patchCurrent(patch);
+  };
+  const handleRouteShowPhotos = (v: boolean) => { setRouteShowPhotos(v); nav.patchCurrent({ routeShowPhotos: v }); };
+  const handleRouteShowTimeline = (v: boolean) => { setRouteShowTimeline(v); nav.patchCurrent({ routeShowTimeline: v }); };
 
   const pickCover = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { Alert.alert(t('journey.photoWall.needLibraryPerm')); return; }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (!res.canceled && res.assets?.[0]) {
-      const uri = res.assets[0].uri;
-      setCoverUri(uri);
-      const rest = poi.photoUris?.slice(1) ?? [];
-      nav.patchCurrent({ photoUris: [uri, ...rest] });
+      const localUri = res.assets[0].uri;
+      setCoverUri(localUri);
+      try {
+        const publicUrl = await uploadCover(localUri, poi.id);
+        const rest = poi.photoUris?.slice(1) ?? [];
+        nav.patchCurrent({ photoUris: [publicUrl, ...rest] });
+      } catch {
+        const rest = poi.photoUris?.slice(1) ?? [];
+        nav.patchCurrent({ photoUris: [localUri, ...rest] });
+      }
     }
   };
 
@@ -190,7 +215,39 @@ export function JourneySettings({
         </Section>
 
         <Section theme={theme} title={t('journey.settings.visibilitySection')} footer={t('journey.settings.visibilityFooter')}>
-          <Row theme={theme} title={t('journey.settings.inviteOnly')} sub={t('journey.settings.inviteOnlySub')} trailing={<Toggle theme={theme} on={inviteVisible} onChange={setInviteVisible} />} last />
+          <Row theme={theme} title={t('journey.settings.inviteOnly')} sub={t('journey.settings.inviteOnlySub')} trailing={<Toggle theme={theme} on={inviteVisible} onChange={setInviteVisible} />} last={!hasTrack || poi.status !== 'completed'} />
+          {hasTrack && poi.status === 'completed' ? (
+            <>
+              <Row
+                theme={theme}
+                icon="compass"
+                title={t('journey.settings.trackPublic')}
+                sub={t('journey.settings.trackPublicSub')}
+                trailing={<Toggle theme={theme} on={trackPublic} onChange={handleTrackPublic} />}
+              />
+              {trackPublic ? (
+                <>
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 59 }} />
+                  <Row
+                    theme={theme}
+                    icon="camera"
+                    title={t('journey.settings.routeShowPhotos')}
+                    sub={t('journey.settings.routeShowPhotosSub')}
+                    trailing={<Toggle theme={theme} on={routeShowPhotos} onChange={handleRouteShowPhotos} />}
+                  />
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 59 }} />
+                  <Row
+                    theme={theme}
+                    icon="calendar"
+                    title={t('journey.settings.routeShowTimeline')}
+                    sub={t('journey.settings.routeShowTimelineSub')}
+                    trailing={<Toggle theme={theme} on={routeShowTimeline} onChange={handleRouteShowTimeline} />}
+                    last
+                  />
+                </>
+              ) : null}
+            </>
+          ) : null}
         </Section>
 
         <Section theme={theme}>

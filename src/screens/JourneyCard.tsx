@@ -63,7 +63,7 @@ function IconButton({ theme, name, onPress, color }: { theme: Theme; name: IconN
 export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: Poi; fullBleed?: boolean }) {
   const nav = useNav();
   const { t } = useI18n();
-  const { userId } = useData();
+  const { userId, profile } = useData();
   const [chartW, setChartW] = useState(320);
   const isJourney = poi.kind === 'journey';
   const status = (poi.status || 'completed') as JourneyStatus;
@@ -72,13 +72,22 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
   const hasRealElevation = !isRecorded || !!poi.trackElevation;
   const series = useMemo(() => buildElevation(poi), [poi.id, poi.dist, poi.asc, poi.trackElevation]);
 
-  const inspo = useInspo(isJourney ? poi.id : undefined, userId);
+  const inspo = useInspo(poi.id, userId);
 
   // photo preview — genPhotos (from poi.photoUris) + inspo (user-uploaded)
-  const wallPhotos = useMemo(() => genPhotos(poi, status), [poi.name, status, poi.totalDays, poi.photoUris]);
+  // For routes, show photos from index 1 onwards (index 0 is hero cover);
+  // for journeys, genPhotos already skips the cover.
+  const wallPhotos = useMemo(
+    () => isJourney
+      ? genPhotos(poi, status)
+      : (poi.routeShowPhotos !== false && poi.photoUris && poi.photoUris.length > 1
+          ? poi.photoUris.slice(1).map((uri, i) => ({ id: `real-${i}`, uri, tone: poi.tone || 'ridge', ratio: 1, kind: 'image' as const, caption: '', day: 1, author: { ini: '?', name: '', color: '#888' } }))
+          : []),
+    [isJourney, poi.name, poi.photoUris, poi.tone, status, poi.routeShowPhotos],
+  );
   const inspoAsWall = useMemo(
-    () => inspo.media.map(m => ({ id: m.id, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, tone: poi.tone || 'ridge', ratio: 1 })),
-    [inspo.media, poi.tone],
+    () => (isJourney || poi.routeShowPhotos !== false ? inspo.media.map(m => ({ id: m.id, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, tone: poi.tone || 'ridge', ratio: 1 })) : []),
+    [inspo.media, poi.tone, isJourney, poi.routeShowPhotos],
   );
   const allPhotos = status === 'planning' ? inspoAsWall : [...wallPhotos, ...inspoAsWall];
   const previewPhotos = allPhotos.slice(0, status === 'ongoing' ? 6 : 9);
@@ -193,7 +202,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.86)', fontSize: 13, marginTop: 3 }}>
               {poi.region}
-              {poi.date ? ' · ' + poi.date : ''}
+              {isJourney && poi.date ? ' · ' + poi.date : ''}
             </Text>
           </View>
         </View>
@@ -283,10 +292,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         poi.companionList && poi.companionList.length > 0 ? (
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={t('journey.section.companions')} action={t('journey.section.manage')} onAction={() => nav.openManageCompanions(poi)} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <AvatarStack people={poi.companionList} size={36} max={6} ringColor={theme.dark ? '#1c1c1e' : '#fff'} />
-            <Text style={{ fontSize: 13, color: theme.text2 }}>{t('journey.companions.companionCount', { count: poi.companions ?? 0 })}</Text>
-          </View>
+          <Press onPress={() => nav.openManageCompanions(poi)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <AvatarStack people={poi.companionList} size={36} max={6} ringColor={theme.dark ? '#1c1c1e' : '#fff'} />
+              <Text style={{ fontSize: 13, color: theme.text2 }}>{t('journey.companions.companionCount', { count: poi.companions ?? 0 })}</Text>
+            </View>
+          </Press>
         </View>
         ) : (
         <View style={{ paddingBottom: 18 }}>
@@ -303,7 +314,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       ) : null}
 
       {/* 行程 timeline */}
-      {isJourney ? <JourneyTimelineCard theme={theme} info={poi} /> : null}
+      {(!isJourney && poi.routeShowTimeline === false) ? null : <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney} />}
 
       {/* photo grid */}
       {previewPhotos.length > 0 ? (
@@ -347,9 +358,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
       {/* author footer (routes) */}
       {!isJourney ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingBottom: 26 }}>
-          <Avatar ini="林" tone="forest" size={32} />
+          <Avatar ini={profile.nick?.charAt(0) || '?'} color={theme.accent} size={32} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>{t('journey.author.uploadedBy', { name: '林深见鹿' })}</Text>
+            <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>{t('journey.author.uploadedBy', { name: profile.nick || t('me.unnamed') })}</Text>
             <Text style={{ fontSize: 11.5, color: theme.text2 }}>{t('journey.author.walkedCount', { count: poi.reviews ?? 0 })}</Text>
           </View>
         </View>

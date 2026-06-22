@@ -36,6 +36,26 @@ export async function uploadMedia(
   return data.publicUrl;
 }
 
+export async function uploadCover(
+  localUri: string,
+  journeyId: string,
+): Promise<string> {
+  const ext = extFromUri(localUri);
+  const contentType = MIME[ext] || 'image/jpeg';
+  const storagePath = `covers/${journeyId}.jpg`;
+
+  const file = new FSFile(localUri);
+  const buffer = await file.arrayBuffer();
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buffer, { contentType, upsert: true });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+  return data.publicUrl + `?t=${Date.now()}`;
+}
+
 function storagePathFromUrl(publicUrl: string): string | null {
   const marker = `/object/public/${BUCKET}/`;
   const idx = publicUrl.indexOf(marker);

@@ -56,6 +56,9 @@ create policy "companions_anon_via_share" on companions for select to anon
 create policy "profiles_anon_via_share" on profiles for select to anon
   using (id in (select user_id from journey_shares where active = true));
 
+create policy "inspo_anon_via_share" on inspo_media for select to anon
+  using (journey_id in (select journey_id from journey_shares where active = true));
+
 -- ─── storage bucket ─────────────────────────────────────────────────────────
 -- Create the shared-moments bucket if it doesn't exist.
 insert into storage.buckets (id, name, public)

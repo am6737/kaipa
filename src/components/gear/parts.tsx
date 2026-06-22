@@ -9,7 +9,7 @@ import { Animated, View, Text, ScrollView, StyleSheet, Dimensions, ViewStyle } f
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { Icon, IconName } from '../Icon';
+import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { hashStr, TONES } from '../../data/tones';
@@ -19,40 +19,17 @@ import { GearItem, GearCat } from '../../data/gear';
 export const cardShadow = (t: Theme): ViewStyle =>
   t.dark
     ? { boxShadow: '0px 5px 14px rgba(0,0,0,0.45)' }
-    : { boxShadow: '0px 8px 16px rgba(0,0,0,0.1)' };
+    : {};
 export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
 export const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)');
-const iconBtnShadow = (t: Theme): ViewStyle =>
-  t.dark
-    ? { boxShadow: '0px 2px 10px rgba(0,0,0,0.5)' }
-    : { boxShadow: '0px 2px 10px rgba(0,0,0,0.14)' };
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
 export const fmtKg = (v: number) => v.toFixed(2) + ' kg';
 export const toneFor = (name: string) => TONES[Math.abs(hashStr(name)) % TONES.length];
 
-// ── A solid circular icon button (back / ··· / chevron affordance) ──────────
-export function CircleBtn({ theme, name, onPress }: { theme: Theme; name: IconName; onPress: () => void }) {
-  return (
-    <Press
-      onPress={onPress}
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF',
-        ...iconBtnShadow(theme),
-        borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-        borderColor: 'rgba(255,255,255,0.06)',
-      }}
-    >
-      <Icon name={name} color={theme.text} size={name === 'more' ? 22 : 21} />
-    </Press>
-  );
-}
+import { CircleBtn } from '../CircleBtn';
+export { CircleBtn };
 
 // ── Full-screen pushed detail page ──────────────────────────────────────────
 // Slides in from the right. With `hero`, a full-bleed view sits at the top and

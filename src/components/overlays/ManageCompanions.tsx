@@ -28,6 +28,7 @@ import { Poi, Companion } from '../../data/pois';
 import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 import { KPState } from '../State';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
 import { useI18n, TKey } from '../../i18n';
@@ -363,25 +364,9 @@ export function ManageCompanions({
         {/* Header */}
         <View {...pan.panHandlers} style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <View style={{ height: 40, justifyContent: 'center' }}>
-            <Press
-              onPress={onClose}
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-                borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-                borderColor: 'rgba(255,255,255,0.06)',
-              }}
-            >
-              <Icon name="arrowL" color={theme.text} size={21} />
-            </Press>
+            <View style={{ position: 'absolute', left: 0, top: 0 }}>
+              <CircleBtn theme={theme} name="arrowL" onPress={onClose} />
+            </View>
             <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>
                 {selectMode ? t('journey.manage.selectedCount', { count: selected.size }) : t('journey.section.companions')}

@@ -12,10 +12,11 @@ interface Props extends PressableProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   scaleTo?: number;
+  opacityTo?: number;
   haptic?: boolean;
 }
 
-export function Press({ children, style, scaleTo = 0.97, ...rest }: Props) {
+export function Press({ children, style, scaleTo = 0.97, opacityTo = 0.82, ...rest }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
@@ -28,7 +29,7 @@ export function Press({ children, style, scaleTo = 0.97, ...rest }: Props) {
 
   return (
     <AnimatedPressable
-      onPressIn={() => animate(scaleTo, 0.82)}
+      onPressIn={() => animate(scaleTo, opacityTo)}
       onPressOut={() => animate(1, 1)}
       style={[style, { transform: [{ scale }], opacity }]}
       {...rest}

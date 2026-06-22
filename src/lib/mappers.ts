@@ -69,6 +69,9 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     trackElevation: j.track_elevation,
     trackDurationMs: j.track_duration_ms,
     trackWaypoints: j.track_waypoints,
+    trackPublic: j.track_public ?? false,
+    routeShowPhotos: j.route_show_photos ?? true,
+    routeShowTimeline: j.route_show_timeline ?? true,
     photoUris: j.photo_uris,
   };
 }

@@ -4,8 +4,8 @@
 // and a contextual add button — NO large iOS title, NO segmented pill. Each tab
 // has a list⇄grid toggle. 装备 leads with a leader-line labeled donut (thick
 // ring, empty center, callouts per category) over a 4-stat readout strip.
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TextInput, useWindowDimensions, ViewStyle } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, TextInput, Alert, useWindowDimensions, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
 import { elevCard } from '../theme/shadow';
@@ -111,6 +111,49 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const allItems = data.items;
   const sets = data.sets;
 
+  // ── multi-select (long-press to enter, batch delete) ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+
+  const enterSelect = useCallback((id: number) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+  const allSelected = allItems.length > 0 && selectedIds.size === allItems.length;
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(allItems.map((it) => it.id!).filter(Boolean)));
+  }, [allSelected, allItems]);
+  const deleteSelected = useCallback(() => {
+    Alert.alert(
+      t('gear.select.deleteTitle'),
+      t('gear.select.deleteMessage', { count: selectedIds.size }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('gear.select.deleteConfirm', { count: selectedIds.size }),
+          style: 'destructive',
+          onPress: () => {
+            selectedIds.forEach((id) => data.deleteItem(id));
+            nav.showToast(t('gear.toast.itemsDeleted', { count: selectedIds.size }));
+            exitSelect();
+          },
+        },
+      ],
+    );
+  }, [selectedIds, data, nav, t, exitSelect]);
+
   // Pushed detail pages (装备 / 分类 / 套装), newest last.
   const [pageStack, setPageStack] = useState<GearPage[]>([]);
   const pushPage = (p: GearPage) => setPageStack((s) => [...s, p]);
@@ -126,6 +169,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   // Hide the floating tab bar whenever a detail page is open (matches MeScreen).
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
+  useEffect(() => { exitSelect(); }, [tab, exitSelect]);
 
   const updateItem = (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
@@ -220,24 +264,44 @@ export function GearScreen({ theme }: { theme: Theme }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {/* ── Nav bar: tappable title switcher + contextual add ── */}
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
-          <Press onPress={() => setMenuOpen((o) => !o)} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }} scaleTo={0.98}>
-            <Text style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{curTab.label}</Text>
-            <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '600', color: theme.text3 }}>{curTab.n}</Text>
-            <View style={{ alignSelf: 'center', transform: [{ rotate: menuOpen ? '180deg' : '0deg' }] }}>
-              <Icon name="chevronDown" color={theme.text2} size={14} />
+      {/* ── Nav bar: normal or select-mode header ── */}
+      {selectMode ? (
+        <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text }}>
+              {t('gear.select.title', { count: selectedIds.size })}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <Press onPress={toggleAll}>
+                <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>
+                  {allSelected ? t('gear.select.deselectAll') : t('gear.select.selectAll')}
+                </Text>
+              </Press>
+              <Press onPress={exitSelect}>
+                <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.accent }}>{t('gear.select.cancel')}</Text>
+              </Press>
             </View>
-          </Press>
-          <Press
-            onPress={onAdd}
-            style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF', ...iconBtnShadow(theme) }}
-          >
-            <Icon name="plus" color={theme.text} size={18} />
-          </Press>
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
+            <Press onPress={() => setMenuOpen((o) => !o)} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }} scaleTo={0.98}>
+              <Text style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{curTab.label}</Text>
+              <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '600', color: theme.text3 }}>{curTab.n}</Text>
+              <View style={{ alignSelf: 'center', transform: [{ rotate: menuOpen ? '180deg' : '0deg' }] }}>
+                <Icon name="chevronDown" color={theme.text2} size={14} />
+              </View>
+            </Press>
+            <Press
+              onPress={onAdd}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF', ...iconBtnShadow(theme) }}
+            >
+              <Icon name="plus" color={theme.text} size={18} />
+            </Press>
+          </View>
+        </View>
+      )}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
         {tab === 'items' && (
@@ -253,13 +317,23 @@ export function GearScreen({ theme }: { theme: Theme }) {
             ) : itemLayout === 'grid' ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {items.map((it) => (
-                  <ItemGridCard key={it.name} theme={theme} item={it} cat={catMap[it.cat]} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'item', item: it })} />
+                  <ItemGridCard key={it.name} theme={theme} item={it} cat={catMap[it.cat]} w={(contentW - 10) / 2}
+                    selectMode={selectMode}
+                    selected={it.id ? selectedIds.has(it.id) : false}
+                    onPress={() => { if (selectMode && it.id) { toggleSelect(it.id); } else { pushPage({ type: 'item', item: it }); } }}
+                    onLongPress={it.id ? () => enterSelect(it.id!) : undefined}
+                  />
                 ))}
               </View>
             ) : (
               <Card theme={theme}>
                 {items.map((it, i) => (
-                  <ItemRow key={it.name} theme={theme} item={it} cat={catMap[it.cat]} last={i === items.length - 1} onPress={() => pushPage({ type: 'item', item: it })} />
+                  <ItemRow key={it.name} theme={theme} item={it} cat={catMap[it.cat]} last={i === items.length - 1}
+                    selectMode={selectMode}
+                    selected={it.id ? selectedIds.has(it.id) : false}
+                    onPress={() => { if (selectMode && it.id) { toggleSelect(it.id); } else { pushPage({ type: 'item', item: it }); } }}
+                    onLongPress={it.id ? () => enterSelect(it.id!) : undefined}
+                  />
                 ))}
               </Card>
             )}
@@ -309,6 +383,25 @@ export function GearScreen({ theme }: { theme: Theme }) {
           </View>
         )}
       </ScrollView>
+
+      {/* ── Bottom delete bar (select mode) ── */}
+      {selectMode && (
+        <View style={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 16) + 6 }}>
+          <Press
+            onPress={selectedIds.size ? deleteSelected : undefined}
+            style={{
+              paddingVertical: 15,
+              borderRadius: 14,
+              alignItems: 'center',
+              backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+            }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size ? '#fff' : theme.text3 }}>
+              {selectedIds.size ? t('gear.select.deleteConfirm', { count: selectedIds.size }) : t('gear.select.deletePrompt')}
+            </Text>
+          </Press>
+        </View>
+      )}
 
       {/* ── Title switcher dropdown ── */}
       {menuOpen && (
@@ -483,10 +576,18 @@ function ControlsRow({ theme, value, onChange, placeholder, layout, setLayout }:
 }
 
 // ── 装备 rows / cards ───────────────────────────────────────────────────────
-function ItemRow({ theme, item, cat, last, onPress }: { theme: Theme; item: GearItem; cat: GearCat; last: boolean; onPress: () => void }) {
+function ItemRow({ theme, item, cat, last, onPress, onLongPress, selectMode, selected }: {
+  theme: Theme; item: GearItem; cat: GearCat; last: boolean; onPress: () => void;
+  onLongPress?: () => void; selectMode?: boolean; selected?: boolean;
+}) {
   return (
     <>
-      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
+      <Press onPress={onPress} onLongPress={onLongPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
+        {selectMode !== undefined && (
+          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: selected ? theme.accent : theme.text3, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? theme.accent : 'transparent' }}>
+            {selected && <Icon name="check" color="#fff" size={14} />}
+          </View>
+        )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginBottom: 3 }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
@@ -495,16 +596,19 @@ function ItemRow({ theme, item, cat, last, onPress }: { theme: Theme; item: Gear
             <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, letterSpacing: 0.2 }}>{item.w.toFixed(2)} kg · ¥{item.p.toLocaleString('en-US')}</Text>
           </View>
         </View>
-        <Icon name="chevronR" color={theme.text3} size={14} />
+        {selectMode === undefined && <Icon name="chevronR" color={theme.text3} size={14} />}
       </Press>
       {!last && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginHorizontal: 10 }} />}
     </>
   );
 }
 
-function ItemGridCard({ theme, item, cat, w, onPress }: { theme: Theme; item: GearItem; cat: GearCat; w: number; onPress: () => void }) {
+function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, selected }: {
+  theme: Theme; item: GearItem; cat: GearCat; w: number; onPress: () => void;
+  onLongPress?: () => void; selectMode?: boolean; selected?: boolean;
+}) {
   return (
-    <Press onPress={onPress} style={{ width: w, borderRadius: 16, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
+    <Press onPress={onPress} onLongPress={onLongPress} style={{ width: w, borderRadius: 16, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
       {/* PhotoTile clips its own top corners so the card itself needs no
           overflow:'hidden' (which would otherwise clip the card's shadow). */}
       <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={0} style={{ height: 120, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
@@ -512,6 +616,11 @@ function ItemGridCard({ theme, item, cat, w, onPress }: { theme: Theme; item: Ge
           <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: cat.color }} />
           <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text }}>{cat.name}</Text>
         </View>
+        {selectMode !== undefined && (
+          <View style={{ position: 'absolute', top: 9, right: 9, width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: selected ? '#fff' : 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.3)' }}>
+            {selected && <Icon name="check" color="#fff" size={15} />}
+          </View>
+        )}
       </PhotoTile>
       <View style={{ paddingHorizontal: 12, paddingTop: 11, paddingBottom: 13 }}>
         <Text numberOfLines={2} style={{ fontSize: 14.5, fontWeight: '600', color: theme.text, lineHeight: 19, minHeight: 38 }}>{item.name}</Text>

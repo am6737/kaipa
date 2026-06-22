@@ -38,6 +38,7 @@ interface Props {
     the map outside the card), reusing the same slide-down as the drag gesture */
 export interface TrailSheetHandle {
   dismiss: () => void;
+  snapTo: (index: number) => void;
 }
 
 export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailSheet(
@@ -93,7 +94,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     });
   };
   // let the parent dismiss the sheet imperatively (tap-outside) with the same anim
-  useImperativeHandle(ref, () => ({ dismiss }));
+  useImperativeHandle(ref, () => ({ dismiss, snapTo }));
 
   const snapTo = (i: number, vy = 0) => {
     const clamped = Math.max(0, Math.min(snapHeights.length - 1, i));

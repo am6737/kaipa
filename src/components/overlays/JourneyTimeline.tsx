@@ -75,12 +75,15 @@ function ProgressBar({ theme, done, total }: { theme: Theme; done: number; total
 // A media attachment thumbnail — real image when uri exists, placeholder otherwise.
 function MediaThumb({ theme, m, seed, size = 76, onPress }: { theme: Theme; m: TLMedia; seed: string; size?: number; onPress?: () => void }) {
   const displayUri = m.video ? m.thumb : m.uri;
+  const [failed, setFailed] = useState(false);
   const inner = (
-    <View style={{ width: size, height: size, borderRadius: 11, overflow: 'hidden' }}>
-      {displayUri ? (
-        <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: size, height: size }} />
+    <View style={{ width: size, height: size, borderRadius: 11, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderWidth: 1, borderColor: theme.hairline }}>
+      {displayUri && !failed ? (
+        <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: size, height: size }} onError={() => setFailed(true)} />
       ) : (
-        <PhotoTile tone={m.tone} seed={seed} radius={11} resWidth={240} style={{ width: size, height: size }} />
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="camera" color={theme.text3} size={18} />
+        </View>
       )}
       {m.video ? (
         <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }]}>
@@ -105,7 +108,7 @@ function SelectCircle({ theme, selected, onPress }: { theme: Theme; selected: bo
   );
 }
 
-function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia, onRemove, onTap, editing, selectable, isSelected }: {
+function Row({ theme, row, done, showDay, onToggle, connector, last, compact, onOpenMedia, onRemove, onTap, editing, selectable, isSelected, readOnly }: {
   theme: Theme;
   row: TLRow;
   done: boolean;
@@ -120,11 +123,13 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
   editing?: boolean;
   selectable?: boolean;
   isSelected?: boolean;
+  readOnly?: boolean;
 }) {
   const media = row.media || [];
   return (
-    <Pressable onLongPress={onRemove} delayLongPress={400} onPress={selectable ? onToggle : onTap} style={{ flexDirection: 'row', gap: 11, alignItems: 'stretch', opacity: editing && !selectable ? 0.35 : 1 }}>
+    <Pressable onLongPress={onRemove} delayLongPress={400} onPress={selectable ? onToggle : onTap} style={{ flexDirection: 'row', gap: readOnly ? 0 : 11, alignItems: 'stretch', opacity: editing && !selectable ? 0.35 : 1 }}>
       {/* gutter: check/select + connecting line */}
+      {readOnly ? null : (
       <View style={{ width: 22, alignItems: 'center' }}>
         {connector ? <View style={{ position: 'absolute', top: 24, bottom: -2, width: 2, backgroundColor: theme.hairline }} /> : null}
         <View style={{ paddingTop: 1 }}>
@@ -135,11 +140,12 @@ function Row({ theme, row, done, showDay, onToggle, connector, last, compact, on
           )}
         </View>
       </View>
+      )}
       {/* body */}
-      <View style={{ flex: 1, minWidth: 0, paddingTop: 1, paddingBottom: last ? 2 : 14, opacity: !editing && done ? 0.5 : 1 }}>
+      <View style={{ flex: 1, minWidth: 0, paddingTop: 1, paddingBottom: last ? 2 : 14, opacity: readOnly ? 1 : (!editing && done ? 0.5 : 1) }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
           <Text
-            style={{ flex: 1, fontSize: 14.5, lineHeight: 20.5, fontWeight: '500', color: done && !editing ? theme.text2 : theme.text }}
+            style={{ flex: 1, fontSize: 14.5, lineHeight: 20.5, fontWeight: '500', color: (!readOnly && done && !editing) ? theme.text2 : theme.text }}
             numberOfLines={compact ? 2 : undefined}
           >
             {row.title}
@@ -496,7 +502,7 @@ function groupRows(rows: TLRow[], knownGroups: string[]): TLGroup[] {
   return [...map.entries()].map(([key, items]) => ({ key, label: key, rows: items }));
 }
 
-export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }) {
+export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; info: Poi; readOnly?: boolean }) {
   const nav = useNav();
   const { t } = useI18n();
   const { userId } = useData();
@@ -511,37 +517,55 @@ export function JourneyTimelineCard({ theme, info }: { theme: Theme; info: Poi }
   if (tl.rows.length === 0) {
     return (
       <View style={{ paddingBottom: 18 }}>
-        <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
-        <Press onPress={() => nav.openTimeline(info)}>
-          <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-            <Icon name="calendar" color={theme.text3} size={24} />
-            <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
-            <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
-          </View>
-        </Press>
+        <CardHeader theme={theme} title={t('journey.timeline.title')} action={readOnly ? undefined : t('common.all')} onAction={readOnly ? undefined : () => nav.openTimeline(info)} />
+        {readOnly ? null : (
+          <Press onPress={() => nav.openTimeline(info)}>
+            <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+              <Icon name="calendar" color={theme.text3} size={24} />
+              <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.timeline')}</Text>
+              <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.timelineHint')}</Text>
+            </View>
+          </Press>
+        )}
       </View>
     );
   }
 
   return (
     <View style={{ paddingBottom: 18 }}>
-      <CardHeader theme={theme} title={t('journey.timeline.title')} action={t('common.all')} onAction={() => nav.openTimeline(info)} />
-      <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
-        <View style={{ padding: 14, borderBottomWidth: allDone ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
-        </View>
-        {!allDone ? (
-          <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2, letterSpacing: 0.6 }}>{t('journey.timeline.upNext')}</Text>
-              <Text style={{ fontSize: 11.5, color: theme.text3 }}>{t('journey.timeline.remaining', { count: pending.length })}</Text>
+      <CardHeader theme={theme} title={t('journey.timeline.title')} action={readOnly ? undefined : t('common.all')} onAction={readOnly ? undefined : () => nav.openTimeline(info)} />
+      {readOnly ? (
+        <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
+          {tl.rows.length > 0 ? (
+            <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 }}>
+              {tl.rows.map((r, i, arr) => (
+                <View key={r.id} style={{ marginBottom: i < arr.length - 1 ? 6 : 0 }}>
+                  <Row theme={theme} row={r} done={false} showDay onToggle={() => {}} connector={false} last={i === arr.length - 1} readOnly />
+                </View>
+              ))}
             </View>
-            {upNext.map((r, i, arr) => (
-              <Row key={r.id} theme={theme} row={r} done={tl.isDone(r.id)} showDay compact onToggle={() => tl.toggle(r.id)} connector={i < arr.length - 1} last={i === arr.length - 1} />
-            ))}
+          ) : null}
+        </View>
+      ) : (
+      <Press onPress={() => nav.openTimeline(info)}>
+        <View style={{ borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
+          <View style={{ padding: 14, borderBottomWidth: allDone ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <ProgressBar theme={theme} done={doneCount} total={tl.rows.length} />
           </View>
-        ) : null}
-      </View>
+          {!allDone ? (
+            <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2, letterSpacing: 0.6 }}>{t('journey.timeline.upNext')}</Text>
+                <Text style={{ fontSize: 11.5, color: theme.text3 }}>{t('journey.timeline.remaining', { count: pending.length })}</Text>
+              </View>
+              {upNext.map((r, i, arr) => (
+                <Row key={r.id} theme={theme} row={r} done={tl.isDone(r.id)} showDay compact onToggle={() => tl.toggle(r.id)} connector={i < arr.length - 1} last={i === arr.length - 1} />
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </Press>
+      )}
     </View>
   );
 }

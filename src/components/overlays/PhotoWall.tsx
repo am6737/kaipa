@@ -1,6 +1,7 @@
 // PhotoWall.tsx — 瞬间 shared wall.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Alert, ScrollView, Animated, PanResponder, Pressable, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Alert, ScrollView, Animated, PanResponder, Pressable, ActivityIndicator, StyleSheet, useWindowDimensions, type DimensionValue } from 'react-native';
+import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,6 +9,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LivePhotoView, type LivePhotoViewType } from 'expo-live-photo';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEventListener } from 'expo';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 const livePhotoAvailable = requireOptionalNativeModule('ExpoLivePhoto') != null;
@@ -17,6 +19,7 @@ import { Poi, Companion } from '../../data/pois';
 import { PhotoTile } from '../PhotoTile';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 import { Avatar, AvatarStack } from '../Avatar';
 import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../hooks/useInspo';
@@ -39,7 +42,27 @@ interface WallPhoto {
   pairedVideoUri?: string;
 }
 
-// ── Lightbox: tap to close, swipe to navigate, long-press for actions ──
+// ── Zoomable image with pinch-to-zoom, double-tap to zoom, pan ──
+function ZoomableImage({ uri, width, height, onSingleTap, onLongPress }: { uri: string; width: number; height: number | string; onSingleTap: () => void; onLongPress: () => void }) {
+  const dim: DimensionValue = typeof width === 'number' ? width : (width as any);
+  const dimH: DimensionValue = typeof height === 'number' ? height : (height as any);
+  return (
+    <ReactNativeZoomableView
+      minZoom={1}
+      maxZoom={4}
+      zoomStep={0.5}
+      doubleTapZoomToCenter={false}
+      onSingleTap={() => onSingleTap()}
+      onLongPress={() => onLongPress()}
+      longPressDuration={400}
+      style={{ width: dim, height: dimH }}
+    >
+      <Image source={{ uri }} contentFit="contain" style={{ width: dim, height: dimH }} />
+    </ReactNativeZoomableView>
+  );
+}
+
+// ── Lightbox: tap to close, swipe to navigate, pinch-to-zoom, long-press for actions ──
 function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, insets, nav }: {
   visible: WallPhoto[]; index: number; setIndex: (i: number) => void; onClose: () => void;
   onDelete?: (id: string) => void;
@@ -71,8 +94,33 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
     return () => sub.remove();
   }, [videoPlayer]);
 
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+
+  useEventListener(videoPlayer, 'timeUpdate', (e) => {
+    setVideoCurrentTime(e.currentTime);
+  });
+
+  useEventListener(videoPlayer, 'sourceLoad', (e) => {
+    setVideoDuration(e.duration);
+  });
+
+  const progressPct = videoDuration > 0 ? videoCurrentTime / videoDuration : 0;
+
+  const fmt = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const seekVideo = (clientX: number, containerW: number) => {
+    if (!videoPlayer || videoDuration <= 0) return;
+    const pct = Math.max(0, Math.min(1, clientX / containerW));
+    videoPlayer.currentTime = pct * videoDuration;
+  };
+
   useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    Animated.timing(fadeAnim, { toValue: 1, duration: 0, useNativeDriver: true }).start();
   }, [fadeAnim]);
 
   useEffect(() => {
@@ -147,11 +195,8 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
           const pIsVideo = p.kind === 'video';
           const imgUri = pIsVideo ? (p.thumbnail || p.uri) : p.uri;
           return (
-            <Pressable
+            <View
               key={p.id}
-              onPress={handlePress}
-              onLongPress={showActions}
-              delayLongPress={400}
               style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
             >
               <View style={{ width: W, height: '100%', alignItems: 'center', justifyContent: 'center' }}>
@@ -168,11 +213,11 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
                   <VideoView
                     player={videoPlayer}
                     style={{ width: W, height: '100%' }}
-                    nativeControls
+                    nativeControls={false}
                   />
                 ) : imgUri ? (
                   <>
-                    <Image source={{ uri: imgUri }} contentFit="contain" style={{ width: W, height: '100%' }} />
+                    <ZoomableImage uri={imgUri} width={W} height="100%" onSingleTap={handlePress} onLongPress={showActions} />
                     {isThis && !pIsVideo && livePlaying && videoPlayer ? (
                       <VideoView
                         player={videoPlayer}
@@ -189,19 +234,37 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
                     ) : null}
                   </>
                 ) : (
-                  <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
+                  <Pressable onPress={handlePress} onLongPress={showActions} delayLongPress={400} style={{ width: W, height: '100%' }}>
+                    <PhotoTile tone={p.tone} seed={info.id + p.id} resWidth={1200} style={{ width: W, aspectRatio: Math.max(0.66, p.ratio) }} />
+                  </Pressable>
                 )}
               </View>
-            </Pressable>
+            </View>
           );
         })}
       </ScrollView>
 
-      {/* close button during video playback */}
-      {isVideo && livePlaying ? (
-        <Press onPress={dismiss} style={{ position: 'absolute', top: insets.top + 10, left: 16, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="close" color="#fff" size={18} />
-        </Press>
+      {/* video progress bar — thin line at bottom edge */}
+      {isVideo && livePlaying && videoDuration > 0 ? (
+        <View
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderGrant={(e) => seekVideo(e.nativeEvent.locationX, W)}
+          onResponderMove={(e) => seekVideo(e.nativeEvent.locationX, W)}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 10,
+            height: 24,
+            justifyContent: 'flex-end',
+          }}
+        >
+          <View style={{ height: 2, backgroundColor: 'rgba(0,0,0,0.15)' }}>
+            <View style={{ width: `${progressPct * 100}%`, height: '100%', backgroundColor: '#fff' }} />
+          </View>
+        </View>
       ) : null}
 
       {/* bottom info (hidden when menu is open or video is playing) */}
@@ -311,10 +374,14 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const inspo = useInspo(info.id, userId);
   const inspoRef = useRef(inspo);
   inspoRef.current = inspo;
-  const [pending, setPending] = useState<'camera' | 'library' | null>(null);
   const [filter, setFilter] = useState<Companion | null>(null);
   const [compSheet, setCompSheet] = useState(false);
   const [boxIdx, setBoxIdx] = useState(-1);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [processingAssets, setProcessingAssets] = useState(false);
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const exitSelect = () => { setSelectMode(false); setSelectedIds(new Set()); };
 
   const roster = info.companionList || [];
   const self = roster.find((c) => c.self || c.host) || roster[0];
@@ -341,56 +408,70 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   ).current;
 
   const addAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
-    for (const a of assets) {
+    const items = assets.map((a) => {
       const kind = a.type === 'video' ? 'video' as const : a.type === 'livePhoto' ? 'livePhoto' as const : 'image' as const;
       let thumbnail: string | undefined;
       let duration: number | undefined;
       let pairedVideoUri: string | undefined;
       if (kind === 'video') {
-        try { const r = await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 }); thumbnail = r.uri; } catch {}
+        VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 }).then(r => thumbnail = r.uri).catch(() => {});
         if (a.duration) duration = a.duration;
       }
       if (kind === 'livePhoto' && (a as any).pairedVideoAsset?.uri) {
         pairedVideoUri = (a as any).pairedVideoAsset.uri;
       }
-      try {
-        await inspoRef.current.add({ uri: a.uri, kind, thumbnail, duration, pairedVideoUri });
-      } catch {
-        nav.showToast(tr('journey.photoWall.errorTitle'));
-      }
+      return { uri: a.uri, kind, thumbnail, duration, pairedVideoUri };
+    });
+    // addAll creates ALL placeholders synchronously in one batch before any
+    // upload begins, then uploads with 4-at-a-time concurrency.
+    inspoRef.current.addAll(items).catch(() => nav.showToast(tr('journey.photoWall.errorTitle')));
+  };
+
+  // ── picker: call launch directly from event handlers (NOT inside useEffect,
+  //     because Android needs the ActivityResultLauncher registered before
+  //     the Activity starts, and a delayed effect can miss that window). ──
+  const [cameraPerm, requestCameraPerm] = ImagePicker.useCameraPermissions();
+  const [libraryPerm, requestLibraryPerm] = ImagePicker.useMediaLibraryPermissions();
+
+  const pickCamera = async () => {
+    const perm = cameraPerm?.granted ? cameraPerm : await requestCameraPerm();
+    if (!perm.granted) { nav.showToast(tr('journey.photoWall.needCameraPerm')); return; }
+    setProcessingAssets(true);
+    try {
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+      if (!res.canceled && res.assets) await addAssets(res.assets);
+    } catch (e) {
+      Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
+    } finally {
+      setProcessingAssets(false);
     }
   };
 
-  // ── picker effect ──
-  useEffect(() => {
-    if (!pending) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (pending === 'camera') {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needCameraPerm')); return; }
-          const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets) await addAssets(res.assets);
-        } else {
-          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (!perm.granted) { if (!cancelled) nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
-          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
-          if (!cancelled && !res.canceled && res.assets) await addAssets(res.assets);
-        }
-      } catch (e) {
-        if (!cancelled) Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
-      } finally { if (!cancelled) setPending(null); }
-    })();
-    return () => { cancelled = true; };
-  }, [pending]);
+  const pickLibrary = async () => {
+    const perm = libraryPerm?.granted ? libraryPerm : await requestLibraryPerm();
+    if (!perm.granted) { nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
+    // Set processing BEFORE the picker opens — the overlay stays hidden while
+    // the system picker is in front, but becomes visible the moment the picker
+    // closes (while Android resolves the selected asset URIs).
+    setProcessingAssets(true);
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
+      if (!res.canceled && res.assets) {
+        await addAssets(res.assets);
+      }
+    } catch (e) {
+      Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
+    } finally {
+      setProcessingAssets(false);
+    }
+  };
 
   const chooseSource = () =>
     nav.openActionSheet({
       title: tr('journey.photoWall.addMoment'),
       items: [
-        { label: tr('journey.photoWall.takePhoto'), onPress: () => setPending('camera') },
-        { label: tr('journey.photoWall.pickFromLibrary'), onPress: () => setPending('library') },
+        { label: tr('journey.photoWall.takePhoto'), onPress: pickCamera },
+        { label: tr('journey.photoWall.pickFromLibrary'), onPress: pickLibrary },
       ],
     });
 
@@ -445,15 +526,9 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               <PhotoTile tone={info.tone} seed={info.name + 'cover'} resWidth={1200} darken style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
             )}
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.18)' }} />
-            <Press onPress={onClose} style={{
-              position: 'absolute', top: insets.top + 10, left: 16,
-              width: 40, height: 40, borderRadius: 20,
-              backgroundColor: t.dark ? '#2C2C2E' : '#fff', alignItems: 'center', justifyContent: 'center',
-              boxShadow: t.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-              borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
-            }}>
-              <Icon name="arrowL" color={t.text} size={21} />
-            </Press>
+            <View style={{ position: 'absolute', top: insets.top + 10, left: 16 }}>
+              <CircleBtn theme={t} name="arrowL" onPress={onClose} />
+            </View>
             <View style={{ position: 'absolute', left: 18, right: 18, bottom: 12 }}>
               <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: -0.6, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 14, textShadowOffset: { width: 0, height: 2 } }}>
                 {info.name}
@@ -501,9 +576,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                   borderWidth: t.dark ? StyleSheet.hairlineWidth : 0, borderColor: 'rgba(255,255,255,0.06)',
                 }}
               >
-                {inspo.uploading
-                  ? <ActivityIndicator color={t.text} size={14} />
-                  : <Icon name="plus" color={t.text} size={17} strokeWidth={2.2} />}
+                <Icon name="plus" color={t.text} size={17} strokeWidth={2.2} />
               </Press>
             </View>
 
@@ -542,9 +615,17 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
               {cols.map((col, ci) => (
                 <View key={ci} style={{ flex: 1, gap }}>
                   {col.map((p) => (
-                    <Press key={p.id} onPress={() => setBoxIdx(visible.indexOf(p))}>
+                    <Press
+                      key={p.id}
+                      onPress={() => selectMode ? toggleSelect(p.id) : setBoxIdx(visible.indexOf(p))}
+                      onLongPress={!p.id.startsWith('uploading-') ? () => { setSelectMode(true); setSelectedIds(new Set([p.id])); } : undefined}
+                    >
                       <View style={{ borderRadius: 12, overflow: 'hidden' }}>
-                        {p.uri ? (
+                        {inspo.uploadingIds.has(p.id) || inspo.removingIds.has(p.id) ? (
+                          <View style={{ width: '100%', height: colW, backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
+                            <ActivityIndicator color={t.text3} size="small" />
+                          </View>
+                        ) : p.uri ? (
                           <View style={{ backgroundColor: t.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
                             {p.kind === 'video' ? (
                               <View style={{ width: '100%', height: colW }}>
@@ -572,10 +653,15 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                                 ) : null}
                               </View>
                             )}
-                            {isPlanning ? (
-                              <Press onPress={() => inspo.remove(p.id)} style={{ position: 'absolute', right: 7, top: 7, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
-                                <Icon name="close" color="#fff" size={11} />
-                              </Press>
+                            {selectMode ? (
+                              <View style={{ position: 'absolute', right: 7, top: 7, width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: selectedIds.has(p.id) ? t.accent : 'rgba(255,255,255,0.7)', backgroundColor: selectedIds.has(p.id) ? t.accent : 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' }}>
+                                {selectedIds.has(p.id) ? <Icon name="check" color="#fff" size={14} strokeWidth={2.6} /> : null}
+                              </View>
+                            ) : null}
+                            {inspo.uploadingIds.has(p.id) || inspo.removingIds.has(p.id) ? (
+                              <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12 }]}>
+                                <ActivityIndicator color="#fff" size="small" />
+                              </View>
                             ) : null}
                           </View>
                         ) : (
@@ -591,6 +677,45 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         </View>
       </ScrollView>
 
+      {/* ── Processing overlay (shown while picker resolves assets) ── */}
+      {processingAssets ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 200, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }]}>
+          <View style={{ paddingHorizontal: 24, paddingVertical: 18, borderRadius: 16, backgroundColor: t.surfaceTop, alignItems: 'center', gap: 12 }}>
+            <ActivityIndicator color={t.accent} size="large" />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: t.text }}>{tr('journey.photoWall.processingAssets')}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {/* ── Batch delete bar ── */}
+      {selectMode ? (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: 18, paddingTop: 12, paddingBottom: insets.bottom + 14, backgroundColor: t.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: t.hairline }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Press onPress={exitSelect} style={{ height: 50, paddingHorizontal: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: t.text }}>{tr('common.cancel')}</Text>
+            </Press>
+            <Press
+              onPress={() => {
+                const allSelected = visible.every(p => selectedIds.has(p.id));
+                setSelectedIds(allSelected ? new Set() : new Set(visible.map(p => p.id)));
+              }}
+              style={{ height: 50, paddingHorizontal: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '600', color: t.accent }}>
+                {visible.every(p => selectedIds.has(p.id)) ? tr('common.deselectAll') : tr('common.selectAll')}
+              </Text>
+            </Press>
+            <Press
+              onPress={selectedIds.size > 0 ? () => { selectedIds.forEach((id) => inspo.remove(id)); exitSelect(); } : undefined}
+              style={{ flex: 1, height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size > 0 ? '#FF3B30' : (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)') }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size > 0 ? '#fff' : t.text3 }}>
+                {selectedIds.size > 0 ? `${tr('common.delete')} (${selectedIds.size})` : tr('common.delete')}
+              </Text>
+            </Press>
+          </View>
+        </View>
+      ) : null}
 
       {/* ── Lightbox ── */}
       {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={(id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); }} info={info} theme={t} insets={insets} nav={nav} /> : null}

@@ -81,12 +81,29 @@ create table if not exists journeys (
   track_coords    jsonb,
   track_elevation jsonb,
   track_duration_ms int8,
+  track_public    boolean default false,
+  route_show_photos   boolean default true,
+  route_show_timeline boolean default true,
   photo_uris      jsonb,
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
 alter table journeys enable row level security;
 create policy "journeys_all" on journeys for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "journeys_public_select" on journeys for select to authenticated using (track_public = true and status = 'completed');
+
+-- migration: add columns to existing journeys tables (safe to re-run)
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_public') then
+    alter table journeys add column track_public boolean default false;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='route_show_photos') then
+    alter table journeys add column route_show_photos boolean default true;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='route_show_timeline') then
+    alter table journeys add column route_show_timeline boolean default true;
+  end if;
+end $$;
 
 -- ─── companions ──────────────────────────────────────────────────────────────
 create table if not exists companions (

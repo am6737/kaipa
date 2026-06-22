@@ -4,14 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
+import { Asset as MLAsset, requestPermissionsAsync } from 'expo-media-library';
 import { Theme } from '../../theme/theme';
-import { Poi, STATUS_COLOR, JourneyStatus } from '../../data/pois';
+import { Poi } from '../../data/pois';
 import { paletteFor } from '../../data/tones';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { ElevationStrip } from '../ElevationStrip';
-import { buildElevation } from '../../data/elevation';
 import { useI18n, TKey } from '../../i18n';
 
 function PosterStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -25,45 +24,31 @@ function PosterStat({ label, value, color }: { label: string; value: string; col
 
 function PosterCard({ poi, t }: { poi: Poi; t: (k: TKey, p?: any) => string }) {
   const isJourney = poi.kind === 'journey';
-  const status = (poi.status || 'completed') as JourneyStatus;
   const palette = paletteFor(poi.tone);
-  const series = buildElevation(poi);
-  const hasElevation = !!poi.trackElevation;
 
   return (
     <View style={ps.card}>
-      {/* hero image */}
-      <View style={ps.hero}>
-        {poi.photoUris?.[0] ? (
-          <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: palette[0] }]} />
-        )}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.25)' }]} />
+      {/* full-bleed background */}
+      {poi.photoUris?.[0] ? (
+        <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: palette[0] }]} />
+      )}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
 
-        {/* status badge */}
-        {isJourney && (
-          <View style={ps.badge}>
-            <View style={[ps.badgeDot, { backgroundColor: STATUS_COLOR(status, '#FF6B3D', true) }]} />
-            <Text style={ps.badgeText}>
-              {t(`common.status.${status}` as TKey)}
-              {status === 'ongoing' && poi.dayIndex ? ` · Day ${poi.dayIndex}/${poi.totalDays}` : ''}
-            </Text>
-          </View>
-        )}
-
-        {/* title + region */}
+      {/* title + region */}
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
         <View style={ps.heroText}>
           <Text style={ps.title}>{poi.name}</Text>
           <Text style={ps.subtitle}>
             {poi.region}
-            {poi.date ? ' · ' + poi.date : ''}
+            {poi.date ? ' · ' + poi.date.replace(/\s+\d{1,2}:\d{2}/g, '') : ''}
           </Text>
         </View>
       </View>
 
       {/* stats strip */}
-      <View style={[ps.statsRow, { backgroundColor: palette[0] }]}>
+      <View style={ps.statsRow}>
         <PosterStat label={t('journey.stat.distance')} value={poi.dist} />
         <View style={ps.statDivider} />
         <PosterStat label={t('journey.stat.ascent')} value={poi.asc} />
@@ -75,19 +60,8 @@ function PosterCard({ poi, t }: { poi: Poi; t: (k: TKey, p?: any) => string }) {
         )}
       </View>
 
-      {/* elevation mini chart */}
-      {hasElevation && (
-        <View style={[ps.elevSection, { backgroundColor: palette[0] }]}>
-          <ElevationStrip theme={POSTER_THEME} series={series} width={280} color="rgba(255,255,255,0.7)" gradId="poster-elev" />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-            <Text style={ps.elevLabel}>{series.minEle}–{series.maxEle} m</Text>
-            <Text style={ps.elevLabel}>↑ {series.ascent} m</Text>
-          </View>
-        </View>
-      )}
-
       {/* branding footer */}
-      <View style={[ps.footer, { backgroundColor: palette[0] }]}>
+      <View style={ps.footer}>
         <View style={ps.footerLine} />
         <View style={ps.footerRow}>
           <View style={ps.logoMark}>
@@ -100,16 +74,6 @@ function PosterCard({ poi, t }: { poi: Poi; t: (k: TKey, p?: any) => string }) {
     </View>
   );
 }
-
-const POSTER_THEME = {
-  dark: true,
-  text: '#fff',
-  text2: 'rgba(255,255,255,0.6)',
-  text3: 'rgba(255,255,255,0.4)',
-  hairline: 'rgba(255,255,255,0.15)',
-  bg: 'transparent',
-  accent: '#FF6B3D',
-} as any;
 
 export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; poi: Poi; onClose: () => void; onToast: (m: string) => void }) {
   const { t } = useI18n();
@@ -168,12 +132,9 @@ export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; po
         link.download = `${poi.name || 'kaipa'}.png`;
         link.click();
       } else {
-        const { default: MediaLibrary } = await import('expo-media-library' as any).catch(() => ({ default: null }));
-        if (MediaLibrary) {
-          const { status } = await MediaLibrary.requestPermissionsAsync();
-          if (status === 'granted') {
-            await MediaLibrary.saveToLibraryAsync(uri);
-          }
+        const { status } = await requestPermissionsAsync(true);
+        if (status === 'granted') {
+          await MLAsset.create(uri);
         }
       }
       onToast(t('poster.saved'));
@@ -209,12 +170,10 @@ export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; po
           </View>
 
           {/* poster preview */}
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            <View style={{ borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 8 }}>
-              <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1 }}>
-                <PosterCard poi={poi} t={t} />
-              </ViewShot>
-            </View>
+          <View style={{ marginBottom: 16, borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 8 }}>
+            <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1 }}>
+              <PosterCard poi={poi} t={t} />
+            </ViewShot>
           </View>
 
           {/* action buttons */}
@@ -247,35 +206,8 @@ export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; po
 
 const ps = StyleSheet.create({
   card: {
-    width: 320,
+    height: 320,
     overflow: 'hidden',
-    borderRadius: 18,
-  },
-  hero: {
-    height: 200,
-    justifyContent: 'flex-end',
-  },
-  badge: {
-    position: 'absolute',
-    top: 14,
-    left: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    height: 22,
-    borderRadius: 7,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
   },
   heroText: {
     paddingHorizontal: 16,
@@ -303,15 +235,6 @@ const ps = StyleSheet.create({
   statDivider: {
     width: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  elevSection: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  elevLabel: {
-    fontFamily: 'monospace',
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.5)',
   },
   footer: {
     paddingHorizontal: 16,

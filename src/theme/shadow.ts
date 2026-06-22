@@ -19,7 +19,7 @@ export function shadow(
 }
 
 export function elevCard(t: Theme): ViewStyle {
-  return t.dark ? shadow(0.33, 12, 4) : shadow(0.07, 14, 4);
+  return t.dark ? shadow(0.33, 12, 4) : {};
 }
 
 export function elevFloat(t: Theme): ViewStyle {

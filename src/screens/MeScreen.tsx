@@ -3,7 +3,7 @@
 // 重点色 rows open anchored popovers, a 设置 card whose rows push real full-screen
 // pages, and 退出登录. Appearance (mode + accent) drives the whole app's theming.
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, TouchableWithoutFeedback } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, ACCENT_PRESETS, AccentPreset } from '../theme/theme';
 import { MONO } from '../theme/fonts';
@@ -48,7 +48,7 @@ const AppearanceRow = React.forwardRef<View, {
   last?: boolean;
 }>(({ theme, icon, label, value, valueDot, open, onToggle, last }, ref) => (
   <View ref={ref} collapsable={false}>
-    <Press onPress={onToggle}>
+    <Pressable onPress={onToggle} android_ripple={null}>
       <View
         style={{
           flexDirection: 'row',
@@ -59,7 +59,6 @@ const AppearanceRow = React.forwardRef<View, {
           paddingVertical: 9,
           borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
           borderColor: theme.hairline,
-          backgroundColor: open ? (theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)') : 'transparent',
         }}
       >
         <View style={{ width: 24, alignItems: 'center' }}>{icon}</View>
@@ -74,7 +73,7 @@ const AppearanceRow = React.forwardRef<View, {
           <Icon name="chevronR" color={theme.text3} size={13} />
         </View>
       </View>
-    </Press>
+    </Pressable>
   </View>
 ));
 
@@ -94,24 +93,22 @@ function PopoverRow({
   last?: boolean;
 }) {
   return (
-    <Press onPress={onPress}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          paddingHorizontal: 12,
-          minHeight: 38,
-          paddingVertical: 8,
-          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
-        }}
-      >
+    <Pressable onPress={onPress} android_ripple={null}>
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
+        minHeight: 38,
+        paddingVertical: 8,
+        borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+        borderColor: theme.hairline,
+      }}>
         {leading}
         <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: theme.text }}>{label}</Text>
         {active ? <Icon name="check" color={theme.text} size={16} /> : null}
       </View>
-    </Press>
+    </Pressable>
   );
 }
 

@@ -2,10 +2,10 @@
 // title + meta + (rating badge | companions) + chevron.
 import React from 'react';
 import { View, Text } from 'react-native';
+import { Image } from 'expo-image';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
 import { Poi, STATUS_LABEL, STATUS_COLOR } from '../data/pois';
-import { PhotoTile } from './PhotoTile';
 import { Avatar, AvatarStack } from './Avatar';
 import { Icon } from './Icon';
 import { Press } from './Press';
@@ -45,7 +45,11 @@ export function PoiRow({
             {selected ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
           </View>
         ) : null}
-        <PhotoTile tone={poi.tone} seed={poi.id} radius={14} style={{ width: 60, height: 60 }} resWidth={240} />
+        {poi.photoUris?.[0] ? (
+          <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={{ width: 60, height: 60, borderRadius: 14 }} />
+        ) : (
+          <View style={{ width: 60, height: 60, borderRadius: 14, backgroundColor: theme.dark ? '#2c2c2e' : '#e5e5ea' }} />
+        )}
         <View style={{ flex: 1, gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {isJourney && poi.status && (

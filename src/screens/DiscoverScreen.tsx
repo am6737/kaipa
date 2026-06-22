@@ -75,6 +75,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const enterSelect = useCallback((id: string) => {
     setSelectMode(true);
     setSelectedIds(new Set([id]));
+    sheetRef.current?.snapTo(2);
   }, []);
   const exitSelect = useCallback(() => {
     setSelectMode(false);
@@ -101,6 +102,20 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     setPlaceSel(null);
   }, [isMemory]);
 
+  // Public-track journeys to inject into explore tab: completed journeys from
+  // the user (and eventually from other users) that are trackPublic + have track data.
+  const publicTrackPois: Poi[] = useMemo(() => {
+    if (isMemory) return [];
+    const all = [...nav.extraJourneys, ...journeys];
+    const seen = new Set<string>();
+    return all
+      .filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
+      .filter((p) => !nav.removedIds.includes(p.id))
+      .map((p) => nav.merged(p)) // apply journeyPatch (e.g. trackPublic toggle before DB sync)
+      .filter((p) => p.status === 'completed' && p.trackPublic && p.trackCoords && p.trackCoords.length > 0)
+      .map((p) => ({ ...p, kind: 'route' as const, mine: true, fav: false })); // show as route card in explore tab
+  }, [isMemory, nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
+
   const basePois: Poi[] = useMemo(() => {
     if (isMemory) {
       const merged = [...nav.extraJourneys, ...journeys];
@@ -110,11 +125,11 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         .filter((p) => !nav.removedIds.includes(p.id))
         .map((p) => nav.merged(p));
     }
-    const merged = [...nav.savedRoutes, ...routes];
+    const merged = [...nav.savedRoutes, ...routes, ...publicTrackPois];
     const seen = new Set<string>();
     return merged.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMemory, nav.extraJourneys, nav.savedRoutes, nav.removedIds, nav.journeyPatch, routes, journeys]);
+  }, [isMemory, nav.extraJourneys, nav.savedRoutes, nav.removedIds, nav.journeyPatch, routes, journeys, publicTrackPois]);
 
   const pois = useMemo(() => {
     let list = [...basePois];

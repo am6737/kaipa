@@ -11,7 +11,7 @@ import { useI18n } from '../i18n';
 import { paletteFor } from '../data/tones';
 import { GuestLightbox } from './GuestLightbox';
 import { GuestUploadSheet } from './GuestUploadSheet';
-import type { GuestMoment, JourneyData, CompanionData, HostData } from './useGuestData';
+import type { GuestMoment, JourneyData, CompanionData, HostData, InspoMedia } from './useGuestData';
 import type { GuestIdentity } from './IdentitySheet';
 
 interface Props {
@@ -21,6 +21,7 @@ interface Props {
   companions: CompanionData[];
   identity: GuestIdentity;
   moments: GuestMoment[];
+  media: InspoMedia[];
   onAddMoment: (m: {
     guest_name: string;
     guest_ini: string;
@@ -71,6 +72,30 @@ function PhotoCard({ m, onPress, showWho, colW, theme }: { m: GuestMoment; onPre
           <View style={s.cardAuthor}>
             <Avatar ini={m.guest_ini || m.guest_name.slice(0, 1)} tone={m.guest_tone} size={18} />
             <Text style={s.cardAuthorName} numberOfLines={1}>{m.guest_name}</Text>
+          </View>
+        )}
+      </View>
+    </Press>
+  );
+}
+
+// ── Media card (journey photos from app) ──
+function mediaDisplayUri(m: InspoMedia): string | null {
+  if (m.kind === 'video') return m.thumbnail || null;
+  if (m.kind === 'livePhoto') return m.thumbnail || (/\.heic$/i.test(m.uri) ? null : m.uri);
+  return m.uri || null;
+}
+
+function MediaCard({ m, onPress, colW }: { m: InspoMedia; onPress: () => void; colW: number }) {
+  const displayUri = mediaDisplayUri(m);
+  if (!displayUri) return null;
+  return (
+    <Press onPress={onPress} style={s.cardWrap}>
+      <View style={{ borderRadius: 12, overflow: 'hidden', width: colW, height: colW }}>
+        <Image source={{ uri: displayUri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+        {m.kind === 'video' && (
+          <View style={s.videoBadge}>
+            <Text style={s.videoBadgeText}>▶</Text>
           </View>
         )}
       </View>
@@ -129,13 +154,14 @@ function CompanionsSheet({ theme, roster, counts, onClose, onPick }: {
 }
 
 // ── Main wall ──
-export function GuestWall({ theme, journey, host, companions, identity, moments, onAddMoment, onDeleteMoment, onToast }: Props) {
+export function GuestWall({ theme, journey, host, companions, identity, moments, media, onAddMoment, onDeleteMoment, onToast }: Props) {
   const { t } = useI18n();
   const { width: W } = useWindowDimensions();
   const days = journey.total_days || parseInt(journey.days || '3', 10) || 3;
 
   const [filter, setFilter] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ list: GuestMoment[]; index: number } | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [companionsOpen, setCompanionsOpen] = useState(false);
 
@@ -210,18 +236,29 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
     onToast(t('guest.wall.deleted'));
   }, [onDeleteMoment, onToast, t]);
 
+  const displayMedia = useMemo(() =>
+    filter ? [] : media.filter((m) => !!mediaDisplayUri(m)),
+  [media, filter]);
+
+  type WallItem = { kind: 'media'; data: InspoMedia } | { kind: 'moment'; data: GuestMoment };
+
+  const wallItems: WallItem[] = useMemo(() => [
+    ...displayMedia.map((m): WallItem => ({ kind: 'media', data: m })),
+    ...visible.map((m): WallItem => ({ kind: 'moment', data: m })),
+  ], [displayMedia, visible]);
+
   // masonry: distribute into 2 columns
   const [col1, col2] = useMemo(() => {
-    const c1: GuestMoment[] = [];
-    const c2: GuestMoment[] = [];
+    const c1: WallItem[] = [];
+    const c2: WallItem[] = [];
     let h1 = 0, h2 = 0;
-    visible.forEach((m) => {
-      const h = m.is_text ? 100 : colW;
-      if (h1 <= h2) { c1.push(m); h1 += h; }
-      else { c2.push(m); h2 += h; }
+    wallItems.forEach((item) => {
+      const h = item.kind === 'moment' && item.data.is_text ? 100 : colW;
+      if (h1 <= h2) { c1.push(item); h1 += h; }
+      else { c2.push(item); h2 += h; }
     });
     return [c1, c2];
-  }, [visible, colW]);
+  }, [wallItems, colW]);
 
   const openLightbox = (idx: number) => setLightbox({ list: visible, index: idx });
 
@@ -246,7 +283,16 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
           /* hero cover + stats */
           <>
             <View style={{ height: 252 }}>
-              <PhotoTile tone={journey.tone} seed={journey.name + 'cover'} resWidth={1200} darken style={StyleSheet.absoluteFill} />
+              {journey.coverUrl ? (
+                <Image source={{ uri: journey.coverUrl }} contentFit="cover" style={StyleSheet.absoluteFill} />
+              ) : (
+                <PhotoTile tone={journey.tone} seed={journey.name + 'cover'} resWidth={1200} style={StyleSheet.absoluteFill} />
+              )}
+              <LinearGradient
+                colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
+                locations={[0, 0.4, 1]}
+                style={StyleSheet.absoluteFill}
+              />
               <View style={s.heroContent}>
                 <Text style={s.heroTitle}>{journey.name}</Text>
                 {(journey.date || journey.region) && (
@@ -256,12 +302,14 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
             </View>
 
             <View style={s.statsBar}>
-              <View style={s.statsTop}>
-                <Text style={[s.sectionTitle, { color: theme.text }]}>{t('guest.wall.title')}</Text>
-                <Text style={[s.statsCount, { color: theme.text2 }]}>
-                  <Text style={{ fontFamily: 'monospace', fontWeight: '700', color: theme.text }}>{moments.length}</Text> 张
-                </Text>
-              </View>
+              {wallItems.length > 0 && (
+                <View style={s.statsTop}>
+                  <Text style={[s.sectionTitle, { color: theme.text }]}>{t('guest.wall.title')}</Text>
+                  <Text style={[s.statsCount, { color: theme.text2 }]}>
+                    <Text style={{ fontFamily: 'monospace', fontWeight: '700', color: theme.text }}>{wallItems.length}</Text> 张
+                  </Text>
+                </View>
+              )}
 
               <Press onPress={() => setCompanionsOpen(true)} style={s.companionBar}>
                 <AvatarStack people={avatarsForStack} size={26} max={5} ringColor={theme.bg} />
@@ -279,29 +327,32 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         )}
 
         {/* masonry grid */}
-        <View style={s.masonryWrap}>
-          {visible.length === 0 ? (
-            <View style={s.emptyState}>
-              <Text style={[s.emptyTitle, { color: theme.text }]}>{t('guest.wall.noPhotos')}</Text>
-              <Text style={[s.emptyBody, { color: theme.text2 }]}>{t('guest.wall.noPhotosHint')}</Text>
-            </View>
-          ) : (
+        {wallItems.length > 0 && (
+          <View style={s.masonryWrap}>
             <View style={s.masonry}>
               <View style={s.masonryCol}>
-                {col1.map((m) => {
-                  const idx = visible.indexOf(m);
-                  return <PhotoCard key={m.id} m={m} onPress={() => openLightbox(idx)} showWho={!filter} colW={colW} theme={theme} />;
+                {col1.map((item) => {
+                  if (item.kind === 'media') {
+                    const uri = mediaDisplayUri(item.data);
+                    return <MediaCard key={item.data.id} m={item.data} onPress={() => uri && setMediaPreview(uri)} colW={colW} />;
+                  }
+                  const idx = visible.indexOf(item.data);
+                  return <PhotoCard key={item.data.id} m={item.data} onPress={() => openLightbox(idx)} showWho={!filter} colW={colW} theme={theme} />;
                 })}
               </View>
               <View style={s.masonryCol}>
-                {col2.map((m) => {
-                  const idx = visible.indexOf(m);
-                  return <PhotoCard key={m.id} m={m} onPress={() => openLightbox(idx)} showWho={!filter} colW={colW} theme={theme} />;
+                {col2.map((item) => {
+                  if (item.kind === 'media') {
+                    const uri = mediaDisplayUri(item.data);
+                    return <MediaCard key={item.data.id} m={item.data} onPress={() => uri && setMediaPreview(uri)} colW={colW} />;
+                  }
+                  const idx = visible.indexOf(item.data);
+                  return <PhotoCard key={item.data.id} m={item.data} onPress={() => openLightbox(idx)} showWho={!filter} colW={colW} theme={theme} />;
                 })}
               </View>
             </View>
-          )}
-        </View>
+          </View>
+        )}
       </ScrollView>
 
       {/* FAB */}
@@ -312,6 +363,15 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
       )}
 
       {/* overlays */}
+      {mediaPreview && (
+        <View style={[StyleSheet.absoluteFill, s.mediaOverlay]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setMediaPreview(null)} />
+          <View style={s.mediaPreviewWrap}>
+            <Image source={{ uri: mediaPreview }} contentFit="contain" style={StyleSheet.absoluteFill} />
+          </View>
+        </View>
+      )}
+
       {lightbox && (
         <GuestLightbox
           theme={theme}
@@ -466,6 +526,22 @@ const s = StyleSheet.create({
     color: '#fff',
     maxWidth: 76,
   },
+  videoBadge: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    marginLeft: 1,
+  },
   // note card
   noteCard: {
     borderRadius: 12,
@@ -489,21 +565,17 @@ const s = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 0.3,
   },
-  // empty state
-  emptyState: {
+  // media preview
+  mediaOverlay: {
+    zIndex: 100,
+    backgroundColor: 'rgba(0,0,0,0.9)',
     alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
   },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  emptyBody: {
-    fontSize: 13,
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 18,
+  mediaPreviewWrap: {
+    width: '92%',
+    aspectRatio: 1,
+    maxHeight: '80%',
   },
   // FAB
   fab: {

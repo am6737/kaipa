@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { Theme } from '../theme/theme';
-import { Avatar } from '../components/Avatar';
 import { Press } from '../components/Press';
-import { paletteFor, type Tone } from '../data/tones';
 import { useI18n } from '../i18n';
-
-const TONE_CHOICES: Tone[] = ['forest', 'dusk', 'river', 'rock', 'sand', 'night', 'moss', 'snow'];
 
 export interface GuestIdentity {
   name: string;
@@ -31,177 +26,104 @@ function iniOf(name: string): string {
 export function IdentitySheet({ theme, hostName, onDone, onClose }: Props) {
   const { t } = useI18n();
   const [name, setName] = useState('');
-  const [tone, setTone] = useState<Tone>('river');
   const valid = name.trim().length > 0;
 
   const submit = () => {
     if (!valid) return;
-    onDone({ name: name.trim(), ini: iniOf(name.trim()), tone });
+    onDone({ name: name.trim(), ini: iniOf(name.trim()), tone: 'river' });
   };
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={[StyleSheet.absoluteFill, s.overlay]}>
       <Pressable style={s.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={s.sheetWrap}
-      >
-        <View style={[s.sheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg }]}>
-          <View style={s.handle} />
+      <View style={[s.dialog, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg }]}>
+        <Text style={[s.title, { color: theme.text }]}>{t('guest.identity.title')}</Text>
+        <Text style={[s.subtitle, { color: theme.text2 }]}>
+          {t('guest.identity.subtitle', { host: hostName })}
+        </Text>
 
-          <View style={s.header}>
-            <Text style={[s.headerTitle, { color: theme.text }]}>{t('guest.identity.title')}</Text>
-            <Text style={[s.headerSub, { color: theme.text2 }]}>
-              {t('guest.identity.subtitle', { host: hostName })}
-            </Text>
-          </View>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder={t('guest.identity.namePlaceholder')}
+          placeholderTextColor={theme.text3}
+          maxLength={16}
+          autoFocus
+          onSubmitEditing={submit}
+          style={[s.input, {
+            backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+            borderColor: theme.hairline,
+            color: theme.text,
+          }]}
+        />
 
-          {/* avatar preview */}
-          <View style={s.avatarWrap}>
-            <Avatar ini={iniOf(name) || '友'} tone={tone} size={84} />
-          </View>
-          <Text style={[s.avatarHint, { color: theme.text3 }]}>{t('guest.identity.avatarHint')}</Text>
-
-          {/* name input */}
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder={t('guest.identity.namePlaceholder')}
-            placeholderTextColor={theme.text3}
-            maxLength={16}
-            autoFocus
-            onSubmitEditing={submit}
-            style={[s.input, {
-              backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-              borderColor: theme.hairline,
-              color: theme.text,
-            }]}
-          />
-
-          {/* tone color picker */}
-          <View style={s.toneRow}>
-            {TONE_CHOICES.map((tn) => {
-              const p = paletteFor(tn);
-              const on = tn === tone;
-              return (
-                <Press
-                  key={tn}
-                  onPress={() => setTone(tn)}
-                  style={[s.toneDot, on && { borderWidth: 2.5, borderColor: theme.accent }]}
-                >
-                  <LinearGradient
-                    colors={[p[0], p[1]]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={s.toneGrad}
-                  />
-                </Press>
-              );
-            })}
-          </View>
-
-          {/* enter button */}
-          <Press
-            onPress={submit}
-            style={[s.enterBtn, {
-              backgroundColor: valid ? theme.accent : (theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
-            }]}
-          >
-            <Text style={[s.enterText, { color: valid ? '#fff' : theme.text3 }]}>
-              {t('guest.identity.enter')}
-            </Text>
-          </Press>
-        </View>
-      </KeyboardAvoidingView>
+        <Press
+          onPress={submit}
+          style={[s.enterBtn, {
+            backgroundColor: valid ? theme.accent : (theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+          }]}
+        >
+          <Text style={[s.enterText, { color: valid ? '#fff' : theme.text3 }]}>
+            {t('guest.identity.enter')}
+          </Text>
+        </Press>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
+  overlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    // @ts-ignore – web-only
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
   },
-  sheetWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 34,
-  },
-  handle: {
-    width: 38,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(128,128,128,0.3)',
-    alignSelf: 'center',
-    marginBottom: 18,
-  },
-  header: {
+  dialog: {
+    width: '85%',
+    maxWidth: 340,
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 24,
     alignItems: 'center',
-    marginBottom: 22,
   },
-  headerTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    letterSpacing: -0.4,
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    marginBottom: 6,
   },
-  headerSub: {
+  subtitle: {
     fontSize: 13,
-    marginTop: 5,
-  },
-  avatarWrap: {
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  avatarHint: {
-    textAlign: 'center',
-    fontSize: 11.5,
-    marginBottom: 18,
+    marginBottom: 22,
   },
   input: {
     width: '100%',
-    paddingVertical: 15,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  toneRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 16,
-    flexWrap: 'wrap',
-  },
-  toneDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
-  toneGrad: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-  },
   enterBtn: {
-    marginTop: 24,
-    height: 52,
-    borderRadius: 15,
+    marginTop: 18,
+    width: '100%',
+    height: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   enterText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
 });

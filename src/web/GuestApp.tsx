@@ -78,7 +78,7 @@ export function GuestApp() {
     toastTimer.current = setTimeout(() => setToast(''), 1800);
   }, []);
 
-  const { loading, error, share, journey, host, companions, moments, addMoment, deleteMoment } =
+  const { loading, error, share, journey, host, companions, moments, media, addMoment, deleteMoment } =
     useGuestData(parsed?.slug || '', parsed?.code || '');
 
   if (!parsed) return <ErrorPage theme={theme} />;
@@ -94,7 +94,7 @@ export function GuestApp() {
   return (
     <View style={[s.root, { backgroundColor: '#000' }]}>
       <View style={s.device}>
-        {stage === 'cover' && (
+        {stage !== 'wall' && (
           <GuestCover
             theme={theme}
             journey={journey}
@@ -115,6 +115,7 @@ export function GuestApp() {
             companions={companions}
             identity={identity}
             moments={moments}
+            media={media}
             onAddMoment={addMoment}
             onDeleteMoment={deleteMoment}
             onToast={showToast}

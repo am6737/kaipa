@@ -4,8 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, ScrollView, PanResponder } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { Icon } from '../Icon';
-import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 
 interface Props {
   theme: Theme;
@@ -55,27 +54,9 @@ export function FullOverlay({ theme, title, subtitle, onClose, children, scroll 
     >
       <View {...pan.panHandlers} style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
         <View style={{ height: 40, justifyContent: 'center' }}>
-          {/* back button — same style as the settings push-page nav bar:
-              a solid circle with a drop shadow + long back arrow, top-left */}
-          <Press
-            onPress={onClose}
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-              boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-              borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-              borderColor: 'rgba(255,255,255,0.06)',
-            }}
-          >
-            <Icon name="arrowL" color={theme.text} size={21} />
-          </Press>
+          <View style={{ position: 'absolute', left: 0, top: 0 }}>
+            <CircleBtn theme={theme} name="arrowL" onPress={onClose} />
+          </View>
           {/* centered title + subtitle */}
           <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 52 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>{title}</Text>

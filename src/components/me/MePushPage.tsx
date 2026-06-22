@@ -6,8 +6,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, View, Text, ScrollView, StyleSheet, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { Icon } from '../Icon';
-import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 
 interface Props {
   theme: Theme;
@@ -44,25 +43,9 @@ export function MePushPage({ theme, title, onBack, right, children, scroll = tru
 
       {/* floating, transparent nav bar */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navH }} pointerEvents="box-none">
-        <Press
-          onPress={onBack}
-          style={{
-            position: 'absolute',
-            left: 14,
-            top: insets.top + 5,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-            boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-            borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-            borderColor: 'rgba(255,255,255,0.06)',
-          }}
-        >
-          <Icon name="arrowL" color={theme.text} size={21} />
-        </Press>
+        <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
+          <CircleBtn theme={theme} name="arrowL" onPress={onBack} />
+        </View>
         <View
           pointerEvents="none"
           style={{ position: 'absolute', left: 64, right: 64, top: insets.top + 12, height: 26, justifyContent: 'center' }}

@@ -11,6 +11,7 @@ import { buildElevation } from '../../data/elevation';
 import { useNav } from '../../nav/NavContext';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 import { useI18n } from '../../i18n';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -518,14 +519,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
             </MapView>
 
             <View style={{ position: 'absolute', top: insets.top + 8, left: 12 }}>
-              <Press onPress={() => setMapFull(false)} style={{
-                width: 38, height: 38, borderRadius: 19,
-                backgroundColor: theme.dark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.9)',
-                alignItems: 'center', justifyContent: 'center',
-                borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline,
-              }}>
-                <Icon name="chevronL" color={theme.text} size={16} />
-              </Press>
+              <CircleBtn theme={theme} name="arrowL" onPress={() => setMapFull(false)} />
             </View>
 
             <View style={{ position: 'absolute', bottom: insets.bottom + 12, left: 12, right: 12, flexDirection: 'row', gap: 8 }}>

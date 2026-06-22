@@ -28,6 +28,16 @@ export interface JourneyData {
   date: string | null;
   days: string | null;
   total_days: number | null;
+  coverUrl: string | null;
+}
+
+export interface InspoMedia {
+  id: string;
+  uri: string;
+  kind: string;
+  thumbnail: string | null;
+  paired_video_uri: string | null;
+  created_at: string;
 }
 
 export interface HostData {
@@ -54,6 +64,7 @@ export function useGuestData(slug: string, code: string) {
   const [host, setHost] = useState<HostData | null>(null);
   const [companions, setCompanions] = useState<CompanionData[]>([]);
   const [moments, setMoments] = useState<GuestMoment[]>([]);
+  const [media, setMedia] = useState<InspoMedia[]>([]);
 
   useEffect(() => {
     if (!slug || !code) {
@@ -79,10 +90,10 @@ export function useGuestData(slug: string, code: string) {
         }
         setShare(shareRow);
 
-        const [journeyRes, companionsRes, hostRes, momentsRes] = await Promise.all([
+        const [journeyRes, companionsRes, momentsRes, inspoRes] = await Promise.all([
           guestSupabase
             .from('journeys')
-            .select('name, region, tone, date, days, total_days')
+            .select('name, region, tone, date, days, total_days, photo_uris')
             .eq('id', shareRow.journey_id)
             .single(),
           guestSupabase
@@ -91,21 +102,36 @@ export function useGuestData(slug: string, code: string) {
             .eq('journey_id', shareRow.journey_id)
             .order('sort_order', { ascending: true }),
           guestSupabase
-            .from('profiles')
-            .select('display_name, avatar_ini, avatar_color')
-            .eq('id', shareRow.user_id)
-            .single(),
-          guestSupabase
             .from('shared_moments')
             .select('*')
             .eq('share_id', shareRow.id)
             .order('created_at', { ascending: false }),
+          guestSupabase
+            .from('inspo_media')
+            .select('id, uri, kind, thumbnail, paired_video_uri, created_at')
+            .eq('journey_id', shareRow.journey_id)
+            .order('created_at', { ascending: true }),
         ]);
 
-        if (journeyRes.data) setJourney(journeyRes.data);
-        if (companionsRes.data) setCompanions(companionsRes.data);
-        if (hostRes.data) setHost(hostRes.data);
+        if (journeyRes.data) {
+          const uris: string[] = journeyRes.data.photo_uris || [];
+          const cover = uris.find((u: string) => u.startsWith('http')) || null;
+          const { photo_uris: _, ...rest } = journeyRes.data;
+          setJourney({ ...rest, coverUrl: cover });
+        }
+        if (companionsRes.data) {
+          setCompanions(companionsRes.data);
+          const hostComp = companionsRes.data.find((c: any) => c.is_host || c.is_self);
+          if (hostComp) {
+            setHost({
+              display_name: hostComp.name,
+              avatar_ini: hostComp.ini,
+              avatar_color: hostComp.color,
+            });
+          }
+        }
         if (momentsRes.data) setMoments(momentsRes.data);
+        if (inspoRes.data) setMedia(inspoRes.data);
         if (!journeyRes.data) setError('not_found');
       } catch (e) {
         console.warn('[useGuestData] fetch error:', e);
@@ -172,5 +198,5 @@ export function useGuestData(slug: string, code: string) {
     }
   }, []);
 
-  return { loading, error, share, journey, host, companions, moments, addMoment, deleteMoment };
+  return { loading, error, share, journey, host, companions, moments, media, addMoment, deleteMoment };
 }

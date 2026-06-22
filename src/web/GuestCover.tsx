@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
@@ -38,7 +39,11 @@ export function GuestCover({ theme, journey, host, companions, momentCount, iden
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <PhotoTile tone={journey.tone} seed={journey.name + 'cover'} resWidth={1200} style={StyleSheet.absoluteFill} />
+      {journey.coverUrl ? (
+        <Image source={{ uri: journey.coverUrl }} contentFit="cover" style={StyleSheet.absoluteFill} />
+      ) : (
+        <PhotoTile tone={journey.tone} seed={journey.name + 'cover'} resWidth={1200} style={StyleSheet.absoluteFill} />
+      )}
       <LinearGradient
         colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.92)']}
         locations={[0, 0.3, 0.62, 1]}
