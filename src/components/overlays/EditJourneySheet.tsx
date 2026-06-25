@@ -22,7 +22,7 @@ function Group({ theme, title, footer, children }: { theme: Theme; title?: strin
         style={{
           borderRadius: 16,
           overflow: 'hidden',
-          backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+          backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: theme.hairline,
         }}
@@ -360,7 +360,7 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
 
   return (
     <>
-      <FullOverlay theme={theme} title={t('journeyEdit.editTitle')} subtitle={poi.name} onClose={onClose} rightAction={rightAction} zIndex={160}>
+      <FullOverlay theme={theme} title={t('journeyEdit.editTitle')} onClose={onClose} rightAction={rightAction} zIndex={160}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={{ padding: 16, gap: 22 }}>
             <Group theme={theme} title={t('journeyEdit.sectionBasic')}>

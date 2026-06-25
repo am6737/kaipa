@@ -9,7 +9,7 @@ const shadow = (t: Theme): ViewStyle =>
     ? { boxShadow: '0px 2px 10px rgba(0,0,0,0.5)' }
     : { boxShadow: '0px 2px 10px rgba(0,0,0,0.14)' };
 
-export function CircleBtn({ theme, name, onPress }: { theme: Theme; name: IconName; onPress: () => void }) {
+export function CircleBtn({ theme, name, onPress, noShadow }: { theme: Theme; name: IconName; onPress: () => void; noShadow?: boolean }) {
   return (
     <Press
       onPress={onPress}
@@ -20,7 +20,7 @@ export function CircleBtn({ theme, name, onPress }: { theme: Theme; name: IconNa
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF',
-        ...shadow(theme),
+        ...(noShadow ? {} : shadow(theme)),
         borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
         borderColor: 'rgba(255,255,255,0.06)',
       }}

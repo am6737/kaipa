@@ -13,3 +13,10 @@ export const MONO = Platform.select({
   android: 'monospace',
   default: 'monospace',
 });
+
+// Serif used for hero titles on the immersive detail page.
+export const SERIF = Platform.select({
+  ios: 'Georgia',
+  android: 'serif',
+  default: 'serif',
+});

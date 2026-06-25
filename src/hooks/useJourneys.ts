@@ -52,7 +52,7 @@ export function useJourneys(userId: string | undefined) {
       track_public: poi.trackPublic || false,
       route_show_photos: poi.routeShowPhotos ?? true,
       route_show_timeline: poi.routeShowTimeline ?? true,
-      photo_uris: poi.photoUris || null,
+      photo_uris: poi.photoUris?.filter((u) => !u.startsWith('file://')) || null,
       track_coords: poi.trackCoords || null,
       track_elevation: poi.trackElevation || null,
       track_duration_ms: poi.trackDurationMs || null,
@@ -102,7 +102,7 @@ export function useJourneys(userId: string | undefined) {
     if (patch.trackElevation !== undefined) row.track_elevation = patch.trackElevation;
     if (patch.trackDurationMs !== undefined) row.track_duration_ms = patch.trackDurationMs;
     if (patch.trackWaypoints !== undefined) row.track_waypoints = patch.trackWaypoints;
-    if (patch.photoUris !== undefined) row.photo_uris = patch.photoUris;
+    if (patch.photoUris !== undefined) row.photo_uris = patch.photoUris.filter((u) => !u.startsWith('file://'));
     if (patch.trackPublic !== undefined) row.track_public = patch.trackPublic;
     if (patch.routeShowPhotos !== undefined) row.route_show_photos = patch.routeShowPhotos;
     if (patch.routeShowTimeline !== undefined) row.route_show_timeline = patch.routeShowTimeline;

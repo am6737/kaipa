@@ -1,7 +1,5 @@
-// BottomTabs.tsx — floating frosted-glass tab bar (装备 · 发现 · 我). Slides
-// away (down + fade) whenever a screen raises a sheet over it — see `hidden`.
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
@@ -10,7 +8,9 @@ import { Press } from './Press';
 import { useNav, MainTab } from '../nav/NavContext';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
-import { elevFloat, shadow } from '../theme/shadow';
+import { shadow } from '../theme/shadow';
+
+const IS_IOS = Platform.OS === 'ios';
 
 const TABS: { id: MainTab; icon: IconName }[] = [
   { id: 'gear', icon: 'bag' },
@@ -24,7 +24,6 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
   const insets = useSafeAreaInsets();
   const { unread } = useNotifCenter();
 
-  // slide down + fade out when a sheet is raised over the bar (prototype parity)
   const anim = useRef(new Animated.Value(hidden ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(anim, {
@@ -42,85 +41,83 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
       pointerEvents={hidden ? 'none' : 'box-none'}
       style={{
         position: 'absolute',
-        left: 16,
-        right: 16,
+        left: 48,
+        right: 48,
         bottom: Math.max(insets.bottom, 12) + 8,
         opacity,
         transform: [{ translateY }],
       }}
     >
-      <View style={[{ height: 60, borderRadius: 28, overflow: 'hidden' }, elevFloat(theme)]}>
-        <BlurView intensity={40} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              borderRadius: 28,
-              // surfaceTop (0.86 light / 0.92 dark) keeps the bar opaque enough
-              // that content never bleeds through on Android, where expo-blur is
-              // effectively a no-op. The BlurView above still frosts it on iOS.
-              backgroundColor: theme.surfaceTop,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: theme.border,
-            },
-          ]}
+      <View
+        style={[
+          {
+            height: 52,
+            borderRadius: 26,
+            overflow: 'hidden',
+          },
+          shadow(theme.dark ? 0.4 : 0.1, 16, 6),
+        ]}
+      >
+        <BlurView
+          intensity={50}
+          tint={IS_IOS
+            ? (theme.dark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight')
+            : (theme.dark ? 'dark' : 'light')}
+          style={StyleSheet.absoluteFill}
         />
-        <View style={{ flex: 1, flexDirection: 'row', padding: 5, gap: 4 }}>
+        {!IS_IOS && (
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                borderRadius: 26,
+                backgroundColor: theme.dark ? 'rgba(40,40,44,0.92)' : 'rgba(255,255,255,0.86)',
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+              },
+            ]}
+          />
+        )}
+        <View style={{ flex: 1, flexDirection: 'row', padding: 4 }}>
           {TABS.map((tab) => {
             const active = nav.mainTab === tab.id;
             const color = active ? theme.text : theme.text2;
-            // Active pill: the prototype gives it a faint drop shadow + 0.5px
-            // stroke so it stays distinct against the (now opaque) bar.
-            const activeElev = theme.dark
-              ? {
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: 'rgba(255,255,255,0.18)',
-                  ...shadow(0.25, 4, 1),
-                }
-              : {
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: 'rgba(0,0,0,0.05)',
-                  ...shadow(0.06, 2, 1),
-                };
             return (
               <Press
                 key={tab.id}
                 onPress={() => nav.setMainTab(tab.id)}
-                style={[
-                  {
-                    flex: 1,
-                    borderRadius: 22,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 3,
-                    backgroundColor: active
-                      ? theme.dark
-                        ? 'rgba(255,255,255,0.14)'
-                        : '#FFFFFF'
-                      : 'transparent',
-                  },
-                  active ? activeElev : null,
-                ]}
+                style={{
+                  flex: 1,
+                  borderRadius: 22,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 2,
+                  backgroundColor: active
+                    ? theme.dark
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'rgba(0,0,0,0.05)'
+                    : 'transparent',
+                }}
               >
                 <View>
-                  <Icon name={tab.icon} color={color} size={23} strokeWidth={active ? 2 : 1.8} />
+                  <Icon name={tab.icon} color={color} size={20} strokeWidth={active ? 2 : 1.7} />
                   {tab.id === 'me' && unread > 0 && (
                     <View
                       style={{
                         position: 'absolute',
-                        right: -5,
+                        right: -4,
                         top: -2,
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
+                        width: 7,
+                        height: 7,
+                        borderRadius: 3.5,
                         backgroundColor: theme.danger,
                         borderWidth: 1.5,
-                        borderColor: theme.bg,
+                        borderColor: theme.dark ? 'rgba(40,40,44,0.6)' : 'rgba(255,255,255,0.8)',
                       }}
                     />
                   )}
                 </View>
-                <Text style={{ fontSize: 11, fontWeight: active ? '700' : '500', color, letterSpacing: 0.2 }}>
+                <Text style={{ fontSize: 10, fontWeight: active ? '600' : '400', color }}>
                   {t(`tabs.${tab.id}`)}
                 </Text>
               </Press>

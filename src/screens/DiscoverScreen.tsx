@@ -10,7 +10,7 @@ import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
 import { Globe, MAPBOX_ENABLED } from '../components/globe';
-import { GlassIconBtn } from '../components/Glass';
+import { Glass, GlassIconBtn } from '../components/Glass';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import { FilterChip } from '../components/Chip';
@@ -18,7 +18,6 @@ import { PoiRow } from '../components/ListRow';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { SelectedPoiCard } from './JourneyCard';
 import { KPState, KPSkeletonLine } from '../components/State';
-import { elevFloat } from '../theme/shadow';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -75,7 +74,6 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const enterSelect = useCallback((id: string) => {
     setSelectMode(true);
     setSelectedIds(new Set([id]));
-    sheetRef.current?.snapTo(2);
   }, []);
   const exitSelect = useCallback(() => {
     setSelectMode(false);
@@ -205,16 +203,11 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   }, [placeGroups, nav.pointInfo?.id]);
 
   const globeSize = Math.min(width * 0.86, 360);
-  const tabSpace = insets.bottom + 76; // floating tab bar clearance (when shown)
-  // Apple-Maps-style detents. The tab bar hides while the sheet is open, so the
-  // sheet reaches the very bottom; the largest detent stops ~12% below the top
-  // so a strip of map stays visible (a full-height card felt too tall).
-  const collapsed = 120; // peek
-  const mid = Math.round(height * 0.52); // ~half screen (Apple "medium")
-  const full = Math.round(height * 0.88); // large detent (~12% map peek at top)
+  const tabSpace = insets.bottom + 76;
+  const collapsed = 120;
+  const mid = Math.round(height * 0.52);
+  const full = Math.round(height * 0.88);
 
-  // The sheet is hidden by default; a pull-up pill peeks above the tab bar and
-  // opens it. Selecting a POI on the globe also opens it (to show that card).
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
 
   // sheet stats
@@ -225,27 +218,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // List-mode header (kicker + title + filter/add + chips). When a POI is
   // selected the sheet switches to compact mode and this header is not shown —
   // the card's hero fills the top and the floating grab handle dismisses it.
-  const header = selectMode ? (
-    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text }}>
-            {t('discover.selectTitle', { count: selectedIds.size })}
-          </Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Press onPress={toggleAll}>
-            <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>
-              {allSelected ? t('discover.selectDeselectAll') : t('discover.selectAll')}
-            </Text>
-          </Press>
-          <Press onPress={exitSelect}>
-            <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.accent }}>{t('common.cancel')}</Text>
-          </Press>
-        </View>
-      </View>
-    </View>
-  ) : (
+  const header = (
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         {placeSel ? (
@@ -343,40 +316,34 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
       {/* subtabs */}
       <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            padding: 3,
-            borderRadius: 16,
-            gap: 3,
-            backgroundColor: chromeTheme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-          }}
-        >
-          {[
-            { id: 'explore', label: t('discover.tabExplore') },
-            { id: 'memory', label: t('discover.tabMemory') },
-          ].map((tab) => {
-            const active = nav.subTab === tab.id;
-            return (
-              <Press
-                key={tab.id}
-                onPress={() => nav.setSubTab(tab.id as any)}
-                style={{
-                  paddingHorizontal: 20,
-                  height: 30,
-                  borderRadius: 13,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: active ? (chromeTheme.dark ? 'rgba(120,120,128,0.5)' : '#fff') : 'transparent',
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? chromeTheme.text : chromeTheme.text2 }}>
-                  {tab.label}
-                </Text>
-              </Press>
-            );
-          })}
-        </View>
+        <Glass theme={chromeTheme} radius={16} intensity={30}>
+          <View style={{ flexDirection: 'row', padding: 3, gap: 3 }}>
+            {[
+              { id: 'explore', label: t('discover.tabExplore') },
+              { id: 'memory', label: t('discover.tabMemory') },
+            ].map((tab) => {
+              const active = nav.subTab === tab.id;
+              return (
+                <Press
+                  key={tab.id}
+                  onPress={() => nav.setSubTab(tab.id as any)}
+                  style={{
+                    paddingHorizontal: 20,
+                    height: 30,
+                    borderRadius: 13,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: active ? (chromeTheme.dark ? 'rgba(120,120,128,0.5)' : '#fff') : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? chromeTheme.text : chromeTheme.text2 }}>
+                    {tab.label}
+                  </Text>
+                </Press>
+              );
+            })}
+          </View>
+        </Glass>
       </View>
 
       {/* top-right chrome */}
@@ -391,49 +358,17 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         </GlassIconBtn>
       </View>
 
-      {/* locate button — sits above the pull-up pill (closed) or the open sheet */}
       <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? mid + 16 : tabSpace + 56 }}>
         <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
           <Icon name="locate" color={chromeTheme.accent} size={21} />
         </GlassIconBtn>
       </View>
 
-      {/* closed state: a pull-up pill that opens the sheet (matches prototype) */}
-      {!sheetVisible && (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: tabSpace + 8, alignItems: 'center' }}>
-          <Press
-            onPress={() => nav.openSheet()}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              paddingVertical: 8,
-              paddingHorizontal: 18,
-              borderRadius: 999,
-              backgroundColor: chromeTheme.surfaceTop,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: chromeTheme.border,
-              ...elevFloat(chromeTheme),
-            }}
-          >
-            <View style={{ transform: [{ rotate: '180deg' }] }}>
-              <Icon name="chevronDown" color={chromeTheme.accent} size={15} />
-            </View>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: chromeTheme.text }}>{isMemory ? t('discover.pillMyJourneys') : t('discover.pillFeatured')}</Text>
-          </Press>
-        </View>
-      )}
-
-      {/* draggable sheet — only mounted when open (default is the pill above) */}
       {sheetVisible && (
       <TrailSheet
         ref={sheetRef}
-        // remount when switching between the list sheet and a POI card so the
-        // detent set / start position reset cleanly
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        // the POI card has no tiny peek detent — swiping down past "normal" just
-        // closes it; the list sheet keeps its collapsed peek
         snapHeights={nav.pointInfo ? [mid, full] : [collapsed, mid, full]}
         initialIndex={nav.pointInfo ? 0 : 1}
         header={header}
@@ -482,25 +417,30 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             </View>
           )}
         </View>
-        {selectMode ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 6 }}>
+      </TrailSheet>
+      )}
+      {selectMode ? (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 6, backgroundColor: theme.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Press onPress={exitSelect} style={{ height: 44, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{t('common.cancel')}</Text>
+            </Press>
+            <Press onPress={toggleAll} style={{ minWidth: 80, height: 44, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.accent }}>
+                {allSelected ? t('discover.selectDeselectAll') : t('discover.selectAll')}
+              </Text>
+            </Press>
             <Press
               onPress={selectedIds.size ? deleteSelected : undefined}
-              style={{
-                paddingVertical: 15,
-                borderRadius: 14,
-                alignItems: 'center',
-                backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-              }}
+              style={{ flex: 1, height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)') }}
             >
               <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size ? '#fff' : theme.text3 }}>
                 {selectedIds.size ? t('discover.selectDelete', { count: selectedIds.size }) : t('discover.selectDeletePrompt')}
               </Text>
             </Press>
           </View>
-        ) : null}
-      </TrailSheet>
-      )}
+        </View>
+      ) : null}
     </View>
   );
 }

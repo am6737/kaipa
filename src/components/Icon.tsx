@@ -12,6 +12,8 @@ export type IconName =
   | 'heart'
   | 'heartFill'
   | 'share'
+  | 'send'
+  | 'download'
   | 'more'
   | 'chevronL'
   | 'chevronR'
@@ -29,6 +31,7 @@ export type IconName =
   | 'trash'
   | 'upload'
   | 'gear'
+  | 'gearSettings'
   | 'route'
   | 'calendar'
   | 'photo'
@@ -44,6 +47,7 @@ export type IconName =
   | 'eyeOff'
   | 'flag'
   | 'play'
+  | 'pause'
   | 'people'
   | 'globe'
   | 'link'
@@ -137,6 +141,27 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Path d="M12 3v12" {...common} />
           <Path d="M8 7l4-4 4 4" {...common} />
           <Path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7" {...common} />
+        </Svg>
+      );
+    case 'send':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M3 20V4l19 8-19 8Zm2-3 11.85-5L5 7v4l8 1-8 1v4Z" fill={color} stroke="none" />
+        </Svg>
+      );
+    case 'download':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M12 3v12" {...common} />
+          <Path d="M8 11l4 4 4-4" {...common} />
+          <Path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" {...common} />
+        </Svg>
+      );
+    case 'gearSettings':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" {...common} />
+          <Circle cx={12} cy={12} r={3} {...common} />
         </Svg>
       );
     case 'more':
@@ -365,6 +390,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M8 5v14l11-7z" fill={color} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+        </Svg>
+      );
+    case 'pause':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Rect x="6" y="4" width="4" height="16" rx="1" fill={color} stroke="none" />
+          <Rect x="14" y="4" width="4" height="16" rx="1" fill={color} stroke="none" />
         </Svg>
       );
     case 'link':

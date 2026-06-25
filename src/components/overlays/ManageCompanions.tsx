@@ -51,6 +51,7 @@ function CompanionEditor({
   theme,
   draft,
   isNew,
+  existingNames,
   onSave,
   onDelete,
   onClose,
@@ -58,6 +59,7 @@ function CompanionEditor({
   theme: Theme;
   draft: Companion;
   isNew: boolean;
+  existingNames: string[];
   onSave: (c: Companion) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -65,8 +67,11 @@ function CompanionEditor({
   const { t } = useI18n();
   const [name, setName] = useState(draft.name || '');
   const [role, setRole] = useState(draft.role || '');
-  const valid = name.trim().length > 0;
+  const isDuplicate = name.trim().length > 0 && existingNames.includes(name.trim());
+  const valid = name.trim().length > 0 && !isDuplicate;
   const color = draft.color || PALETTE[0];
+
+  const nameRef = useRef<TextInput>(null);
 
   // Scale + fade entrance. The interpolation node is created ONCE (useRef) — a
   // fresh Animated node on every render would tear down the TextInput's native
@@ -74,7 +79,9 @@ function CompanionEditor({
   const anim = useRef(new Animated.Value(0)).current;
   const scale = useRef(anim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })).current;
   useEffect(() => {
-    Animated.spring(anim, { toValue: 1, useNativeDriver: true, bounciness: 6, speed: 14 }).start();
+    Animated.spring(anim, { toValue: 1, useNativeDriver: true, bounciness: 6, speed: 14 }).start(() => {
+      if (isNew) nameRef.current?.focus();
+    });
   }, [anim]);
 
   const save = () => {
@@ -86,7 +93,7 @@ function CompanionEditor({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 14,
-    backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
+    backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.hairline,
     fontSize: 15.5,
@@ -134,6 +141,7 @@ function CompanionEditor({
             </View>
 
             <TextInput
+              ref={nameRef}
               value={name}
               onChangeText={setName}
               placeholder={t('journey.manage.namePlaceholder')}
@@ -141,8 +149,11 @@ function CompanionEditor({
               maxLength={16}
               returnKeyType="done"
               onSubmitEditing={save}
-              style={[inputStyle, { textAlign: 'center', fontWeight: '600', fontSize: 16 }]}
+              style={[inputStyle, { textAlign: 'center', fontWeight: '600', fontSize: 16 }, isDuplicate && { borderColor: theme.danger }]}
             />
+            {isDuplicate && (
+              <Text style={{ fontSize: 11.5, color: theme.danger, marginTop: 6, textAlign: 'center' }}>{t('journey.manage.nameDuplicate')}</Text>
+            )}
 
             <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 16, marginBottom: 8, marginLeft: 2 }}>{t('journey.manage.roleLabel')}</Text>
             <TextInput
@@ -209,7 +220,7 @@ function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onIn
     <NJBottomSheet theme={theme} onClose={onClose} full>
       <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
         <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>{t('journey.manage.addCompanion')}</Text>
-        <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+        <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: theme.dark ? '#1c1c1e' : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <Row icon={<Icon name="share" color={theme.accent} size={20} />} title={t('journey.manage.inviteTitle')} sub={t('journey.manage.inviteSub')} onPress={onInvite} />
           <Row icon={<Icon name="user" color={theme.accent} size={20} />} title={t('journey.manage.manualTitle')} sub={t('journey.manage.manualSub')} onPress={onManual} last />
         </View>
@@ -301,7 +312,7 @@ export function ManageCompanions({
     setEditor(null);
   };
 
-  // multi-select
+  // multi-select (entered via long-press)
   const enterSelect = (i: number) => {
     setSelectMode(true);
     setSelected(new Set([i]));
@@ -330,7 +341,7 @@ export function ManageCompanions({
     </View>
   );
 
-  const dividerInset = 13 + (selectMode ? 34 : 0) + 42 + 12; // padding + checkbox + avatar + gap → align under name
+  const dividerInset = 13 + (selectMode ? 34 : 0) + 42 + 12;
   const anchorSub = anchor
     ? anchor.self && anchor.host
       ? t('journey.manage.subSelfHost')
@@ -343,21 +354,6 @@ export function ManageCompanions({
       : t('journey.manage.subCompanion')
     : '';
 
-  const rightActions = selectMode ? (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-      <Press onPress={toggleAll}>
-        <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{allSelected ? t('journey.manage.deselectAll') : t('journey.manage.selectAll')}</Text>
-      </Press>
-      <Press onPress={exitSelect}>
-        <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
-      </Press>
-    </View>
-  ) : others.length > 0 ? (
-    <Press onPress={() => { setSelectMode(true); setSelected(new Set()); }}>
-      <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{t('journey.manage.select')}</Text>
-    </Press>
-  ) : null;
-
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 155, transform: [{ translateY }] }]}>
       <View style={{ flex: 1 }}>
@@ -365,7 +361,7 @@ export function ManageCompanions({
         <View {...pan.panHandlers} style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <View style={{ height: 40, justifyContent: 'center' }}>
             <View style={{ position: 'absolute', left: 0, top: 0 }}>
-              <CircleBtn theme={theme} name="arrowL" onPress={onClose} />
+              <CircleBtn theme={theme} name="arrowL" onPress={selectMode ? exitSelect : onClose} noShadow />
             </View>
             <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>
@@ -373,13 +369,26 @@ export function ManageCompanions({
               </Text>
               {!selectMode ? <Text style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>{t('journey.manage.totalCount', { count: total })}</Text> : null}
             </View>
-            {rightActions ? <View style={{ position: 'absolute', right: 0, top: 0, height: 40, justifyContent: 'center' }}>{rightActions}</View> : null}
+            <View style={{ position: 'absolute', right: 0, top: 0, height: 40, justifyContent: 'center' }}>
+              {selectMode ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                  <Press onPress={toggleAll}>
+                    <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{allSelected ? t('journey.manage.deselectAll') : t('journey.manage.selectAll')}</Text>
+                  </Press>
+                  <Press onPress={exitSelect}>
+                    <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
+                  </Press>
+                </View>
+              ) : (
+                <CircleBtn theme={theme} name="plus" onPress={() => setAddMode('choose')} noShadow />
+              )}
+            </View>
           </View>
         </View>
 
         {/* Roster */}
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
-          <View style={{ borderRadius: 16, overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ borderRadius: 16, overflow: 'hidden', backgroundColor: theme.dark ? '#1c1c1e' : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             {/* anchor — pinned, non-editable */}
             {anchor ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, paddingVertical: 11 }}>
@@ -459,16 +468,6 @@ export function ManageCompanions({
             <KPState theme={theme} icon="people" title={t('journey.manage.emptyTitle')} body={t('journey.manage.emptyBody')} style={{ paddingVertical: 32 }} />
           ) : null}
 
-          {!selectMode ? (
-            <Press onPress={() => setAddMode('choose')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.accentSoft }}>
-              <Icon name="plus" color={theme.accent} size={18} strokeWidth={2.4} />
-              <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('journey.manage.addCompanion')}</Text>
-            </Press>
-          ) : null}
-
-          {!selectMode && others.length > 0 ? (
-            <Text style={{ fontSize: 11.5, color: theme.text3, textAlign: 'center', marginTop: 14, lineHeight: 18 }}>{t('journey.manage.hint')}</Text>
-          ) : null}
         </ScrollView>
 
         {/* Batch delete bar */}
@@ -485,7 +484,7 @@ export function ManageCompanions({
       </View>
 
       {/* Layered sheets */}
-      {editor && <CompanionEditor theme={theme} draft={editor.draft} isNew={editor.isNew} onSave={saveFrom} onDelete={deleteFrom} onClose={() => setEditor(null)} />}
+      {editor && <CompanionEditor theme={theme} draft={editor.draft} isNew={editor.isNew} existingNames={[...(anchor ? [anchor.name] : []), ...others.filter((_, i) => i !== editor.index).map((c) => c.name)]} onSave={saveFrom} onDelete={deleteFrom} onClose={() => setEditor(null)} />}
       {addMode === 'choose' && (
         <AddChooser
           theme={theme}

@@ -90,7 +90,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
     [inspo.media, poi.tone, isJourney, poi.routeShowPhotos],
   );
   const allPhotos = status === 'planning' ? inspoAsWall : [...wallPhotos, ...inspoAsWall];
-  const previewPhotos = allPhotos.slice(0, status === 'ongoing' ? 6 : 9);
+  const previewMax = status === 'ongoing' ? 6 : 9;
+  const previewPhotos = allPhotos.slice(0, previewMax);
+  const overflowCount = allPhotos.length - previewMax;
 
   let ctaLabel = t('journey.cta.startTrip');
   let ctaAction = () => nav.openNewJourney(poi);
@@ -227,11 +229,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         ) : (
           <StatCol theme={theme} label={t('journey.stat.difficulty')} value={poi.diff ? t(`common.diff.${poi.diff}` as TKey) : '—'} color={theme.accent} />
         )}
-        <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
-        {isJourney ? (
-          <StatCol theme={theme} label={t('journey.stat.companions')} value={t('journey.companions.count', { count: poi.companions ?? 0 })} />
-        ) : (
-          <StatCol theme={theme} label={t('journey.stat.rating')} value={poi.rating || '—'} />
+        {!isJourney && (
+          <>
+            <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} />
+            <StatCol theme={theme} label={t('journey.stat.rating')} value={poi.rating || '—'} />
+          </>
         )}
       </View>
 
@@ -321,7 +323,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
         <View style={{ paddingBottom: 18 }}>
           <SectionHeader theme={theme} title={isJourney ? t('journey.moments.title') : t('journey.moments.userPhotos')} action={t('common.all')} onAction={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {previewPhotos.map((p) => {
+            {previewPhotos.map((p, i) => {
+              const isLast = i === previewPhotos.length - 1;
+              const showOverflow = isLast && overflowCount > 0;
               const displayUri = p.kind === 'video' ? (p.thumbnail || p.uri) : p.uri;
               return (
                 <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
@@ -331,9 +335,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed }: { theme: Theme; poi: 
                     ) : (
                       <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
                     )}
-                    {p.kind === 'video' ? (
+                    {p.kind === 'video' && !showOverflow ? (
                       <View style={{ position: 'absolute', right: 4, top: 4, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.5)' }}>
                         <Icon name="play" color="#fff" size={7} />
+                      </View>
+                    ) : null}
+                    {showOverflow ? (
+                      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+                        <Text style={{ fontSize: 20, fontWeight: '700', color: '#fff' }}>+{overflowCount}</Text>
                       </View>
                     ) : null}
                   </View>

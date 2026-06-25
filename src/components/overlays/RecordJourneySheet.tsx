@@ -19,6 +19,8 @@ import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
+import { useData } from '../../data/DataContext';
+import { uploadMedia } from '../../lib/storage';
 
 type TFn = (key: TKey, vars?: TVars) => string;
 interface Track {
@@ -1241,10 +1243,23 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     t('record.more.difficultySummary', { diff: t(`common.diff.${diff}` as TKey) }),
   ].join(' · ');
 
-  const finish = () => {
+  const { userId } = useData();
+
+  const finish = async () => {
     setStep(1);
     const jTone = photos[0] ? photos[0].tone : tone;
     const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, trackPublic: visibility === 'public', t });
+    if (poi.photoUris?.length && userId) {
+      const uploaded = await Promise.all(
+        poi.photoUris.map((uri) =>
+          uploadMedia(uri, userId, poi.id).catch((e) => {
+            console.warn('[RecordJourney] photo upload failed:', e);
+            return null;
+          }),
+        ),
+      );
+      poi.photoUris = uploaded.filter((u): u is string => u !== null);
+    }
     setTimeout(() => onCreate(poi), 1500);
   };
   const next = () => {

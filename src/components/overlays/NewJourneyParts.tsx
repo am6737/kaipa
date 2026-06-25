@@ -2,16 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   Pressable,
   Animated,
   StyleSheet,
   PanResponder,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Svg, { Rect, Circle } from 'react-native-svg';
 import QRCode from 'react-native-qrcode-svg';
@@ -51,9 +47,8 @@ export function NJRoundBtn({ theme, onPress, children, kind = 'ghost' }: { theme
         backgroundColor: ghost ? (theme.dark ? '#2C2C2E' : '#FFFFFF') : theme.accent,
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-        borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       }}
     >
       {children}
@@ -156,8 +151,11 @@ export function NJMiniCalendar({ theme, selectedDate, onSelect, allowPast }: { t
 }
 
 // ── Time wheel (shared between NewJourneySheet + EditJourneySheet) ──
+// Uses @quidone/react-native-wheel-picker for native-feel scroll.
 
-const WHEEL_ITEM_H = 38;
+import WheelPicker from '@quidone/react-native-wheel-picker';
+
+const WHEEL_ITEM_H = 40;
 const WHEEL_VISIBLE = 5;
 
 export const NJ_TIME_OPTIONS = (() => {
@@ -174,78 +172,22 @@ export function njFormatTime(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function NJWheelColumn({ theme, items, value, onChange, width = 140 }: { theme: Theme; items: { value: number; label: string }[]; value: number; onChange: (v: number) => void; width?: number }) {
-  const padding = ((WHEEL_VISIBLE - 1) / 2) * WHEEL_ITEM_H;
-  const containerH = WHEEL_VISIBLE * WHEEL_ITEM_H;
-  const ref = useRef<ScrollView>(null);
-  const offsetRef = useRef(0);
-
-  useEffect(() => {
-    const idx = items.findIndex((it) => it.value === value);
-    if (idx < 0) return;
-    const target = idx * WHEEL_ITEM_H;
-    if (Math.abs(offsetRef.current - target) > 2) {
-      offsetRef.current = target;
-      ref.current?.scrollTo({ y: target, animated: false });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, items]);
-
-  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    offsetRef.current = y;
-    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / WHEEL_ITEM_H)));
-    const item = items[idx];
-    if (item && item.value !== value) { Haptics.selectionAsync(); onChange(item.value); }
-  };
-
-  const edge = theme.bg;
-  const edgeT = theme.dark ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,0)';
-  return (
-    <View style={{ width, height: containerH }}>
-      <ScrollView
-        ref={ref}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={WHEEL_ITEM_H}
-        decelerationRate="fast"
-        onScroll={(e) => { offsetRef.current = e.nativeEvent.contentOffset.y; }}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={settle}
-        onScrollEndDrag={settle}
-        contentContainerStyle={{ paddingVertical: padding }}
-      >
-        {items.map((it) => {
-          const isSel = it.value === value;
-          return (
-            <View key={it.value} style={{ height: WHEEL_ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: isSel ? '600' : '500', color: isSel ? theme.text : theme.text2 }}>{it.label}</Text>
-            </View>
-          );
-        })}
-      </ScrollView>
-      <LinearGradient colors={[edge, edgeT]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
-      <LinearGradient colors={[edgeT, edge]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: padding }} pointerEvents="none" />
-    </View>
-  );
-}
-
 export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number; onChange: (v: number) => void }) {
   return (
     <View style={{ overflow: 'hidden', alignItems: 'center' }}>
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: '50%',
-          height: WHEEL_ITEM_H,
-          marginTop: -WHEEL_ITEM_H / 2,
+      <WheelPicker
+        data={NJ_TIME_OPTIONS}
+        value={value}
+        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(item.value); }}
+        itemHeight={WHEEL_ITEM_H}
+        visibleItemCount={WHEEL_VISIBLE}
+        width={160}
+        itemTextStyle={{ fontSize: 18, fontWeight: '500', color: theme.text }}
+        overlayItemStyle={{
           backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
           borderRadius: 10,
         }}
       />
-      <NJWheelColumn theme={theme} items={NJ_TIME_OPTIONS} value={value} onChange={onChange} width={140} />
     </View>
   );
 }
@@ -268,24 +210,45 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
     return out;
   }, [year, month]);
   const safeDay = Math.min(day, days.length);
+
+  const overlayStyle = {
+    backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
+    borderRadius: 10,
+  };
+  const textStyle = { fontSize: 18, fontWeight: '500' as const, color: theme.text };
+
   return (
     <View style={{ overflow: 'hidden', flexDirection: 'row', justifyContent: 'center' }}>
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: '50%',
-          height: WHEEL_ITEM_H,
-          marginTop: -WHEEL_ITEM_H / 2,
-          backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)',
-          borderRadius: 10,
-        }}
+      <WheelPicker
+        data={years}
+        value={year}
+        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(item.value, month, safeDay); }}
+        itemHeight={WHEEL_ITEM_H}
+        visibleItemCount={WHEEL_VISIBLE}
+        width={110}
+        itemTextStyle={textStyle}
+        overlayItemStyle={overlayStyle}
       />
-      <NJWheelColumn theme={theme} items={years} value={year} onChange={(v) => onChange(v, month, safeDay)} width={100} />
-      <NJWheelColumn theme={theme} items={months} value={month} onChange={(v) => onChange(year, v, safeDay)} width={80} />
-      <NJWheelColumn theme={theme} items={days} value={safeDay} onChange={(v) => onChange(year, month, v)} width={80} />
+      <WheelPicker
+        data={months}
+        value={month}
+        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(year, item.value, safeDay); }}
+        itemHeight={WHEEL_ITEM_H}
+        visibleItemCount={WHEEL_VISIBLE}
+        width={80}
+        itemTextStyle={textStyle}
+        overlayItemStyle={overlayStyle}
+      />
+      <WheelPicker
+        data={days}
+        value={safeDay}
+        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(year, month, item.value); }}
+        itemHeight={WHEEL_ITEM_H}
+        visibleItemCount={WHEEL_VISIBLE}
+        width={80}
+        itemTextStyle={textStyle}
+        overlayItemStyle={overlayStyle}
+      />
     </View>
   );
 }

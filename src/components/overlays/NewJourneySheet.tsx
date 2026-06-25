@@ -366,14 +366,16 @@ function NJModePicker({ theme, insetsTop, onClose, onPick }: { theme: Theme; ins
   ];
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingTop: insetsTop + 12, paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ paddingTop: insetsTop + 12, paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <NJRoundBtn theme={theme} onPress={onClose}>
           <Icon name="close" color={theme.text} size={16} />
         </NJRoundBtn>
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{t('journeyEdit.newTitle')}</Text>
+        </View>
+        <View style={{ width: 38 }} />
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.newTitle')}</Text>
-        <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 26, lineHeight: 21 }}>{t('journeyEdit.newSubtitle')}</Text>
         <View style={{ gap: 12 }}>
           {cards.map((c) => (
             <Press

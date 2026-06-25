@@ -291,43 +291,22 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
     <GestureDetector gesture={dismissGesture}>
       <View style={{ flex: 1 }}>
       {/* header */}
-      <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 18, paddingBottom: 12 }}>
-        <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, marginBottom: 10 }} />
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: theme.text, letterSpacing: -0.5 }}>{t('journey.elevation.trackTitle')}</Text>
-            <Text numberOfLines={1} style={{ fontSize: 13, color: theme.text2, marginTop: 2 }}>
+      <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+        <View style={{ height: 40, justifyContent: 'center' }}>
+          <View style={{ position: 'absolute', left: 0, top: 0 }}>
+            <CircleBtn theme={theme} name="arrowL" onPress={onClose} noShadow />
+          </View>
+          <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>{t('journey.elevation.trackTitle')}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>
               {info.name} · {totalKm.toFixed(1)} km{info.region ? ` · ${info.region}` : ''}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-            <Press
-              onPress={onMore}
-              style={{
-                width: 34, height: 34, borderRadius: 17,
-                alignItems: 'center', justifyContent: 'center',
-                backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-                borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-                borderColor: 'rgba(255,255,255,0.06)',
-              }}
-            >
-              <Icon name="more" color={theme.text} size={18} />
-            </Press>
-            <Press
-              onPress={onClose}
-              style={{
-                width: 34, height: 34, borderRadius: 17,
-                alignItems: 'center', justifyContent: 'center',
-                backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
-                borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0,
-                borderColor: 'rgba(255,255,255,0.06)',
-              }}
-            >
-              <Icon name="close" color={theme.text} size={14} />
-            </Press>
-          </View>
+          {isMine ? (
+            <View style={{ position: 'absolute', right: 0, top: 0, height: 40, justifyContent: 'center' }}>
+              <CircleBtn theme={theme} name="more" onPress={onMore} noShadow />
+            </View>
+          ) : null}
         </View>
       </View>
 

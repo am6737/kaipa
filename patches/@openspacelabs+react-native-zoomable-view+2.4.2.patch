@@ -1,0 +1,52 @@
+diff --git a/node_modules/@openspacelabs/react-native-zoomable-view/lib/commonjs/animations/index.js b/node_modules/@openspacelabs/react-native-zoomable-view/lib/commonjs/animations/index.js
+index 50cd3e9..118230d 100644
+--- a/node_modules/@openspacelabs/react-native-zoomable-view/lib/commonjs/animations/index.js
++++ b/node_modules/@openspacelabs/react-native-zoomable-view/lib/commonjs/animations/index.js
+@@ -29,6 +29,7 @@ function getZoomToAnimation(animValue, toValue) {
+   return _reactNative.Animated.timing(animValue, {
+     easing: _reactNative.Easing.out(_reactNative.Easing.ease),
+     toValue,
++    duration: 200,
+     useNativeDriver: true
+   });
+ }
+diff --git a/node_modules/@openspacelabs/react-native-zoomable-view/lib/module/animations/index.js b/node_modules/@openspacelabs/react-native-zoomable-view/lib/module/animations/index.js
+index 1a2cfb1..4b3507f 100644
+--- a/node_modules/@openspacelabs/react-native-zoomable-view/lib/module/animations/index.js
++++ b/node_modules/@openspacelabs/react-native-zoomable-view/lib/module/animations/index.js
+@@ -17,6 +17,7 @@ export function getZoomToAnimation(animValue, toValue) {
+   return Animated.timing(animValue, {
+     easing: Easing.out(Easing.ease),
+     toValue,
++    duration: 200,
+     useNativeDriver: true
+   });
+ }
+diff --git a/node_modules/@openspacelabs/react-native-zoomable-view/src/animations/index.ts b/node_modules/@openspacelabs/react-native-zoomable-view/src/animations/index.ts
+index 8dd529c..d08615d 100644
+--- a/node_modules/@openspacelabs/react-native-zoomable-view/src/animations/index.ts
++++ b/node_modules/@openspacelabs/react-native-zoomable-view/src/animations/index.ts
+@@ -8,6 +8,7 @@ export function getBoundaryCrossedAnim(
+   return Animated.spring(animValue, {
+     overshootClamping: true,
+     toValue,
++    duration: 200,
+     useNativeDriver: true,
+   });
+ }
+@@ -19,6 +20,7 @@ export function getPanMomentumDecayAnim(
+   return Animated.decay(animValue, {
+     velocity,
+     deceleration: 0.994,
++    duration: 200,
+     useNativeDriver: true,
+   });
+ }
+@@ -27,6 +29,7 @@ export function getZoomToAnimation(animValue: Animated.Value, toValue: number) {
+   return Animated.timing(animValue, {
+     easing: Easing.out(Easing.ease),
+     toValue,
++    duration: 200,
+     useNativeDriver: true,
+   });
+ }

@@ -2,8 +2,8 @@
 // of rich records (each row can carry photo/video media). Groups are user-defined
 // strings — users decide how to organize entries. Exposes the inline digest
 // (JourneyTimelineCard) and the full-screen timeline (JourneyTimelineFull).
-import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Alert, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -17,10 +17,27 @@ import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
+import { CircleBtn } from '../CircleBtn';
 import { PhotoTile } from '../PhotoTile';
 import { FullOverlay } from './FullOverlay';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
+import { uploadMedia } from '../../lib/storage';
+
+async function uploadTLMedia(items: TLMedia[], userId: string, journeyId: string): Promise<TLMedia[]> {
+  return Promise.all(
+    items.map(async (m) => {
+      const copy = { ...m };
+      if (copy.uri && !copy.uri.startsWith('http')) {
+        try { copy.uri = await uploadMedia(copy.uri, userId, journeyId); } catch {}
+      }
+      if (copy.thumb && !copy.thumb.startsWith('http')) {
+        try { copy.thumb = await uploadMedia(copy.thumb, userId, journeyId); } catch {}
+      }
+      return copy;
+    }),
+  );
+}
 
 // ── Check control: 'done' (filled tick) | 'current' (calm ring) | 'todo' ──────
 function Check({ theme, state, onPress }: { theme: Theme; state: 'done' | 'current' | 'todo'; onPress?: () => void }) {
@@ -183,12 +200,19 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
   const [i, setI] = useState(index || 0);
   const m = media[i] || media[0];
   const viewH = height - insets.top - insets.bottom - 80;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+  }, [fadeAnim]);
 
   React.useEffect(() => {
     if (index > 0) setTimeout(() => scrollRef.current?.scrollTo({ x: index * width, animated: false }), 10);
   }, []);
 
   const renderItem = (mm: TLMedia, idx: number) => {
+    const isNear = Math.abs(idx - i) <= 1;
+    if (!isNear) return <View key={idx} style={{ width }} />;
     const isActive = idx === i;
     if (mm.video && mm.uri && isActive) {
       return (
@@ -201,7 +225,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
     return (
       <View key={idx} style={{ width, alignItems: 'center', justifyContent: 'center' }}>
         {displayUri ? (
-          <Image source={{ uri: displayUri }} contentFit="contain" style={{ width: width - 32, height: viewH, borderRadius: 18 }} />
+          <Image source={{ uri: displayUri }} contentFit="contain" transition={200} style={{ width: width - 32, height: viewH, borderRadius: 18 }} />
         ) : (
           <PhotoTile tone={mm.tone} seed={seedBase + '-' + idx} radius={18} resWidth={1000} style={{ width: width - 32, height: viewH }} />
         )}
@@ -210,7 +234,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
   };
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 210, backgroundColor: 'rgba(0,0,0,0.94)' }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 210, backgroundColor: 'rgba(0,0,0,0.94)', opacity: fadeAnim }]}>
       <View style={{ paddingTop: insets.top + 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
         <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' }}>{media.length > 1 ? `${i + 1} / ${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}</Text>
         <Press onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
@@ -228,7 +252,7 @@ function MediaViewer({ theme, media, index, seedBase, onClose }: { theme: Theme;
       >
         {media.map(renderItem)}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -618,10 +642,7 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
       <Text style={{ fontSize: 15, fontWeight: '600', color: theme.accent }}>{t('common.done')}</Text>
     </Press>
   ) : (
-    <Press onPress={() => setEditorRow(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 10, paddingRight: 13, borderRadius: 16, backgroundColor: theme.accent }}>
-      <Icon name="plus" color="#fff" size={15} strokeWidth={2.6} />
-      <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '700' }}>{t('common.add')}</Text>
-    </Press>
+    <CircleBtn theme={theme} name="plus" onPress={() => setEditorRow(null)} noShadow />
   );
 
   return (
@@ -693,7 +714,10 @@ export function JourneyTimelineFull({ theme, info, onClose }: { theme: Theme; in
           groups={groups}
           editRow={editorRow ?? undefined}
           onClose={() => setEditorRow(undefined)}
-          onSave={(it) => {
+          onSave={async (it) => {
+            if (it.media?.length && userId) {
+              it = { ...it, media: await uploadTLMedia(it.media, userId, info.id) };
+            }
             if (editorRow) { tl.update(editorRow.id, it); } else { tl.add(it); }
             setEditorRow(undefined);
           }}
