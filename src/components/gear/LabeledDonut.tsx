@@ -70,7 +70,7 @@ function NativeLabel({ d, sum, dim, theme, scale, cw }: { d: LabelDatum; sum: nu
   );
 }
 
-export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel, weightUnit = 'kg' }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void; weightUnit?: WeightUnit }) {
+export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel, weightUnit = 'kg', showStats = true }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void; weightUnit?: WeightUnit; showStats?: boolean }) {
   const { t } = useI18n();
   const TOPN = 5;
   const top = agg.slice(0, TOPN);
@@ -194,14 +194,16 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
             ))}
           </View>
         </View>
-        <View style={{ flexDirection: 'row', marginTop: 8, paddingTop: 4 }}>
-          {stats.map((s) => (
-            <View key={s.id} style={{ flex: 1, alignItems: 'center', paddingHorizontal: 2 }}>
-              <Text style={{ fontSize: 16, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{s.value}</Text>
-              <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text2, marginTop: 4 }}>{s.label}</Text>
-            </View>
-          ))}
-        </View>
+        {showStats ? (
+          <View style={{ flexDirection: 'row', marginTop: 8, paddingTop: 4 }}>
+            {stats.map((s) => (
+              <View key={s.id} style={{ flex: 1, alignItems: 'center', paddingHorizontal: 2 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{s.value}</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text2, marginTop: 4 }}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
     </View>
   );
 }

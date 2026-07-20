@@ -151,11 +151,11 @@ export function KV({ theme, k, v, leadingDot, first }: { theme: Theme; k: string
 }
 
 // Gear row with a photo thumbnail — used in 分类详情 / 套装详情 lists.
-export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg' }: { theme: Theme; item: GearItem; cat?: GearCat; last?: boolean; onPress?: () => void; weightUnit?: WeightUnit }) {
+export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false }: { theme: Theme; item: GearItem; cat?: GearCat; last?: boolean; onPress?: () => void; weightUnit?: WeightUnit; flush?: boolean }) {
   const qty = item.qty || 1;
   return (
     <>
-      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 13 }}>
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: flush ? 0 : 13 }}>
         <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={9} style={{ width: 38, height: 38 }} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{item.name}</Text>
@@ -174,7 +174,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
         </View>
         <Icon name="chevronR" color={theme.text3} size={14} />
       </Press>
-      {!last && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 63 }} />}
+      {!last && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: flush ? 50 : 63 }} />}
     </>
   );
 }
