@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | `deepseek` | `openai-chat` | `https://api.deepseek.com` | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
 | `openai` | `openai-responses` | `https://api.openai.com/v1` | `gpt-4.1-mini` | `OPENAI_API_KEY` |
-| `anthropic` | `anthropic` | `https://api.anthropic.com` | `claude-3-5-haiku-latest` | `ANTHROPIC_API_KEY` |
+| `anthropic` | `anthropic` | `https://api.anthropic.com` | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
 | `gemini` | `gemini` | `https://generativelanguage.googleapis.com/v1beta` | `gemini-2.5-flash` | `GEMINI_API_KEY` |
 
 ## 推荐配置

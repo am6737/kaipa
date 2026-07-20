@@ -44,11 +44,16 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 const env = (name: string) => Deno.env.get(name)?.trim() || '';
 
-const SYSTEM_PROMPT = `你是专业户外徒步行程规划助手。请基于路线、天数、强度和已有行程生成可执行的中文行程安排。
-要求：
+const SYSTEM_PROMPT = `你是专业户外徒步行程规划助手。请基于给定的路线信息、出发时间、总时长、天数、强度和已有行程，生成可执行的中文行程安排。
+
+关键规则：
 - 只输出 JSON，格式为 {"items":[{"day":"第 1 天","title":"...","timeStart":480,"timeEnd":540,"note":"..."}]}。
-- timeStart/timeEnd 是当天 0 点起的分钟数；无法确定时可以省略。
-- 每天 3-6 项，覆盖集合、徒步/路段、补给/午餐、营地/住宿、风险提醒。
+- timeStart/timeEnd 表示【该天】0 点起的分钟数（0–1439）。例如 20:00=1200，次日 07:00 记为「第 2 天」的 420。无法确定时可省略。
+- 必须严格遵守 preferences.startTime（出发时间 HH:MM）：第 1 项的开始时间就等于它换算的分钟数，不要擅自改成早上。未提供时再按常识推断。
+- 若给出 durationHours（总时长，小时），整个行程的结束时间应约等于「出发时间 + durationHours」，不要凭空拉长成多天或多加天数。
+- 跨夜处理：当「出发时间 + 时长」越过 24:00，把之后的活动放到「第 2 天」（再跨夜则第 3 天……），并按当天 0 点重新计分钟（如凌晨 1:00 = 第 2 天 timeStart 60）。
+- 当 days=1（含夜间/连夜穿越）时，生成一条连续时间线，不要套用「午餐 12:00 / 扎营 / 多日」模板；夜间时段要给出针对性事项：头灯与备用电池、保暖防风、导航与不夜行危险路段、补水与能量补给、观察队友状态。
+- 当 days>1 时，每天 3–6 项，覆盖集合、徒步/路段、补给、营地/住宿、风险提醒。
 - 标题要短，适合放进移动端行程列表。
 - 不要编造具体商家电话、官方班车时刻等高风险细节。`;
 
@@ -164,7 +169,7 @@ const PRESET_PROVIDERS: ProviderRegistry = {
   anthropic: {
     kind: 'anthropic',
     baseUrl: 'https://api.anthropic.com',
-    model: 'claude-3-5-haiku-latest',
+    model: 'claude-haiku-4-5',
     apiKeyEnv: 'ANTHROPIC_API_KEY',
   },
   gemini: {
@@ -213,12 +218,23 @@ function configuredProviderIds(registry: ProviderRegistry) {
   return Object.entries(registry).filter(([, cfg]) => !!env(cfg.apiKeyEnv)).map(([id]) => id);
 }
 
+function hasKey(cfg?: ProviderConfig) { return !!cfg && !!env(cfg.apiKeyEnv); }
+
 function resolveProvider(id: Provider | undefined): { id: string; cfg?: ProviderConfig } {
   const registry = providers();
-  const requested = id && id !== 'auto' ? id : env('SMART_PLAN_DEFAULT_PROVIDER') || 'deepseek';
-  if (requested) return { id: requested, cfg: registry[requested] };
-  const first = configuredProviderIds(registry)[0];
-  return first ? { id: first, cfg: registry[first] } : { id: 'fallback' };
+  // Explicit provider request: honor it verbatim (a missing key is surfaced later as an error).
+  if (id && id !== 'auto') return { id, cfg: registry[id] };
+  // auto: prefer an explicitly configured default (only if its key is actually set),
+  // otherwise pick the first provider that has a configured key so we really call a model
+  // instead of silently dropping to the local template.
+  const preferred = env('SMART_PLAN_DEFAULT_PROVIDER');
+  if (preferred && hasKey(registry[preferred])) return { id: preferred, cfg: registry[preferred] };
+  const firstConfigured = configuredProviderIds(registry)[0];
+  if (firstConfigured) return { id: firstConfigured, cfg: registry[firstConfigured] };
+  // Nothing is configured — return a default so callConfiguredProvider emits the
+  // "key missing" template fallback with a helpful warning.
+  const defaultId = preferred || 'deepseek';
+  return { id: defaultId, cfg: registry[defaultId] };
 }
 
 function providerKey(cfg: ProviderConfig) {

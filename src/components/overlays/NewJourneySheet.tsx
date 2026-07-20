@@ -48,6 +48,10 @@ interface NJRoute {
   lng?: number;
   lat?: number;
   coord?: string;
+  trackCoords?: Poi['trackCoords'];
+  trackElevation?: Poi['trackElevation'];
+  trackDurationMs?: Poi['trackDurationMs'];
+  trackWaypoints?: Poi['trackWaypoints'];
   custom?: boolean;
 }
 
@@ -64,6 +68,10 @@ function useRouteSuggestions(): NJRoute[] {
     lng: p.lng,
     lat: p.lat,
     coord: p.coord,
+    trackCoords: p.trackCoords,
+    trackElevation: p.trackElevation,
+    trackDurationMs: p.trackDurationMs,
+    trackWaypoints: p.trackWaypoints,
   })), [routes]);
 }
 
@@ -643,6 +651,10 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     fav: false,
     desc: '',
     routeId: route.custom ? undefined : route.id,
+    trackCoords: route.trackCoords,
+    trackElevation: route.trackElevation,
+    trackDurationMs: route.trackDurationMs,
+    trackWaypoints: route.trackWaypoints,
   };
   if (status === 'ongoing') {
     base.dayIndex = 1;
@@ -671,6 +683,10 @@ function presetToRoute(p: Poi): NJRoute {
     lng: p.lng,
     lat: p.lat,
     coord: p.coord,
+    trackCoords: p.trackCoords,
+    trackElevation: p.trackElevation,
+    trackDurationMs: p.trackDurationMs,
+    trackWaypoints: p.trackWaypoints,
   };
 }
 

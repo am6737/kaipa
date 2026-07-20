@@ -76,6 +76,8 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       title: item.title,
       day: item.day,
       media: item.media ?? null,
+      time_mins: item.timeStart ?? null,
+      time_end_mins: item.timeEnd ?? null,
       is_synth: false,
       is_custom: true,
       checked: false,
@@ -93,6 +95,8 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     if (patch.title !== undefined) dbPatch.title = patch.title;
     if (patch.day !== undefined) dbPatch.day = patch.day;
     if (patch.media !== undefined) dbPatch.media = patch.media ?? null;
+    if (patch.timeStart !== undefined) dbPatch.time_mins = patch.timeStart ?? null;
+    if (patch.timeEnd !== undefined) dbPatch.time_end_mins = patch.timeEnd ?? null;
     await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
     setState(key, (s) => ({
       ...s,
@@ -117,5 +121,29 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     }));
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, loading, isDone, toggle, add, update, remove, removeGroup };
+  const addGroup = (day: string) => {
+    const next = day.trim();
+    if (!next) return;
+    setState(key, (s) => s.knownGroups.includes(next) ? s : { ...s, knownGroups: [...s.knownGroups, next] });
+  };
+
+  const renameGroup = async (from: string, to: string) => {
+    const next = to.trim();
+    if (!from || !next || from === next || !journeyId || !userId) return;
+    await supabase
+      .from('timeline_rows')
+      .update({ day: next })
+      .eq('journey_id', journeyId)
+      .eq('user_id', userId)
+      .eq('day', from);
+    setState(key, (s) => {
+      const known = s.knownGroups.map((g) => (g === from ? next : g)).filter((g, i, arr) => g && arr.indexOf(g) === i);
+      return {
+        rows: s.rows.map(r => r.day === from ? { ...r, day: next } : r),
+        knownGroups: known.includes(next) ? known : [...known, next],
+      };
+    });
+  };
+
+  return { rows: state.rows, knownGroups: state.knownGroups, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
 }

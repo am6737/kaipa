@@ -1,6 +1,6 @@
 // PhotoWall.tsx — 瞬间 shared wall.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Alert, ScrollView, Animated, PanResponder, Pressable, ActivityIndicator, StyleSheet, useWindowDimensions, Platform, Share, InteractionManager, Easing, type DimensionValue } from 'react-native';
+import { View, Text, TextInput, Alert, ScrollView, Animated, PanResponder, Pressable, ActivityIndicator, StyleSheet, useWindowDimensions, Platform, Share, InteractionManager, Easing, KeyboardAvoidingView, Keyboard, type DimensionValue } from 'react-native';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,7 @@ import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../hooks/useInspo';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
+import { formatDuration } from '../../lib/time';
 
 
 interface WallPhoto {
@@ -139,6 +140,13 @@ function ZoomableImage({ uri, width, height, onSingleTap, onLongPress, onZoomCha
       onZoomAfter={handleZoomAfter}
       onLongPress={() => onLongPress()}
       longPressDuration={400}
+      // At 1× with a single finger, let the parent paging ScrollView own horizontal
+      // swipes (next/prev photo). Keep the gesture here when zoomed in (so panning the
+      // zoomed image works) OR while two fingers are down (so a pinch zooms instead of
+      // being misread by the pager as a left/right swipe).
+      disablePanOnInitialZoom
+      onShouldBlockNativeResponder={(_e, g, info) => (info?.zoomLevel ?? 1) > 1.05 || g.numberActiveTouches >= 2}
+      onPanResponderTerminationRequest={(_e, g, info) => (info?.zoomLevel ?? 1) <= 1.05 && g.numberActiveTouches < 2}
       style={{ width: dim, height: dimH }}
     >
       <Image source={{ uri }} contentFit="contain" transition={200} style={{ width: dim, height: dimH }} />
@@ -163,6 +171,15 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   const closingRef = useRef(false);
   const [livePlaying, setLivePlaying] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  // Disable paging the instant a second finger lands, so a pinch zooms instead of
+  // being read as a left/right page swipe. Touch events fire before the gesture
+  // system decides an owner, so this beats the scroll view to the gesture.
+  const [multiTouch, setMultiTouch] = useState(false);
+  const multiRef = useRef(false);
+  const syncMultiTouch = useCallback((e: { nativeEvent: { touches?: unknown[] } }) => {
+    const v = (e.nativeEvent.touches?.length ?? 0) >= 2;
+    if (v !== multiRef.current) { multiRef.current = v; setMultiTouch(v); }
+  }, []);
   const liveRef = useRef<LivePhotoViewType>(null);
 
   const isLivePhoto = photo?.kind === 'livePhoto' && !!photo.pairedVideoUri;
@@ -301,6 +318,11 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         horizontal
         pagingEnabled
         bounces
+        scrollEnabled={!zoomed && !multiTouch}
+        decelerationRate="fast"
+        onTouchStart={syncMultiTouch}
+        onTouchEnd={syncMultiTouch}
+        onTouchCancel={syncMultiTouch}
         showsHorizontalScrollIndicator={false}
         contentOffset={{ x: index * W, y: 0 }}
         onMomentumScrollEnd={(e) => {
@@ -426,24 +448,13 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
             </Press>
           ) : null}
           {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
-          {photo.day ? (() => {
-            let dateLine = `Day ${photo.day}`;
-            if (photo.time) dateLine += ` · ${photo.time}`;
-            if (info.date) {
-              const m = info.date.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
-              if (m) {
-                const base = new Date(+m[1], +m[2] - 1, +m[3]);
-                base.setDate(base.getDate() + photo.day - 1);
-                const fullDate = tr('journey.photoWall.dateFull', { year: base.getFullYear(), month: base.getMonth() + 1, day: base.getDate() });
-                dateLine = `Day ${photo.day} · ${fullDate}${photo.time ? ' ' + photo.time : ''}`;
-              }
-            }
-            return <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>{dateLine}</Text>;
-          })() : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 16 }}>
-            <Avatar ini={photo.author.ini} color={photo.author.color} tone={photo.author.tone} size={28} />
-            <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>{photo.author.name}{photo.author.host ? ' · ' + tr('journey.companions.host') : ''}</Text>
-          </View>
+          {(() => {
+            // Show trip day + the journey's recorded duration ("耗时"), not a calendar date.
+            const dayPart = photo.day ? `Day ${photo.day}` : '';
+            const dur = info.trackDurationMs ? formatDuration(info.trackDurationMs, tr) : '';
+            const line = [dayPart, dur].filter(Boolean).join(' · ');
+            return line ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>{line}</Text> : null;
+          })()}
         </View>
       ) : null}
 
@@ -770,6 +781,31 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     })
   ).current;
 
+  // ── compose sheet: pick assets → optional one-line caption → upload ──
+  const [composeSheet, setComposeSheet] = useState(false);
+  const [pendingAssets, setPendingAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [composeCaption, setComposeCaption] = useState('');
+  const composeSheetY = useRef(new Animated.Value(800)).current;
+  const composeBackdrop = useRef(new Animated.Value(0)).current;
+  const openCompose = useCallback((assets: ImagePicker.ImagePickerAsset[]) => {
+    setPendingAssets(assets);
+    setComposeCaption('');
+    setComposeSheet(true);
+    composeBackdrop.setValue(0);
+    composeSheetY.setValue(800);
+    Animated.parallel([
+      Animated.spring(composeSheetY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 170, mass: 1 }),
+      Animated.timing(composeBackdrop, { toValue: 1, duration: 400, useNativeDriver: true }),
+    ]).start();
+  }, [composeSheetY, composeBackdrop]);
+  const closeCompose = useCallback(() => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(composeSheetY, { toValue: 800, duration: 300, easing: Easing.in(Easing.bezier(0.4, 0, 1, 1)), useNativeDriver: true }),
+      Animated.timing(composeBackdrop, { toValue: 0, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+    ]).start(() => setComposeSheet(false));
+  }, [composeSheetY, composeBackdrop]);
+
   const roster = info.companionList || [];
   const self = roster.find((c) => c.self || c.host) || roster[0];
 
@@ -794,7 +830,8 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     })
   ).current;
 
-  const addAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
+  const addAssets = async (assets: ImagePicker.ImagePickerAsset[], caption?: string) => {
+    const cap = caption?.trim() || undefined;
     const items = await Promise.all(assets.map(async (a) => {
       const kind = a.type === 'video' ? 'video' as const : a.type === 'livePhoto' ? 'livePhoto' as const : 'image' as const;
       let thumbnail: string | undefined;
@@ -807,11 +844,19 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
       if (kind === 'livePhoto' && (a as any).pairedVideoAsset?.uri) {
         pairedVideoUri = (a as any).pairedVideoAsset.uri;
       }
-      return { uri: a.uri, kind, thumbnail, duration, pairedVideoUri };
+      return { uri: a.uri, kind, thumbnail, duration, pairedVideoUri, caption: cap };
     }));
     // addAll creates ALL placeholders synchronously in one batch before any
     // upload begins, then uploads with 4-at-a-time concurrency.
     inspoRef.current.addAll(items).catch(() => nav.showToast(tr('journey.photoWall.errorTitle')));
+  };
+
+  // Confirm from the compose sheet: snapshot picks + caption, close, then upload.
+  const confirmCompose = () => {
+    const assets = pendingAssets;
+    const caption = composeCaption;
+    closeCompose();
+    if (assets.length) addAssets(assets, caption);
   };
 
   // ── picker: call launch directly from event handlers (NOT inside useEffect,
@@ -826,7 +871,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     setProcessingAssets(true);
     try {
       const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
-      if (!res.canceled && res.assets) await addAssets(res.assets);
+      if (!res.canceled && res.assets?.length) openCompose(res.assets);
     } catch (e) {
       Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
     } finally {
@@ -843,8 +888,8 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     setProcessingAssets(true);
     try {
       const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos', 'livePhotos'], allowsMultipleSelection: true, quality: 0.8 });
-      if (!res.canceled && res.assets) {
-        await addAssets(res.assets);
+      if (!res.canceled && res.assets?.length) {
+        openCompose(res.assets);
       }
     } catch (e) {
       Alert.alert(tr('journey.photoWall.errorTitle'), String(e && typeof e === 'object' && 'message' in e ? (e as any).message : e));
@@ -866,7 +911,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
   const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: m.caption || '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
     [inspo.media, selfAuthor]
   );
   const allPhotos = isPlanning ? inspoPhotos : [...fakePhotos, ...inspoPhotos];
@@ -973,7 +1018,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
             </View>
 
             {/* action capsule */}
-            <View style={{ marginHorizontal: bodyPad, marginTop: 14, marginBottom: 6, flexDirection: 'row', height: 44, borderRadius: 12, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : '#fff' }}>
+            <View style={{ marginHorizontal: bodyPad, marginTop: 14, marginBottom: 6, flexDirection: 'row', height: 44, borderRadius: 22, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : '#fff' }}>
               <Press
                 onPress={inspo.uploading ? undefined : chooseSource}
                 style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
@@ -1238,6 +1283,77 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
         nav={nav}
         tr={tr}
       />
+
+      {/* ── Compose sheet: optional one-line caption before upload (always rendered) ── */}
+      <View style={[StyleSheet.absoluteFill, { zIndex: 170 }]} pointerEvents={composeSheet ? 'auto' : 'none'}>
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', opacity: composeBackdrop }]}>
+          <Press onPress={closeCompose} style={StyleSheet.absoluteFill}><View /></Press>
+        </Animated.View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+        >
+          <Animated.View style={{
+            backgroundColor: t.dark ? '#1c1c1e' : t.bg,
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            paddingHorizontal: 18,
+            paddingTop: 12,
+            paddingBottom: insets.bottom + 18,
+            transform: [{ translateY: composeSheetY }],
+          }}>
+            <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.text3, alignSelf: 'center', marginBottom: 14 }} />
+
+            {/* header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              <Press onPress={closeCompose} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 14.5, color: t.text2 }}>{tr('common.cancel')}</Text>
+              </Press>
+              <Text style={{ flex: 1, textAlign: 'center', fontSize: 16.5, fontWeight: '800', color: t.text }}>{tr('journey.photoWall.addMoment')}</Text>
+              <Press onPress={confirmCompose} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: '700', color: t.accent }}>
+                  {`${tr('journey.action.add')}${pendingAssets.length > 1 ? ` ${pendingAssets.length}` : ''}`}
+                </Text>
+              </Press>
+            </View>
+
+            {/* picked media strip */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 14 }}>
+              {pendingAssets.map((a, i) => (
+                <View key={i} style={{ width: 76, height: 76, borderRadius: 12, overflow: 'hidden', backgroundColor: t.dark ? '#2c2c2e' : '#e8e8e8' }}>
+                  <Image source={{ uri: a.uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+                  {a.type === 'video' ? (
+                    <View style={{ position: 'absolute', right: 5, bottom: 5, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icon name="play" color="#fff" size={9} />
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* optional caption */}
+            <TextInput
+              value={composeCaption}
+              onChangeText={setComposeCaption}
+              placeholder={tr('journey.photoWall.captionPlaceholder')}
+              placeholderTextColor={t.text3}
+              maxLength={40}
+              returnKeyType="done"
+              onSubmitEditing={confirmCompose}
+              style={{
+                paddingVertical: 13,
+                paddingHorizontal: 15,
+                borderRadius: 13,
+                borderWidth: 1,
+                fontSize: 15,
+                backgroundColor: t.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: t.hairline,
+                color: t.text,
+              }}
+            />
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </View>
     </Animated.View>
   );
 }

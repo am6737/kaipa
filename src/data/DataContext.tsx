@@ -6,7 +6,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useProfile } from '../hooks/useProfile';
 import type { UserProfile } from '../hooks/useProfile';
 import type { Poi } from './pois';
-import type { GearCat, GearItem, GearSet } from './gear';
+import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
 
 export interface DataValue {
@@ -19,9 +19,11 @@ export interface DataValue {
   journeysLoading: boolean;
   createJourney: (poi: Partial<Poi>) => Promise<Poi | null>;
   updateJourney: (id: string, patch: Partial<Poi>) => Promise<void>;
+  updateRoute: (id: string, patch: Partial<Poi>) => Promise<void>;
   deleteJourney: (id: string) => Promise<void>;
   toggleFav: (id: string, current: boolean) => Promise<void>;
   refetchJourneys: () => Promise<void>;
+  refetchRoutes: () => Promise<void>;
   cats: GearCat[];
   items: GearItem[];
   sets: GearSet[];
@@ -32,8 +34,8 @@ export interface DataValue {
   addItem: (item: Omit<GearItem, 'id'>) => Promise<void>;
   updateItem: (id: number, patch: Partial<GearItem>) => Promise<void>;
   deleteItem: (id: number) => Promise<void>;
-  addSet: (name: string, itemIds: number[]) => Promise<void>;
-  updateSet: (id: string, name: string, itemIds: number[]) => Promise<void>;
+  addSet: (name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
+  updateSet: (id: string, name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
   deleteSet: (id: string) => Promise<void>;
   refetchGear: () => Promise<void>;
   notifList: Notif[];
@@ -45,7 +47,7 @@ export interface DataValue {
 const DataContext = createContext<DataValue | null>(null);
 
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
-  const { routes, loading: routesLoading } = useRoutes();
+  const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes();
   const {
     journeys, loading: journeysLoading,
     createJourney, updateJourney, deleteJourney, toggleFav,
@@ -70,7 +72,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     userId,
     profile, updateProfile,
     routes, routesLoading,
-    journeys, journeysLoading, createJourney, updateJourney, deleteJourney, toggleFav, refetchJourneys,
+    journeys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, toggleFav, refetchJourneys, refetchRoutes,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { parseTrack, computeStats, buildTrackData, snapWaypoints } from './lib/trackParser';
+import { extractKmlFromKmz } from './lib/kmz';
 import { StatusBar } from 'expo-status-bar';
 import type { Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
@@ -19,10 +20,12 @@ import { AddRouteSheet } from './components/overlays/AddRouteSheet';
 import { NewJourneySheet } from './components/overlays/NewJourneySheet';
 import { ElevationFull } from './components/overlays/ElevationFull';
 import { PhotoWall } from './components/overlays/PhotoWall';
-import { JourneyTimelineFull } from './components/overlays/JourneyTimeline';
-import { JourneyCardFull } from './components/overlays/JourneyCardFull';
+import { JourneyEntryEditor } from './components/overlays/JourneyTimeline';
+import { JourneyDetailSplit } from './components/overlays/JourneyDetailSplit';
 import { EditJourneySheet } from './components/overlays/EditJourneySheet';
 import { JourneySettings } from './components/overlays/JourneySettings';
+import { HostShareSheet } from './components/overlays/HostShareSheet';
+import { NearbyJoinSheet } from './components/overlays/NearbyJoinSheet';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
@@ -61,14 +64,27 @@ function AppShell() {
               if (result.canceled || !result.result) return;
               const filename = result.result.name || '';
               const ext = (filename.split('.').pop() || '').toLowerCase();
-              if (ext !== 'gpx' && ext !== 'kml') {
+              if (ext !== 'gpx' && ext !== 'kml' && ext !== 'kmz') {
                 nav.showToast(t('record.track.errFormat'));
                 return;
               }
               setTrackLoading(true);
               try {
-                const text = await result.result.text();
-                const parsed = parseTrack(text, filename, t as any);
+                let text: string;
+                let parseFilename = filename;
+                if (ext === 'kmz') {
+                  const buffer = await result.result.arrayBuffer();
+                  const kml = extractKmlFromKmz(new Uint8Array(buffer));
+                  if (!kml) {
+                    nav.showToast(t('record.track.errParse'));
+                    return;
+                  }
+                  text = kml;
+                  parseFilename = filename.replace(/\.kmz$/i, '.kml');
+                } else {
+                  text = await result.result.text();
+                }
+                const parsed = parseTrack(text, parseFilename, t as any);
                 if (parsed.error || !parsed.points) {
                   nav.showToast(parsed.error || t('record.track.errParse'));
                   return;
@@ -115,10 +131,10 @@ function AppShell() {
           }}
         />
       )}
-      {nav.detail && <JourneyCardFull theme={theme} poi={nav.detail} onClose={() => nav.closeDetail()} />}
+      {nav.detail && <JourneyDetailSplit theme={theme} poi={nav.detail} onClose={() => nav.closeDetail()} />}
       {nav.elevFull && <ElevationFull theme={theme} info={nav.elevFull.info} isMine={nav.elevFull.isMine} onClose={() => nav.closeElevation()} />}
       {nav.photoWall && <PhotoWall theme={theme} info={nav.photoWall.info} status={nav.photoWall.status} onClose={() => nav.closePhotoWall()} />}
-      {nav.timeline && <JourneyTimelineFull theme={theme} info={nav.timeline} onClose={() => nav.closeTimeline()} />}
+      {nav.timelineAdd && <JourneyEntryEditor theme={theme} info={nav.timelineAdd.poi} initialDay={nav.timelineAdd.day} editRow={nav.timelineAdd.editRow} onClose={() => nav.closeTimelineAdd()} />}
       {nav.editJourney && (
         <EditJourneySheet
           theme={theme}
@@ -140,6 +156,21 @@ function AppShell() {
           onEdit={() => nav.openEditJourney(nav.journeySettings!)}
         />
       )}
+      {nav.liveShare && (
+        <HostShareSheet
+          theme={theme}
+          poi={nav.liveShare}
+          onClose={() => nav.closeLiveShare()}
+          onToast={(m) => nav.showToast(m)}
+        />
+      )}
+      {nav.nearbyJoinOpen && (
+        <NearbyJoinSheet
+          theme={theme}
+          onClose={() => nav.closeNearbyJoin()}
+          onToast={(m) => nav.showToast(m)}
+        />
+      )}
       {nav.manageCompanions && (
         <ManageCompanions
           theme={theme}
@@ -159,7 +190,7 @@ function AppShell() {
       )}
       {nav.searchOpen && <SearchScreen theme={theme} />}
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
-      {nav.toast ? <Toast message={nav.toast} dark={theme.dark} /> : null}
+      {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>
   );
 }
@@ -171,6 +202,7 @@ function NavBridge({ signOut }: { signOut: () => void }) {
       auth={{ signOut }}
       db={{
         updateJourney: data.updateJourney,
+        updateRoute: data.updateRoute,
         deleteJourney: data.deleteJourney,
         toggleFav: data.toggleFav,
         createJourney: data.createJourney,

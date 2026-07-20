@@ -14,6 +14,8 @@ export interface TLRow {
   title: string;
   day: string;
   media?: TLMedia[];
+  timeStart?: number; // minutes from midnight (0–1439), 24h start time; undefined = no time
+  timeEnd?: number;   // minutes from midnight, 24h end time; undefined = no end
   synth?: boolean;
   custom?: boolean;
   checked?: boolean;

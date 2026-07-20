@@ -13,6 +13,7 @@ import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
+import { WEIGHT_UNITS, WeightUnit } from '../data/gear';
 import { useNotifCenter } from '../data/notifications';
 import { elevCard } from '../theme/shadow';
 import { MeSection, MeCard, MeRow, ColorDot } from '../components/me/parts';
@@ -194,6 +195,21 @@ export function MeScreen({ theme }: { theme: Theme }) {
   const isPreset = !!curPreset;
   const accentName = curPreset ? accentLabel(curPreset.id) : t('common.custom');
 
+  const setGearWeightUnit = (unit: WeightUnit) => {
+    data.updateProfile('gearWeightUnit', unit);
+    showToast(t('me.gearWeightUnitSaved', { unit }));
+  };
+
+  const openGearWeightUnit = () =>
+    nav.openActionSheet({
+      title: t('me.gearWeightUnit'),
+      message: t('me.gearWeightUnitMessage'),
+      items: WEIGHT_UNITS.map((unit) => ({
+        label: unit === data.profile.gearWeightUnit ? `${unit} ✓` : unit,
+        onPress: () => setGearWeightUnit(unit),
+      })),
+    });
+
   const confirmSignOut = () =>
     nav.openActionSheet({
       title: t('me.signOut'),
@@ -339,6 +355,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
           <MeCard theme={theme}>
             <MeRow theme={theme} label={t('me.account')} onPress={() => push({ type: 'account' })} />
             <MeRow theme={theme} label={t('me.notifications')} detail={notif.push ? t('common.on') : t('common.off')} onPress={() => push({ type: 'notif' })} />
+            <MeRow theme={theme} label={t('me.gearWeightUnit')} detail={data.profile.gearWeightUnit} onPress={openGearWeightUnit} />
             <MeRow theme={theme} label={t('me.helpFeedback')} onPress={() => push({ type: 'feedback' })} />
             <MeRow theme={theme} label={t('me.about')} detail="v1.0.2" onPress={() => push({ type: 'about' })} last />
           </MeCard>

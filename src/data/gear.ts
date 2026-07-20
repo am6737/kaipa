@@ -8,24 +8,48 @@ export interface GearCat {
   builtin: boolean;
 }
 
+export type GearCarryStatus = 'packed' | 'worn' | 'consumable' | 'optional';
+
 export interface GearItem {
   id?: number;
   name: string;
   cat: string;
-  w: number; // kg
-  p: number; // ¥
+  w: number; // kg, per unit
+  p: number; // ¥, per unit
   qty?: number;
+  // LighterPack-style carrying role. packed/base counts toward base weight;
+  // worn stays on body; consumable is food/fuel/water; optional is excluded.
+  status?: GearCarryStatus;
+  // User-uploaded product photos. The first photo is the cover image.
+  photos?: string[];
   attrs?: [string, string][];
   note?: string;
+}
+
+export interface GearSetOverride {
+  qty?: number;
+  status?: GearCarryStatus;
 }
 
 export interface GearSet {
   id: string;
   name: string;
   items: string[]; // item names
+  // Per-set overrides keyed by item id (with item name fallback for local/demo data).
+  overrides?: Record<string, GearSetOverride>;
 }
 
 export type Metric = 'price' | 'weight' | 'count';
+export type WeightUnit = 'kg' | 'g' | 'oz' | 'lb';
+
+export const WEIGHT_UNITS: WeightUnit[] = ['kg', 'g', 'oz', 'lb'];
+
+export const GEAR_STATUS: { id: GearCarryStatus; label: string; short: string }[] = [
+  { id: 'packed', label: '包内', short: 'Base' },
+  { id: 'worn', label: '穿戴', short: 'Worn' },
+  { id: 'consumable', label: '消耗', short: 'Cons' },
+  { id: 'optional', label: '备选', short: 'Opt' },
+];
 
 export const METRICS: { id: Metric; label: string }[] = [
   { id: 'price', label: '价值' },
@@ -95,11 +119,31 @@ export function catById(id: string, cats: GearCat[] = GX_CATS): GearCat {
   return cats.find((c) => c.id === id) || UNCAT;
 }
 
+export function itemQty(item: GearItem): number { return item.qty || 1; }
+export function itemWeight(item: GearItem): number { return item.w * itemQty(item); }
+export function itemPrice(item: GearItem): number { return item.p * itemQty(item); }
+export function itemStatus(item: GearItem): GearCarryStatus { return item.status || 'packed'; }
+export function isCarried(item: GearItem): boolean { return itemStatus(item) !== 'optional'; }
+
 export function metricValue(item: GearItem, metric: Metric): number {
-  const qty = item.qty || 1;
-  if (metric === 'price') return item.p * qty;
-  if (metric === 'weight') return item.w * qty;
-  return qty;
+  if (metric === 'price') return itemPrice(item);
+  if (metric === 'weight') return itemWeight(item);
+  return itemQty(item);
+}
+
+export function packStats(items: GearItem[]) {
+  let base = 0, worn = 0, consumable = 0, optional = 0, price = 0, count = 0;
+  for (const it of items) {
+    const w = itemWeight(it);
+    price += itemPrice(it);
+    count += itemQty(it);
+    const st = itemStatus(it);
+    if (st === 'worn') worn += w;
+    else if (st === 'consumable') consumable += w;
+    else if (st === 'optional') optional += w;
+    else base += w;
+  }
+  return { base, worn, consumable, optional, pack: base + consumable, skinOut: base + worn + consumable, price, count, kinds: items.length };
 }
 
 export interface CatAgg {
@@ -133,8 +177,29 @@ export function metricTotals(items: GearItem[]) {
   return { price, weight, count, kinds: items.length };
 }
 
-export function fmtMetric(value: number, metric: Metric): string {
+export function convertWeight(kg: number, unit: WeightUnit): number {
+  if (unit === 'g') return kg * 1000;
+  if (unit === 'oz') return kg * 35.27396195;
+  if (unit === 'lb') return kg * 2.2046226218;
+  return kg;
+}
+
+export function fmtWeight(kg: number, unit: WeightUnit = 'kg', compact = false): string {
+  const v = convertWeight(kg, unit);
+  if (unit === 'g') return `${Math.round(v).toLocaleString('en-US')} g`;
+  if (unit === 'oz') return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} oz`;
+  if (unit === 'lb') return `${v >= 10 || compact ? v.toFixed(1) : v.toFixed(2)} lb`;
+  return `${v >= 10 || compact ? v.toFixed(1) : v.toFixed(2)} kg`;
+}
+
+export function splitWeight(kg: number, unit: WeightUnit = 'kg', compact = false): { value: string; unit: string } {
+  const text = fmtWeight(kg, unit, compact);
+  const i = text.lastIndexOf(' ');
+  return i > 0 ? { value: text.slice(0, i), unit: text.slice(i + 1) } : { value: text, unit };
+}
+
+export function fmtMetric(value: number, metric: Metric, unit: WeightUnit = 'kg'): string {
   if (metric === 'price') return '¥' + Math.round(value).toLocaleString('en-US');
-  if (metric === 'weight') return value.toFixed(1) + ' kg';
+  if (metric === 'weight') return fmtWeight(value, unit);
   return String(Math.round(value)) + ' 件';
 }

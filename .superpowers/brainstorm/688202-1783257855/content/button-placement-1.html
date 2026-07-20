@@ -1,0 +1,44 @@
+
+<h2>“智能规划”按钮放在哪里更合适？</h2>
+<p class="subtitle">旅程详情 → 行程 Tab。下面是 3 个轻量布局方向，先确认入口位置；具体智能规划流程随后再定。</p>
+
+<style>
+.phone-row{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:18px;align-items:start}.phone{width:100%;max-width:300px;margin:0 auto;border:1px solid rgba(0,0,0,.12);border-radius:30px;background:#f6f2ea;box-shadow:0 14px 36px rgba(0,0,0,.12);overflow:hidden}.screen{padding:18px 14px 20px;min-height:520px}.hero{height:128px;background:linear-gradient(135deg,#273b2d,#87ad73);border-radius:22px;position:relative;margin-bottom:14px}.tabs{display:flex;gap:8px;margin:10px 0 14px}.tab{padding:8px 13px;border-radius:18px;background:rgba(0,0,0,.06);font-size:12px;color:#60645f}.tab.on{background:#111;color:white}.daychips{display:flex;gap:7px;margin-bottom:12px}.chip{padding:8px 12px;border-radius:16px;background:#171717;color:white;font-size:12px}.chip.gray{background:rgba(0,0,0,.06);color:#666}.aiBtn{display:flex;align-items:center;justify-content:center;gap:7px;border-radius:18px;background:linear-gradient(135deg,#1f8b5d,#47b881);color:white;font-weight:800;font-size:13px;box-shadow:0 8px 18px rgba(31,139,93,.25)}.timeline{border:1px solid rgba(0,0,0,.09);border-radius:18px;background:rgba(255,255,255,.55);overflow:hidden}.row{padding:13px 14px;border-bottom:1px solid rgba(0,0,0,.07);font-size:12px;color:#333}.row:last-child{border-bottom:0}.empty{height:160px;border:1px dashed rgba(0,0,0,.16);border-radius:18px;display:flex;align-items:center;justify-content:center;text-align:center;color:#777;font-size:12px;background:rgba(255,255,255,.4)}.miniTitle{font-weight:800;margin-bottom:6px;color:#24251f}.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.iconbtn{width:36px;height:36px;border-radius:18px;background:rgba(0,0,0,.06);display:flex;align-items:center;justify-content:center}.float{position:absolute;right:16px;bottom:16px;width:112px;height:40px}.inline{height:42px;margin-bottom:12px}.emptyBtn{width:150px;height:42px;margin:12px auto 0}.sectionHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.smallAi{height:34px;padding:0 12px;font-size:12px}
+@media(max-width:900px){.phone-row{grid-template-columns:1fr}.phone{max-width:330px}}
+</style>
+
+<div class="cards phone-row">
+  <div class="card" data-choice="header" onclick="toggleSelect(this)">
+    <div class="phone"><div class="screen">
+      <div class="hero"><div class="aiBtn float">✨ 智能规划</div></div>
+      <div class="miniTitle">武功山反穿</div>
+      <div class="tabs"><div class="tab">总览</div><div class="tab">轨迹</div><div class="tab on">行程</div><div class="tab">同行</div></div>
+      <div class="daychips"><div class="chip">总览</div><div class="chip gray">Day 1</div><div class="chip gray">Day 2</div></div>
+      <div class="timeline"><div class="row">08:00 集合出发</div><div class="row">12:30 山脊午餐</div><div class="row">17:00 到达营地</div></div>
+    </div></div>
+    <div class="card-body"><h3>A. 地图/封面浮动按钮</h3><p>曝光强，但离“行程列表”较远，容易像全局操作。</p></div>
+  </div>
+
+  <div class="card" data-choice="inline-top" onclick="toggleSelect(this)">
+    <div class="phone"><div class="screen">
+      <div class="hero"></div>
+      <div class="miniTitle">武功山反穿</div>
+      <div class="tabs"><div class="tab">总览</div><div class="tab">轨迹</div><div class="tab on">行程</div><div class="tab">同行</div></div>
+      <div class="aiBtn inline">✨ 智能规划行程</div>
+      <div class="daychips"><div class="chip">总览</div><div class="chip gray">Day 1</div><div class="chip gray">Day 2</div></div>
+      <div class="timeline"><div class="row">08:00 集合出发</div><div class="row">12:30 山脊午餐</div><div class="row">17:00 到达营地</div></div>
+    </div></div>
+    <div class="card-body"><h3>B. 行程 Tab 顶部主按钮</h3><p>最清楚：进入行程就能看到，可用于空状态和已有行程的重新规划。</p></div>
+  </div>
+
+  <div class="card" data-choice="section-action" onclick="toggleSelect(this)">
+    <div class="phone"><div class="screen">
+      <div class="hero"></div>
+      <div class="miniTitle">武功山反穿</div>
+      <div class="tabs"><div class="tab">总览</div><div class="tab">轨迹</div><div class="tab on">行程</div><div class="tab">同行</div></div>
+      <div class="sectionHead"><div class="daychips" style="margin:0"><div class="chip">总览</div><div class="chip gray">Day 1</div></div><div class="aiBtn smallAi">✨ 规划</div></div>
+      <div class="timeline"><div class="row">08:00 集合出发</div><div class="row">12:30 山脊午餐</div><div class="row">17:00 到达营地</div></div>
+    </div></div>
+    <div class="card-body"><h3>C. 日期筛选右侧小按钮</h3><p>省空间，但不如主按钮显眼；更像辅助功能。</p></div>
+  </div>
+</div>

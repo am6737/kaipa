@@ -2,19 +2,24 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Text, View, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from './Icon';
 
-export function Toast({ message, dark }: { message: string; dark: boolean }) {
+export function Toast({ message, dark, placement = 'bottom' }: { message: string; dark: boolean; placement?: 'top' | 'bottom' }) {
+  const insets = useSafeAreaInsets();
   const op = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(op, { toValue: 1, useNativeDriver: true, bounciness: 6, speed: 18 }).start();
   }, [op, message]);
   return (
-    <View pointerEvents="none" style={{ position: 'absolute', bottom: 120, left: 0, right: 0, alignItems: 'center', zIndex: 500 }}>
+    <View
+      pointerEvents="none"
+      style={{ position: 'absolute', ...(placement === 'top' ? { top: insets.top + 14 } : { bottom: 120 }), left: 0, right: 0, alignItems: 'center', zIndex: 500 }}
+    >
       <Animated.View
         style={{
           opacity: op,
-          transform: [{ translateY: op.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+          transform: [{ translateY: op.interpolate({ inputRange: [0, 1], outputRange: [placement === 'top' ? -10 : 10, 0] }) }],
           borderRadius: 22,
           overflow: 'hidden',
         }}

@@ -4,6 +4,7 @@
 // overlay. Screens read this via useNav().
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { Poi } from '../data/pois';
+import { TLRow } from '../data/timeline';
 
 export type MainTab = 'discover' | 'gear' | 'me';
 export type SubTab = 'explore' | 'memory';
@@ -84,10 +85,11 @@ export interface NavValue {
   openPhotoWall: (c: OverlayCfg & { mode?: string }) => void;
   closePhotoWall: () => void;
 
-  // full 行程 timeline (journey detail → 行程 → 全部)
-  timeline: Poi | null;
-  openTimeline: (p: Poi) => void;
-  closeTimeline: () => void;
+  // direct 行程 entry editor (journey detail → 行程 → 添加/编辑) — pops the editor straight up
+  timelineAdd: { poi: Poi; day?: string; editRow?: TLRow } | null;
+  openTimelineAdd: (p: Poi, day?: string) => void;
+  openTimelineEdit: (p: Poi, row: TLRow) => void;
+  closeTimelineAdd: () => void;
 
   // journey "更多" surfaces (edit info / settings)
   editJourney: Poi | null;
@@ -97,6 +99,16 @@ export interface NavValue {
   journeySettings: Poi | null;
   openJourneySettings: (p: Poi) => void;
   closeJourneySettings: () => void;
+
+  // 现场分享 (offline live share) host control sheet
+  liveShare: Poi | null;
+  openLiveShare: (p: Poi) => void;
+  closeLiveShare: () => void;
+
+  // 加入附近的现场分享 (guest discovery + join)
+  nearbyJoinOpen: boolean;
+  openNearbyJoin: () => void;
+  closeNearbyJoin: () => void;
 
   // 同行管理 (journey detail → 同行 → 管理)
   manageCompanions: Poi | null;
@@ -120,8 +132,8 @@ export interface NavValue {
   closeSearch: () => void;
 
   // toast
-  toast: string | null;
-  showToast: (msg: string) => void;
+  toast: { message: string; placement: 'top' | 'bottom' } | null;
+  showToast: (msg: string, placement?: 'top' | 'bottom') => void;
 
   // hide the floating tab bar while a full-screen pushed page is open
   // (e.g. the 我 screen's 账户与登录 / 消息中心 sub-pages).
@@ -135,6 +147,7 @@ const NavContext = createContext<NavValue | null>(null);
 
 export interface NavDB {
   updateJourney?: (id: string, patch: Partial<Poi>) => Promise<void>;
+  updateRoute?: (id: string, patch: Partial<Poi>) => Promise<void>;
   deleteJourney?: (id: string) => Promise<void>;
   toggleFav?: (id: string, current: boolean) => Promise<void>;
   createJourney?: (poi: Partial<Poi>) => Promise<Poi | null>;
@@ -163,20 +176,22 @@ export function NavProvider({
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
-  const [timeline, setTimeline] = useState<Poi | null>(null);
+  const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow } | null>(null);
   const [editJourney, setEditJourney] = useState<Poi | null>(null);
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
+  const [liveShare, setLiveShare] = useState<Poi | null>(null);
+  const [nearbyJoinOpen, setNearbyJoinOpen] = useState(false);
   const [manageCompanions, setManageCompanions] = useState<Poi | null>(null);
   const [savedRoutes, setSavedRoutes] = useState<Poi[]>([]);
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [sharePanel, setSharePanel] = useState<Poi | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHidden, setTabBarHidden] = useState(false);
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
-  const showToast = (msg: string) => {
-    setToast(msg);
+  const showToast = (msg: string, placement: 'top' | 'bottom' = 'bottom') => {
+    setToast({ message: msg, placement });
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(null), 1900);
   };
@@ -190,9 +205,11 @@ export function NavProvider({
     setNewJourneyPreset(null);
     setElevFull(null);
     setPhotoWall(null);
-    setTimeline(null);
+    setTimelineAdd(null);
     setEditJourney(null);
     setJourneySettings(null);
+    setLiveShare(null);
+    setNearbyJoinOpen(false);
     setManageCompanions(null);
     setSharePanel(null);
     setSearchOpen(false);
@@ -224,7 +241,8 @@ export function NavProvider({
     const id = cur?.id;
     if (id) {
       setJourneyPatch((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
-      db?.updateJourney?.(id, patch);
+      if (cur?.kind === 'route') db?.updateRoute?.(id, patch);
+      else db?.updateJourney?.(id, patch);
     }
     setPointInfo((p) => (p ? { ...p, ...patch } : p));
     setDetail((d) => (d ? { ...d, ...patch } : d));
@@ -313,15 +331,22 @@ export function NavProvider({
       photoWall,
       openPhotoWall: (c) => setPhotoWall(c),
       closePhotoWall: () => setPhotoWall(null),
-      timeline,
-      openTimeline: (p) => setTimeline(merged(p)),
-      closeTimeline: () => setTimeline(null),
+      timelineAdd,
+      openTimelineAdd: (p, day) => setTimelineAdd({ poi: merged(p), day }),
+      openTimelineEdit: (p, row) => setTimelineAdd({ poi: merged(p), editRow: row }),
+      closeTimelineAdd: () => setTimelineAdd(null),
       editJourney,
       openEditJourney: (p) => setEditJourney(merged(p)),
       closeEditJourney: () => setEditJourney(null),
       journeySettings,
       openJourneySettings: (p) => setJourneySettings(merged(p)),
       closeJourneySettings: () => setJourneySettings(null),
+      liveShare,
+      openLiveShare: (p) => setLiveShare(merged(p)),
+      closeLiveShare: () => setLiveShare(null),
+      nearbyJoinOpen,
+      openNearbyJoin: () => setNearbyJoinOpen(true),
+      closeNearbyJoin: () => setNearbyJoinOpen(false),
       manageCompanions,
       openManageCompanions: (p) => setManageCompanions(merged(p)),
       closeManageCompanions: () => setManageCompanions(null),
@@ -359,9 +384,11 @@ export function NavProvider({
       newJourneyPreset,
       elevFull,
       photoWall,
-      timeline,
+      timelineAdd,
       editJourney,
       journeySettings,
+      liveShare,
+      nearbyJoinOpen,
       manageCompanions,
       sharePanel,
       searchOpen,

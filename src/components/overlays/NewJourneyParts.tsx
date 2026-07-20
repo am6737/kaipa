@@ -172,13 +172,16 @@ export function njFormatTime(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+const hapticTick = () => { Haptics.selectionAsync(); };
+
 export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number; onChange: (v: number) => void }) {
   return (
     <View style={{ overflow: 'hidden', alignItems: 'center' }}>
       <WheelPicker
         data={NJ_TIME_OPTIONS}
         value={value}
-        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(item.value); }}
+        onValueChanging={hapticTick}
+        onValueChanged={({ item }) => onChange(item.value)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
         width={160}
@@ -222,7 +225,8 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={years}
         value={year}
-        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(item.value, month, safeDay); }}
+        onValueChanging={hapticTick}
+        onValueChanged={({ item }) => onChange(item.value, month, safeDay)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
         width={110}
@@ -232,7 +236,8 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={months}
         value={month}
-        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(year, item.value, safeDay); }}
+        onValueChanging={hapticTick}
+        onValueChanged={({ item }) => onChange(year, item.value, safeDay)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
         width={80}
@@ -242,7 +247,8 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={days}
         value={safeDay}
-        onValueChanged={({ item }) => { Haptics.selectionAsync(); onChange(year, month, item.value); }}
+        onValueChanging={hapticTick}
+        onValueChanged={({ item }) => onChange(year, month, item.value)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
         width={80}

@@ -228,6 +228,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   );
 
   const expanded = index >= snapHeights.length - 1;
+  const compactCanScroll = compact && snapHeights.length > 1 && expanded;
   // keep the refs the pan responder reads in sync with the latest render
   compactRef.current = compact;
   expandedRef.current = expanded;
@@ -250,10 +251,10 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
-            borderTopLeftRadius: 26,
-            borderTopRightRadius: 26,
-            borderWidth: StyleSheet.hairlineWidth,
+            backgroundColor: compact ? 'transparent' : theme.dark ? '#1c1c1e' : '#fff',
+            borderTopLeftRadius: compact ? 0 : 26,
+            borderTopRightRadius: compact ? 0 : 26,
+            borderWidth: compact ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.hairline,
           },
         ]}
@@ -269,7 +270,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           <View style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }]}>
             <GHScrollView
               ref={scrollRef}
-              scrollEnabled={expanded}
+              scrollEnabled={compactCanScroll}
               // the drag-to-dismiss is driven by compactGesture, so kill the
               // scroll view's own overscroll — its rubber-band would otherwise
               // expose a blank strip above the hero while pulling the card down.
@@ -281,7 +282,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               }}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: insets.bottom }}
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
               style={{ flex: 1 }}
             >
               {children}

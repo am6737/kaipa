@@ -16,7 +16,7 @@ import { Press } from '../components/Press';
 import { FilterChip } from '../components/Chip';
 import { PoiRow } from '../components/ListRow';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
-import { SelectedPoiCard } from './JourneyCard';
+import { PoiPeekCard } from '../components/PoiPeekCard';
 import { KPState, KPSkeletonLine } from '../components/State';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
@@ -205,8 +205,9 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const globeSize = Math.min(width * 0.86, 360);
   const tabSpace = insets.bottom + 76;
   const collapsed = 120;
+  const peek = 284; // compact floating peek card height
   const mid = Math.round(height * 0.52);
-  const full = Math.round(height * 0.88);
+  const full = Math.round(height * 0.95);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
 
@@ -263,6 +264,21 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           >
             <Icon name="filter" color={theme.text2} size={17} />
           </Press>
+          {isMemory ? (
+            <Press
+              onPress={() => nav.openNearbyJoin()}
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+              }}
+            >
+              <Icon name="download" color={theme.text2} size={17} />
+            </Press>
+          ) : null}
           <Press
             onPress={() =>
               placeSel ? nav.openNewJourney(placePreset) : isMemory ? nav.openNewJourney() : nav.openAddRoute()
@@ -358,7 +374,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         </GlassIconBtn>
       </View>
 
-      <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? mid + 16 : tabSpace + 56 }}>
+      <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? (nav.pointInfo ? peek : mid) + 16 : tabSpace + 56 }}>
         <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
           <Icon name="locate" color={chromeTheme.accent} size={21} />
         </GlassIconBtn>
@@ -369,7 +385,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         ref={sheetRef}
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        snapHeights={nav.pointInfo ? [mid, full] : [collapsed, mid, full]}
+        snapHeights={nav.pointInfo ? [peek] : [collapsed, mid, full]}
         initialIndex={nav.pointInfo ? 0 : 1}
         header={header}
         compact={!!nav.pointInfo}
@@ -379,10 +395,11 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           nav.closeSheet();
         }}
       >
+        {nav.pointInfo ? (
+          <PoiPeekCard theme={theme} poi={nav.pointInfo} onPress={() => nav.pointInfo && nav.openDetail(nav.pointInfo)} />
+        ) : (
         <View style={{ paddingHorizontal: 16 }}>
-          {nav.pointInfo ? (
-            <SelectedPoiCard theme={theme} poi={nav.pointInfo} />
-          ) : listState === 'normal' ? (
+          {listState === 'normal' ? (
             displayPois.length === 0 ? (
               <KPState
                 theme={theme}
@@ -417,6 +434,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             </View>
           )}
         </View>
+        )}
       </TrailSheet>
       )}
       {selectMode ? (

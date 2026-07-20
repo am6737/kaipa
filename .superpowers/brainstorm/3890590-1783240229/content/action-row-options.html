@@ -1,0 +1,50 @@
+
+<h2>动作区调整方案</h2>
+<p class="subtitle">目标：删除“再次出发”功能；移除原来占一整行的动作卡片，把收藏/分享/更多放到更轻的位置。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:280px;border-radius:18px;background:linear-gradient(160deg,#466b55,#101812);position:relative;overflow:hidden;color:white;padding:18px;box-sizing:border-box;">
+        <div style="position:absolute;top:14px;right:14px;display:flex;gap:8px;">
+          <div style="width:36px;height:36px;border-radius:18px;background:rgba(0,0,0,.35);display:grid;place-items:center;">♡</div>
+          <div style="width:36px;height:36px;border-radius:18px;background:rgba(0,0,0,.35);display:grid;place-items:center;">↗</div>
+          <div style="width:36px;height:36px;border-radius:18px;background:rgba(0,0,0,.35);display:grid;place-items:center;">⋯</div>
+        </div>
+        <div style="position:absolute;left:18px;right:18px;bottom:22px;">
+          <div style="font-size:26px;font-weight:800;line-height:1.15;">漓江精华段＋老寨山</div>
+          <div style="opacity:.8;margin-top:6px;font-size:13px;">桂林 · 2026.06</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>A 顶部悬浮图标</h3><p>推荐：原动作行完全消失，三个次要动作放在封面右上角。详情内容直接从标签/总览开始。</p></div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:280px;border-radius:18px;background:#f5f3ee;position:relative;overflow:hidden;color:#171714;padding:18px;box-sizing:border-box;border:1px solid #ddd;">
+        <div style="height:138px;border-radius:14px;background:linear-gradient(160deg,#466b55,#101812);margin:-18px -18px 16px;"></div>
+        <div style="font-size:23px;font-weight:800;">漓江精华段＋老寨山</div>
+        <div style="color:#777;margin-top:4px;font-size:13px;">桂林 · 2026.06</div>
+        <div style="display:flex;gap:10px;margin-top:16px;">
+          <span style="padding:8px 12px;border-radius:999px;background:#fff;border:1px solid #ddd;">♡ 收藏</span>
+          <span style="padding:8px 12px;border-radius:999px;background:#fff;border:1px solid #ddd;">↗ 分享</span>
+          <span style="padding:8px 12px;border-radius:999px;background:#fff;border:1px solid #ddd;">⋯ 更多</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body"><h3>B 标题下小胶囊</h3><p>保留文字按钮但降低高度。仍会形成一行“动作区”，不如 A 简洁。</p></div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:280px;border-radius:18px;background:#f5f3ee;position:relative;overflow:hidden;color:#171714;padding:18px;box-sizing:border-box;border:1px solid #ddd;">
+        <div style="height:138px;border-radius:14px;background:linear-gradient(160deg,#466b55,#101812);margin:-18px -18px 16px;position:relative;"><div style="position:absolute;right:14px;top:14px;width:36px;height:36px;border-radius:18px;background:rgba(0,0,0,.35);color:white;display:grid;place-items:center;">⋯</div></div>
+        <div style="font-size:23px;font-weight:800;">漓江精华段＋老寨山</div>
+        <div style="color:#777;margin-top:4px;font-size:13px;">桂林 · 2026.06</div>
+        <div style="margin-top:20px;padding:12px;border-radius:14px;background:#fff;border:1px solid #ddd;color:#777;">总览内容直接上移</div>
+      </div>
+    </div>
+    <div class="card-body"><h3>C 收进“更多”</h3><p>只露出一个更多按钮，收藏/分享都进菜单。界面最安静，但常用动作多一步。</p></div>
+  </div>
+</div>

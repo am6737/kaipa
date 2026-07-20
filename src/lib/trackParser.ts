@@ -108,10 +108,10 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
 
   const isKml = ext === 'kml' || /<kml[\s>]/i.test(xml);
   const points: TrackPt[] = [];
-  const nameM = xml.match(/<name>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
+  const nameM = xml.match(/<name\b[^>]*>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
   const name = nameM ? nameM[1].trim() : '';
   if (isKml) {
-    const coordRe = /<coord>\s*([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)?\s*<\/coord>/gi;
+    const coordRe = /<coord\b[^>]*>\s*([-\d.eE+]+)\s+([-\d.eE+]+)(?:\s+([-\d.eE+]+))?\s*<\/coord>/gi;
     let cm: RegExpExecArray | null;
     while ((cm = coordRe.exec(xml))) {
       const lon = parseFloat(cm[1]);
@@ -120,7 +120,7 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
       if (isFinite(lat) && isFinite(lon)) points.push({ lat, lon, ele: isFinite(ele) ? ele : NaN, time: null });
     }
     if (points.length > 0) {
-      const whenRe = /<when>\s*([^<]+?)\s*<\/when>/gi;
+      const whenRe = /<when\b[^>]*>\s*([^<]+?)\s*<\/when>/gi;
       let wi = 0;
       let wm: RegExpExecArray | null;
       while ((wm = whenRe.exec(xml)) && wi < points.length) {
@@ -129,11 +129,11 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
       }
     }
     if (!points.length) {
-      const lsBlocks = xml.match(/<LineString>([\s\S]*?)<\/LineString>/gi) || [];
+      const lsBlocks = xml.match(/<LineString\b[^>]*>([\s\S]*?)<\/LineString>/gi) || [];
       for (const ls of lsBlocks) {
-        const cBlocks = ls.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi) || [];
+        const cBlocks = ls.match(/<coordinates\b[^>]*>([\s\S]*?)<\/coordinates>/gi) || [];
         for (const b of cBlocks) {
-          const inner = b.replace(/<\/?coordinates>/gi, '').trim();
+          const inner = b.replace(/<\/?coordinates\b[^>]*>/gi, '').trim();
           for (const tok of inner.split(/[\s\n\r]+/)) {
             if (!tok) continue;
             const parts = tok.split(',');
@@ -146,9 +146,9 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
       }
     }
     if (!points.length) {
-      const blocks = xml.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi) || [];
+      const blocks = xml.match(/<coordinates\b[^>]*>([\s\S]*?)<\/coordinates>/gi) || [];
       for (const b of blocks) {
-        const inner = b.replace(/<\/?coordinates>/gi, '').trim();
+        const inner = b.replace(/<\/?coordinates\b[^>]*>/gi, '').trim();
         for (const tok of inner.split(/[\s\n\r]+/)) {
           if (!tok) continue;
           const parts = tok.split(',');
@@ -171,8 +171,8 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
       const lat = parseFloat(latM[1]);
       const lon = parseFloat(lonM[1]);
       if (!isFinite(lat) || !isFinite(lon)) continue;
-      const eleM = body.match(/<ele>\s*([-\d.eE+]+)\s*<\/ele>/i);
-      const timeM = body.match(/<time>\s*([^<]+?)\s*<\/time>/i);
+      const eleM = body.match(/<ele\b[^>]*>\s*([-\d.eE+]+)\s*<\/ele>/i);
+      const timeM = body.match(/<time\b[^>]*>\s*([^<]+?)\s*<\/time>/i);
       points.push({ lat, lon, ele: eleM ? parseFloat(eleM[1]) : NaN, time: timeM ? new Date(timeM[1].trim()) : null });
     }
     if (!points.length) {
@@ -196,13 +196,13 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
 
   const waypoints: Waypoint[] = [];
   if (isKml) {
-    const pmRe = /<Placemark>([\s\S]*?)<\/Placemark>/gi;
+    const pmRe = /<Placemark\b[^>]*>([\s\S]*?)<\/Placemark>/gi;
     let pm: RegExpExecArray | null;
     while ((pm = pmRe.exec(xml))) {
       const block = pm[1];
-      if (!/<Point>/i.test(block)) continue;
-      const wn = block.match(/<name>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
-      const wc = block.match(/<Point>[\s\S]*?<coordinates>\s*([-\d.eE+]+),([-\d.eE+]+)(?:,([-\d.eE+]+))?\s*<\/coordinates>/i);
+      if (!/<Point\b/i.test(block)) continue;
+      const wn = block.match(/<name\b[^>]*>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
+      const wc = block.match(/<Point\b[^>]*>[\s\S]*?<coordinates\b[^>]*>\s*([-\d.eE+]+),([-\d.eE+]+)(?:,([-\d.eE+]+))?\s*<\/coordinates>/i);
       if (wn && wc) {
         const lon = parseFloat(wc[1]);
         const lat = parseFloat(wc[2]);
@@ -218,11 +218,11 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
       const body = wm[2];
       const wLat = attrs.match(/lat\s*=\s*["']([-\d.eE+]+)["']/i);
       const wLon = attrs.match(/lon\s*=\s*["']([-\d.eE+]+)["']/i);
-      const wName = body.match(/<name>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
+      const wName = body.match(/<name\b[^>]*>\s*(?:<!\[CDATA\[)?\s*([^\]<]+?)\s*(?:\]\]>)?\s*<\/name>/i);
       if (wLat && wLon && wName) {
         const lat = parseFloat(wLat[1]);
         const lon = parseFloat(wLon[1]);
-        const eleM = body.match(/<ele>\s*([-\d.eE+]+)\s*<\/ele>/i);
+        const eleM = body.match(/<ele\b[^>]*>\s*([-\d.eE+]+)\s*<\/ele>/i);
         const ele = eleM ? parseFloat(eleM[1]) : NaN;
         if (isFinite(lat) && isFinite(lon)) waypoints.push({ name: wName[1].trim(), lat, lon, ele: isFinite(ele) ? ele : NaN });
       }

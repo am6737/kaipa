@@ -1,5 +1,5 @@
 import type { Poi, Companion } from '../data/pois';
-import type { GearCat, GearItem, GearSet } from '../data/gear';
+import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 import type { Notif } from '../data/notifications';
 import type { TLRow, TLMedia } from '../data/timeline';
 import type { InspoMedia } from '../data/inspoStore';
@@ -88,13 +88,15 @@ export function toGearItem(r: any): GearItem {
     w: r.weight,
     p: r.price,
     qty: r.qty ?? 1,
+    status: r.status ?? 'packed',
+    photos: Array.isArray(r.photo_uris) ? r.photo_uris : undefined,
     attrs: r.attrs,
     note: r.note,
   };
 }
 
-export function toGearSet(r: any, itemNames: string[]): GearSet {
-  return { id: r.id, name: r.name, items: itemNames };
+export function toGearSet(r: any, itemNames: string[], overrides?: Record<string, GearSetOverride>): GearSet {
+  return { id: r.id, name: r.name, items: itemNames, overrides: overrides && Object.keys(overrides).length ? overrides : undefined };
 }
 
 export function toNotif(r: any): Notif {
@@ -122,6 +124,8 @@ export function toTLRow(r: any): TLRow {
     title: r.title,
     day: r.day,
     media: r.media as TLMedia[] | undefined,
+    timeStart: r.time_mins ?? undefined,
+    timeEnd: r.time_end_mins ?? undefined,
     synth: r.is_synth ?? false,
     custom: r.is_custom ?? false,
     checked: r.checked ?? false,
@@ -136,5 +140,6 @@ export function toInspoMedia(r: any): InspoMedia {
     thumbnail: r.thumbnail ?? undefined,
     duration: r.duration ?? undefined,
     pairedVideoUri: r.paired_video_uri ?? undefined,
+    caption: r.caption ?? undefined,
   };
 }

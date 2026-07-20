@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import { toJourneyPoi } from '../lib/mappers';
 import type { Poi, JourneyStatus } from '../data/pois';
 
+const has = (obj: object, key: keyof Poi) => Object.prototype.hasOwnProperty.call(obj, key);
+
 export function useJourneys(userId: string | undefined) {
   const [journeys, setJourneys] = useState<Poi[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,28 +86,28 @@ export function useJourneys(userId: string | undefined) {
 
   const updateJourney = async (id: string, patch: Partial<Poi>) => {
     const row: any = {};
-    if (patch.name !== undefined) row.name = patch.name;
-    if (patch.region !== undefined) row.region = patch.region;
-    if (patch.desc !== undefined) row.desc = patch.desc;
-    if (patch.status !== undefined) row.status = patch.status;
-    if (patch.date !== undefined) row.date = patch.date;
-    if (patch.days !== undefined) row.days = patch.days;
-    if (patch.plannedDate !== undefined) row.planned_date = patch.plannedDate;
-    if (patch.countdown !== undefined) row.countdown = patch.countdown;
-    if (patch.dayIndex !== undefined) row.day_index = patch.dayIndex;
-    if (patch.totalDays !== undefined) row.total_days = patch.totalDays;
-    if (patch.fav !== undefined) row.fav = patch.fav;
-    if (patch.tone !== undefined) row.tone = patch.tone;
-    if (patch.dist !== undefined) row.dist = patch.dist;
-    if (patch.asc !== undefined) row.asc_ = patch.asc;
-    if (patch.trackCoords !== undefined) row.track_coords = patch.trackCoords;
-    if (patch.trackElevation !== undefined) row.track_elevation = patch.trackElevation;
-    if (patch.trackDurationMs !== undefined) row.track_duration_ms = patch.trackDurationMs;
-    if (patch.trackWaypoints !== undefined) row.track_waypoints = patch.trackWaypoints;
-    if (patch.photoUris !== undefined) row.photo_uris = patch.photoUris.filter((u) => !u.startsWith('file://'));
-    if (patch.trackPublic !== undefined) row.track_public = patch.trackPublic;
-    if (patch.routeShowPhotos !== undefined) row.route_show_photos = patch.routeShowPhotos;
-    if (patch.routeShowTimeline !== undefined) row.route_show_timeline = patch.routeShowTimeline;
+    if (has(patch, 'name')) row.name = patch.name;
+    if (has(patch, 'region')) row.region = patch.region;
+    if (has(patch, 'desc')) row.desc = patch.desc;
+    if (has(patch, 'status')) row.status = patch.status;
+    if (has(patch, 'date')) row.date = patch.date;
+    if (has(patch, 'days')) row.days = patch.days;
+    if (has(patch, 'plannedDate')) row.planned_date = patch.plannedDate;
+    if (has(patch, 'countdown')) row.countdown = patch.countdown;
+    if (has(patch, 'dayIndex')) row.day_index = patch.dayIndex;
+    if (has(patch, 'totalDays')) row.total_days = patch.totalDays;
+    if (has(patch, 'fav')) row.fav = patch.fav;
+    if (has(patch, 'tone')) row.tone = patch.tone;
+    if (has(patch, 'dist')) row.dist = patch.dist;
+    if (has(patch, 'asc')) row.asc_ = patch.asc;
+    if (has(patch, 'trackCoords')) row.track_coords = patch.trackCoords ?? null;
+    if (has(patch, 'trackElevation')) row.track_elevation = patch.trackElevation ?? null;
+    if (has(patch, 'trackDurationMs')) row.track_duration_ms = patch.trackDurationMs ?? null;
+    if (has(patch, 'trackWaypoints')) row.track_waypoints = patch.trackWaypoints ?? null;
+    if (has(patch, 'photoUris')) row.photo_uris = patch.photoUris?.filter((u) => !u.startsWith('file://')) ?? null;
+    if (has(patch, 'trackPublic')) row.track_public = patch.trackPublic;
+    if (has(patch, 'routeShowPhotos')) row.route_show_photos = patch.routeShowPhotos;
+    if (has(patch, 'routeShowTimeline')) row.route_show_timeline = patch.routeShowTimeline;
     row.updated_at = new Date().toISOString();
 
     if (Object.keys(row).length > 1) {

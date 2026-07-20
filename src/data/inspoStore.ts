@@ -15,6 +15,7 @@ export interface InspoMedia {
   thumbnail?: string;
   duration?: number;
   pairedVideoUri?: string;
+  caption?: string;
 }
 
 const store: { data: Record<string, InspoMedia[]>; subs: Set<() => void> } = { data: {}, subs: new Set() };

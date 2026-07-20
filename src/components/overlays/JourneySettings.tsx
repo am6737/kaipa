@@ -246,9 +246,13 @@ export function JourneySettings({
 
         {/* Permissions */}
         <Section theme={theme} title={t('journey.settings.permSection')} footer={t('journey.settings.shareFooter')}>
-          <Row theme={theme} label={t('journey.settings.enableLink')} trailing={<Switch value={linkOn} onValueChange={setLinkOn} />} />
-          <Row theme={theme} label={t('journey.settings.allowUpload')} trailing={<Switch value={allowUpload} onValueChange={setAllowUpload} />} />
-          <Row theme={theme} label={t('journey.settings.moderate')} trailing={<Switch value={moderate} onValueChange={setModerate} />} last />
+          <Row theme={theme} label={t('journey.settings.enableLink')} trailing={<Switch value={linkOn} onValueChange={setLinkOn} />} last={!linkOn} />
+          {linkOn ? (
+            <>
+              <Row theme={theme} label={t('journey.settings.allowUpload')} trailing={<Switch value={allowUpload} onValueChange={setAllowUpload} />} />
+              <Row theme={theme} label={t('journey.settings.moderate')} trailing={<Switch value={moderate} onValueChange={setModerate} />} last />
+            </>
+          ) : null}
         </Section>
 
         {/* Visibility */}

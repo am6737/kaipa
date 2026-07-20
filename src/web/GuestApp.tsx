@@ -3,7 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-nativ
 import { useTheme } from '../theme/AppearanceContext';
 import { useI18n } from '../i18n';
 import { GuestCover } from './GuestCover';
-import { IdentitySheet, type GuestIdentity } from './IdentitySheet';
+import type { GuestIdentity } from './IdentitySheet';
 import { GuestWall } from './GuestWall';
 import { useGuestData } from './useGuestData';
 
@@ -68,7 +68,7 @@ export function GuestApp() {
   const parsed = useRef(parseGuestPath()).current;
 
   const [identity, setIdentity] = useState<GuestIdentity | null>(loadIdentity);
-  const [stage, setStage] = useState<'cover' | 'joining' | 'wall'>('cover');
+  const [stage, setStage] = useState<'cover' | 'wall'>('cover');
   const [toast, setToast] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -99,11 +99,8 @@ export function GuestApp() {
             theme={theme}
             journey={journey}
             host={host}
-            companions={companions}
-            momentCount={moments.length}
             identity={identity}
-            onJoin={() => setStage('joining')}
-            onEnter={() => setStage('wall')}
+            onJoin={handleJoinDone}
           />
         )}
 
@@ -119,15 +116,6 @@ export function GuestApp() {
             onAddMoment={addMoment}
             onDeleteMoment={deleteMoment}
             onToast={showToast}
-          />
-        )}
-
-        {stage === 'joining' && (
-          <IdentitySheet
-            theme={theme}
-            hostName={host.display_name}
-            onDone={handleJoinDone}
-            onClose={() => setStage('cover')}
           />
         )}
 

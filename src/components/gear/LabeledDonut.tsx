@@ -3,7 +3,7 @@ import { Animated, View, Text } from 'react-native';
 import Svg, { Circle, G, Path, Polyline, Rect } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, Metric } from '../../data/gear';
+import { GearItem, GearCat, Metric, itemWeight, itemPrice, itemQty, fmtWeight, WeightUnit } from '../../data/gear';
 import { yuan } from './parts';
 
 export interface Row extends GearCat {
@@ -70,7 +70,7 @@ function NativeLabel({ d, sum, dim, theme, scale, cw }: { d: LabelDatum; sum: nu
   );
 }
 
-export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void }) {
+export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel, weightUnit = 'kg' }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void; weightUnit?: WeightUnit }) {
   const { t } = useI18n();
   const TOPN = 5;
   const top = agg.slice(0, TOPN);
@@ -126,19 +126,20 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
       ? items.filter((it) => restList.some((r) => r.id === it.cat))
       : items.filter((it) => it.cat === selSeg.id)
     : items;
-  const sp = statSource.reduce((a, it) => a + it.p, 0);
-  const sw = statSource.reduce((a, it) => a + it.w, 0);
+  const sp = statSource.reduce((a, it) => a + itemPrice(it), 0);
+  const sw = statSource.reduce((a, it) => a + itemWeight(it), 0);
+  const sc = statSource.reduce((a, it) => a + itemQty(it), 0);
   const stats = selSeg
     ? [
         { id: 'price', label: t('gear.stat.value'), value: yuan(sp) },
-        { id: 'weight', label: t('gear.stat.weight'), value: sw.toFixed(2) + ' kg' },
-        { id: 'count', label: t('gear.stat.count'), value: statSource.length + ' ' + t('gear.unit.items') },
+        { id: 'weight', label: t('gear.stat.weight'), value: fmtWeight(sw, weightUnit) },
+        { id: 'count', label: t('gear.stat.count'), value: sc + ' ' + t('gear.unit.items') },
         { id: 'share', label: t('gear.stat.share'), value: (sum ? (selSeg.value / sum) * 100 : 0).toFixed(1) + '%' },
       ]
     : [
         { id: 'price', label: t('gear.stat.totalValue'), value: yuan(sp) },
-        { id: 'weight', label: t('gear.stat.totalWeight'), value: sw.toFixed(2) + ' kg' },
-        { id: 'count', label: t('gear.stat.itemCount'), value: items.length + ' ' + t('gear.unit.items') },
+        { id: 'weight', label: t('gear.stat.totalWeight'), value: fmtWeight(sw, weightUnit) },
+        { id: 'count', label: t('gear.stat.itemCount'), value: sc + ' ' + t('gear.unit.items') },
         { id: 'cats', label: t('gear.stat.cats'), value: agg.length + ' ' + t('gear.unit.cats') },
       ];
 

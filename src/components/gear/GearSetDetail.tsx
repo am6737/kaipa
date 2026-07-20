@@ -12,7 +12,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet, Metric, METRICS } from '../../data/gear';
+import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight } from '../../data/gear';
 import { GearPushPage, GearCard, GearItemRow, CircleBtn } from './parts';
 import { LabeledDonut, Row } from './LabeledDonut';
 
@@ -47,6 +47,7 @@ export function GearSetDetail({
   set,
   allItems,
   catMap,
+  weightUnit = 'kg',
   onBack,
   onOpenItem,
   onDelete,
@@ -56,6 +57,7 @@ export function GearSetDetail({
   set: GearSet;
   allItems: GearItem[];
   catMap: Record<string, GearCat>;
+  weightUnit?: WeightUnit;
   onBack: () => void;
   onOpenItem: (it: GearItem) => void;
   onDelete: () => void;
@@ -67,12 +69,18 @@ export function GearSetDetail({
   const [metric, setMetric] = useState<Metric>('weight');
   const [sel, setSel] = useState<string | null>(null);
 
+  const applyOverride = (it: GearItem): GearItem => {
+    const override = (it.id != null ? set.overrides?.[String(it.id)] : undefined) || set.overrides?.[it.name];
+    return override ? { ...it, ...override } : it;
+  };
+
   // Group the set's hand-picked items by category (order of first appearance).
   const groups: Group[] = [];
   const gmap: Record<string, Group> = {};
   set.items.forEach((name) => {
-    const it = allItems.find((x) => x.name === name);
-    if (!it) return;
+    const base = allItems.find((x) => x.name === name);
+    if (!base) return;
+    const it = applyOverride(base);
     let g = gmap[it.cat];
     if (!g) {
       const cat = catMap[it.cat] || { id: it.cat, name: t('gear.uncategorized'), color: theme.text3, builtin: true };
@@ -80,21 +88,22 @@ export function GearSetDetail({
       groups.push(g);
     }
     g.its.push(it);
-    g.w += it.w * (it.qty || 1);
-    g.p += it.p * (it.qty || 1);
-    g.count += it.qty || 1;
+    g.w += itemWeight(it);
+    g.p += itemPrice(it);
+    g.count += itemQty(it);
   });
 
   // Same logic as the 装备 tab: qty-free per-category aggregation for the current
   // metric, fed to the shared LabeledDonut (which renders its own readout strip).
   const setItems = groups.flatMap((g) => g.its);
-  const valFor = (g: Group) => (metric === 'price' ? g.its.reduce((a, it) => a + it.p, 0) : metric === 'weight' ? g.its.reduce((a, it) => a + it.w, 0) : g.its.length);
+  const valFor = (g: Group) => (metric === 'price' ? g.its.reduce((a, it) => a + itemPrice(it), 0) : metric === 'weight' ? g.its.reduce((a, it) => a + itemWeight(it), 0) : g.its.reduce((a, it) => a + itemQty(it), 0));
   const agg: Row[] = groups
     .map((g) => ({ ...g.cat, value: valFor(g), count: g.its.length }))
     .filter((r) => r.value > 0)
     .sort((a, b) => b.value - a.value);
   const total = agg.reduce((a, r) => a + r.value, 0);
   const totN = groups.reduce((a, g) => a + g.count, 0);
+  const setPack = packStats(setItems);
 
   const confirmDelete = () =>
     nav.openActionSheet({
@@ -125,7 +134,15 @@ export function GearSetDetail({
             <View style={{ alignItems: 'center', marginTop: 6 }}>
               <MetricStepper theme={theme} metric={metric} setMetric={setMetric} />
             </View>
-            <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={setItems} width={winW - 40} sel={sel} onSel={setSel} />
+            <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={setItems} width={winW - 40} sel={sel} onSel={setSel} weightUnit={weightUnit} />
+            <GearCard theme={theme} style={{ paddingVertical: 12, paddingHorizontal: 14, marginTop: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2, marginBottom: 8 }}>{t('gear.pack.title')}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{t('gear.pack.base')} {fmtWeight(setPack.base, weightUnit, true)}</Text>
+                <Text style={{ fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{t('gear.pack.pack')} {fmtWeight(setPack.pack, weightUnit, true)}</Text>
+                <Text style={{ fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{t('gear.pack.worn')} {fmtWeight(setPack.worn, weightUnit, true)}</Text>
+              </View>
+            </GearCard>
 
             {/* grouped gear list */}
             {groups.map((g, gi) => (
@@ -137,7 +154,7 @@ export function GearSetDetail({
                 </View>
                 <GearCard theme={theme}>
                   {g.its.map((it, i) => (
-                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} />
+                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} />
                   ))}
                 </GearCard>
               </View>

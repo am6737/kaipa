@@ -12,7 +12,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat } from '../../data/gear';
+import { GearItem, GearCat, GEAR_STATUS, GearCarryStatus } from '../../data/gear';
 import { GearCard, SectionLabel, CircleBtn, toneFor } from './parts';
 
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
@@ -48,6 +48,7 @@ export function GearItemEditor({
   const [w, setW] = useState(item.w != null ? String(item.w) : '');
   const [p, setP] = useState(item.p != null ? String(item.p) : '');
   const [qty, setQty] = useState(item.qty || 1);
+  const [status, setStatus] = useState<GearCarryStatus>(item.status || 'packed');
   const [attrs, setAttrs] = useState<[string, string][]>((item.attrs || []).map((a) => [a[0], a[1]] as [string, string]));
   const [note, setNote] = useState(item.note || '');
   const [editCat, setEditCat] = useState(false);
@@ -75,6 +76,7 @@ export function GearItemEditor({
       w: Number(w) || 0,
       p: Number(p) || 0,
       qty: qty > 1 ? qty : undefined,
+      status,
       attrs: cleanAttrs.length ? cleanAttrs : undefined,
       note: note.trim() || undefined,
     });
@@ -144,6 +146,22 @@ export function GearItemEditor({
                   <Press onPress={() => setQty((n) => n + 1)} style={{ width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: fieldBg(theme) }}>
                     <Icon name="chevronR" color={theme.text} size={15} />
                   </Press>
+                </View>
+              </View>
+
+              {/* status */}
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 16 }} />
+              <View style={{ paddingHorizontal: 16, paddingVertical: 11 }}>
+                <Text style={{ fontSize: 14.5, color: theme.text, marginBottom: 9 }}>{t('gear.spec.status')}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                  {GEAR_STATUS.map((st) => {
+                    const on = st.id === status;
+                    return (
+                      <Press key={st.id} onPress={() => setStatus(st.id)} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: on ? theme.accentSoft : fieldBg(theme), borderWidth: 1, borderColor: on ? theme.accent : 'transparent' }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? theme.accent : theme.text2 }}>{t(`gear.status.${st.id}` as any)}</Text>
+                      </Press>
+                    );
+                  })}
                 </View>
               </View>
 

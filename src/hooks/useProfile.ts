@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import type { WeightUnit } from '../data/gear';
 
 export interface UserProfile {
   nick: string;
@@ -9,6 +10,7 @@ export interface UserProfile {
   email: string;
   uid: string;
   createdAt: string;
+  gearWeightUnit: WeightUnit;
 }
 
 const EMPTY: UserProfile = {
@@ -19,6 +21,7 @@ const EMPTY: UserProfile = {
   email: '',
   uid: '',
   createdAt: '',
+  gearWeightUnit: 'kg',
 };
 
 export function useProfile(userId: string | undefined) {
@@ -29,7 +32,7 @@ export function useProfile(userId: string | undefined) {
     if (!userId) return;
 
     const [{ data: row }, { data: { user } }] = await Promise.all([
-      supabase.from('profiles').select('nick, username, bio, created_at').eq('id', userId).single(),
+      supabase.from('profiles').select('nick, username, bio, created_at, gear_weight_unit').eq('id', userId).single(),
       supabase.auth.getUser(),
     ]);
 
@@ -41,6 +44,7 @@ export function useProfile(userId: string | undefined) {
       email: user?.email || '',
       uid: userId,
       createdAt: row?.created_at || '',
+      gearWeightUnit: (row?.gear_weight_unit || 'kg') as WeightUnit,
     });
     setLoading(false);
   }, [userId]);
@@ -65,7 +69,8 @@ export function useProfile(userId: string | undefined) {
       const { error } = await supabase.auth.updateUser({ phone: value });
       if (error) throw error;
     } else {
-      await supabase.from('profiles').update({ [field]: value }).eq('id', userId);
+      const dbField = field === 'gearWeightUnit' ? 'gear_weight_unit' : field;
+      await supabase.from('profiles').update({ [dbField]: value }).eq('id', userId);
     }
 
     setProfile((p) => ({ ...p, [field]: value }));

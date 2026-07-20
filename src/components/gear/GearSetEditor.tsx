@@ -12,7 +12,7 @@ import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { NJBottomSheet } from '../overlays/NewJourneySheet';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet } from '../../data/gear';
+import { GearItem, GearCat, GearSet, GearSetOverride, GEAR_STATUS, GearCarryStatus, WeightUnit } from '../../data/gear';
 import { toneFor, yuan, fmtKg } from './parts';
 
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
@@ -20,6 +20,7 @@ const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0
 export function GearSetEditor({
   theme,
   mode,
+  weightUnit = 'kg',
   initial,
   cats,
   allItems,
@@ -29,17 +30,27 @@ export function GearSetEditor({
 }: {
   theme: Theme;
   mode: 'new' | 'edit';
+  weightUnit?: WeightUnit;
   initial?: GearSet | null;
   cats: GearCat[];
   allItems: GearItem[];
   catMap: Record<string, GearCat>;
   onCancel: () => void;
-  onSave: (name: string, items: string[]) => void;
+  onSave: (name: string, items: string[], overrides: Record<string, GearSetOverride>) => void;
 }) {
   const { t } = useI18n();
   const { height: winH } = useWindowDimensions();
   const [name, setName] = useState(initial ? initial.name : '');
   const [sel, setSel] = useState<Set<string>>(() => new Set(initial ? initial.items : []));
+  const [overrides, setOverrides] = useState<Record<string, GearSetOverride>>(() => {
+    const out: Record<string, GearSetOverride> = {};
+    (initial?.items || []).forEach((name) => {
+      const it = allItems.find((x) => x.name === name);
+      const source = (it?.id != null ? initial?.overrides?.[String(it.id)] : undefined) || initial?.overrides?.[name];
+      if (source) out[it?.id != null ? String(it.id) : name] = source;
+    });
+    return out;
+  });
   const [q, setQ] = useState('');
   const qq = q.trim();
   const valid = name.trim().length > 0 && sel.size > 0;
@@ -59,7 +70,13 @@ export function GearSetEditor({
     });
   const save = () => {
     if (!valid) return;
-    onSave(name.trim(), allItems.filter((it) => sel.has(it.name)).map((it) => it.name));
+    const selected = allItems.filter((it) => sel.has(it.name));
+    const cleanOverrides: Record<string, GearSetOverride> = {};
+    selected.forEach((it) => {
+      const key = it.id != null ? String(it.id) : it.name;
+      if (overrides[key]) cleanOverrides[key] = overrides[key];
+    });
+    onSave(name.trim(), selected.map((it) => it.name), cleanOverrides);
   };
 
   // Group items by category, honoring the category list's order; filter by query.
@@ -68,6 +85,18 @@ export function GearSetEditor({
     if (!qq || it.name.includes(qq)) (byCat[it.cat] = byCat[it.cat] || []).push(it);
   });
   const order = [...cats.map((c) => c.id), ...Object.keys(byCat)].filter((id, i, a) => a.indexOf(id) === i && byCat[id]);
+
+  const keyFor = (it: GearItem) => it.id != null ? String(it.id) : it.name;
+  const getOverride = (it: GearItem) => overrides[keyFor(it)] || {};
+  const patchOverride = (it: GearItem, patch: GearSetOverride) => {
+    const key = keyFor(it);
+    setOverrides((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  };
+  const cycleStatus = (it: GearItem) => {
+    const current = getOverride(it).status || it.status || 'packed';
+    const idx = GEAR_STATUS.findIndex((s) => s.id === current);
+    patchOverride(it, { status: GEAR_STATUS[(idx + 1) % GEAR_STATUS.length].id as GearCarryStatus });
+  };
 
   return (
     <NJBottomSheet theme={theme} onClose={onCancel} full bodyScrolls>
@@ -140,27 +169,30 @@ export function GearSetEditor({
                     return (
                       <React.Fragment key={it.name}>
                         {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 55 }} />}
-                        <Press onPress={() => toggle(it.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, paddingVertical: 9 }}>
-                          <PhotoTile tone={toneFor(it.name)} seed={it.name} radius={9} style={{ width: 30, height: 30 }} />
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{it.name}</Text>
-                            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 2 }}>{fmtKg(it.w)} · {yuan(it.p)}</Text>
-                          </View>
-                          <View
-                            style={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 11,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: on ? theme.accent : 'transparent',
-                              borderWidth: on ? 0 : 1.5,
-                              borderColor: theme.hairline,
-                            }}
-                          >
-                            {on ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
-                          </View>
-                        </Press>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, paddingVertical: 8 }}>
+                          <Press onPress={() => toggle(it.name)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                            <PhotoTile tone={toneFor(it.name)} seed={it.name} radius={9} style={{ width: 30, height: 30 }} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{it.name}</Text>
+                              <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 2 }}>{fmtKg(it.w * (it.qty || 1), weightUnit)} · {yuan(it.p * (it.qty || 1))}</Text>
+                            </View>
+                            <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? theme.accent : 'transparent', borderWidth: on ? 0 : 1.5, borderColor: theme.hairline }}>
+                              {on ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
+                            </View>
+                          </Press>
+                          {on ? (
+                            <View style={{ alignItems: 'flex-end', gap: 5 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                <Press onPress={() => patchOverride(it, { qty: Math.max(1, (getOverride(it).qty || it.qty || 1) - 1) })} style={{ width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: fieldBg(theme) }}><Text style={{ color: theme.text2, fontWeight: '800' }}>−</Text></Press>
+                                <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '800', color: theme.text, minWidth: 18, textAlign: 'center' }}>×{getOverride(it).qty || it.qty || 1}</Text>
+                                <Press onPress={() => patchOverride(it, { qty: (getOverride(it).qty || it.qty || 1) + 1 })} style={{ width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: fieldBg(theme) }}><Text style={{ color: theme.text2, fontWeight: '800' }}>+</Text></Press>
+                              </View>
+                              <Press onPress={() => cycleStatus(it)} style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: fieldBg(theme) }}>
+                                <Text style={{ fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{t(`gear.status.${getOverride(it).status || it.status || 'packed'}` as any)}</Text>
+                              </Press>
+                            </View>
+                          ) : null}
+                        </View>
                       </React.Fragment>
                     );
                   })}

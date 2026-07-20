@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toGearCat, toGearItem, toGearSet } from '../lib/mappers';
-import type { GearCat, GearItem, GearSet } from '../data/gear';
+import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 
 export function useGear(userId: string | undefined) {
   const [cats, setCats] = useState<GearCat[]>([]);
@@ -12,21 +12,43 @@ export function useGear(userId: string | undefined) {
   const fetchAll = useCallback(async () => {
     if (!userId) return;
 
-    const [catRes, itemRes, setRes] = await Promise.all([
+    const [catRes, itemRes] = await Promise.all([
       supabase.from('gear_categories').select('*').order('builtin', { ascending: false }).order('created_at'),
       supabase.from('gear_items').select('*').eq('user_id', userId).order('created_at'),
-      supabase.from('gear_sets').select('*, gear_set_items(item_id)').eq('user_id', userId).order('created_at'),
     ]);
+
+    let setRes = await supabase
+      .from('gear_sets')
+      .select('*, gear_set_items(item_id, qty, status)')
+      .eq('user_id', userId)
+      .order('created_at');
+
+    // Some existing Supabase projects may not have run gear-packing-migration.sql yet.
+    // In that case selecting the new per-set override columns (qty/status) fails,
+    // which used to make all packing sets appear empty/missing. Fall back to the
+    // original relation shape so existing set membership still renders.
+    if (setRes.error) {
+      console.warn('[Gear] Failed to load set overrides; retrying without qty/status', setRes.error.message);
+      setRes = await supabase
+        .from('gear_sets')
+        .select('*, gear_set_items(item_id)')
+        .eq('user_id', userId)
+        .order('created_at');
+    }
 
     const dbCats = (catRes.data ?? []).map(toGearCat);
     const dbItems = (itemRes.data ?? []).map(toGearItem);
     const itemMap = new Map(dbItems.map(i => [i.id!, i.name]));
 
     const dbSets = (setRes.data ?? []).map((s: any) => {
-      const itemNames = (s.gear_set_items ?? [])
-        .map((link: any) => itemMap.get(link.item_id))
-        .filter(Boolean) as string[];
-      return toGearSet(s, itemNames);
+      const links = s.gear_set_items ?? [];
+      const itemNames = links.map((link: any) => itemMap.get(link.item_id)).filter(Boolean) as string[];
+      const overrides: Record<string, GearSetOverride> = {};
+      links.forEach((link: any) => {
+        const key = String(link.item_id);
+        if (link.qty != null || link.status != null) overrides[key] = { ...(link.qty != null ? { qty: link.qty } : {}), ...(link.status != null ? { status: link.status } : {}) };
+      });
+      return toGearSet(s, itemNames, overrides);
     });
 
     setCats(dbCats);
@@ -72,8 +94,10 @@ export function useGear(userId: string | undefined) {
         weight: item.w,
         price: item.p,
         qty: item.qty ?? 1,
+        photo_uris: item.photos ?? null,
         attrs: item.attrs ?? null,
         note: item.note ?? null,
+        status: item.status ?? 'packed',
       })
       .select().single();
     if (data) setItems(prev => [...prev, toGearItem(data)]);
@@ -86,8 +110,10 @@ export function useGear(userId: string | undefined) {
     if (patch.w !== undefined) row.weight = patch.w;
     if (patch.p !== undefined) row.price = patch.p;
     if (patch.qty !== undefined) row.qty = patch.qty;
+    if (patch.photos !== undefined) row.photo_uris = patch.photos;
     if (patch.attrs !== undefined) row.attrs = patch.attrs;
     if (patch.note !== undefined) row.note = patch.note;
+    if (patch.status !== undefined) row.status = patch.status;
     if (Object.keys(row).length) {
       await supabase.from('gear_items').update(row).eq('id', id);
       setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
@@ -100,7 +126,7 @@ export function useGear(userId: string | undefined) {
   };
 
   // ── Set CRUD ──────────────────────────────────────────────────────────────
-  const addSet = async (name: string, itemIds: number[]) => {
+  const addSet = async (name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}) => {
     if (!userId) return;
     const { data } = await supabase.from('gear_sets')
       .insert({ user_id: userId, name })
@@ -108,23 +134,23 @@ export function useGear(userId: string | undefined) {
     if (!data) return;
     if (itemIds.length) {
       await supabase.from('gear_set_items')
-        .insert(itemIds.map(item_id => ({ set_id: data.id, item_id })));
+        .insert(itemIds.map(item_id => ({ set_id: data.id, item_id, qty: overrides[String(item_id)]?.qty ?? null, status: overrides[String(item_id)]?.status ?? null })));
     }
     const itemMap = new Map(items.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(id => itemMap.get(id)).filter(Boolean) as string[];
-    setSets(prev => [...prev, toGearSet(data, itemNames)]);
+    setSets(prev => [...prev, toGearSet(data, itemNames, overrides)]);
   };
 
-  const updateSet = async (id: string, name: string, itemIds: number[]) => {
+  const updateSet = async (id: string, name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}) => {
     await supabase.from('gear_sets').update({ name }).eq('id', id);
     await supabase.from('gear_set_items').delete().eq('set_id', id);
     if (itemIds.length) {
       await supabase.from('gear_set_items')
-        .insert(itemIds.map(item_id => ({ set_id: id, item_id })));
+        .insert(itemIds.map(item_id => ({ set_id: id, item_id, qty: overrides[String(item_id)]?.qty ?? null, status: overrides[String(item_id)]?.status ?? null })));
     }
     const itemMap = new Map(items.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(iid => itemMap.get(iid)).filter(Boolean) as string[];
-    setSets(prev => prev.map(s => s.id === id ? { ...s, name, items: itemNames } : s));
+    setSets(prev => prev.map(s => s.id === id ? { ...s, name, items: itemNames, overrides } : s));
   };
 
   const deleteSet = async (id: string) => {

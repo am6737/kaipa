@@ -1,15 +1,18 @@
-import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, Platform, Animated, PanResponder, Easing, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../theme/theme';
-import { MONO } from '../theme/fonts';
-import { Avatar } from '../components/Avatar';
 import { Press } from '../components/Press';
 import { PhotoTile } from '../components/PhotoTile';
 import { useI18n } from '../i18n';
 import type { GuestMoment } from './useGuestData';
 import { paletteFor } from '../data/tones';
+import { formatDuration } from '../lib/time';
+
+// react-native-web has no native animation driver; using it there logs a warning
+// and falls back to JS anyway, so opt in only on real native.
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 interface Props {
   theme: Theme;
@@ -19,16 +22,69 @@ interface Props {
   onClose: () => void;
   onDelete?: (m: GuestMoment) => void;
   canDelete?: (m: GuestMoment) => boolean;
+  durationMs?: number;
 }
 
-export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, onDelete, canDelete }: Props) {
+export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, onDelete, canDelete, durationMs }: Props) {
   const { t } = useI18n();
+  const { width: W } = useWindowDimensions();
   const photo = moments[index];
 
   const go = (d: number) => {
     const n = index + d;
     if (n >= 0 && n < moments.length) onIndexChange(n);
   };
+
+  // ── horizontal paging: one continuous Animated.Value drives the strip,
+  //    so committing a swipe never flickers back to the previous slide ──
+  const pos = useRef(new Animated.Value(-index * W)).current;
+  const widthRef = useRef(W); widthRef.current = W;
+  const indexRef = useRef(index); indexRef.current = index;
+  const lenRef = useRef(moments.length); lenRef.current = moments.length;
+  const onIdxRef = useRef(onIndexChange); onIdxRef.current = onIndexChange;
+  const animatingRef = useRef(false);
+
+  // Keep the strip aligned to the active index (keyboard / tap-zone navigation, resize).
+  useEffect(() => {
+    Animated.timing(pos, { toValue: -index * W, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }).start();
+  }, [index, W]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      // single finger, clearly horizontal → swipe; ignore two-finger pinches so they
+      // don't get misread as a left/right page change.
+      onMoveShouldSetPanResponder: (_e, g) =>
+        g.numberActiveTouches < 2 && Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_e, g) => {
+        if (animatingRef.current || g.numberActiveTouches >= 2) return;
+        const i = indexRef.current;
+        let dx = g.dx;
+        // rubber-band at the ends
+        if ((i <= 0 && dx > 0) || (i >= lenRef.current - 1 && dx < 0)) dx *= 0.3;
+        pos.setValue(-i * widthRef.current + dx);
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (animatingRef.current) return;
+        const i = indexRef.current;
+        const w = widthRef.current;
+        const threshold = Math.min(80, w * 0.2);
+        // commit on a long-enough drag OR a quick flick
+        const next = i < lenRef.current - 1 && (g.dx < -threshold || (g.dx < -10 && g.vx < -0.3));
+        const prev = i > 0 && (g.dx > threshold || (g.dx > 10 && g.vx > 0.3));
+        const settle = (toValue: number, after?: () => void) =>
+          Animated.timing(pos, { toValue, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }).start(() => after?.());
+        if (next || prev) {
+          const target = i + (next ? 1 : -1);
+          animatingRef.current = true;
+          settle(-target * w, () => { animatingRef.current = false; onIdxRef.current(target); });
+        } else {
+          settle(-i * w);
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -46,24 +102,35 @@ export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, o
   const p = paletteFor(photo.guest_tone);
   const deletable = canDelete?.(photo);
 
-  return (
-    <View style={[StyleSheet.absoluteFill, s.root]}>
-      {/* image */}
-      <View style={s.imageWrap}>
-        {photo.is_text ? (
-          <LinearGradient colors={[p[0], '#0e1116']} start={{ x: 0.1, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill}>
-            <View style={s.textCenter}>
-              <Text style={s.textContent}>{photo.caption || '记录了一个瞬间'}</Text>
-            </View>
-          </LinearGradient>
-        ) : photo.uri ? (
-          <Image source={{ uri: photo.uri }} contentFit="contain" style={StyleSheet.absoluteFill} />
-        ) : (
-          <PhotoTile tone={photo.guest_tone} seed={photo.id} style={StyleSheet.absoluteFill} />
-        )}
-      </View>
+  const renderSlide = (m: GuestMoment) => {
+    if (m.is_text) {
+      const pp = paletteFor(m.guest_tone);
+      return (
+        <LinearGradient colors={[pp[0], '#0e1116']} start={{ x: 0.1, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill}>
+          <View style={s.textCenter}>
+            <Text style={s.textContent}>{m.caption || '记录了一个瞬间'}</Text>
+          </View>
+        </LinearGradient>
+      );
+    }
+    if (m.uri) return <Image source={{ uri: m.uri }} contentFit="contain" style={StyleSheet.absoluteFill} />;
+    return <PhotoTile tone={m.guest_tone} seed={m.id} style={StyleSheet.absoluteFill} />;
+  };
 
-      {/* tap zones for navigation */}
+  return (
+    <View style={[StyleSheet.absoluteFill, s.root]} {...pan.panHandlers}>
+      {/* swipeable image strip (only neighbours mounted) */}
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX: pos }] }]}>
+        {moments.map((m, i) =>
+          Math.abs(i - index) <= 1 ? (
+            <View key={m.id} style={[s.slide, { left: i * W, width: W }]}>
+              {renderSlide(m)}
+            </View>
+          ) : null
+        )}
+      </Animated.View>
+
+      {/* tap zones for navigation (desktop click) */}
       {index > 0 && <Pressable onPress={() => go(-1)} style={s.tapLeft} />}
       {index < moments.length - 1 && <Pressable onPress={() => go(1)} style={s.tapRight} />}
 
@@ -81,19 +148,15 @@ export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, o
         {photo.caption && !photo.is_text && (
           <Text style={s.caption}>{photo.caption}</Text>
         )}
-        <Text style={s.dayTime}>Day {photo.day}{photo.created_at ? ` · ${new Date(photo.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</Text>
+        <Text style={s.dayTime}>{[photo.day ? `Day ${photo.day}` : '', durationMs ? formatDuration(durationMs, t) : ''].filter(Boolean).join(' · ')}</Text>
 
-        <View style={s.authorRow}>
-          <View style={s.authorInfo}>
-            <Avatar ini={photo.guest_ini || photo.guest_name.slice(0, 1)} tone={photo.guest_tone} size={28} />
-            <Text style={s.authorName}>{photo.guest_name}</Text>
-          </View>
-          {deletable && onDelete && (
+        {deletable && onDelete && (
+          <View style={s.actionRow}>
             <Press onPress={() => onDelete(photo)} style={s.deleteBtn}>
               <Text style={s.deleteText}>{t('guest.wall.deleteMoment')}</Text>
             </Press>
-          )}
-        </View>
+          </View>
+        )}
       </LinearGradient>
     </View>
   );
@@ -103,9 +166,12 @@ const s = StyleSheet.create({
   root: {
     zIndex: 90,
     backgroundColor: '#000',
+    overflow: 'hidden',
   },
-  imageWrap: {
-    ...StyleSheet.absoluteFill,
+  slide: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -195,21 +261,11 @@ const s = StyleSheet.create({
     marginTop: 7,
     letterSpacing: 0.4,
   },
-  authorRow: {
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     marginTop: 16,
-  },
-  authorInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  authorName: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: '#fff',
   },
   deleteBtn: {
     flexDirection: 'row',

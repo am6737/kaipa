@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../theme/theme';
@@ -22,6 +22,7 @@ interface Props {
 
 export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: Props) {
   const { t } = useI18n();
+  const { height: winH } = useWindowDimensions();
   const [picks, setPicks] = useState<PhotoPick[]>([]);
   const [caption, setCaption] = useState('');
   const [day, setDay] = useState(Math.max(1, days));
@@ -63,7 +64,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
     <View style={StyleSheet.absoluteFill}>
       <Pressable style={s.backdrop} onPress={onClose} />
       <View style={s.sheetWrap}>
-        <View style={[s.sheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg }]}>
+        <View style={[s.sheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg, maxHeight: Math.round(winH * 0.85) }]}>
           <View style={s.handle} />
 
           {/* header */}
@@ -158,7 +159,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 12,
     paddingBottom: 28,
-    maxHeight: '82%',
   },
   handle: {
     width: 38,

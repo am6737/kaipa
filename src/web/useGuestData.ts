@@ -28,6 +28,7 @@ export interface JourneyData {
   date: string | null;
   days: string | null;
   total_days: number | null;
+  track_duration_ms: number | null;
   coverUrl: string | null;
 }
 
@@ -93,7 +94,7 @@ export function useGuestData(slug: string, code: string) {
         const [journeyRes, companionsRes, momentsRes, inspoRes] = await Promise.all([
           guestSupabase
             .from('journeys')
-            .select('name, region, tone, date, days, total_days, photo_uris')
+            .select('name, region, tone, date, days, total_days, track_duration_ms, photo_uris')
             .eq('id', shareRow.journey_id)
             .single(),
           guestSupabase

@@ -17,10 +17,10 @@ interface Props {
   onClose: () => void;
 }
 
-function iniOf(name: string): string {
+export function makeIdentity(name: string): GuestIdentity {
   const s = (name || '').trim();
-  if (!s) return '';
-  return s.slice(0, /[a-zA-Z]/.test(s[0]) ? 2 : 1);
+  const ini = s ? s.slice(0, /[a-zA-Z]/.test(s[0]) ? 2 : 1) : '';
+  return { name: s, ini, tone: 'river' };
 }
 
 export function IdentitySheet({ theme, hostName, onDone, onClose }: Props) {
@@ -30,7 +30,7 @@ export function IdentitySheet({ theme, hostName, onDone, onClose }: Props) {
 
   const submit = () => {
     if (!valid) return;
-    onDone({ name: name.trim(), ini: iniOf(name.trim()), tone: 'river' });
+    onDone(makeIdentity(name));
   };
 
   return (

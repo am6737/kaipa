@@ -1,10 +1,13 @@
-// GearItemDetail.tsx — 装备详情. Tap a gear item (装备 / 分类详情 / 套装详情) to
-// drill in: a photo hero, a 规格 spec card, any 自定义属性, real 库内占比 share
-// bars (this item's slice of its category and of the whole library, plus its
-// weight rank), the 套装 it belongs to (tap to drill further), and 备注. The ···
-// menu offers 编辑 / 删除, with delete confirmed through the shared action sheet.
+// GearItemDetail.tsx — 装备详情. A calm, airy detail layout inspired by modern
+// gear-library apps: floating chrome, centered product photo, generous whitespace,
+// soft stat tiles, icon-led metadata, then secondary library context.
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import WheelPicker from '@quidone/react-native-wheel-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -12,51 +15,370 @@ import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet } from '../../data/gear';
-import { GearPushPage, GearCard, SectionLabel, ShareBar, KV, CircleBtn, yuan, fmtKg, toneFor } from './parts';
+import { GearItem, GearCat, GearSet, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight, convertWeight } from '../../data/gear';
+import { GearPushPage, GearCard, SectionLabel, ShareBar, CircleBtn, yuan, fmtKg, toneFor, useGearPushScroll } from './parts';
+
+const softBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
+const softBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
+const STATUS_OPTIONS: NonNullable<GearItem['status']>[] = ['packed', 'worn', 'consumable', 'optional'];
+
+function StatTile({ theme, label, value, unit, onPress, editing, editValue, onChangeText, onSubmit }: { theme: Theme; label: string; value: string; unit?: string; onPress?: () => void; editing?: boolean; editValue?: string; onChangeText?: (value: string) => void; onSubmit?: () => void }) {
+  const content = (
+    <View style={{ flex: 1, minHeight: 104, borderRadius: 24, backgroundColor: softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: softBorder(theme), paddingHorizontal: 20, paddingVertical: 17, justifyContent: 'space-between' }}>
+      <Text style={{ fontSize: 15, color: theme.text2, letterSpacing: -0.1 }}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
+        {editing ? (
+          <TextInput
+            autoFocus
+            selectTextOnFocus
+            value={editValue}
+            onChangeText={onChangeText}
+            onSubmitEditing={onSubmit}
+            onBlur={onSubmit}
+            keyboardType="decimal-pad"
+            style={{ minWidth: 54, padding: 0, fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text, letterSpacing: -0.7 }}
+          />
+        ) : (
+          <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text, letterSpacing: -0.7 }}>{value}</Text>
+        )}
+        {unit ? <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{unit}</Text> : null}
+      </View>
+    </View>
+  );
+  return onPress ? <Press onPress={onPress} style={{ flex: 1 }}>{content}</Press> : content;
+}
+
+function MetaCell({ theme, label, value, muted, fullWidth, multiline, scrollOnFocus, onPress, onLongPress, editing, editValue, onChangeText, onSubmit, keyboardType = 'decimal-pad' }: { theme: Theme; label: string; value?: string; muted?: boolean; fullWidth?: boolean; multiline?: boolean; scrollOnFocus?: boolean; onPress?: () => void; onLongPress?: () => void; editing?: boolean; editValue?: string; onChangeText?: (value: string) => void; onSubmit?: () => void; keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'] }) {
+  const hasValue = !!value;
+  const longPressed = React.useRef(false);
+  const scroll = useGearPushScroll();
+  const cellWidth = fullWidth ? '100%' : '50%';
+  const interactive = !!(onPress || onLongPress);
+  const content = (
+    <View style={{ width: interactive ? '100%' : cellWidth, paddingVertical: 14, paddingRight: 18 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text numberOfLines={1} style={{ fontSize: 15.5, color: hasValue ? theme.text2 : theme.text3, textAlign: 'left' }}>{label}</Text>
+        {editing ? (
+          <TextInput
+            autoFocus
+            selectTextOnFocus
+            value={editValue}
+            onChangeText={onChangeText}
+            onSubmitEditing={onSubmit}
+            onBlur={onSubmit}
+            onFocus={() => {
+              if (scrollOnFocus) setTimeout(() => scroll?.scrollBy(140), 260);
+            }}
+            keyboardType={keyboardType}
+            multiline={multiline}
+            style={{ alignSelf: 'stretch', width: '100%', marginTop: 3, padding: 0, fontSize: 13, lineHeight: multiline ? 19 : undefined, fontWeight: '700', color: theme.text, minHeight: multiline ? 40 : undefined, textAlign: 'left', textAlignVertical: multiline ? 'top' : undefined }}
+          />
+        ) : hasValue ? <Text numberOfLines={multiline ? undefined : 1} style={{ marginTop: 3, fontSize: 13, lineHeight: multiline ? 20 : undefined, fontWeight: '700', color: muted ? theme.text3 : theme.text, textAlign: 'left' }}>{value}</Text> : null}
+      </View>
+    </View>
+  );
+  return interactive ? (
+    <Press
+      onPress={() => {
+        if (!longPressed.current) onPress?.();
+      }}
+      onLongPress={() => {
+        longPressed.current = true;
+        onLongPress?.();
+      }}
+      onPressOut={() => {
+        longPressed.current = false;
+      }}
+      style={{ width: cellWidth }}
+    >
+      {content}
+    </Press>
+  ) : content;
+}
+
+function NoteCell({ theme, label, value, editing, editValue, onPress, onChangeText, onSubmit }: { theme: Theme; label: string; value?: string; editing?: boolean; editValue?: string; onPress: () => void; onChangeText?: (value: string) => void; onSubmit?: () => void }) {
+  const pageScroll = useGearPushScroll();
+  return (
+    <Press onPress={onPress} style={{ width: '100%' }}>
+      <View style={{ width: '100%', paddingVertical: 14, paddingRight: 18 }}>
+        <Text style={{ fontSize: 15.5, color: value ? theme.text2 : theme.text3, textAlign: 'left' }}>{label}</Text>
+        <View style={{ marginTop: 3, minHeight: 40 }}>
+          {editing ? (
+            <TextInput
+              autoFocus
+              selectTextOnFocus
+              value={editValue}
+              onChangeText={onChangeText}
+              onSubmitEditing={onSubmit}
+              onBlur={onSubmit}
+              onFocus={() => setTimeout(() => pageScroll?.scrollBy(140), 260)}
+              multiline
+              style={{ width: '100%', alignSelf: 'stretch', padding: 0, fontSize: 13, lineHeight: 19, fontWeight: '700', color: theme.text, textAlign: 'left', textAlignVertical: 'top', minHeight: 40 }}
+            />
+          ) : (
+            <Text style={{ fontSize: 13, lineHeight: 20, fontWeight: '700', color: value ? theme.text : theme.text3, textAlign: 'left' }}>
+              {value || '暂无备注'}
+            </Text>
+          )}
+        </View>
+      </View>
+    </Press>
+  );
+}
+
+function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearItem; onOpenPhoto: (index: number) => void }) {
+  const { width } = useWindowDimensions();
+  const photos = (item.photos || []).filter(Boolean);
+  const [page, setPage] = React.useState(0);
+  const galleryWidth = Math.min(380, Math.max(220, width - 64));
+  const galleryHeight = Math.round(galleryWidth * 0.82);
+
+  if (photos.length === 0) {
+    return (
+      <Pressable onPress={() => onOpenPhoto(0)}>
+        <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={1000} style={{ width: galleryWidth, height: galleryHeight }} />
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={{ alignItems: 'center', width: galleryWidth, height: galleryHeight }}>
+      <FlatList
+        data={photos}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(uri, index) => `${uri}-${index}`}
+        snapToInterval={galleryWidth}
+        decelerationRate="fast"
+        onMomentumScrollEnd={(event) => {
+          setPage(Math.round(event.nativeEvent.contentOffset.x / galleryWidth));
+        }}
+        renderItem={({ item: uri, index }) => (
+          <Pressable onPress={() => onOpenPhoto(index)}>
+            <Image
+              source={{ uri }}
+              contentFit="contain"
+              transition={180}
+              style={{ width: galleryWidth, height: galleryHeight, borderRadius: 18, backgroundColor: softBg(theme) }}
+            />
+          </Pressable>
+        )}
+        style={{ width: galleryWidth, height: galleryHeight, borderRadius: 18 }}
+      />
+      {photos.length > 1 ? (
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
+          {photos.map((uri, index) => (
+            <View
+              key={`${uri}-dot-${index}`}
+              style={{
+                width: index === page ? 16 : 6,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: index === page ? '#FFFFFF' : 'rgba(255,255,255,0.72)',
+                opacity: 0.92,
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function PhotoChoiceSheet({
+  theme,
+  item,
+  index,
+  onClose,
+  onPhotosChange,
+}: {
+  theme: Theme;
+  item: GearItem;
+  index: number;
+  onClose: () => void;
+  onPhotosChange?: (photos: string[]) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const photos = (item.photos || []).filter(Boolean);
+  const current = photos[index];
+
+  const addFromLibrary = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 9,
+      quality: 0.85,
+    });
+    if (!result.canceled) {
+      onPhotosChange?.([...photos, ...result.assets.map((asset) => asset.uri)]);
+      onClose();
+    }
+  };
+
+  const addFromCamera = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+    if (!result.canceled) {
+      onPhotosChange?.([...photos, result.assets[0].uri]);
+      onClose();
+    }
+  };
+
+  const removeCurrent = () => {
+    if (!current) return;
+    onPhotosChange?.(photos.filter((_, photoIndex) => photoIndex !== index));
+    onClose();
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.46)' }]} />
+        <View style={{ backgroundColor: theme.dark ? theme.bg : '#FFFFFF', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingTop: 10, paddingHorizontal: 28, paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+          <View style={{ alignSelf: 'center', width: 48, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45, marginBottom: 28 }} />
+          <Text style={{ fontSize: 15, color: theme.text2, marginBottom: 18 }}>选择图像</Text>
+          <View style={{ alignItems: 'center', minHeight: 220, justifyContent: 'center' }}>
+            {current ? (
+              <Image source={{ uri: current }} contentFit="contain" style={{ width: 220, height: 220, borderRadius: 18, backgroundColor: softBg(theme) }} />
+            ) : (
+              <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={720} style={{ width: 220, height: 220 }} />
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 28 }}>
+            {current ? (
+              <View style={{ alignItems: 'center', gap: 8 }}>
+                <Pressable onPress={removeCurrent} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+                  <Icon name="trash" color={theme.danger} size={24} />
+                </Pressable>
+                <Text style={{ fontSize: 11.5, color: theme.text3 }}>删除</Text>
+              </View>
+            ) : null}
+            <View style={{ alignItems: 'center', gap: 8 }}>
+              <Pressable onPress={addFromLibrary} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+                <Icon name="photo" color={theme.text} size={25} />
+              </Pressable>
+              <Text style={{ fontSize: 11.5, color: theme.text3 }}>相册</Text>
+            </View>
+            <View style={{ alignItems: 'center', gap: 8 }}>
+              <Pressable onPress={addFromCamera} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+                <Icon name="camera" color={theme.text} size={25} />
+              </Pressable>
+              <Text style={{ fontSize: 11.5, color: theme.text3 }}>拍摄</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function WheelSelectSheet({
+  theme,
+  title,
+  data,
+  value,
+  onClose,
+  onConfirm,
+}: {
+  theme: Theme;
+  title: string;
+  data: { value: string; label: string }[];
+  value: string;
+  onClose: () => void;
+  onConfirm: (value: string) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [selected, setSelected] = React.useState(value);
+
+  React.useEffect(() => {
+    setSelected(value);
+  }, [value]);
+
+  const finish = () => {
+    const next = selected;
+    onClose();
+    requestAnimationFrame(() => onConfirm(next));
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
+        <View style={{ minHeight: 280, backgroundColor: theme.dark ? theme.bg : '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 14, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 12 }}>
+          <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45, marginBottom: 16 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 4 }}>
+          <Pressable onPress={onClose} style={{ padding: 4 }}>
+            <Text style={{ fontSize: 14.5, color: theme.text2 }}>{'取消'}</Text>
+          </Pressable>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>{title}</Text>
+          <Pressable onPress={finish} style={{ padding: 4 }}>
+            <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{'完成'}</Text>
+          </Pressable>
+          </View>
+          <View style={{ height: 200, overflow: 'hidden', alignItems: 'center', marginTop: 10, marginBottom: 8 }}>
+            <WheelPicker
+              data={data}
+              value={selected}
+              onValueChanging={() => { Haptics.selectionAsync(); }}
+              onValueChanged={({ item }) => setSelected(String(item.value))}
+              itemHeight={40}
+              visibleItemCount={5}
+              width={220}
+              enableScrollByTapOnItem
+              itemTextStyle={{ fontSize: 18, fontWeight: '500', color: theme.text }}
+              overlayItemStyle={{ backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)', borderRadius: 10 }}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export function GearItemDetail({
   theme,
   item,
   cat,
+  cats,
   allItems,
   sets,
+  weightUnit = 'kg',
   onBack,
   onOpenSet,
   onDelete,
-  onEdit,
+  onPhotosChange,
+  onInlineChange,
 }: {
   theme: Theme;
   item: GearItem;
   cat: GearCat;
+  cats: GearCat[];
   allItems: GearItem[];
   sets: GearSet[];
+  weightUnit?: WeightUnit;
   onBack: () => void;
   onOpenSet: (s: GearSet) => void;
   onDelete: () => void;
-  onEdit: () => void;
+  onPhotosChange?: (photos: string[]) => void;
+  onInlineChange?: (patch: Partial<GearItem>) => void;
 }) {
   const nav = useNav();
   const { t } = useI18n();
   const qty = item.qty || 1;
   const unitW = item.w;
   const unitP = item.p;
-  const itemW = item.w * qty;
-  const itemP = item.p * qty;
+  const itemW = itemWeight(item);
+  const itemP = itemPrice(item);
 
   // ── real library context ──────────────────────────────────────────────────
-  const totalW = allItems.reduce((a, it) => a + it.w * (it.qty || 1), 0) || itemW;
-  const totalP = allItems.reduce((a, it) => a + it.p * (it.qty || 1), 0) || itemP;
+  const totalW = allItems.reduce((a, it) => a + itemWeight(it), 0) || itemW;
+  const totalP = allItems.reduce((a, it) => a + itemPrice(it), 0) || itemP;
   const catItems = allItems.filter((it) => it.cat === item.cat);
-  const catW = catItems.reduce((a, it) => a + it.w * (it.qty || 1), 0) || itemW;
-  const wRank = catItems.slice().sort((a, b) => b.w * (b.qty || 1) - a.w * (a.qty || 1)).findIndex((it) => it.name === item.name) + 1;
+  const catW = catItems.reduce((a, it) => a + itemWeight(it), 0) || itemW;
+  const wRank = catItems.slice().sort((a, b) => itemWeight(b) - itemWeight(a)).findIndex((it) => it.name === item.name) + 1;
   const memberSets = sets.filter((s) => s.items.includes(item.name));
-
-  // ── 规格 rows ─────────────────────────────────────────────────────────────
-  const specs: [string, string][] = [[t('gear.spec.qty'), '×' + qty], [t('gear.spec.totalWeight'), fmtKg(itemW)]];
-  if (qty > 1) specs.push([t('gear.spec.unitWeight'), fmtKg(unitW)]);
-  specs.push([t('gear.spec.value'), yuan(itemP)]);
-  if (qty > 1) specs.push([t('gear.spec.unitValue'), yuan(unitP)]);
 
   const confirmDelete = () =>
     nav.openActionSheet({
@@ -64,90 +386,278 @@ export function GearItemDetail({
       message: t('gear.itemDetail.deleteConfirmMessage'),
       items: [{ label: t('gear.itemDetail.deleteItem'), icon: 'trash', destructive: true, onPress: onDelete }],
     });
-  const openMenu = () =>
-    nav.openActionSheet({
-      title: item.name,
-      items: [
-        { label: t('common.edit'), icon: 'edit', onPress: onEdit },
-        { label: t('gear.itemDetail.deleteItem'), icon: 'trash', destructive: true, onPress: confirmDelete },
-      ],
-    });
+  const primaryAttrs = item.attrs || [];
+  const weightMain = splitWeight(itemW, weightUnit);
+  const [photoSheetIndex, setPhotoSheetIndex] = React.useState<number | null>(null);
+  const [editingField, setEditingField] = React.useState<'name' | 'weight' | 'qty' | 'price' | 'status' | 'note' | null>(null);
+  const [editingAttrIndex, setEditingAttrIndex] = React.useState<number | null>(null);
+  const [addingAttr, setAddingAttr] = React.useState(false);
+  const [draftAttrKey, setDraftAttrKey] = React.useState('');
+  const [draftValue, setDraftValue] = React.useState('');
+  const [editingWeightUnit, setEditingWeightUnit] = React.useState<WeightUnit>(weightUnit);
+  const [pickerField, setPickerField] = React.useState<'status' | 'category' | null>(null);
 
-  const hero = (
-    <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={0} resWidth={1000} darken style={{ width: '100%', height: 300 }}>
-      <View style={{ position: 'absolute', left: 16, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 9, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.42)' }}>
-        <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: cat.color }} />
-        <Text style={{ fontSize: 11.5, fontWeight: '600', color: '#fff' }}>{cat.name}</Text>
-      </View>
-    </PhotoTile>
-  );
+  const beginEdit = (field: typeof editingField, value: string) => {
+    setEditingAttrIndex(null);
+    setEditingField(field);
+    if (field === 'weight') setEditingWeightUnit(weightUnit);
+    setDraftValue(value);
+  };
+  const finishEdit = () => {
+    if (!editingField) return;
+    const field = editingField;
+    if (field === 'weight') {
+      const displayedTotalKg = weightUnit === 'kg'
+        ? Number(draftValue) || 0
+        : (Number(draftValue) || 0) / (editingWeightUnit === 'g' ? 1000 : editingWeightUnit === 'oz' ? 35.27396195 : 2.2046226218);
+      onInlineChange?.({ w: displayedTotalKg / qty });
+    }
+    if (field === 'qty') onInlineChange?.({ qty: Math.max(1, Number(draftValue) || 1) });
+    if (field === 'price') onInlineChange?.({ p: Number(draftValue) || 0 });
+    if (field === 'note') onInlineChange?.({ note: draftValue.trim() || undefined });
+    if (field === 'name' && draftValue.trim()) onInlineChange?.({ name: draftValue.trim() });
+    setEditingField(null);
+  };
+  const beginAttrEdit = (index: number, value: string) => {
+    setEditingField(null);
+    setAddingAttr(false);
+    setEditingAttrIndex(index);
+    setDraftValue(value);
+  };
+  const finishAttrEdit = () => {
+    if (editingAttrIndex === null) return;
+    const attrs: [string, string][] = (item.attrs || [])
+      .map(([key, value], index): [string, string] => (
+        index === editingAttrIndex ? [key, draftValue.trim()] : [key, value]
+      ))
+      .filter(([key, value]) => key.trim() && value.trim());
+    onInlineChange?.({ attrs: attrs.length ? attrs : undefined });
+    setEditingAttrIndex(null);
+  };
+  const beginAddAttr = () => {
+    setEditingField(null);
+    setEditingAttrIndex(null);
+    setDraftAttrKey('');
+    setDraftValue('');
+    setAddingAttr(true);
+  };
+  const finishAddAttr = () => {
+    const key = draftAttrKey.trim();
+    const value = draftValue.trim();
+    if (!key || !value) return;
+    onInlineChange?.({ attrs: [...(item.attrs || []), [key, value]] });
+    setAddingAttr(false);
+    setDraftAttrKey('');
+    setDraftValue('');
+  };
+  const cancelAddAttr = () => {
+    setAddingAttr(false);
+    setDraftAttrKey('');
+    setDraftValue('');
+  };
+  const deleteAttr = (index: number) => {
+    const attr = item.attrs?.[index];
+    if (!attr) return;
+    nav.openActionSheet({
+      title: attr[0],
+      message: '删除后无法恢复',
+      items: [{
+        label: '删除属性',
+        icon: 'trash',
+        destructive: true,
+        onPress: () => {
+          const attrs = (item.attrs || []).filter((_, attrIndex) => attrIndex !== index);
+          onInlineChange?.({ attrs: attrs.length ? attrs : undefined });
+          if (editingAttrIndex === index) setEditingAttrIndex(null);
+        },
+      }],
+    });
+  };
 
   return (
-    <GearPushPage theme={theme} onBack={onBack} hero={hero} right={<CircleBtn theme={theme} name="more" onPress={openMenu} />}>
-      <View style={{ paddingHorizontal: 20 }}>
-        {/* title */}
-        <Text style={{ fontSize: 25, fontWeight: '700', color: theme.text, letterSpacing: -0.5, lineHeight: 31, marginTop: 8 }}>{item.name}</Text>
+    <GearPushPage
+      theme={theme}
+      onBack={onBack}
+      right={<CircleBtn theme={theme} name="trash" danger onPress={confirmDelete} softShadow size={44} />}
+      overlay={photoSheetIndex !== null ? (
+        <PhotoChoiceSheet
+          theme={theme}
+          item={item}
+          index={photoSheetIndex}
+          onClose={() => setPhotoSheetIndex(null)}
+          onPhotosChange={onPhotosChange}
+        />
+      ) : null}
+    >
+      <View style={{ paddingHorizontal: 32, paddingTop: 8 }}>
+        {/* spacious product header */}
+        <View style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 18 }}>
+          <GearGallery theme={theme} item={item} onOpenPhoto={setPhotoSheetIndex} />
 
-        {/* 规格 */}
-        <SectionLabel theme={theme} text={t('gear.section.spec')} />
-        <GearCard theme={theme}>
-          <KV
+          {editingField === 'name' ? (
+            <TextInput
+              autoFocus
+              selectTextOnFocus
+              value={draftValue}
+              onChangeText={setDraftValue}
+              onSubmitEditing={finishEdit}
+              onBlur={finishEdit}
+              returnKeyType="done"
+              style={{ marginTop: 28, alignSelf: 'stretch', padding: 0, fontSize: 25, fontWeight: '800', color: theme.text, letterSpacing: -0.6, lineHeight: 32 }}
+            />
+          ) : (
+            <Press onLongPress={() => beginEdit('name', item.name)} style={{ marginTop: 28, alignSelf: 'stretch' }}>
+              <Text style={{ fontSize: 25, fontWeight: '800', color: theme.text, letterSpacing: -0.6, lineHeight: 32 }} numberOfLines={2}>
+                {item.name}
+              </Text>
+            </Press>
+          )}
+        </View>
+
+        {/* key facts, large breathing-room cards */}
+        <View style={{ flexDirection: 'row', gap: 22, marginTop: 4 }}>
+          <StatTile
             theme={theme}
-            k={t('gear.spec.category')}
-            first
-            v={
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: cat.color }} />
-                <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text }}>{cat.name}</Text>
-              </View>
-            }
+            label={t('gear.spec.totalWeight')}
+            value={weightMain.value}
+            unit={editingField === 'weight' ? editingWeightUnit : weightMain.unit}
+            onPress={() => beginEdit('weight', String(weightUnit === 'kg' ? itemW : convertWeight(itemW, weightUnit)))}
+            editing={editingField === 'weight'}
+            editValue={draftValue}
+            onChangeText={setDraftValue}
+            onSubmit={finishEdit}
           />
-          {specs.map(([k, v]) => (
-            <KV key={k} theme={theme} k={k} v={v} />
-          ))}
-        </GearCard>
-
-        {/* 自定义属性 */}
-        {item.attrs && item.attrs.length > 0 ? (
-          <>
-            <SectionLabel theme={theme} text={`${t('gear.section.customAttrs')} · ${item.attrs.length}`} />
-            <GearCard theme={theme}>
-              {item.attrs.map(([k, v], i) => (
-                <KV key={k} theme={theme} k={k} v={v} leadingDot={theme.text3} first={i === 0} />
-              ))}
-            </GearCard>
-          </>
+          <StatTile
+            theme={theme}
+            label={t('gear.spec.qty')}
+            value={String(qty)}
+            onPress={() => beginEdit('qty', String(qty))}
+            editing={editingField === 'qty'}
+            editValue={draftValue}
+            onChangeText={setDraftValue}
+            onSubmit={finishEdit}
+          />
+        </View>
+        {editingField === 'weight' ? (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingHorizontal: 6 }}>
+            {(['kg', 'g', 'oz', 'lb'] as WeightUnit[]).map((unit) => (
+              <Press
+                key={unit}
+                onPress={() => {
+                  const currentKg = editingWeightUnit === 'kg'
+                    ? Number(draftValue) || 0
+                    : (Number(draftValue) || 0) / (editingWeightUnit === 'g' ? 1000 : editingWeightUnit === 'oz' ? 35.27396195 : 2.2046226218);
+                  setEditingWeightUnit(unit);
+                  setDraftValue(String(convertWeight(currentKg, unit)));
+                }}
+                style={{ paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10, backgroundColor: editingWeightUnit === unit ? theme.accentSoft : softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: editingWeightUnit === unit ? theme.accent : theme.hairline }}
+              >
+                <Text style={{ fontSize: 12.5, fontWeight: editingWeightUnit === unit ? '700' : '500', color: editingWeightUnit === unit ? theme.accent : theme.text2 }}>{unit}</Text>
+              </Press>
+            ))}
+          </View>
+        ) : null}
+        {/* icon metadata */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 42 }}>
+          <MetaCell theme={theme} label={t('gear.spec.category')} value={cat.name} onPress={() => setPickerField('category')} />
+          <MetaCell theme={theme} label={t('gear.spec.value')} value={yuan(itemP)} onPress={() => beginEdit('price', String(item.p))} editing={editingField === 'price'} editValue={draftValue} onChangeText={setDraftValue} onSubmit={finishEdit} />
+          <MetaCell theme={theme} label={t('gear.spec.status')} value={t(`gear.status.${itemStatus(item)}` as any)} onPress={() => setPickerField('status')} />
+          {qty > 1 ? <MetaCell theme={theme} label={t('gear.spec.unitWeight')} value={fmtKg(unitW, weightUnit)} /> : <MetaCell theme={theme} label={t('gear.spec.unitValue')} value={yuan(unitP)} />}
+        </View>
+        {editingField === 'status' ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+            {(['packed', 'worn', 'consumable', 'optional'] as const).map((status) => (
+              <Press
+                key={status}
+                onPress={() => {
+                  onInlineChange?.({ status });
+                  setEditingField(null);
+                }}
+                style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: itemStatus(item) === status ? theme.accentSoft : softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: itemStatus(item) === status ? theme.accent : theme.hairline }}
+              >
+                <Text style={{ fontSize: 13, color: itemStatus(item) === status ? theme.accent : theme.text2 }}>{t(`gear.status.${status}` as any)}</Text>
+              </Press>
+            ))}
+          </View>
         ) : null}
 
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+          <NoteCell
+            theme={theme}
+            label={t('gear.section.note')}
+            value={item.note}
+            editing={editingField === 'note'}
+            editValue={draftValue}
+            onPress={() => beginEdit('note', item.note || '')}
+            onChangeText={setDraftValue}
+            onSubmit={finishEdit}
+          />
+        </View>
+
+        <>
+          <View style={{ marginTop: 26, marginBottom: 8 }}>
+            <Press onPress={beginAddAttr} hitSlop={8} style={{ paddingVertical: 4 }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+                {`${t('gear.section.customAttrs')}${primaryAttrs.length > 0 ? ' · ' + primaryAttrs.length : ''}`}
+              </Text>
+            </Press>
+          </View>
+          {primaryAttrs.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+              {primaryAttrs.map(([k, v], i) => (
+                <MetaCell
+                  key={`${k}-${i}`}
+                  theme={theme}
+                  label={k}
+                  value={v}
+                  onPress={() => beginAttrEdit(i, v)}
+                  onLongPress={() => deleteAttr(i)}
+                  editing={editingAttrIndex === i}
+                  editValue={editingAttrIndex === i ? draftValue : v}
+                  onChangeText={setDraftValue}
+                  onSubmit={finishAttrEdit}
+                  keyboardType="default"
+                  scrollOnFocus
+                />
+              ))}
+            </View>
+          ) : (
+            <Press onPress={beginAddAttr} style={{ paddingVertical: 12 }}>
+              <Text style={{ fontSize: 13.5, color: theme.text3 }}>暂无自定义属性，点击添加</Text>
+            </Press>
+          )}
+        </>
+
         {/* 库内占比 */}
-        <SectionLabel theme={theme} text={t('gear.section.libraryShare')} />
-        <GearCard theme={theme} style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 }}>
+        <SectionLabel theme={theme} text={t('gear.section.libraryShare')} marginTop={32} />
+        <View style={{ paddingTop: 2 }}>
           <ShareBar theme={theme} label={t('gear.share.weightInCat')} pct={(itemW / catW) * 100} sub={`${cat.name} ${catItems.length} ${t('gear.unit.items')}`} color={cat.color} />
-          <ShareBar theme={theme} label={t('gear.share.weightInAll')} pct={(itemW / totalW) * 100} sub={t('gear.share.subAllWeight', { value: totalW.toFixed(1) })} color={theme.text2} />
+          <ShareBar theme={theme} label={t('gear.share.weightInAll')} pct={(itemW / totalW) * 100} sub={t('gear.share.subAllWeight', { value: fmtWeight(totalW, weightUnit, true) })} color={theme.text2} />
           <ShareBar theme={theme} label={t('gear.share.valueInAll')} pct={(itemP / totalP) * 100} sub={t('gear.share.subAllValue', { value: yuan(totalP) })} color={theme.text2} last />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 6, paddingTop: 10, borderTopWidth: 0.5, borderColor: theme.hairline }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7, paddingTop: 11, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <Text style={{ fontSize: 13, color: theme.text2 }}>{t('gear.share.weightRank')}</Text>
             <Text style={{ marginLeft: 'auto', fontSize: 13.5, fontWeight: '700', color: theme.text }}>{t('gear.share.rankValue', { rank: wRank, total: catItems.length })}</Text>
           </View>
-        </GearCard>
+        </View>
 
         {/* 所属套装 */}
-        <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSets.length > 0 ? ' · ' + memberSets.length : ''}`} />
+        <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSets.length > 0 ? ' · ' + memberSets.length : ''}`} marginTop={32} />
         {memberSets.length === 0 ? (
-          <GearCard theme={theme} style={{ paddingHorizontal: 16, paddingVertical: 15 }}>
+          <View style={{ paddingVertical: 12 }}>
             <Text style={{ fontSize: 13.5, color: theme.text3 }}>{t('gear.itemDetail.noMemberSets')}</Text>
-          </GearCard>
+          </View>
         ) : (
-          <GearCard theme={theme}>
-            {memberSets.map((s, i) => {
+          <View>
+            {memberSets.map((s) => {
               const its = s.items.map((n) => allItems.find((x) => x.name === n)).filter(Boolean) as GearItem[];
-              const wt = its.reduce((a, x) => a + x.w * (x.qty || 1), 0);
+              const wt = its.reduce((a, x) => a + itemWeight(x), 0);
               return (
                 <React.Fragment key={s.id}>
-                  {i > 0 && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginLeft: 16 }} />}
-                  <Press onPress={() => onOpenSet(s)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 13 }}>
-                    <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: '600', color: theme.text, flexShrink: 1 }}>{s.name}</Text>
-                    <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2 }}>{its.length} {t('gear.unit.items')} · {wt.toFixed(1)} kg</Text>
+                  <Press onPress={() => onOpenSet(s)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{s.name}</Text>
+                      <Text style={{ marginTop: 4, fontFamily: MONO, fontSize: 11, color: theme.text2 }}>{its.length} {t('gear.unit.items')} · {fmtWeight(wt, weightUnit, true)}</Text>
+                    </View>
                     <View style={{ marginLeft: 'auto' }}>
                       <Icon name="chevronR" color={theme.text3} size={14} />
                     </View>
@@ -155,17 +665,76 @@ export function GearItemDetail({
                 </React.Fragment>
               );
             })}
-          </GearCard>
+          </View>
         )}
 
-        {/* 备注 */}
-        <SectionLabel theme={theme} text={t('gear.section.note')} />
-        <GearCard theme={theme} style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-          <Text style={{ fontSize: 14.5, lineHeight: 22, color: item.note ? theme.text : theme.text3 }}>
-            {item.note || t('gear.itemDetail.notePlaceholder')}
-          </Text>
-        </GearCard>
       </View>
+      {addingAttr ? (
+        <Modal visible transparent animationType="fade" onRequestClose={cancelAddAttr}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+            <Pressable onPress={cancelAddAttr} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
+            <View style={{ backgroundColor: theme.dark ? theme.bg : '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 14, paddingHorizontal: 20, paddingBottom: 12 }}>
+              <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45, marginBottom: 16 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                <Press onPress={cancelAddAttr} hitSlop={8} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 14.5, color: theme.text2 }}>{'取消'}</Text>
+                </Press>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>{t('gear.editor.addAttr')}</Text>
+                <Press onPress={finishAddAttr} disabled={!draftAttrKey.trim() || !draftValue.trim()} hitSlop={8} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 14.5, fontWeight: '700', color: draftAttrKey.trim() && draftValue.trim() ? theme.accent : theme.text3 }}>{'完成'}</Text>
+                </Press>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TextInput
+                  autoFocus
+                  value={draftAttrKey}
+                  onChangeText={setDraftAttrKey}
+                  placeholder={t('gear.editor.attrNamePlaceholder')}
+                  placeholderTextColor={theme.text3}
+                  returnKeyType="next"
+                  style={{ flex: 0.8, height: 44, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 10, backgroundColor: softBg(theme), fontSize: 14.5, lineHeight: 20, includeFontPadding: false, color: theme.text, textAlignVertical: 'center' }}
+                />
+                <TextInput
+                  value={draftValue}
+                  onChangeText={setDraftValue}
+                  onSubmitEditing={finishAddAttr}
+                  placeholder={t('gear.editor.attrValuePlaceholder')}
+                  placeholderTextColor={theme.text3}
+                  style={{ flex: 1.2, height: 44, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 10, backgroundColor: softBg(theme), fontSize: 14.5, lineHeight: 20, includeFontPadding: false, color: theme.text, textAlignVertical: 'center' }}
+                />
+              </View>
+            </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      ) : null}
+      {pickerField === 'category' ? (
+        <WheelSelectSheet
+          theme={theme}
+          title={t('gear.spec.category')}
+          value={item.cat}
+          data={cats.map((c) => ({ value: c.id, label: c.name }))}
+          onClose={() => setPickerField(null)}
+          onConfirm={(next) => {
+            setPickerField(null);
+            onInlineChange?.({ cat: next });
+          }}
+        />
+      ) : null}
+      {pickerField === 'status' ? (
+        <WheelSelectSheet
+          theme={theme}
+          title={t('gear.spec.status')}
+          value={itemStatus(item)}
+          data={STATUS_OPTIONS.map((s) => ({ value: s, label: t(`gear.status.${s}` as any) }))}
+          onClose={() => setPickerField(null)}
+          onConfirm={(next) => {
+            setPickerField(null);
+            onInlineChange?.({ status: next as GearItem['status'] });
+          }}
+        />
+      ) : null}
     </GearPushPage>
   );
 }

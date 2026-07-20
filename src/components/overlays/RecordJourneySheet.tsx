@@ -14,11 +14,13 @@ import { MONO } from '../../theme/fonts';
 import { Poi, Companion, JourneyStatus } from '../../data/pois';
 import { Tone } from '../../data/tones';
 import { TrackPt, TrackStats, haversine, computeStats, parseTrack, buildTrackData } from '../../lib/trackParser';
+import { extractKmlFromKmz } from '../../lib/kmz';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
+import { formatDuration } from '../../lib/time';
 import { useData } from '../../data/DataContext';
 import { uploadMedia } from '../../lib/storage';
 
@@ -44,17 +46,7 @@ function fmtDist(m: number): string {
   if (m >= 1000) return (m / 1000).toFixed(m >= 10000 ? 1 : 2) + ' km';
   return Math.round(m) + ' m';
 }
-function fmtDur(ms: number, t: TFn): string {
-  if (!ms || ms < 0) return '—';
-  const min = Math.round(ms / 60000);
-  if (min < 60) return t('record.dur.minutes', { n: min });
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h < 24) return m ? t('record.dur.hoursMinutes', { h, m }) : t('record.dur.hours', { h });
-  const d = Math.floor(h / 24);
-  const hr = h % 24;
-  return hr ? t('record.dur.daysHours', { d, h: hr }) : t('record.dur.days', { d });
-}
+const fmtDur = formatDuration;
 function fmtCoord(lat: number, lon: number): string {
   const ns = lat >= 0 ? 'N' : 'S';
   const ew = lon >= 0 ? 'E' : 'W';
@@ -499,16 +491,30 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
       const file = result.result;
       const fname = file.name || 'track.gpx';
       const ext = (fname.split('.').pop() || '').toLowerCase();
-      if (ext !== 'gpx' && ext !== 'kml') {
+      if (ext !== 'gpx' && ext !== 'kml' && ext !== 'kmz') {
         setError(t('record.track.errFormat'));
         return;
       }
       setBusy(true);
       setError(null);
-      let text = await file.text();
+      let text: string;
+      let parseName = fname;
+      if (ext === 'kmz') {
+        const buffer = await file.arrayBuffer();
+        const kml = extractKmlFromKmz(new Uint8Array(buffer));
+        if (!kml) {
+          setBusy(false);
+          setError(t('record.track.errParse'));
+          return;
+        }
+        text = kml;
+        parseName = fname.replace(/\.kmz$/i, '.kml');
+      } else {
+        text = await file.text();
+      }
       if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
       console.log('[Track] read file:', fname, 'size:', text.length, 'first 120:', text.slice(0, 120));
-      onIngest(text, fname, null, null);
+      onIngest(text, parseName, null, null);
     } catch (e) {
       console.warn('[Track] pickFile error:', e);
       setBusy(false);

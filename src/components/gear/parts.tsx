@@ -5,7 +5,7 @@
 // Kept visually identical to GearScreen's chrome (surfaceTop cards + soft shadow
 // on theme.bg) so a pushed detail reads as the same surface, not a new world.
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, ScrollView, StyleSheet, Dimensions, ViewStyle } from 'react-native';
+import { Animated, View, Text, ScrollView, StyleSheet, Dimensions, ViewStyle, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -13,7 +13,7 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { hashStr, TONES } from '../../data/tones';
-import { GearItem, GearCat } from '../../data/gear';
+import { GearItem, GearCat, itemWeight, itemPrice, fmtWeight, WeightUnit } from '../../data/gear';
 
 // ── Shared theme tokens (mirror GearScreen) ─────────────────────────────────
 export const cardShadow = (t: Theme): ViewStyle =>
@@ -25,11 +25,16 @@ export const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
-export const fmtKg = (v: number) => v.toFixed(2) + ' kg';
+export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
 export const toneFor = (name: string) => TONES[Math.abs(hashStr(name)) % TONES.length];
 
 import { CircleBtn } from '../CircleBtn';
 export { CircleBtn };
+
+const GearPushScrollContext = React.createContext<{ scrollBy: (dy: number) => void } | null>(null);
+export function useGearPushScroll() {
+  return React.useContext(GearPushScrollContext);
+}
 
 // ── Full-screen pushed detail page ──────────────────────────────────────────
 // Slides in from the right. With `hero`, a full-bleed view sits at the top and
@@ -40,6 +45,7 @@ export function GearPushPage({
   onBack,
   title,
   right,
+  overlay,
   hero,
   children,
 }: {
@@ -47,12 +53,15 @@ export function GearPushPage({
   onBack: () => void;
   title?: string;
   right?: React.ReactNode;
+  overlay?: React.ReactNode;
   hero?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const width = Dimensions.get('window').width;
   const tx = useRef(new Animated.Value(width)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
   useEffect(() => {
     Animated.spring(tx, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 16 }).start();
   }, [tx]);
@@ -60,23 +69,37 @@ export function GearPushPage({
   const navH = insets.top + 50;
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, transform: [{ translateX: tx }] }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? theme.bg : '#FFFFFF', transform: [{ translateX: tx }] }]}>
       <View style={{ flex: 1 }}>
         {hero}
-        <ScrollView
+        <KeyboardAvoidingView
           style={{ flex: 1 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingTop: hero ? 6 : navH + 4, paddingBottom: insets.bottom + 48 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={insets.top}
         >
-          {children}
-        </ScrollView>
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+            onScroll={(event) => {
+              scrollY.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+            contentContainerStyle={{ paddingTop: hero ? 6 : navH + 4, paddingBottom: insets.bottom + 120 }}
+          >
+            <GearPushScrollContext.Provider value={{ scrollBy: (dy: number) => scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current + dy), animated: true }) }}>
+              {children}
+            </GearPushScrollContext.Provider>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
 
       {/* floating nav chrome */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navH }} pointerEvents="box-none">
         <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
-          <CircleBtn theme={theme} name="arrowL" onPress={onBack} />
+          <CircleBtn theme={theme} name="arrowL" onPress={onBack} softShadow size={44} />
         </View>
         {title && !hero ? (
           <View pointerEvents="none" style={{ position: 'absolute', left: 64, right: 64, top: insets.top + 12, height: 26, justifyContent: 'center' }}>
@@ -87,6 +110,7 @@ export function GearPushPage({
         ) : null}
         {right ? <View style={{ position: 'absolute', right: 14, top: insets.top + 5 }}>{right}</View> : null}
       </View>
+      {overlay}
     </Animated.View>
   );
 }
@@ -97,9 +121,9 @@ export function GearCard({ theme, children, style }: { theme: Theme; children: R
 }
 
 // Uppercase section label with an optional count / trailing accessory.
-export function SectionLabel({ theme, text, trailing }: { theme: Theme; text: string; trailing?: React.ReactNode }) {
+export function SectionLabel({ theme, text, trailing, marginTop = 22 }: { theme: Theme; text: string; trailing?: React.ReactNode; marginTop?: number }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 8, paddingHorizontal: 4 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop, marginBottom: 8 }}>
       <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>{text}</Text>
       {trailing}
     </View>
@@ -127,7 +151,7 @@ export function KV({ theme, k, v, leadingDot, first }: { theme: Theme; k: string
 }
 
 // Gear row with a photo thumbnail — used in 分类详情 / 套装详情 lists.
-export function GearItemRow({ theme, item, cat, last, onPress }: { theme: Theme; item: GearItem; cat?: GearCat; last?: boolean; onPress?: () => void }) {
+export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg' }: { theme: Theme; item: GearItem; cat?: GearCat; last?: boolean; onPress?: () => void; weightUnit?: WeightUnit }) {
   const qty = item.qty || 1;
   return (
     <>
@@ -144,7 +168,7 @@ export function GearItemRow({ theme, item, cat, last, onPress }: { theme: Theme;
               </>
             ) : null}
             <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>
-              {fmtKg(item.w)} · {yuan(item.p)}{qty > 1 ? ` · ×${qty}` : ''}
+              {fmtKg(itemWeight(item), weightUnit)} · {yuan(itemPrice(item))}{qty > 1 ? ` · ×${qty}` : ''}
             </Text>
           </View>
         </View>

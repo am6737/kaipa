@@ -17,7 +17,7 @@ import { PhotoTile } from '../components/PhotoTile';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { hashStr, TONES } from '../data/tones';
-import { UNCAT, GearCat, GearItem, GearSet, Metric, METRICS } from '../data/gear';
+import { UNCAT, GearCat, GearItem, GearSet, GearSetOverride, Metric, METRICS, metricValue, itemWeight, itemPrice, WeightUnit, fmtWeight, splitWeight } from '../data/gear';
 import { useData } from '../data/DataContext';
 import { LabeledDonut } from '../components/gear/LabeledDonut';
 import { GearItemDetail } from '../components/gear/GearItemDetail';
@@ -53,11 +53,40 @@ const iconBtnShadow = (t: Theme): ViewStyle =>
     : { boxShadow: '0px 2px 10px rgba(0,0,0,0.14)' };
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
-const valOf = (it: GearItem, metric: Metric) => (metric === 'price' ? it.p : metric === 'weight' ? it.w : 1);
 const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
-const fmtVal = (metric: Metric, v: number) =>
-  metric === 'price' ? yuan(v) : metric === 'weight' ? v.toFixed(2) + ' kg' : Math.round(v) + ' 件';
 const toneFor = (name: string) => TONES[Math.abs(hashStr(name)) % TONES.length];
+
+const normItem = (it: GearItem) => ({
+  name: it.name,
+  cat: it.cat,
+  w: Number(it.w) || 0,
+  p: Number(it.p) || 0,
+  qty: it.qty || 1,
+  status: it.status || 'packed',
+  photos: it.photos ?? [],
+  attrs: it.attrs ?? [],
+  note: it.note ?? '',
+});
+
+const sameStringPairs = (a: [string, string][], b: [string, string][]) =>
+  a.length === b.length && a.every(([ak, av], i) => ak === b[i]?.[0] && av === b[i]?.[1]);
+
+const sameGearItem = (a: GearItem, b: GearItem) => {
+  const na = normItem(a);
+  const nb = normItem(b);
+  return (
+    na.name === nb.name &&
+    na.cat === nb.cat &&
+    na.w === nb.w &&
+    na.p === nb.p &&
+    na.qty === nb.qty &&
+    na.status === nb.status &&
+    na.note === nb.note &&
+    na.photos.length === nb.photos.length &&
+    na.photos.every((p, i) => p === nb.photos[i]) &&
+    sameStringPairs(na.attrs, nb.attrs)
+  );
+};
 
 interface Row extends GearCat {
   value: number;
@@ -69,8 +98,8 @@ function designRows(cats: GearCat[], metric: Metric, items: GearItem[]): { rows:
   const m: Record<string, { v: number; c: number }> = {};
   items.forEach((it) => {
     const e = m[it.cat] || (m[it.cat] = { v: 0, c: 0 });
-    e.v += valOf(it, metric);
-    e.c += 1;
+    e.v += metricValue(it, metric);
+    e.c += it.qty || 1;
   });
   const rows = cats
     .map((c) => ({ ...c, value: m[c.id]?.v || 0, count: m[c.id]?.c || 0 }))
@@ -80,14 +109,17 @@ function designRows(cats: GearCat[], metric: Metric, items: GearItem[]): { rows:
 
 // Set composition: weight-by-category segments for the mini ring + totals.
 function setComp(set: GearSet, catMap: Record<string, GearCat>, allItems: GearItem[]) {
-  const items = allItems.filter((it) => set.items.includes(it.name));
+  const items = allItems.filter((it) => set.items.includes(it.name)).map((it) => {
+    const override = (it.id != null ? set.overrides?.[String(it.id)] : undefined) || set.overrides?.[it.name];
+    return override ? { ...it, ...override } : it;
+  });
   const byCat = new Map<string, number>();
-  for (const it of items) byCat.set(it.cat, (byCat.get(it.cat) || 0) + it.w);
+  for (const it of items) byCat.set(it.cat, (byCat.get(it.cat) || 0) + itemWeight(it));
   const comp = [...byCat.entries()]
     .map(([id, w]) => ({ value: w, color: (catMap[id] || { color: '#8E8E93' }).color }))
     .sort((a, b) => b.value - a.value);
-  const wt = items.reduce((a, it) => a + it.w, 0);
-  const val = items.reduce((a, it) => a + it.p, 0);
+  const wt = items.reduce((a, it) => a + itemWeight(it), 0);
+  const val = items.reduce((a, it) => a + itemPrice(it), 0);
   return { comp, wt, val, nItems: items.length, nCats: byCat.size };
 }
 
@@ -99,6 +131,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const { width: winW } = useWindowDimensions();
   const [tab, setTab] = useState<Tab>('items');
   const [metric, setMetric] = useState<Metric>('price');
+  const weightUnit: WeightUnit = data.profile.gearWeightUnit || 'kg';
   const [query, setQuery] = useState('');
   const [setsQuery, setSetsQuery] = useState('');
   const [itemLayout, setItemLayout] = useState<Layout>('list');
@@ -173,6 +206,10 @@ export function GearScreen({ theme }: { theme: Theme }) {
 
   const updateItem = (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
+    if (oldItem && sameGearItem(oldItem, ni)) {
+      setItemEditor(null);
+      return;
+    }
     if (oldItem?.id) data.updateItem(oldItem.id, ni);
     setPageStack((stk) =>
       stk.map((pg) => {
@@ -182,7 +219,15 @@ export function GearScreen({ theme }: { theme: Theme }) {
       })
     );
     setItemEditor(null);
-    nav.showToast(t('gear.toast.itemUpdated'));
+    nav.showToast(t('gear.toast.itemUpdated'), 'top');
+  };
+
+  const updateItemPhotos = (name: string, photos: string[]) => {
+    const current = allItems.find((it) => it.name === name);
+    if (current?.id) data.updateItem(current.id, { photos });
+    setPageStack((stk) =>
+      stk.map((pg) => (pg.type === 'item' && pg.item.name === name ? { type: 'item', item: { ...pg.item, photos } } : pg))
+    );
   };
 
   const addItem = (ni: GearItem) => {
@@ -207,15 +252,15 @@ export function GearScreen({ theme }: { theme: Theme }) {
     popPage();
     nav.showToast(t('gear.toast.setDeleted'));
   };
-  const saveSet = (name: string, itemNames: string[]) => {
+  const saveSet = (name: string, itemNames: string[], overrides: Record<string, GearSetOverride>) => {
     const itemIds = itemNames.map(n => allItems.find(i => i.name === n)?.id).filter(Boolean) as number[];
     if (setEditor?.mode === 'edit' && setEditor.set) {
       const id = setEditor.set.id;
-      data.updateSet(id, name, itemIds);
-      setPageStack((stk) => stk.map((p) => (p.type === 'set' && p.set.id === id ? { type: 'set', set: { ...p.set, name, items: itemNames } } : p)));
+      data.updateSet(id, name, itemIds, overrides);
+      setPageStack((stk) => stk.map((p) => (p.type === 'set' && p.set.id === id ? { type: 'set', set: { ...p.set, name, items: itemNames, overrides } } : p)));
       nav.showToast(t('gear.toast.setUpdated'));
     } else {
-      data.addSet(name, itemIds);
+      data.addSet(name, itemIds, overrides);
       nav.showToast(t('gear.toast.setCreated'));
     }
     setSetEditor(null);
@@ -309,7 +354,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
             <View style={{ alignItems: 'center' }}>
               <MetricStepper theme={theme} metric={metric} setMetric={setMetric} />
             </View>
-            <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={allItems} width={contentW} sel={sel} onSel={setSel} />
+            <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={allItems} width={contentW} sel={sel} onSel={setSel} weightUnit={weightUnit} />
             <View style={{ height: 0.5, backgroundColor: theme.hairline, marginVertical: 14 }} />
             <ControlsRow theme={theme} value={query} onChange={setQuery} placeholder={t('gear.search.items')} layout={itemLayout} setLayout={setItemLayout} />
             {items.length === 0 ? (
@@ -322,6 +367,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
                     selected={it.id ? selectedIds.has(it.id) : false}
                     onPress={() => { if (selectMode && it.id) { toggleSelect(it.id); } else { pushPage({ type: 'item', item: it }); } }}
                     onLongPress={it.id ? () => enterSelect(it.id!) : undefined}
+                    weightUnit={weightUnit}
                   />
                 ))}
               </View>
@@ -333,6 +379,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
                     selected={it.id ? selectedIds.has(it.id) : false}
                     onPress={() => { if (selectMode && it.id) { toggleSelect(it.id); } else { pushPage({ type: 'item', item: it }); } }}
                     onLongPress={it.id ? () => enterSelect(it.id!) : undefined}
+                    weightUnit={weightUnit}
                   />
                 ))}
               </Card>
@@ -347,13 +394,13 @@ export function GearScreen({ theme }: { theme: Theme }) {
             {catLayout === 'grid' ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {catRows.map((c) => (
-                  <CatCard key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'cat', cat: c })} />
+                  <CatCard key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'cat', cat: c })} weightUnit={weightUnit} />
                 ))}
               </View>
             ) : (
               <Card theme={theme}>
                 {catRows.map((c, i) => (
-                  <CatRow key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} last={i === catRows.length - 1} onPress={() => pushPage({ type: 'cat', cat: c })} />
+                  <CatRow key={c.id} theme={theme} cat={c} total={total} metric={metric} items={allItems.filter((it) => it.cat === c.id)} last={i === catRows.length - 1} onPress={() => pushPage({ type: 'cat', cat: c })} weightUnit={weightUnit} />
                 ))}
               </Card>
             )}
@@ -369,13 +416,13 @@ export function GearScreen({ theme }: { theme: Theme }) {
             ) : setsLayout === 'grid' ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {setRows.map((s) => (
-                  <SetGridCard key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'set', set: s })} />
+                  <SetGridCard key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} w={(contentW - 10) / 2} onPress={() => pushPage({ type: 'set', set: s })} weightUnit={weightUnit} />
                 ))}
               </View>
             ) : (
               <Card theme={theme}>
                 {setRows.map((s, i) => (
-                  <SetRow key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} last={i === setRows.length - 1} onPress={() => pushPage({ type: 'set', set: s })} />
+                  <SetRow key={s.id} theme={theme} set={s} g={setComp(s, catMap, allItems)} last={i === setRows.length - 1} onPress={() => pushPage({ type: 'set', set: s })} weightUnit={weightUnit} />
                 ))}
               </Card>
             )}
@@ -436,18 +483,22 @@ export function GearScreen({ theme }: { theme: Theme }) {
               theme={theme}
               item={pg.item}
               cat={catMap[pg.item.cat] || UNCAT}
+              cats={cats}
+              weightUnit={weightUnit}
               allItems={allItems}
               sets={sets}
               onBack={popPage}
               onOpenSet={(s) => pushPage({ type: 'set', set: s })}
               onDelete={() => deleteItem(pg.item.name)}
-              onEdit={() => setItemEditor({ mode: 'edit', item: pg.item })}
+              onPhotosChange={(photos) => updateItemPhotos(pg.item.name, photos)}
+              onInlineChange={(patch) => updateItem(pg.item.name, { ...pg.item, ...patch })}
             />
           ) : pg.type === 'cat' ? (
             <GearCatDetail
               theme={theme}
               cat={pg.cat}
               allItems={allItems}
+              weightUnit={weightUnit}
               onBack={popPage}
               onOpenItem={(it) => pushPage({ type: 'item', item: it })}
               onDelete={() => deleteCat(pg.cat.id)}
@@ -459,6 +510,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
               set={pg.set}
               allItems={allItems}
               catMap={catMap}
+              weightUnit={weightUnit}
               onBack={popPage}
               onOpenItem={(it) => pushPage({ type: 'item', item: it })}
               onDelete={() => deleteSet(pg.set.id)}
@@ -473,6 +525,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
         <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
           <GearSetEditor
             theme={theme}
+            weightUnit={weightUnit}
             mode={setEditor.mode}
             initial={setEditor.set}
             cats={cats}
@@ -575,15 +628,16 @@ function ControlsRow({ theme, value, onChange, placeholder, layout, setLayout }:
   );
 }
 
+
 // ── 装备 rows / cards ───────────────────────────────────────────────────────
-function ItemRow({ theme, item, cat, last, onPress, onLongPress, selectMode, selected }: {
-  theme: Theme; item: GearItem; cat: GearCat; last: boolean; onPress: () => void;
+function ItemRow({ theme, item, cat, last, onPress, onLongPress, selectMode, selected, weightUnit }: {
+  theme: Theme; item: GearItem; cat: GearCat; last: boolean; onPress: () => void; weightUnit: WeightUnit;
   onLongPress?: () => void; selectMode?: boolean; selected?: boolean;
 }) {
   return (
     <>
       <Press onPress={onPress} onLongPress={onLongPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
-        {selectMode !== undefined && (
+        {selectMode && (
           <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: selected ? theme.accent : theme.text3, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? theme.accent : 'transparent' }}>
             {selected && <Icon name="check" color="#fff" size={14} />}
           </View>
@@ -593,18 +647,18 @@ function ItemRow({ theme, item, cat, last, onPress, onLongPress, selectMode, sel
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <Text style={{ fontSize: 11.5, color: theme.text2 }}>{cat.name}</Text>
             <View style={{ width: 0.5, height: 9, backgroundColor: theme.hairline }} />
-            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, letterSpacing: 0.2 }}>{item.w.toFixed(2)} kg · ¥{item.p.toLocaleString('en-US')}</Text>
+            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, letterSpacing: 0.2 }}>{fmtWeight(itemWeight(item), weightUnit)} · ¥{itemPrice(item).toLocaleString('en-US')}</Text>
           </View>
         </View>
-        {selectMode === undefined && <Icon name="chevronR" color={theme.text3} size={14} />}
+        {!selectMode && <Icon name="chevronR" color={theme.text3} size={14} />}
       </Press>
       {!last && <View style={{ height: 0.5, backgroundColor: theme.hairline, marginHorizontal: 10 }} />}
     </>
   );
 }
 
-function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, selected }: {
-  theme: Theme; item: GearItem; cat: GearCat; w: number; onPress: () => void;
+function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, selected, weightUnit }: {
+  theme: Theme; item: GearItem; cat: GearCat; w: number; onPress: () => void; weightUnit: WeightUnit;
   onLongPress?: () => void; selectMode?: boolean; selected?: boolean;
 }) {
   return (
@@ -616,7 +670,7 @@ function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, s
           <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: cat.color }} />
           <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text }}>{cat.name}</Text>
         </View>
-        {selectMode !== undefined && (
+        {selectMode && (
           <View style={{ position: 'absolute', top: 9, right: 9, width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: selected ? '#fff' : 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.3)' }}>
             {selected && <Icon name="check" color="#fff" size={15} />}
           </View>
@@ -625,7 +679,7 @@ function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, s
       <View style={{ paddingHorizontal: 12, paddingTop: 11, paddingBottom: 13 }}>
         <Text numberOfLines={2} style={{ fontSize: 14.5, fontWeight: '600', color: theme.text, lineHeight: 19, minHeight: 38 }}>{item.name}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 8 }}>
-          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{item.w.toFixed(2)} kg</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{fmtWeight(itemWeight(item), weightUnit)}</Text>
           <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>¥{item.p.toLocaleString('en-US')}</Text>
         </View>
       </View>
@@ -634,12 +688,12 @@ function ItemGridCard({ theme, item, cat, w, onPress, onLongPress, selectMode, s
 }
 
 // ── 分类 rows / cards ───────────────────────────────────────────────────────
-function CatCard({ theme, cat, total, metric, items, w, onPress }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; w: number; onPress: () => void }) {
+function CatCard({ theme, cat, total, metric, items, w, onPress, weightUnit }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; w: number; onPress: () => void; weightUnit: WeightUnit }) {
   const { t } = useI18n();
   const pct = total ? (cat.value / total) * 100 : 0;
-  const wt = items.reduce((a, it) => a + it.w, 0);
-  const pr = items.reduce((a, it) => a + it.p, 0);
-  const stats: [string, string, Metric][] = [[t('gear.stat.value'), yuan(pr), 'price'], [t('gear.stat.weight'), wt.toFixed(2) + ' kg', 'weight'], [t('gear.stat.count'), cat.count + ' ' + t('gear.unit.items'), 'count']];
+  const wt = items.reduce((a, it) => a + itemWeight(it), 0);
+  const pr = items.reduce((a, it) => a + itemPrice(it), 0);
+  const stats: [string, string, Metric][] = [[t('gear.stat.value'), yuan(pr), 'price'], [t('gear.stat.weight'), fmtWeight(wt, weightUnit), 'weight'], [t('gear.stat.count'), cat.count + ' ' + t('gear.unit.items'), 'count']];
   return (
     <Press onPress={onPress} style={{ width: w, borderRadius: 14, padding: 14, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -664,12 +718,12 @@ function CatCard({ theme, cat, total, metric, items, w, onPress }: { theme: Them
   );
 }
 
-function CatRow({ theme, cat, total, metric, items, last, onPress }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; last: boolean; onPress: () => void }) {
+function CatRow({ theme, cat, total, metric, items, last, onPress, weightUnit }: { theme: Theme; cat: Row; total: number; metric: Metric; items: GearItem[]; last: boolean; onPress: () => void; weightUnit: WeightUnit }) {
   const { t } = useI18n();
   const pct = total ? (cat.value / total) * 100 : 0;
-  const wt = items.reduce((a, it) => a + it.w, 0);
-  const pr = items.reduce((a, it) => a + it.p, 0);
-  const parts: [Metric, string][] = [['price', yuan(pr)], ['weight', wt.toFixed(2) + ' kg'], ['count', cat.count + ' ' + t('gear.unit.items')]];
+  const wt = items.reduce((a, it) => a + itemWeight(it), 0);
+  const pr = items.reduce((a, it) => a + itemPrice(it), 0);
+  const parts: [Metric, string][] = [['price', yuan(pr)], ['weight', fmtWeight(wt, weightUnit)], ['count', cat.count + ' ' + t('gear.unit.items')]];
   return (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 14 }}>
@@ -701,14 +755,14 @@ function CatRow({ theme, cat, total, metric, items, last, onPress }: { theme: Th
 // ── 套装 rows / cards ───────────────────────────────────────────────────────
 type SetG = ReturnType<typeof setComp>;
 
-function SetRow({ theme, set, g, last, onPress }: { theme: Theme; set: GearSet; g: SetG; last: boolean; onPress: () => void }) {
+function SetRow({ theme, set, g, last, onPress, weightUnit }: { theme: Theme; set: GearSet; g: SetG; last: boolean; onPress: () => void; weightUnit: WeightUnit }) {
   const { t } = useI18n();
   return (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 2 }}>{set.name}</Text>
-          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 1 }}>{g.nCats} {t('gear.unit.cats')} · {g.nItems} {t('gear.unit.items')} · {g.wt.toFixed(1)} kg</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2, marginTop: 1 }}>{g.nCats} {t('gear.unit.cats')} · {g.nItems} {t('gear.unit.items')} · {fmtWeight(g.wt, weightUnit, true)}</Text>
         </View>
         <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, letterSpacing: -0.2 }}>¥{Math.round(g.val).toLocaleString('en-US')}</Text>
         <Icon name="chevronR" color={theme.text3} size={15} />
@@ -718,11 +772,11 @@ function SetRow({ theme, set, g, last, onPress }: { theme: Theme; set: GearSet; 
   );
 }
 
-function SetGridCard({ theme, set, g, w, onPress }: { theme: Theme; set: GearSet; g: SetG; w: number; onPress: () => void }) {
+function SetGridCard({ theme, set, g, w, onPress, weightUnit }: { theme: Theme; set: GearSet; g: SetG; w: number; onPress: () => void; weightUnit: WeightUnit }) {
   const { t } = useI18n();
   return (
     <Press onPress={onPress} style={{ width: w, alignItems: 'center', borderRadius: 16, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 14, backgroundColor: theme.surfaceTop, ...cardBorder(theme), ...cardShadow(theme) }}>
-      <Donut theme={theme} size={80} thickness={11} segments={g.comp} centerValue={g.wt.toFixed(1)} centerSub="kg" />
+      <Donut theme={theme} size={80} thickness={11} segments={g.comp} centerValue={splitWeight(g.wt, weightUnit, true).value} centerSub={splitWeight(g.wt, weightUnit, true).unit} />
       <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginTop: 12, textAlign: 'center' }}>{set.name}</Text>
       <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text2, marginTop: 3 }}>{g.nCats} {t('gear.unit.cats')} · {g.nItems} {t('gear.unit.items')}</Text>
       <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text, marginTop: 6, letterSpacing: -0.2 }}>¥{Math.round(g.val).toLocaleString('en-US')}</Text>

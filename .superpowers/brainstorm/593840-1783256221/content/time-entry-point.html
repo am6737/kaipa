@@ -1,0 +1,50 @@
+<h2>旅程详情时间入口放在哪里？</h2>
+<p class="subtitle">根据你的描述，我理解为：下半部分卡片标题下方不再显示地点；时间显示为“3天 / 6时”这类耗时，并且点它弹出时间选择器卡片。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">A：标题下方显示可点击时间</div>
+    <div class="mockup-body">
+      <div style="background:#f7f7f7;border-radius:28px;padding:18px;max-width:330px;margin:auto;color:#111;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <div style="width:48px;height:5px;background:#c7c7cc;border-radius:99px;margin:0 auto 14px;"></div>
+        <div style="font-size:24px;font-weight:800;margin-bottom:4px;">四姑娘二峰</div>
+        <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#e8f4ee;color:#0a7a45;font-weight:700;font-size:13px;">3天 <span style="font-size:14px;opacity:.65">⌄</span></div>
+        <div style="height:12px"></div>
+        <div style="display:flex;gap:8px;border-bottom:1px solid #ddd;padding-bottom:12px;">
+          <div style="font-weight:700;color:#0a7a45;border-bottom:2px solid #0a7a45;padding-bottom:6px;">总览</div><div>瞬间</div><div>路线</div><div>行程</div>
+        </div>
+        <div style="margin-top:14px;border:1px solid #ddd;border-radius:16px;overflow:hidden;background:white;">
+          <div style="display:flex;justify-content:space-between;padding:14px;border-bottom:1px solid #eee;"><span>距离</span><b>18.4 km</b></div>
+          <div style="display:flex;justify-content:space-between;padding:14px;border-bottom:1px solid #eee;"><span>爬升</span><b>+2,140 m</b></div>
+          <div style="display:flex;justify-content:space-between;padding:14px;"><span>耗时</span><b style="color:#0a7a45">3天</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">B：只在总览“耗时”行可点击</div>
+    <div class="mockup-body">
+      <div style="background:#f7f7f7;border-radius:28px;padding:18px;max-width:330px;margin:auto;color:#111;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+        <div style="width:48px;height:5px;background:#c7c7cc;border-radius:99px;margin:0 auto 14px;"></div>
+        <div style="font-size:24px;font-weight:800;margin-bottom:14px;">四姑娘二峰</div>
+        <div style="display:flex;gap:8px;border-bottom:1px solid #ddd;padding-bottom:12px;">
+          <div style="font-weight:700;color:#0a7a45;border-bottom:2px solid #0a7a45;padding-bottom:6px;">总览</div><div>瞬间</div><div>路线</div><div>行程</div>
+        </div>
+        <div style="margin-top:14px;border:1px solid #ddd;border-radius:16px;overflow:hidden;background:white;">
+          <div style="display:flex;justify-content:space-between;padding:14px;border-bottom:1px solid #eee;"><span>距离</span><b>18.4 km</b></div>
+          <div style="display:flex;justify-content:space-between;padding:14px;border-bottom:1px solid #eee;"><span>爬升</span><b>+2,140 m</b></div>
+          <div style="display:flex;justify-content:space-between;padding:14px;background:#f1faf5;"><span>耗时</span><b style="color:#0a7a45">3天 ⌄</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div><div class="content"><h3>时间放在标题下方</h3><p>最符合“标题下面的副标题地点删除，时间改为…”；入口更明显。</p></div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div><div class="content"><h3>只改总览耗时行</h3><p>标题区最干净，但用户需要在总览里找编辑入口。</p></div>
+  </div>
+</div>

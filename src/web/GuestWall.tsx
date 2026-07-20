@@ -2,15 +2,17 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path } from 'react-native-svg';
 import { Theme } from '../theme/theme';
-import { MONO } from '../theme/fonts';
+import { SERIF } from '../theme/fonts';
 import { PhotoTile } from '../components/PhotoTile';
-import { Avatar, AvatarStack } from '../components/Avatar';
+import { Avatar } from '../components/Avatar';
 import { Press } from '../components/Press';
 import { useI18n } from '../i18n';
 import { paletteFor } from '../data/tones';
 import { GuestLightbox } from './GuestLightbox';
 import { GuestUploadSheet } from './GuestUploadSheet';
+import { GuestSaveSheet, type SavablePhoto } from './GuestSaveSheet';
 import type { GuestMoment, JourneyData, CompanionData, HostData, InspoMedia } from './useGuestData';
 import type { GuestIdentity } from './IdentitySheet';
 
@@ -33,6 +35,22 @@ interface Props {
   }) => Promise<void>;
   onDeleteMoment: (id: string) => Promise<void>;
   onToast: (msg: string) => void;
+}
+
+// ── action capsule icons ──
+function PlusIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+function DownloadIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 4v10M8.5 10.5L12 14l3.5-3.5M5 19h14" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
 }
 
 // ── Note card (text-only moment) ──
@@ -103,56 +121,6 @@ function MediaCard({ m, onPress, colW }: { m: InspoMedia; onPress: () => void; c
   );
 }
 
-// ── Companions sheet ──
-function CompanionsSheet({ theme, roster, counts, onClose, onPick }: {
-  theme: Theme;
-  roster: { name: string; ini: string; color?: string; tone?: string; isHost?: boolean; isSelf?: boolean }[];
-  counts: Record<string, number>;
-  onClose: () => void;
-  onPick: (name: string) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Pressable style={s.sheetBackdrop} onPress={onClose} />
-      <View style={s.sheetBottom}>
-        <View style={[s.companionSheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg }]}>
-          <View style={s.handle} />
-          <Text style={[s.companionTitle, { color: theme.text }]}>{t('guest.wall.companionsTitle')}</Text>
-          <Text style={[s.companionSub, { color: theme.text2 }]}>
-            {t('guest.wall.companionsSub', { n: String(roster.length) })}
-          </Text>
-
-          <View style={[s.companionList, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderColor: theme.hairline }]}>
-            {roster.map((u, i) => {
-              const n = counts[u.name] || 0;
-              return (
-                <React.Fragment key={i}>
-                  <Press onPress={() => n > 0 && onPick(u.name)} style={[s.companionRow, n === 0 && { opacity: 0.55 }]}>
-                    <Avatar ini={u.ini} color={u.color} tone={u.tone} size={42} />
-                    <View style={{ flex: 1 }}>
-                      <View style={s.companionNameRow}>
-                        <Text style={[s.companionName, { color: theme.text }]}>{u.name}</Text>
-                        {u.isHost && <View style={[s.badge, { backgroundColor: theme.accentSoft }]}><Text style={[s.badgeText, { color: theme.accent }]}>{t('guest.wall.hostBadge')}</Text></View>}
-                        {u.isSelf && <View style={[s.badge, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}><Text style={[s.badgeText, { color: theme.text2 }]}>{t('guest.wall.youBadge')}</Text></View>}
-                      </View>
-                      <Text style={[s.companionCount, { color: theme.text2 }]}>
-                        {n > 0 ? `${n} 个瞬间` : t('guest.wall.noMomentsYet')}
-                      </Text>
-                    </View>
-                    {n > 0 && <Text style={{ color: theme.text3, fontSize: 15 }}>›</Text>}
-                  </Press>
-                  {i < roster.length - 1 && <View style={[s.separator, { backgroundColor: theme.hairline }]} />}
-                </React.Fragment>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
 // ── Main wall ──
 export function GuestWall({ theme, journey, host, companions, identity, moments, media, onAddMoment, onDeleteMoment, onToast }: Props) {
   const { t } = useI18n();
@@ -163,7 +131,7 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
   const [lightbox, setLightbox] = useState<{ list: GuestMoment[]; index: number } | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [companionsOpen, setCompanionsOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
 
   const colW = (Math.min(W, 500) - 32 - 7) / 2;
 
@@ -187,16 +155,8 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
     return list;
   }, [companions, identity]);
 
-  const counts = useMemo(() => {
-    const m: Record<string, number> = {};
-    moments.forEach((p) => { m[p.guest_name] = (m[p.guest_name] || 0) + 1; });
-    return m;
-  }, [moments]);
-
   const visible = filter ? moments.filter((m) => m.guest_name === filter) : moments;
-  const myCount = counts[identity.name] || 0;
 
-  const avatarsForStack = roster.map((r) => ({ ini: r.ini, color: r.color, tone: r.tone }));
 
   const canDelete = useCallback((m: GuestMoment) => m.guest_name === identity.name, [identity]);
 
@@ -240,6 +200,20 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
     filter ? [] : media.filter((m) => !!mediaDisplayUri(m)),
   [media, filter]);
 
+  // every saveable still image on the wall (journey media + photo moments)
+  const savablePhotos = useMemo<SavablePhoto[]>(() => {
+    const out: SavablePhoto[] = [];
+    media.forEach((m) => {
+      if (m.kind === 'video') return;
+      const u = mediaDisplayUri(m);
+      if (u) out.push({ id: m.id, uri: u });
+    });
+    moments.forEach((m) => {
+      if (!m.is_text && m.uri) out.push({ id: m.id, uri: m.uri });
+    });
+    return out;
+  }, [media, moments]);
+
   type WallItem = { kind: 'media'; data: InspoMedia } | { kind: 'moment'; data: GuestMoment };
 
   const wallItems: WallItem[] = useMemo(() => [
@@ -280,47 +254,48 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
             </View>
           </View>
         ) : (
-          /* hero cover + stats */
+          /* hero — title + stats overlaid (aligned with PhotoWall) */
           <>
-            <View style={{ height: 252 }}>
+            <View style={{ aspectRatio: 1.05, overflow: 'hidden' }}>
               {journey.coverUrl ? (
                 <Image source={{ uri: journey.coverUrl }} contentFit="cover" style={StyleSheet.absoluteFill} />
               ) : (
                 <PhotoTile tone={journey.tone} seed={journey.name + 'cover'} resWidth={1200} style={StyleSheet.absoluteFill} />
               )}
               <LinearGradient
-                colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
-                locations={[0, 0.4, 1]}
+                colors={['transparent', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.78)']}
+                locations={[0.25, 0.6, 1]}
                 style={StyleSheet.absoluteFill}
               />
-              <View style={s.heroContent}>
-                <Text style={s.heroTitle}>{journey.name}</Text>
-                {(journey.date || journey.region) && (
-                  <Text style={s.heroMeta}>{[journey.date, journey.region].filter(Boolean).join(' · ')}</Text>
-                )}
+              <View style={s.heroOverlay}>
+                <Text style={s.heroTitle} numberOfLines={2}>{journey.name}</Text>
+                <View style={s.heroStats}>
+                  <View style={s.heroStat}>
+                    <Text style={s.heroStatV}>{String(wallItems.length)}</Text>
+                    <Text style={s.heroStatL}>{t('journey.stat.moments')}</Text>
+                  </View>
+                  <View style={s.heroStat}>
+                    <Text style={s.heroStatV}>{journey.date || '\u2014'}</Text>
+                    {!!journey.region && <Text style={s.heroStatL}>{journey.region}</Text>}
+                  </View>
+                  <View style={s.heroStat}>
+                    <Text style={s.heroStatV}>{String(roster.length)}</Text>
+                    <Text style={s.heroStatL}>{t('journey.stat.people')}</Text>
+                  </View>
+                </View>
               </View>
             </View>
 
-            <View style={s.statsBar}>
-              {wallItems.length > 0 && (
-                <View style={s.statsTop}>
-                  <Text style={[s.sectionTitle, { color: theme.text }]}>{t('guest.wall.title')}</Text>
-                  <Text style={[s.statsCount, { color: theme.text2 }]}>
-                    <Text style={{ fontFamily: 'monospace', fontWeight: '700', color: theme.text }}>{wallItems.length}</Text> 张
-                  </Text>
-                </View>
-              )}
-
-              <Press onPress={() => setCompanionsOpen(true)} style={s.companionBar}>
-                <AvatarStack people={avatarsForStack} size={26} max={5} ringColor={theme.bg} />
-                <Text style={[s.companionBarText, { color: theme.text2 }]}>
-                  {t('guest.wall.companionCount', { n: String(roster.length) })} ›
-                </Text>
-                {myCount > 0 && (
-                  <Press onPress={(e: any) => { e?.stopPropagation?.(); setFilter(identity.name); }} style={[s.myBadge, { backgroundColor: theme.accentSoft }]}>
-                    <Text style={[s.myBadgeText, { color: theme.accent }]}>我的 {myCount}</Text>
-                  </Press>
-                )}
+            {/* action capsule */}
+            <View style={[s.actionCapsule, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#fff', borderColor: theme.hairline }]}>
+              <Press onPress={() => setUploadOpen(true)} style={s.actionBtn}>
+                <PlusIcon color={theme.text} />
+                <Text style={[s.actionLabel, { color: theme.text }]}>{t('journey.action.add')}</Text>
+              </Press>
+              <View style={[s.actionDivider, { backgroundColor: theme.hairline }]} />
+              <Press onPress={savablePhotos.length ? () => setSaveOpen(true) : undefined} style={s.actionBtn}>
+                <DownloadIcon color={savablePhotos.length ? theme.text : theme.text3} />
+                <Text style={[s.actionLabel, { color: savablePhotos.length ? theme.text : theme.text3 }]}>{t('journey.action.save')}</Text>
               </Press>
             </View>
           </>
@@ -355,21 +330,11 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         )}
       </ScrollView>
 
-      {/* FAB */}
-      {!filter && (
-        <Press onPress={() => setUploadOpen(true)} style={[s.fab, { backgroundColor: theme.accent, shadowColor: theme.accent }]}>
-          <Text style={s.fabPlus}>＋</Text>
-        </Press>
-      )}
-
       {/* overlays */}
       {mediaPreview && (
-        <View style={[StyleSheet.absoluteFill, s.mediaOverlay]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setMediaPreview(null)} />
-          <View style={s.mediaPreviewWrap}>
-            <Image source={{ uri: mediaPreview }} contentFit="contain" style={StyleSheet.absoluteFill} />
-          </View>
-        </View>
+        <Pressable style={[StyleSheet.absoluteFill, s.mediaOverlay]} onPress={() => setMediaPreview(null)}>
+          <Image source={{ uri: mediaPreview }} contentFit="contain" style={s.mediaPreviewImg} />
+        </Pressable>
       )}
 
       {lightbox && (
@@ -377,6 +342,7 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
           theme={theme}
           moments={lightbox.list}
           index={lightbox.index}
+          durationMs={journey.track_duration_ms ?? undefined}
           onIndexChange={(i) => setLightbox((prev) => prev ? { ...prev, index: i } : null)}
           onClose={() => setLightbox(null)}
           onDelete={handleDelete}
@@ -394,13 +360,12 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         />
       )}
 
-      {companionsOpen && (
-        <CompanionsSheet
+      {saveOpen && (
+        <GuestSaveSheet
           theme={theme}
-          roster={roster}
-          counts={counts}
-          onClose={() => setCompanionsOpen(false)}
-          onPick={(name) => { setCompanionsOpen(false); setFilter(name); }}
+          photos={savablePhotos}
+          onClose={() => setSaveOpen(false)}
+          onSaved={(n) => onToast(t('guest.wall.savedCount', { count: String(n) }))}
         />
       )}
     </View>
@@ -433,63 +398,67 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
   // hero
-  heroContent: {
+  heroOverlay: {
     position: 'absolute',
-    left: 18,
-    right: 18,
-    bottom: 12,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
   },
   heroTitle: {
+    fontFamily: SERIF,
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: '400',
     color: '#fff',
-    letterSpacing: -0.6,
-    lineHeight: 31,
+    textAlign: 'center',
+    lineHeight: 36,
   },
-  heroMeta: {
-    fontFamily: 'monospace',
-    fontSize: 11.5,
-    color: 'rgba(255,255,255,0.78)',
-    marginTop: 8,
-    letterSpacing: 0.3,
-  },
-  // stats
-  statsBar: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-  },
-  statsTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  statsCount: {
-    fontSize: 13,
-    paddingBottom: 3,
-  },
-  companionBar: {
+  heroStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     marginTop: 14,
   },
-  companionBarText: {
-    fontSize: 12.5,
+  heroStat: {
+    flex: 1,
+    alignItems: 'center',
   },
-  myBadge: {
-    marginLeft: 'auto',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  myBadgeText: {
-    fontSize: 12,
+  heroStatV: {
+    fontSize: 18,
     fontWeight: '700',
+    fontStyle: 'italic',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  heroStatL: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 2,
+  },
+  actionCapsule: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 6,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  actionDivider: {
+    width: StyleSheet.hairlineWidth,
+    marginVertical: 10,
+  },
+  actionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   // masonry
   masonryWrap: {
@@ -572,103 +541,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mediaPreviewWrap: {
-    width: '92%',
-    aspectRatio: 1,
-    maxHeight: '80%',
-  },
-  // FAB
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 30,
-    zIndex: 35,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  fabPlus: {
-    fontSize: 26,
-    color: '#fff',
-    fontWeight: '300',
-  },
-  // companions sheet
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheetBottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  companionSheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 30,
-  },
-  handle: {
-    width: 38,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(128,128,128,0.3)',
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
-  companionTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  companionSub: {
-    fontSize: 12.5,
-    marginBottom: 14,
-  },
-  companionList: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 0.5,
-  },
-  companionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  companionNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  companionName: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  badge: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-  },
-  companionCount: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  separator: {
-    height: 0.5,
-    marginLeft: 68,
+  mediaPreviewImg: {
+    width: '100%',
+    height: '100%',
   },
 });

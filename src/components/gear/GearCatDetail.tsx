@@ -9,13 +9,14 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat } from '../../data/gear';
+import { GearItem, GearCat, itemWeight, itemPrice, WeightUnit, fmtWeight } from '../../data/gear';
 import { GearPushPage, GearCard, SectionLabel, GearItemRow, CircleBtn, yuan } from './parts';
 
 export function GearCatDetail({
   theme,
   cat,
   allItems,
+  weightUnit = 'kg',
   onBack,
   onOpenItem,
   onDelete,
@@ -24,6 +25,7 @@ export function GearCatDetail({
   theme: Theme;
   cat: GearCat;
   allItems: GearItem[];
+  weightUnit?: WeightUnit;
   onBack: () => void;
   onOpenItem: (it: GearItem) => void;
   onDelete: () => void;
@@ -34,9 +36,9 @@ export function GearCatDetail({
   const items = allItems
     .filter((it) => it.cat === cat.id)
     .slice()
-    .sort((a, b) => b.w * (b.qty || 1) - a.w * (a.qty || 1));
-  const totW = items.reduce((a, it) => a + it.w * (it.qty || 1), 0);
-  const totP = items.reduce((a, it) => a + it.p * (it.qty || 1), 0);
+    .sort((a, b) => itemWeight(b) - itemWeight(a));
+  const totW = items.reduce((a, it) => a + itemWeight(it), 0);
+  const totP = items.reduce((a, it) => a + itemPrice(it), 0);
   const deletable = !cat.builtin && items.length === 0;
 
   const confirmDelete = () =>
@@ -64,7 +66,7 @@ export function GearCatDetail({
           <Text style={{ fontSize: 27, fontWeight: '800', color: theme.text, letterSpacing: -0.6, flexShrink: 1 }} numberOfLines={2}>{cat.name}</Text>
         </View>
         {items.length > 0 ? (
-          <Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2, marginTop: 7 }}>{totW.toFixed(2)} kg · {yuan(totP)}</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2, marginTop: 7 }}>{fmtWeight(totW, weightUnit)} · {yuan(totP)}</Text>
         ) : null}
 
         {/* 装备清单 */}
@@ -77,7 +79,7 @@ export function GearCatDetail({
         ) : (
           <GearCard theme={theme}>
             {items.map((it, i) => (
-              <GearItemRow key={it.name} theme={theme} item={it} last={i === items.length - 1} onPress={() => onOpenItem(it)} />
+              <GearItemRow key={it.name} theme={theme} item={it} last={i === items.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} />
             ))}
           </GearCard>
         )}

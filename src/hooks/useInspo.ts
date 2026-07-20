@@ -66,6 +66,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
           thumbnail,
           duration: m.duration ?? null,
           paired_video_uri: pairedVideoUri,
+          caption: m.caption?.trim() || null,
         })
         .select()
         .single();
@@ -110,6 +111,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
           const { data } = await supabase.from('inspo_media').insert({
             journey_id: journeyId, user_id: userId, uri, kind: m.kind,
             thumbnail, duration: m.duration ?? null, paired_video_uri: pairedVideoUri,
+            caption: m.caption?.trim() || null,
           }).select().single();
           if (data) setMedia(prev => prev.map(item => item.id === tempId ? toInspoMedia(data) : item));
         } catch {

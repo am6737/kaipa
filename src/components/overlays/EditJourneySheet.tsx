@@ -328,9 +328,10 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
   const isPlanning = poi.status === 'planning';
 
   const fmtRange = (s: Date, e: Date | null) => {
-    const fmtDT = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日 ${njFormatTime(d)}`;
-    if (!e || sameDay(s, e)) return fmtDT(s);
-    return `${fmtDT(s)} – ${fmtDT(e)}`;
+    // 行程跨天，日期只展示到「日」，不带时分
+    const fmtD = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日`;
+    if (!e || sameDay(s, e)) return fmtD(s);
+    return `${fmtD(s)} – ${fmtD(e)}`;
   };
 
   const handleDatePick = (s: Date, e: Date | null) => {

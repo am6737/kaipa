@@ -34,6 +34,7 @@ export type IconName =
   | 'gearSettings'
   | 'route'
   | 'calendar'
+  | 'clock'
   | 'photo'
   | 'sun'
   | 'moon'
@@ -51,6 +52,9 @@ export type IconName =
   | 'people'
   | 'globe'
   | 'link'
+  | 'layers'
+  | 'expand'
+  | 'shrink'
   | 'livePhoto';
 
 interface Props {
@@ -71,6 +75,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Circle cx={12} cy={12} r={9} {...common} />
           <Path d="M15.5 8.5 13 13l-4.5 2.5L11 11z" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" fill={fill} />
+        </Svg>
+      );
+    case 'clock':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={12} cy={12} r={9} {...common} />
+          <Path d="M12 7.5V12l3 2" {...common} fill="none" />
         </Svg>
       );
     case 'compassN':
@@ -404,6 +415,35 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.54 3.54 0 0 0-5-5l-.5.5" {...common} />
           <Path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.54 3.54 0 0 0 5 5l.5-.5" {...common} />
+        </Svg>
+      );
+    case 'layers':
+      // stacked map layers — base-map switcher
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M12 3 3 8l9 5 9-5-9-5Z" {...common} />
+          <Path d="M3 12l9 5 9-5" {...common} />
+          <Path d="M3 16l9 5 9-5" {...common} />
+        </Svg>
+      );
+    case 'expand':
+      // enter fullscreen — two diagonal out-arrows
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Polyline points="15 4 20 4 20 9" {...common} />
+          <Polyline points="9 20 4 20 4 15" {...common} />
+          <Line x1={20} y1={4} x2={13.5} y2={10.5} {...common} />
+          <Line x1={4} y1={20} x2={10.5} y2={13.5} {...common} />
+        </Svg>
+      );
+    case 'shrink':
+      // exit fullscreen — two diagonal in-arrows
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Polyline points="14 10 20 10 20 4" {...common} />
+          <Polyline points="10 14 4 14 4 20" {...common} />
+          <Line x1={20} y1={4} x2={13.5} y2={10.5} {...common} />
+          <Line x1={4} y1={20} x2={10.5} y2={13.5} {...common} />
         </Svg>
       );
     case 'livePhoto':

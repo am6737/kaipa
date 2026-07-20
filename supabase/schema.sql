@@ -7,6 +7,7 @@ create table if not exists profiles (
   display_name text not null default '',
   avatar_ini  text default '',
   avatar_color text default '#FF5C3A',
+  gear_weight_unit text not null default 'kg' check (gear_weight_unit in ('kg','g','oz','lb')),
   created_at  timestamptz default now()
 );
 alter table profiles enable row level security;
@@ -46,6 +47,7 @@ create table if not exists routes (
   track_coords    jsonb,
   track_elevation jsonb,
   track_duration_ms int8,
+  track_waypoints jsonb,
   photo_uris      jsonb,
   created_by      uuid references profiles(id),
   created_at      timestamptz default now()
@@ -53,7 +55,16 @@ create table if not exists routes (
 alter table routes enable row level security;
 create policy "routes_select" on routes for select to authenticated using (true);
 create policy "routes_insert" on routes for insert to authenticated with check (true);
-create policy "routes_update" on routes for update to authenticated using (created_by = auth.uid());
+drop policy if exists "routes_update" on routes;
+create policy "routes_update" on routes for update to authenticated using (true) with check (true);
+
+
+-- migration: add columns/policies to existing routes tables (safe to re-run)
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_waypoints') then
+    alter table routes add column track_waypoints jsonb;
+  end if;
+end $$;
 
 -- ─── journeys (per-user) ─────────────────────────────────────────────────────
 create table if not exists journeys (
@@ -81,6 +92,7 @@ create table if not exists journeys (
   track_coords    jsonb,
   track_elevation jsonb,
   track_duration_ms int8,
+  track_waypoints jsonb,
   track_public    boolean default false,
   route_show_photos   boolean default true,
   route_show_timeline boolean default true,
@@ -102,6 +114,9 @@ do $$ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='route_show_timeline') then
     alter table journeys add column route_show_timeline boolean default true;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_waypoints') then
+    alter table journeys add column track_waypoints jsonb;
   end if;
 end $$;
 
@@ -152,8 +167,10 @@ create table if not exists gear_items (
   weight   float8 not null,
   price    int4 not null,
   qty      int4 default 1,
+  photo_uris jsonb,
   attrs    jsonb,
   note     text,
+  status   text not null default 'packed' check (status in ('packed','worn','consumable','optional')),
   created_at timestamptz default now()
 );
 alter table gear_items enable row level security;
@@ -174,6 +191,8 @@ create policy "gear_sets_all" on gear_sets for all to authenticated
 create table if not exists gear_set_items (
   set_id  text not null references gear_sets(id) on delete cascade,
   item_id int4 not null references gear_items(id) on delete cascade,
+  qty     int4 check (qty is null or qty > 0),
+  status  text check (status is null or status in ('packed','worn','consumable','optional')),
   primary key (set_id, item_id)
 );
 alter table gear_set_items enable row level security;
@@ -211,7 +230,9 @@ create table if not exists timeline_rows (
   user_id    uuid not null references profiles(id) on delete cascade,
   title      text not null,
   day        text not null,
-  media      jsonb,
+  media        jsonb,
+  time_mins    int4,
+  time_end_mins int4,
   is_synth   boolean default false,
   is_custom  boolean default false,
   checked    boolean default false,
@@ -231,6 +252,7 @@ create table if not exists inspo_media (
   thumbnail        text,
   duration         float8,
   paired_video_uri text,
+  caption          text,
   created_at       timestamptz default now()
 );
 alter table inspo_media enable row level security;

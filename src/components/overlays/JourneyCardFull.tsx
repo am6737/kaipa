@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Animated, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,9 @@ import { useData } from '../../data/DataContext';
 import { genPhotos } from './PhotoWall';
 import { useInspo } from '../../hooks/useInspo';
 import { useI18n } from '../../i18n';
+import { Segmented } from '../Segmented';
+
+type SegId = 'moments' | 'route' | 'plan';
 
 function StatBlock({ value, label, onPress }: { value: string; label: string; onPress?: () => void }) {
   const inner = (
@@ -33,6 +36,15 @@ function StatBlock({ value, label, onPress }: { value: string; label: string; on
     );
   }
   return <View style={{ flex: 1, alignItems: 'center' }}>{inner}</View>;
+}
+
+function EmptyHint({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <View style={{ paddingVertical: 44, alignItems: 'center', gap: 10 }}>
+      {icon}
+      <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13.5 }}>{label}</Text>
+    </View>
+  );
 }
 
 function PillButton({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress?: () => void }) {
@@ -95,6 +107,21 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
 
   const dateDisplay = poi.date || '—';
 
+  // Passive content views become segments — actions (share) and light info
+  // (companions) stay in the head. All three always show; empty ones get a hint.
+  // Status only picks the default segment (planning lands on the itinerary).
+  const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
+  const segOptions = useMemo<{ id: SegId; label: string }[]>(() => {
+    const moments = { id: 'moments' as SegId, label: t('journey.tab.moments') };
+    if (!isJourney) return [moments];
+    return [
+      moments,
+      { id: 'route' as SegId, label: t('journey.tab.route') },
+      { id: 'plan' as SegId, label: t('journey.tab.plan') },
+    ];
+  }, [isJourney, t]);
+  const [seg, setSeg] = useState<SegId>(isJourney && status === 'planning' ? 'plan' : 'moments');
+
   const heroH = height * 0.48;
   const colW = (width - 16 * 2 - 6 * 2) / 3;
 
@@ -149,6 +176,13 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
 
         {/* action buttons */}
         <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 24 }}>
+          {isJourney && (
+            <PillButton
+              icon={<Icon name="share" color="#fff" size={18} />}
+              label={t('journey.action.live')}
+              onPress={() => nav.openLiveShare(poi)}
+            />
+          )}
           <PillButton
             icon={<Icon name="send" color="#fff" size={18} />}
             label={t('journey.action.add')}
@@ -161,33 +195,67 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
           />
         </View>
 
-        {/* photo grid */}
-        {allPhotos.length > 0 ? (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16 }}>
-            {allPhotos.map((p, i) => {
-              const displayUri = (p as any).kind === 'video' ? ((p as any).thumbnail || (p as any).uri) : (p as any).uri;
-              return (
-                <Press
-                  key={(p as any).id || `p-${i}`}
-                  onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}
-                  style={{ width: colW }}
-                >
-                  <View style={{ aspectRatio: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1a1a1a' }}>
-                    {displayUri ? (
-                      <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
-                    ) : (
-                      <PhotoTile tone={(p as any).tone} seed={poi.id + (p as any).id} radius={12} style={{ width: '100%', height: '100%' }} resWidth={420} />
-                    )}
-                    {(p as any).kind === 'video' ? (
-                      <View style={{ position: 'absolute', right: 5, top: 5, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                        <Icon name="play" color="#fff" size={7} />
-                      </View>
-                    ) : null}
-                  </View>
-                </Press>
-              );
-            })}
+        {/* content switcher — passive views only */}
+        {segOptions.length > 1 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+            <Segmented variant="glass" value={seg} options={segOptions} onChange={(v) => setSeg(v)} />
           </View>
+        ) : null}
+
+        {/* moments */}
+        {seg === 'moments' ? (
+          allPhotos.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16 }}>
+              {allPhotos.map((p, i) => {
+                const displayUri = (p as any).kind === 'video' ? ((p as any).thumbnail || (p as any).uri) : (p as any).uri;
+                return (
+                  <Press
+                    key={(p as any).id || `p-${i}`}
+                    onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}
+                    style={{ width: colW }}
+                  >
+                    <View style={{ aspectRatio: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1a1a1a' }}>
+                      {displayUri ? (
+                        <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                      ) : (
+                        <PhotoTile tone={(p as any).tone} seed={poi.id + (p as any).id} radius={12} style={{ width: '100%', height: '100%' }} resWidth={420} />
+                      )}
+                      {(p as any).kind === 'video' ? (
+                        <View style={{ position: 'absolute', right: 5, top: 5, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                          <Icon name="play" color="#fff" size={7} />
+                        </View>
+                      ) : null}
+                    </View>
+                  </Press>
+                );
+              })}
+            </View>
+          ) : (
+            <EmptyHint icon={<Icon name="photo" color="rgba(255,255,255,0.4)" size={26} />} label={t('journey.tab.momentsEmpty')} />
+          )
+        ) : null}
+
+        {/* route — opens the full elevation/track overlay, or empty hint */}
+        {seg === 'route' ? (
+          hasTrack ? (
+            <Press
+              onPress={() => nav.openElevation({ info: poi, isMine: true })}
+              style={{ marginHorizontal: 16, borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)' }}
+            >
+              <View style={{ paddingVertical: 36, alignItems: 'center', gap: 10 }}>
+                <Icon name="route" color="#fff" size={26} />
+                <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '600' }}>{t('journey.tab.routeView')}</Text>
+                <Icon name="chevronR" color="rgba(255,255,255,0.4)" size={14} />
+              </View>
+            </Press>
+          ) : (
+            <EmptyHint icon={<Icon name="route" color="rgba(255,255,255,0.4)" size={26} />} label={t('journey.tab.routeEmpty')} />
+          )
+        ) : null}
+
+        {/* plan (itinerary) — placeholder until wired */}
+        {seg === 'plan' ? (
+          <EmptyHint icon={<Icon name="calendar" color="rgba(255,255,255,0.4)" size={26} />} label={t('journey.tab.planEmpty')} />
         ) : null}
       </ScrollView>
 
