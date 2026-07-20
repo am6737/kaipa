@@ -71,6 +71,22 @@ For iOS you'd additionally need an Apple Developer account and run
 `eas build --profile development --platform ios` (device registration handled
 interactively by EAS).
 
+
+## Self-hosted Supabase isolation
+
+Kaipa should run on its own Supabase instance instead of sharing Auth/database
+with other apps. The repo keeps all reproducible schema, migrations, seed data,
+and Edge Functions, while generated database files and secrets stay outside Git.
+
+Create a fresh isolated runtime with:
+
+```bash
+infra/supabase/setup-kaipa-supabase.sh
+```
+
+See `infra/supabase/README.md` for ports, environment overrides, and redeploy
+notes.
+
 ## Architecture
 
 ```

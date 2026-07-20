@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+# generated local Supabase runtimes / secrets
+kaipa-supabase-docker/
+infra/supabase-docker/
+infra/supabase/.runtime/
