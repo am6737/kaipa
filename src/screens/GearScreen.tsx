@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TextInput, Alert, useWindowDimensions, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import { JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
 import { Theme } from '../theme/theme';
 import { elevCard } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
@@ -605,21 +606,54 @@ function GearHome({ theme, sets, items, cats, catMap, weightUnit, onOpenSets, on
   const recent = items.slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 3);
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
   return <View style={{ paddingHorizontal: 24, paddingTop: insets.top + 16 }}>
-    <SectionHeader theme={theme} title={t('gear.home.overview')} action={t('gear.home.more')} onPress={onOpenStats} first />
-    <Press onPress={onOpenStats} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 4 }}>
+    <SectionHeader theme={theme} title={t('gear.home.overview')} first />
+    <Press onPress={onOpenStats} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: 24, padding: 6, backgroundColor: homeCardBg(theme), ...cardBorder(theme) }}>
       <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
       <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
       <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
       <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuan(totalValue)} />
     </Press>
     <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
-    {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}><View><Text style={{ fontSize: 11.5, color: theme.text2 }}>{t('gear.stat.totalWeight')}</Text><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 }}><Text style={{ fontFamily: MONO, fontSize: 25, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{weightParts.unit}</Text></View></View><View style={{ alignItems: 'flex-end', paddingBottom: 2 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 10.5, color: theme.text2, marginTop: 4 }}>{t('gear.stat.itemCount')}</Text></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
+    {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}><View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Weight color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text></View></View><View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${set.items.length}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Package color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text></View></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
     <SectionHeader theme={theme} title={t('gear.home.myGear')} action={t('gear.home.viewAll')} onPress={onOpenItems} />
-    <View style={{ gap: 10 }}>{recent.length ? recent.map((item) => { const photo = item.photos?.[0]; return <Press key={item.name} onPress={() => onOpenItem(item)} style={{ minHeight: photo ? 112 : 102, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 15, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>{photo ? <Image source={{ uri: photo }} contentFit="cover" style={{ width: 84, height: 84, borderRadius: 16, backgroundColor: theme.surface }} /> : null}<View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>{item.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7 }}><View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: catMap[item.cat]?.color || '#8E8E93' }} /><Text style={{ fontSize: 12, color: theme.text2 }}>{catMap[item.cat]?.name || t('gear.uncategorized')}</Text></View><Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2, marginTop: 8 }}>{fmtWeight(itemWeight(item), weightUnit)} · {yuan(itemPrice(item))}</Text></View></Press>; }) : <EmptyText theme={theme} text={t('gear.empty.noItems')} />}</View>
+    <View style={{ gap: 10 }}>
+      {recent.length ? recent.map((item) => {
+        const photo = item.photos?.[0];
+        const category = catMap[item.cat];
+        const categoryName = category?.name || t('gear.uncategorized');
+        const weight = fmtWeight(itemWeight(item), weightUnit);
+        const value = yuan(itemPrice(item));
+        return (
+          <Press key={item.name} onPress={() => onOpenItem(item)} style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 15, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+              <Package color={category?.color || theme.text3} size={25} strokeWidth={1.6} opacity={0.6} />
+              {photo ? <Image source={{ uri: photo }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
+            </View>
+            <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>{item.name}</Text>
+              <View accessible accessibilityLabel={`${categoryName}, ${weight}, ${value}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                <View style={{ flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Tag color={category?.color || '#8E8E93'} size={15} strokeWidth={1.8} />
+                  <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, fontSize: 11.5, color: theme.text2 }}>{categoryName}</Text>
+                </View>
+                <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Weight color={theme.text2} size={15} strokeWidth={1.8} />
+                  <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2 }}>{weight}</Text>
+                </View>
+                <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <JapaneseYen color={theme.text2} size={15} strokeWidth={1.8} />
+                  <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2 }}>{value}</Text>
+                </View>
+              </View>
+            </View>
+          </Press>
+        );
+      }) : <EmptyText theme={theme} text={t('gear.empty.noItems')} />}
+    </View>
   </View>;
 }
-function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '48%', flexGrow: 1, minWidth: 0, minHeight: 92, borderRadius: 22, paddingHorizontal: 15, paddingVertical: 14, justifyContent: 'space-between', backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: MONO, fontSize: 21, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
-function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action: string; onPress: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : 30, marginBottom: first ? 18 : 12 }}><Text style={{ fontSize: first ? 25 : 18, fontWeight: '800', color: theme.text }}>{title}</Text><Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{action} ›</Text></Press></View>; }
+function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
+function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : 30, marginBottom: first ? 18 : 12 }}><Text style={{ fontSize: first ? 25 : 18, fontWeight: '800', color: theme.text }}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{action} ›</Text></Press> : null}</View>; }
 
 // ── Shared chrome ───────────────────────────────────────────────────────────
 function Card({ theme, children }: { theme: Theme; children: React.ReactNode }) {
