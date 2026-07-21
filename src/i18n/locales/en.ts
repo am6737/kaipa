@@ -216,6 +216,7 @@ export const en: SameShape<typeof zh> = {
   },
 
   gear: {
+    home: { overview: 'Gear overview', more: 'See more', mySets: 'My sets', myGear: 'My gear', viewAll: 'View all', ready: 'View set', libraryWeight: 'Library weight', setCount: 'Set count' },
     tab: {
       items: 'Gear',
       cats: 'Categories',

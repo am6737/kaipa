@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TextInput, Alert, useWindowDimensions, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { Theme } from '../theme/theme';
 import { elevCard } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
@@ -28,7 +29,7 @@ import { GearItemEditor } from '../components/gear/GearItemEditor';
 import { GearCatEditor } from '../components/gear/GearCatEditor';
 import { AddGearChoose } from '../components/gear/AddGearChoose';
 
-type Tab = 'items' | 'cats' | 'sets';
+type Tab = 'home' | 'items' | 'cats' | 'sets';
 type Layout = 'list' | 'grid';
 
 // A pushed gear detail page. Mirrors MeScreen's local page stack: tap a row/card
@@ -129,7 +130,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const { t } = useI18n();
   const data = useData();
   const { width: winW } = useWindowDimensions();
-  const [tab, setTab] = useState<Tab>('items');
+  const [tab, setTab] = useState<Tab>('home');
   const [metric, setMetric] = useState<Metric>('price');
   const weightUnit: WeightUnit = data.profile.gearWeightUnit || 'kg';
   const [query, setQuery] = useState('');
@@ -303,6 +304,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const setRows = sq ? sets.filter((s) => s.name.includes(sq) || s.items.some((n) => n.includes(sq))) : sets;
 
   const TABS: { id: Tab; label: string; n: number }[] = [
+    { id: 'home', label: t('tabs.gear'), n: 0 },
     { id: 'items', label: t('gear.tab.items'), n: allItems.length },
     { id: 'cats', label: t('gear.tab.cats'), n: cats.length },
     { id: 'sets', label: t('gear.tab.sets'), n: sets.length },
@@ -311,6 +313,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
 
   const contentW = winW - 32;
   const onAdd = () => {
+    if (tab === 'home') { setAddChoose(true); return; }
     if (tab === 'sets') { setSetEditor({ mode: 'new' }); return; }
     if (tab === 'cats') { setCatEditor({ mode: 'new' }); return; }
     setAddChoose(true);
@@ -321,9 +324,9 @@ export function GearScreen({ theme }: { theme: Theme }) {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <View style={{ flex: 1, backgroundColor: tab === 'home' && !theme.dark ? '#FFFFFF' : theme.bg }}>
       {/* ── Nav bar: normal or select-mode header ── */}
-      {selectMode ? (
+      {tab === 'home' ? null : selectMode ? (
         <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text }}>
@@ -346,10 +349,8 @@ export function GearScreen({ theme }: { theme: Theme }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 38 }}>
             <Press onPress={() => setMenuOpen((o) => !o)} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }} scaleTo={0.98}>
               <Text style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.5, color: theme.text }}>{curTab.label}</Text>
-              <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '600', color: theme.text3 }}>{curTab.n}</Text>
-              <View style={{ alignSelf: 'center', transform: [{ rotate: menuOpen ? '180deg' : '0deg' }] }}>
-                <Icon name="chevronDown" color={theme.text2} size={14} />
-              </View>
+              {curTab.id !== 'home' && <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '600', color: theme.text3 }}>{curTab.n}</Text>}
+              {curTab.id !== 'home' && <View style={{ alignSelf: 'center', transform: [{ rotate: menuOpen ? '180deg' : '0deg' }] }}><Icon name="chevronDown" color={theme.text2} size={14} /></View>}
             </Press>
             <Press
               onPress={onAdd}
@@ -362,6 +363,11 @@ export function GearScreen({ theme }: { theme: Theme }) {
       )}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+        {tab === 'home' && (
+          <GearHome theme={theme} sets={sets} items={allItems} cats={cats} catMap={catMap} weightUnit={weightUnit}
+            onOpenSets={() => setTab('sets')} onOpenItems={() => setTab('items')} onOpenStats={() => setTab('items')}
+            onOpenSet={(set) => pushPage({ type: 'set', set })} onOpenItem={(item) => pushPage({ type: 'item', item })} />
+        )}
         {tab === 'items' && (
           <View style={{ paddingHorizontal: 16, paddingTop: 2 }}>
             <View style={{ alignItems: 'center' }}>
@@ -589,6 +595,29 @@ export function GearScreen({ theme }: { theme: Theme }) {
     </View>
   );
 }
+
+function GearHome({ theme, sets, items, cats, catMap, weightUnit, onOpenSets, onOpenItems, onOpenStats, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; cats: GearCat[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenSets: () => void; onOpenItems: () => void; onOpenStats: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
+  const recent = items.slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 3);
+  const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
+  return <View style={{ paddingHorizontal: 24, paddingTop: insets.top + 16 }}>
+    <SectionHeader theme={theme} title={t('gear.home.overview')} action={t('gear.home.more')} onPress={onOpenStats} first />
+    <Press onPress={onOpenStats} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 4 }}>
+      <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
+      <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
+      <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
+      <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuan(totalValue)} />
+    </Press>
+    <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
+    {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}><View><Text style={{ fontSize: 11.5, color: theme.text2 }}>{t('gear.stat.totalWeight')}</Text><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 4 }}><Text style={{ fontFamily: MONO, fontSize: 25, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{weightParts.unit}</Text></View></View><View style={{ alignItems: 'flex-end', paddingBottom: 2 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 10.5, color: theme.text2, marginTop: 4 }}>{t('gear.stat.itemCount')}</Text></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
+    <SectionHeader theme={theme} title={t('gear.home.myGear')} action={t('gear.home.viewAll')} onPress={onOpenItems} />
+    <View style={{ gap: 10 }}>{recent.length ? recent.map((item) => { const photo = item.photos?.[0]; return <Press key={item.name} onPress={() => onOpenItem(item)} style={{ minHeight: photo ? 112 : 102, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 15, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>{photo ? <Image source={{ uri: photo }} contentFit="cover" style={{ width: 84, height: 84, borderRadius: 16, backgroundColor: theme.surface }} /> : null}<View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>{item.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7 }}><View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: catMap[item.cat]?.color || '#8E8E93' }} /><Text style={{ fontSize: 12, color: theme.text2 }}>{catMap[item.cat]?.name || t('gear.uncategorized')}</Text></View><Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2, marginTop: 8 }}>{fmtWeight(itemWeight(item), weightUnit)} · {yuan(itemPrice(item))}</Text></View></Press>; }) : <EmptyText theme={theme} text={t('gear.empty.noItems')} />}</View>
+  </View>;
+}
+function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '48%', flexGrow: 1, minWidth: 0, minHeight: 92, borderRadius: 22, paddingHorizontal: 15, paddingVertical: 14, justifyContent: 'space-between', backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: MONO, fontSize: 21, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
+function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action: string; onPress: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : 30, marginBottom: first ? 18 : 12 }}><Text style={{ fontSize: first ? 25 : 18, fontWeight: '800', color: theme.text }}>{title}</Text><Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{action} ›</Text></Press></View>; }
 
 // ── Shared chrome ───────────────────────────────────────────────────────────
 function Card({ theme, children }: { theme: Theme; children: React.ReactNode }) {

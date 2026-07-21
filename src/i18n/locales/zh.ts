@@ -221,6 +221,7 @@ export const zh = {
   },
 
   gear: {
+    home: { overview: '装备概览', more: '查看更多', mySets: '我的套装', myGear: '我的装备', viewAll: '查看全部', ready: '查看套装', libraryWeight: '库内总重量', setCount: '套装数量' },
     tab: {
       items: '装备',
       cats: '分类',
