@@ -252,6 +252,19 @@ export function GearScreen({ theme }: { theme: Theme }) {
     popPage();
     nav.showToast(t('gear.toast.setDeleted'));
   };
+  const duplicateSet = async (set: GearSet) => {
+    const baseName = t('gear.setDetail.copyName', { name: set.name });
+    const existingNames = new Set(sets.map((existing) => existing.name));
+    let name = baseName;
+    let suffix = 2;
+    while (existingNames.has(name)) {
+      name = `${baseName} ${suffix}`;
+      suffix += 1;
+    }
+    const itemIds = set.items.map((itemName) => allItems.find((item) => item.name === itemName)?.id).filter(Boolean) as number[];
+    await data.addSet(name, itemIds, { ...set.overrides });
+    nav.showToast(t('gear.toast.setCopied'), 'top');
+  };
   const saveSet = (name: string, itemNames: string[], overrides: Record<string, GearSetOverride>) => {
     const itemIds = itemNames.map(n => allItems.find(i => i.name === n)?.id).filter(Boolean) as number[];
     if (setEditor?.mode === 'edit' && setEditor.set) {
@@ -515,6 +528,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
               onOpenItem={(it) => pushPage({ type: 'item', item: it })}
               onDelete={() => deleteSet(pg.set.id)}
               onEdit={() => setSetEditor({ mode: 'edit', set: pg.set })}
+              onDuplicate={() => duplicateSet(pg.set)}
             />
           )}
         </View>

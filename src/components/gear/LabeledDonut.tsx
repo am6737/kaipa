@@ -16,27 +16,29 @@ const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0
 const AnimCircle = Animated.createAnimatedComponent(Circle);
 const AnimG = Animated.createAnimatedComponent(G);
 
-function ArcSeg({ cx, cy, R, T, C, color, dash, offset, dim }: { cx: number; cy: number; R: number; T: number; C: number; color: string; dash: number; offset: number; dim: boolean }) {
+function ArcSeg({ cx, cy, R, T, C, color, dash, offset, dim, animated = true }: { cx: number; cy: number; R: number; T: number; C: number; color: string; dash: number; offset: number; dim: boolean; animated?: boolean }) {
   const op = useRef(new Animated.Value(dim ? 0.3 : 1)).current;
-  const sw = useRef(new Animated.Value(dim ? T * 0.72 : T)).current;
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(op, { toValue: dim ? 0.3 : 1, duration: 260, useNativeDriver: false }),
-      Animated.timing(sw, { toValue: dim ? T * 0.72 : T, duration: 240, useNativeDriver: false }),
-    ]).start();
-  }, [dim, op, sw, T]);
+    op.stopAnimation();
+    const animation = Animated.timing(op, { toValue: dim ? 0.3 : 1, duration: 220, useNativeDriver: false });
+    animation.start();
+    return () => animation.stop();
+  }, [animated, dim, op]);
   return (
-    <AnimCircle pointerEvents="none" cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="butt" strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={offset} opacity={op} />
+    <AnimCircle pointerEvents="none" cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={T} strokeLinecap="butt" strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={offset} opacity={op} />
   );
 }
 
 type LabelDatum = { id: string; name: string; color: string; ax: number; ay: number; ex: number; ly: number; side: number; value: number };
 
-function LeaderLine({ d, dim }: { d: LabelDatum; dim: boolean }) {
+function LeaderLine({ d, dim, animated = true }: { d: LabelDatum; dim: boolean; animated?: boolean }) {
   const op = useRef(new Animated.Value(dim ? 0.32 : 1)).current;
   useEffect(() => {
-    Animated.timing(op, { toValue: dim ? 0.32 : 1, duration: 240, useNativeDriver: false }).start();
-  }, [dim, op]);
+    op.stopAnimation();
+    const animation = Animated.timing(op, { toValue: dim ? 0.32 : 1, duration: 220, useNativeDriver: false });
+    animation.start();
+    return () => animation.stop();
+  }, [animated, dim, op]);
   const endX = d.ex + d.side * 12;
   return (
     <AnimG opacity={op} pointerEvents="none">
@@ -45,11 +47,14 @@ function LeaderLine({ d, dim }: { d: LabelDatum; dim: boolean }) {
   );
 }
 
-function NativeLabel({ d, sum, dim, theme, scale, cw }: { d: LabelDatum; sum: number; dim: boolean; theme: Theme; scale: number; cw: number }) {
+function NativeLabel({ d, sum, dim, theme, scale, cw, animated = true }: { d: LabelDatum; sum: number; dim: boolean; theme: Theme; scale: number; cw: number; animated?: boolean }) {
   const op = useRef(new Animated.Value(dim ? 0.32 : 1)).current;
   useEffect(() => {
-    Animated.timing(op, { toValue: dim ? 0.32 : 1, duration: 240, useNativeDriver: true }).start();
-  }, [dim, op]);
+    op.stopAnimation();
+    const animation = Animated.timing(op, { toValue: dim ? 0.32 : 1, duration: 220, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [animated, dim, op]);
   const pct = ((d.value / sum) * 100).toFixed(2) + '%';
   const endX = d.ex + d.side * 12;
   const textX = endX + d.side * 4;
@@ -64,13 +69,13 @@ function NativeLabel({ d, sum, dim, theme, scale, cw }: { d: LabelDatum; sum: nu
         isRight ? { left: x } : { right: cw - x, alignItems: 'flex-end' as const },
       ]}
     >
-      <Text style={{ fontSize: 10.5 * scale, fontWeight: '600', color: theme.text }}>{d.name}</Text>
-      <Text style={{ fontSize: 9.5 * scale, fontWeight: '700', color: theme.text2, marginTop: 1 }}>{pct}</Text>
+      <Text style={{ fontSize: 10.5 * scale, lineHeight: 13 * scale, fontWeight: '600', color: theme.text }}>{d.name}</Text>
+      <Text style={{ fontSize: 9.5 * scale, lineHeight: 12 * scale, fontWeight: '700', color: theme.text2, marginTop: 1 * scale }}>{pct}</Text>
     </Animated.View>
   );
 }
 
-export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel, weightUnit = 'kg', showStats = true }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void; weightUnit?: WeightUnit; showStats?: boolean }) {
+export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onSel, weightUnit = 'kg', showStats = true, animated = true }: { theme: Theme; agg: Row[]; total: number; metric: Metric; items: GearItem[]; width: number; sel: string | null; onSel: (s: string | null) => void; weightUnit?: WeightUnit; showStats?: boolean; animated?: boolean }) {
   const { t } = useI18n();
   const TOPN = 5;
   const top = agg.slice(0, TOPN);
@@ -98,10 +103,21 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
     return { ...s, sinA, cosA, side, ax: cx + (aR + 5) * sinA, ay: cy - (aR + 5) * cosA, ex: cx + (aR + 18) * sinA, ey: cy - (aR + 18) * cosA, ly: 0 };
   });
 
-  const gapY = 30, topY = 20, botY = VH - 20;
-  const layoutSide = (list: Placed[]) => {
+  // Labels close to the vertical axis can use either side without a long
+  // leader line. Put them on the less crowded side before resolving spacing.
+  const flexible = placed.filter((d) => Math.abs(d.sinA) < 0.22);
+  let leftCount = placed.filter((d) => d.side < 0 && !flexible.includes(d)).length;
+  let rightCount = placed.filter((d) => d.side > 0 && !flexible.includes(d)).length;
+  flexible.forEach((d) => {
+    if (leftCount !== rightCount) d.side = leftCount < rightCount ? -1 : 1;
+    if (d.side < 0) leftCount += 1;
+    else rightCount += 1;
+  });
+
+  const gapY = 36, topY = 16, botY = VH - 20;
+  const layoutSide = (list: Placed[], reset = true) => {
     list.sort((a, b) => a.ey - b.ey);
-    list.forEach((d) => { d.ly = Math.min(Math.max(d.ey, topY), botY); });
+    list.forEach((d) => { d.ly = Math.min(Math.max(reset ? d.ey : d.ly, topY), botY); });
     for (let i = 1; i < list.length; i++) if (list[i].ly - list[i - 1].ly < gapY) list[i].ly = list[i - 1].ly + gapY;
     const over = list.length ? list[list.length - 1].ly - botY : 0;
     if (over > 0) list.forEach((d) => { d.ly -= over; });
@@ -114,10 +130,27 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
   layoutSide(placed.filter((d) => d.side < 0));
 
   placed.forEach((d) => {
+    const rise = d.ly - d.ay;
+    if (Math.abs(rise) < 10) {
+      const radialDirection = Math.sign(d.ey - d.ay) || (d.ay < cy ? -1 : 1);
+      d.ly = Math.min(Math.max(d.ay + radialDirection * 10, topY), botY);
+    }
+    const crossesAxis = Math.sign(d.ax - cx) !== d.side;
+    if (crossesAxis) {
+      const outward = d.ey < cy ? -10 : 10;
+      d.ly = Math.min(Math.max(d.ly + outward, topY), botY);
+    }
+  });
+  layoutSide(placed.filter((d) => d.side > 0), false);
+  layoutSide(placed.filter((d) => d.side < 0), false);
+
+  placed.forEach((d) => {
     const dy = d.ly - cy;
     const halfW = Math.sqrt(Math.max(aR * aR - dy * dy, 0));
     const anchorDist = Math.abs(d.ax - cx);
-    d.ex = cx + d.side * Math.max(halfW + 18, anchorDist + 6);
+    const crossesAxis = Math.sign(d.ax - cx) !== d.side;
+    const elbowDist = crossesAxis ? halfW + 6 : Math.max(halfW + 18, anchorDist + 6);
+    d.ex = cx + d.side * elbowDist;
   });
 
   const selSeg = sel ? segs.find((s) => s.id === sel) : null;
@@ -170,7 +203,7 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
             <G rotation={-90} origin={`${cx}, ${cy}`} pointerEvents="none">
               <Circle pointerEvents="none" cx={cx} cy={cy} r={R} fill="none" stroke={trackBg(theme)} strokeWidth={T} />
               {arcData.map((a) => (
-                <ArcSeg key={a.id} cx={cx} cy={cy} R={R} T={T} C={C} color={a.color} dash={a.dash} offset={a.offset} dim={!!sel && sel !== a.id} />
+                <ArcSeg key={a.id} cx={cx} cy={cy} R={R} T={T} C={C} color={a.color} dash={a.dash} offset={a.offset} dim={!!sel && sel !== a.id} animated={animated} />
               ))}
             </G>
             {wedges.map((wg) => {
@@ -185,12 +218,12 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
               return <Path key={wg.id} d={d} fill="transparent" onPress={() => onSel(sel === wg.id ? null : wg.id)} />;
             })}
             {placed.map((d) => (
-              <LeaderLine key={d.id} d={d} dim={!!sel && sel !== d.id} />
+              <LeaderLine key={d.id} d={d} dim={!!sel && sel !== d.id} animated={animated} />
             ))}
           </Svg>
           <View style={{ position: 'absolute', left: 0, top: 0, width, height: H }} pointerEvents="none">
             {placed.map((d) => (
-              <NativeLabel key={d.id} d={d} sum={sum} dim={!!sel && sel !== d.id} theme={theme} scale={scale} cw={width} />
+              <NativeLabel key={d.id} d={d} sum={sum} dim={!!sel && sel !== d.id} theme={theme} scale={scale} cw={width} animated={animated} />
             ))}
           </View>
         </View>

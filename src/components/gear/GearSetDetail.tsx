@@ -2,21 +2,24 @@
 // redesigned 装备详情: floating chrome, a strong typographic header, generous
 // whitespace, soft stat tiles, lightweight metadata and an unboxed item list.
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, useWindowDimensions, Modal, Pressable, Animated, Platform, Share } from 'react-native';
+import { View, Text, StyleSheet, useWindowDimensions, Modal, Pressable, Animated, Platform, Share, Switch } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File, Paths } from 'expo-file-system';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
+import type { IconName } from '../Icon';
+import { Glass } from '../Glass';
 import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearPushPage, GearItemRow, CircleBtn, yuan } from './parts';
 import { LabeledDonut, Row } from './LabeledDonut';
-import { buildGearSetHtml, buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
+import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
 const fieldBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
@@ -28,11 +31,13 @@ const compactYuan = (value: number) => {
 
 function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric; setMetric: (m: Metric) => void }) {
   const anchorRef = useRef<View>(null);
+  const anchorCache = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const [anchor, setAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const arrowRotation = useRef(new Animated.Value(0)).current;
   const active = METRICS.find((option) => option.id === metric) || METRICS[0];
-  const panelWidth = 184;
+  const panelWidth = 136;
 
   React.useEffect(() => {
     Animated.timing(arrowRotation, {
@@ -42,14 +47,22 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
     }).start();
   }, [anchor, arrowRotation]);
 
+  const measureAnchor = (show = false) => {
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      const next = { x, y, width, height };
+      anchorCache.current = next;
+      if (show) setAnchor(next);
+    });
+  };
   const open = () => {
-    anchorRef.current?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
+    if (anchorCache.current) setAnchor(anchorCache.current);
+    measureAnchor(true);
   };
 
   return (
     <>
-      <View ref={anchorRef} collapsable={false}>
-        <Press onPress={open} style={{ width: 106, height: 38, paddingHorizontal: 16, borderRadius: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
+      <View ref={anchorRef} collapsable={false} onLayout={() => requestAnimationFrame(() => measureAnchor())}>
+        <Press onPress={open} style={{ width: 94, height: 38, paddingHorizontal: 14, borderRadius: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
           <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{active.label}</Text>
           <Animated.View style={{ transform: [{ rotate: arrowRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
             <Icon name="chevronDown" color={theme.text2} size={13} strokeWidth={2.1} />
@@ -57,14 +70,14 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
         </Press>
       </View>
 
-      <Modal visible={!!anchor} transparent animationType="fade" onRequestClose={() => setAnchor(null)}>
+      <Modal visible={!!anchor} transparent statusBarTranslucent animationType="none" onRequestClose={() => setAnchor(null)}>
         <View style={StyleSheet.absoluteFill}>
           <Pressable onPress={() => setAnchor(null)} style={StyleSheet.absoluteFill} />
           {anchor ? (
             <View
               style={{
                 position: 'absolute',
-                top: anchor.y + anchor.height + 8,
+                top: anchor.y + Math.max(anchor.height, 38) + 8 + (Platform.OS === 'android' ? Math.max(insets.top, 24) : 0),
                 left: Math.max(16, Math.min(anchor.x + anchor.width / 2 - panelWidth / 2, winW - panelWidth - 16)),
                 width: panelWidth,
                 padding: 9,
@@ -86,7 +99,7 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
                     }}
                     style={{ height: 52, paddingHorizontal: 16, borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: selected ? fieldBg(theme) : 'transparent' }}
                   >
-                    <Text style={{ fontSize: 16, fontWeight: selected ? '700' : '500', color: theme.text }}>{option.label}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: '400', color: theme.text }}>{option.label}</Text>
                     {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.text2} size={17} strokeWidth={2.4} /></View> : null}
                   </Press>
                 );
@@ -120,6 +133,66 @@ function Fact({ theme, label, value }: { theme: Theme; label: string; value: str
   );
 }
 
+function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trailing }: { theme: Theme; icon: IconName; label: string; onPress: () => void; destructive?: boolean; trailing?: React.ReactNode }) {
+  const color = destructive ? '#FF453A' : theme.text;
+  return (
+    <Press
+      onPress={onPress}
+      style={{ height: 62, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center' }}
+      scaleTo={0.985}
+    >
+      <View style={{ width: 28, alignItems: 'center' }}>
+        <Icon name={icon} color={color} size={23} strokeWidth={1.9} />
+      </View>
+      <Text style={{ marginLeft: 18, fontSize: 15, fontWeight: '400', color }}>{label}</Text>
+      {trailing ? <View style={{ marginLeft: 'auto' }}>{trailing}</View> : null}
+    </Press>
+  );
+}
+
+function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: any; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
+      <View style={StyleSheet.absoluteFill}>
+        <Pressable
+          onPress={onClose}
+          style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]}
+        />
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top,
+            right: 14,
+            width,
+            borderRadius: 26,
+            boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
+          }}
+        >
+          <Glass theme={theme} radius={26} intensity={76}>
+            <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>
+              {children}
+            </View>
+          </Glass>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: Theme; label: string; value: boolean; onChange: (value: boolean) => void; last?: boolean }) {
+  return (
+    <View style={{ minHeight: 56, paddingLeft: 70, paddingRight: 24, flexDirection: 'row', alignItems: 'center', borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
+      <Text style={{ flex: 1, fontSize: 13.5, lineHeight: 18, color: theme.text }}>{label}</Text>
+      <View style={{ width: 42, height: 28, marginLeft: 6, alignItems: 'center', justifyContent: 'center' }}>
+        <Switch value={value} onValueChange={onChange} trackColor={{ false: theme.hairline, true: theme.accent }} thumbColor="#FFFFFF" style={{ transform: [{ scale: 0.78 }] }} />
+      </View>
+    </View>
+  );
+}
+
+type SetDisplaySettings = { images: boolean; weight: boolean; value: boolean; groupStats: boolean };
+const DISPLAY_SETTINGS_KEY = 'kaipa_gear_set_display_v1';
+
 interface Group {
   cat: GearCat;
   its: GearItem[];
@@ -138,6 +211,7 @@ export function GearSetDetail({
   onOpenItem,
   onDelete,
   onEdit,
+  onDuplicate,
 }: {
   theme: Theme;
   set: GearSet;
@@ -148,14 +222,38 @@ export function GearSetDetail({
   onOpenItem: (it: GearItem) => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
 }) {
   const nav = useNav();
   const { t } = useI18n();
+  const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const [metric, setMetric] = useState<Metric>('weight');
   const [sel, setSel] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [displayExpanded, setDisplayExpanded] = useState(false);
+  const [displaySettings, setDisplaySettings] = useState<SetDisplaySettings>({ images: true, weight: true, value: true, groupStats: true });
+  const displayProgress = useRef(new Animated.Value(0)).current;
   const posterRef = useRef<any>(null);
   const exportingRef = useRef(false);
+
+  React.useEffect(() => {
+    AsyncStorage.getItem(DISPLAY_SETTINGS_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        setDisplaySettings((current) => ({ ...current, ...parsed }));
+      } catch {}
+    }).catch(() => {});
+  }, []);
+  const updateDisplaySettings = (patch: Partial<SetDisplaySettings>) => {
+    setDisplaySettings((current) => {
+      const next = { ...current, ...patch };
+      AsyncStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
 
   const applyOverride = (it: GearItem): GearItem => {
     const override = (it.id != null ? set.overrides?.[String(it.id)] : undefined) || set.overrides?.[it.name];
@@ -250,8 +348,10 @@ export function GearSetDetail({
     }
   };
   const exportImage = () => runExport(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
     const uri = await captureRef(posterRef, { format: 'png', quality: 1 });
     await shareFile(uri, 'image/png', safeFilename('png'));
+    nav.showToast(t('gear.setDetail.exportImageSaved'));
   });
   const exportText = () => runExport(async () => {
     const content = buildGearSetText(exportData);
@@ -266,20 +366,6 @@ export function GearSetDetail({
     file.write(content);
     await shareFile(file.uri, 'text/plain', file.name);
   });
-  const exportPdf = () => runExport(async () => {
-    const html = buildGearSetHtml(exportData);
-    if (Platform.OS === 'web') {
-      const popup = window.open('', '_blank');
-      if (!popup) throw new Error('Unable to open print window');
-      popup.document.write(html);
-      popup.document.close();
-      popup.focus();
-      popup.print();
-      return;
-    }
-    const result = await Print.printToFileAsync({ html });
-    await shareFile(result.uri, 'application/pdf', safeFilename('pdf'));
-  });
   const systemShare = () => runExport(async () => {
     await Share.share({ title: set.name, message: buildGearSetText(exportData) });
   });
@@ -290,25 +376,19 @@ export function GearSetDetail({
       message: t('gear.setDetail.deleteConfirmMessage'),
       items: [{ label: t('gear.setDetail.deleteSet'), icon: 'trash', destructive: true, onPress: onDelete }],
     });
-  const openMenu = () =>
-    nav.openActionSheet({
-      title: set.name,
-      items: [
-        { label: t('gear.setDetail.editSet'), icon: 'edit', onPress: onEdit },
-        { label: t('gear.setDetail.deleteSet'), icon: 'trash', destructive: true, onPress: confirmDelete },
-      ],
-    });
-  const openExportMenu = () =>
-    nav.openActionSheet({
-      title: t('gear.setDetail.exportTitle'),
-      message: t('gear.setDetail.exportMessage'),
-      items: [
-        { label: t('gear.setDetail.exportImage'), icon: 'photo', onPress: exportImage },
-        { label: t('gear.setDetail.exportText'), icon: 'list', onPress: exportText },
-        { label: t('gear.setDetail.exportPdf'), icon: 'download', onPress: exportPdf },
-        { label: t('gear.setDetail.systemShare'), icon: 'share', onPress: systemShare },
-      ],
-    });
+  const runFromExportMenu = (action: () => void) => {
+    setExportOpen(false);
+    setTimeout(action, 140);
+  };
+  const runFromMoreMenu = (action: () => void) => {
+    setMoreOpen(false);
+    setTimeout(action, 140);
+  };
+  const toggleDisplayExpanded = () => {
+    const next = !displayExpanded;
+    setDisplayExpanded(next);
+    Animated.timing(displayProgress, { toValue: next ? 1 : 0, duration: 280, useNativeDriver: false }).start();
+  };
 
   return (
     <GearPushPage
@@ -316,14 +396,51 @@ export function GearSetDetail({
       onBack={onBack}
       right={(
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <CircleBtn theme={theme} name="share" onPress={openExportMenu} softShadow size={44} />
-          <CircleBtn theme={theme} name="more" onPress={openMenu} softShadow size={44} />
+          <CircleBtn theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
+          <CircleBtn theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.setValue(0); setMoreOpen(true); }} softShadow size={44} />
         </View>
       )}
       overlay={(
-        <View pointerEvents="none" style={{ position: 'absolute', left: -500, top: 0 }}>
-          <GearSetPoster ref={posterRef} data={exportData} />
-        </View>
+        <>
+          <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, opacity: 0 }}>
+            <GearSetPoster ref={posterRef} data={exportData} theme={theme} width={winW} metric={metric} agg={agg} total={total} items={setItems} selected={sel} displaySettings={displaySettings} />
+          </View>
+          <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => setExportOpen(false)}>
+            <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
+              {t('gear.setDetail.exportSection')}
+            </Text>
+            <ExportMenuRow theme={theme} icon="photo" label={t('gear.setDetail.exportImage')} onPress={() => runFromExportMenu(exportImage)} />
+            <ExportMenuRow theme={theme} icon="list" label={t('gear.setDetail.exportText')} onPress={() => runFromExportMenu(exportText)} />
+
+            <Text style={{ paddingHorizontal: 24, paddingTop: 22, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
+              {t('gear.setDetail.shareSection')}
+            </Text>
+            <ExportMenuRow theme={theme} icon="share" label={t('gear.setDetail.systemShare')} onPress={() => runFromExportMenu(systemShare)} />
+          </FloatingMenu>
+          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={displayProgress.interpolate({ inputRange: [0, 1], outputRange: [Math.min(204, winW - 28), Math.min(232, winW - 28)] })} onClose={() => { setDisplayExpanded(false); displayProgress.stopAnimation(); displayProgress.setValue(0); setMoreOpen(false); }}>
+            <ExportMenuRow
+              theme={theme}
+              icon="gearSettings"
+              label={t('gear.setDetail.displaySettings')}
+              onPress={toggleDisplayExpanded}
+              trailing={(
+                <Animated.View style={{ transform: [{ rotate: displayProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+                  <Icon name="chevronDown" color={theme.text2} size={14} strokeWidth={2} />
+                </Animated.View>
+              )}
+            />
+            <Animated.View style={{ height: displayProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 238] }), opacity: displayProgress, overflow: 'hidden' }}>
+              <View style={{ marginTop: -2, paddingBottom: 4 }}>
+                <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayImages')} value={displaySettings.images} onChange={(value) => updateDisplaySettings({ images: value })} />
+                <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayWeight')} value={displaySettings.weight} onChange={(value) => updateDisplaySettings({ weight: value })} />
+                <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayValue')} value={displaySettings.value} onChange={(value) => updateDisplaySettings({ value })} />
+                <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayGroupStats')} value={displaySettings.groupStats} onChange={(value) => updateDisplaySettings({ groupStats: value })} last />
+              </View>
+            </Animated.View>
+            <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
+            <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
+          </FloatingMenu>
+        </>
       )}
     >
       <View style={{ paddingHorizontal: 32, paddingTop: 8 }}>
@@ -347,7 +464,7 @@ export function GearSetDetail({
             <View style={{ alignItems: 'center', marginTop: 2, zIndex: 2 }}>
               <MetricMenu theme={theme} metric={metric} setMetric={(next) => { setMetric(next); setSel(null); }} />
             </View>
-            <View style={{ alignItems: 'center', marginHorizontal: -4, marginTop: 14 }}>
+            <View style={{ alignItems: 'center', marginHorizontal: -4, marginTop: 30 }}>
               <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={setItems} width={Math.min(420, winW - 56)} sel={sel} onSel={setSel} weightUnit={weightUnit} showStats={false} />
             </View>
 
@@ -369,10 +486,10 @@ export function GearSetDetail({
               <View key={g.cat.id} style={{ marginTop: gi === 0 ? 30 : 18 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '700', color: theme.text2 }}>{g.cat.name}</Text>
-                  <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{g.its.length} · {fmtWeight(g.w, weightUnit, true)}</Text>
+                  {displaySettings.groupStats ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{g.its.length} · {fmtWeight(g.w, weightUnit, true)}</Text> : null}
                 </View>
                 {g.its.map((it, i) => (
-                  <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush />
+                  <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={50} />
                 ))}
               </View>
             ))}

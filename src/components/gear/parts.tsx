@@ -151,12 +151,29 @@ export function KV({ theme, k, v, leadingDot, first }: { theme: Theme; k: string
 }
 
 // Gear row with a photo thumbnail — used in 分类详情 / 套装详情 lists.
-export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false }: { theme: Theme; item: GearItem; cat?: GearCat; last?: boolean; onPress?: () => void; weightUnit?: WeightUnit; flush?: boolean }) {
+type GearItemRowProps = {
+  theme: Theme;
+  item: GearItem;
+  cat?: GearCat;
+  last?: boolean;
+  onPress?: () => void;
+  weightUnit?: WeightUnit;
+  flush?: boolean;
+  showImage?: boolean;
+  showWeight?: boolean;
+  showValue?: boolean;
+  imageSize?: number;
+};
+
+export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38 }: GearItemRowProps) {
   const qty = item.qty || 1;
+  const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join(' · ');
+  const rowGap = 12;
+  const rowPaddingX = flush ? 0 : 13;
   return (
     <>
-      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: flush ? 0 : 13 }}>
-        <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={9} style={{ width: 38, height: 38 }} />
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: rowGap, paddingVertical: 10, paddingHorizontal: rowPaddingX }}>
+        {showImage ? <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={Math.max(9, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
@@ -167,14 +184,12 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
                 <View style={{ width: StyleSheet.hairlineWidth, height: 9, backgroundColor: theme.hairline }} />
               </>
             ) : null}
-            <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>
-              {fmtKg(itemWeight(item), weightUnit)} · {yuan(itemPrice(item))}{qty > 1 ? ` · ×${qty}` : ''}
-            </Text>
+            {meta ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{meta}</Text> : null}
           </View>
         </View>
         <Icon name="chevronR" color={theme.text3} size={14} />
       </Press>
-      {!last && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: flush ? 50 : 63 }} />}
+      {!last && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: showImage ? rowPaddingX + imageSize + rowGap : rowPaddingX }} />}
     </>
   );
 }

@@ -20,6 +20,7 @@ import { GearPushPage, GearCard, SectionLabel, ShareBar, CircleBtn, yuan, fmtKg,
 
 const softBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
 const softBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
+const pageBg = (t: Theme) => (t.dark ? t.bg : '#FFFFFF');
 const STATUS_OPTIONS: NonNullable<GearItem['status']>[] = ['packed', 'worn', 'consumable', 'optional'];
 
 function StatTile({ theme, label, value, unit, onPress, editing, editValue, onChangeText, onSubmit }: { theme: Theme; label: string; value: string; unit?: string; onPress?: () => void; editing?: boolean; editValue?: string; onChangeText?: (value: string) => void; onSubmit?: () => void }) {
@@ -160,7 +161,7 @@ function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearIte
               source={{ uri }}
               contentFit="contain"
               transition={180}
-              style={{ width: galleryWidth, height: galleryHeight, borderRadius: 18, backgroundColor: softBg(theme) }}
+              style={{ width: galleryWidth, height: galleryHeight, borderRadius: 18, backgroundColor: pageBg(theme) }}
             />
           </Pressable>
         )}
@@ -241,7 +242,7 @@ function PhotoChoiceSheet({
           <Text style={{ fontSize: 15, color: theme.text2, marginBottom: 18 }}>选择图像</Text>
           <View style={{ alignItems: 'center', minHeight: 220, justifyContent: 'center' }}>
             {current ? (
-              <Image source={{ uri: current }} contentFit="contain" style={{ width: 220, height: 220, borderRadius: 18, backgroundColor: softBg(theme) }} />
+              <Image source={{ uri: current }} contentFit="contain" style={{ width: 220, height: 220, borderRadius: 18, backgroundColor: pageBg(theme) }} />
             ) : (
               <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={720} style={{ width: 220, height: 220 }} />
             )}
