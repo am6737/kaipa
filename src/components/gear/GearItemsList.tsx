@@ -17,9 +17,8 @@ import { useI18n } from '../../i18n';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
-import { CircleBtn } from '../CircleBtn';
 import { Glass } from '../Glass';
-import { GearHeaderSearch, GearPushPage } from './parts';
+import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
 
@@ -197,19 +196,19 @@ function GearItemsListView({
   };
 
   return (
-    <GearPushPage
+    <DetailPage
       theme={theme}
       onBack={selectMode ? exitSelect : onBack}
-      backgroundColor={theme.dark ? '#1C1C1E' : '#F4F4F5'}
+      backgroundColor={theme.groupedBg}
       flatChrome
       onContentTouchStart={searchOpen ? closeSearch : undefined}
       right={selectMode ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <CircleBtn theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
-          <CircleBtn theme={theme} name="close" onPress={exitSelect} noShadow />
+          <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+          <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
         </View>
       ) : (
-        <GearHeaderSearch
+        <AppHeaderSearch
           theme={theme}
           open={searchOpen}
           value={query}
@@ -218,9 +217,9 @@ function GearItemsListView({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <CircleBtn theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
-              <CircleBtn theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
-              <CircleBtn theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} noShadow />
+              <AppIconButton theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} noShadow />
             </View>
           )}
         />
@@ -337,7 +336,7 @@ function GearItemsListView({
           </View>
         )}
       </View>
-    </GearPushPage>
+    </DetailPage>
   );
 }
 
@@ -375,7 +374,7 @@ function CategoryManager({ theme, visible, categories, items, onClose, onAdd, on
           <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45 }} />
           <View style={{ height: 62, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center' }}>
             <Text style={{ flex: 1, fontSize: 20, fontWeight: '800', color: theme.text }}>{t('gear.category.manage')}</Text>
-            <CircleBtn theme={theme} name="close" onPress={onClose} size={36} noShadow />
+            <AppIconButton theme={theme} name="close" onPress={onClose} size={36} noShadow />
           </View>
           <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 10, gap: 8 }}>
             {categories.map((cat) => {

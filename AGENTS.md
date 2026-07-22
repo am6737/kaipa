@@ -19,6 +19,15 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 - Supabase data hooks: `src/hooks/`, composed by `src/data/DataContext.tsx`.
 - Mapbox native globe requires a dev build; Expo Go should keep fallback behavior.
 
+## Design system
+
+- Treat the redesigned gear overview, gear detail/list, and checklist detail/list pages as the app-wide visual baseline.
+- Read and follow `docs/design-system.md` when creating or substantially redesigning app UI.
+- Import public design-system APIs from `src/design-system/index.ts`; do not depend on its internal files directly.
+- Prefer semantic `Theme` colors and shared spacing, radius, typography, layout, and motion tokens over one-off values.
+- Keep business-specific components in their feature directory; only promote components that are genuinely reusable across product domains.
+- Validate new or changed UI in both light and dark modes.
+
 ## Expo
 
 Only check Expo SDK 56 docs when changing Expo APIs, native config, plugins, EAS, permissions, file/media APIs, or SDK-version-sensitive behavior.

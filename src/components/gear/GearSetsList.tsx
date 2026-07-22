@@ -14,9 +14,8 @@ import { useI18n } from '../../i18n';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
-import { CircleBtn } from '../CircleBtn';
 import { Glass } from '../Glass';
-import { GearHeaderSearch, GearPushPage } from './parts';
+import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 
 type LayoutMode = 'grid' | 'list';
@@ -146,19 +145,19 @@ export function GearSetsList({
   };
 
   return (
-    <GearPushPage
+    <DetailPage
       theme={theme}
       onBack={selectMode ? exitSelect : onBack}
-      backgroundColor={theme.dark ? '#1C1C1E' : '#F4F4F5'}
+      backgroundColor={theme.groupedBg}
       flatChrome
       onContentTouchStart={searchOpen ? closeSearch : undefined}
       right={selectMode ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <CircleBtn theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
-          <CircleBtn theme={theme} name="close" onPress={exitSelect} noShadow />
+          <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+          <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
         </View>
       ) : (
-        <GearHeaderSearch
+        <AppHeaderSearch
           theme={theme}
           open={searchOpen}
           value={query}
@@ -167,8 +166,8 @@ export function GearSetsList({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <CircleBtn theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
-              <CircleBtn theme={theme} name="more" onPress={() => setMoreOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="more" onPress={() => setMoreOpen(true)} noShadow />
             </View>
           )}
         />
@@ -255,7 +254,7 @@ export function GearSetsList({
           </View>
         )}
       </View>
-    </GearPushPage>
+    </DetailPage>
   );
 }
 

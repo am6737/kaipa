@@ -37,6 +37,12 @@ export interface Theme {
   en: string;
   dark: boolean;
   bg: string;
+  groupedBg: string;
+  featureSurface: string;
+  controlSurface: string;
+  fieldSurface: string;
+  fieldBorder: string;
+  progressTrack: string;
   surfaceTop: string;
   surface: string;
   surfaceStrong: string;
@@ -73,6 +79,12 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       en: 'Dark',
       dark: true,
       bg: '#000000',
+      groupedBg: '#1C1C1E',
+      featureSurface: '#000000',
+      controlSurface: '#2C2C2E',
+      fieldSurface: 'rgba(255,255,255,0.07)',
+      fieldBorder: 'rgba(255,255,255,0.08)',
+      progressTrack: 'rgba(255,255,255,0.10)',
       surfaceTop: 'rgba(40,40,44,0.92)',
       surface: 'rgba(255,255,255,0.05)',
       surfaceStrong: 'rgba(28,28,30,0.96)',
@@ -105,6 +117,12 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     en: 'Light',
     dark: false,
     bg: '#F2F2F7',
+    groupedBg: '#F4F4F5',
+    featureSurface: '#FFFFFF',
+    controlSurface: '#FFFFFF',
+    fieldSurface: 'rgba(0,0,0,0.045)',
+    fieldBorder: 'rgba(0,0,0,0.035)',
+    progressTrack: 'rgba(0,0,0,0.07)',
     surfaceTop: '#FFFFFF',
     surface: 'rgba(245,245,247,0.95)',
     surfaceStrong: '#FFFFFF',

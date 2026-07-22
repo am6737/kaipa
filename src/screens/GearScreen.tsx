@@ -20,13 +20,14 @@ import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
+import { radius, space, type } from '../design-system';
 
 type GearPage = { type: 'item'; item: GearItem } | { type: 'set'; set: GearSet } | { type: 'setsList' } | { type: 'itemsList' };
 
 // ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
-const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
-const homePageBg = (t: Theme) => (t.dark ? '#1C1C1E' : '#F4F4F5');
-const homeCardBg = (t: Theme) => (t.dark ? '#000000' : '#FFFFFF');
+const fieldBg = (t: Theme) => t.fieldSurface;
+const homePageBg = (t: Theme) => t.groupedBg;
+const homeCardBg = (t: Theme) => t.featureSurface;
 const cardBorder = (t: Theme) => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
@@ -331,9 +332,9 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
   const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
   const recent = items.slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 3);
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
-  return <View style={{ paddingHorizontal: 24, paddingTop: insets.top + 16 }}>
+  return <View style={{ paddingHorizontal: space.xl, paddingTop: insets.top + space.md }}>
     <SectionHeader theme={theme} title={t('gear.home.overview')} first />
-    <Press onPress={onOpenItems} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: 24, padding: 6, backgroundColor: homeCardBg(theme), ...cardBorder(theme) }}>
+    <Press onPress={onOpenItems} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: radius.feature, padding: 6, backgroundColor: homeCardBg(theme), ...cardBorder(theme) }}>
       <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
       <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
       <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
@@ -386,7 +387,7 @@ const GearHome = React.memo(GearHomeView, (previous, next) => (
   && previous.weightUnit === next.weightUnit
 ));
 function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
-function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : 30, marginBottom: first ? 18 : 12 }}><Text style={{ fontSize: first ? 25 : 18, fontWeight: '800', color: theme.text }}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{action} ›</Text></Press> : null}</View>; }
+function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : space.xxl, marginBottom: first ? 18 : space.sm }}><Text style={[first ? type.pageTitle : type.sectionTitle, { color: theme.text }]}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={[type.eyebrow, { color: theme.text2 }]}>{action} ›</Text></Press> : null}</View>; }
 
 function EmptyText({ theme, text }: { theme: Theme; text: string }) {
   return <Text style={{ paddingVertical: 40, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{text}</Text>;

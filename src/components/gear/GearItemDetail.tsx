@@ -16,11 +16,12 @@ import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight, convertWeight } from '../../data/gear';
-import { GearPushPage, GearCard, GearItemImage, SectionLabel, ShareBar, CircleBtn, yuan, fmtKg, useGearPushScroll } from './parts';
+import { GearItemImage, ShareBar, yuan, fmtKg } from './parts';
+import { AppIconButton, AppSectionHeader, DetailPage, useDetailPageScroll } from '../../design-system';
 
-const softBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
-const softBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
-const pageBg = (t: Theme) => (t.dark ? t.bg : '#FFFFFF');
+const softBg = (t: Theme) => t.fieldSurface;
+const softBorder = (t: Theme) => t.fieldBorder;
+const pageBg = (t: Theme) => t.featureSurface;
 const STATUS_OPTIONS: NonNullable<GearItem['status']>[] = ['packed', 'worn', 'consumable', 'optional'];
 
 function StatTile({ theme, label, value, unit, onPress, editing, editValue, onChangeText, onSubmit }: { theme: Theme; label: string; value: string; unit?: string; onPress?: () => void; editing?: boolean; editValue?: string; onChangeText?: (value: string) => void; onSubmit?: () => void }) {
@@ -52,7 +53,7 @@ function StatTile({ theme, label, value, unit, onPress, editing, editValue, onCh
 function MetaCell({ theme, label, value, muted, fullWidth, multiline, scrollOnFocus, onPress, onLongPress, editing, editValue, onChangeText, onSubmit, keyboardType = 'decimal-pad' }: { theme: Theme; label: string; value?: string; muted?: boolean; fullWidth?: boolean; multiline?: boolean; scrollOnFocus?: boolean; onPress?: () => void; onLongPress?: () => void; editing?: boolean; editValue?: string; onChangeText?: (value: string) => void; onSubmit?: () => void; keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'] }) {
   const hasValue = !!value;
   const longPressed = React.useRef(false);
-  const scroll = useGearPushScroll();
+  const scroll = useDetailPageScroll();
   const cellWidth = fullWidth ? '100%' : '50%';
   const interactive = !!(onPress || onLongPress);
   const content = (
@@ -98,7 +99,7 @@ function MetaCell({ theme, label, value, muted, fullWidth, multiline, scrollOnFo
 }
 
 function NoteCell({ theme, label, value, editing, editValue, onPress, onChangeText, onSubmit }: { theme: Theme; label: string; value?: string; editing?: boolean; editValue?: string; onPress: () => void; onChangeText?: (value: string) => void; onSubmit?: () => void }) {
-  const pageScroll = useGearPushScroll();
+  const pageScroll = useDetailPageScroll();
   return (
     <Press onPress={onPress} style={{ width: '100%' }}>
       <View style={{ width: '100%', paddingVertical: 14, paddingRight: 18 }}>
@@ -539,10 +540,10 @@ function GearItemDetailView({
   };
 
   return (
-    <GearPushPage
+    <DetailPage
       theme={theme}
       onBack={onBack}
-      right={<CircleBtn theme={theme} name="trash" danger onPress={confirmDelete} softShadow size={44} />}
+      right={<AppIconButton theme={theme} name="trash" danger onPress={confirmDelete} softShadow size={44} />}
       overlay={photoViewerIndex !== null ? (
         <GearPhotoViewer
           theme={theme}
@@ -693,7 +694,7 @@ function GearItemDetailView({
         </>
 
         {/* 库内占比 */}
-        <SectionLabel theme={theme} text={t('gear.section.libraryShare')} marginTop={32} />
+        <AppSectionHeader theme={theme} text={t('gear.section.libraryShare')} marginTop={32} />
         <View style={{ paddingTop: 2 }}>
           <ShareBar theme={theme} label={t('gear.share.weightInCat')} pct={(itemW / catW) * 100} sub={`${cat.name} ${catItems.length} ${t('gear.unit.items')}`} color={cat.color} />
           <ShareBar theme={theme} label={t('gear.share.weightInAll')} pct={(itemW / totalW) * 100} sub={t('gear.share.subAllWeight', { value: fmtWeight(totalW, weightUnit, true) })} color={theme.text2} />
@@ -705,7 +706,7 @@ function GearItemDetailView({
         </View>
 
         {/* 所属清单 */}
-        <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSetRows.length > 0 ? ' · ' + memberSetRows.length : ''}`} marginTop={32} />
+        <AppSectionHeader theme={theme} text={`${t('gear.section.memberSets')}${memberSetRows.length > 0 ? ' · ' + memberSetRows.length : ''}`} marginTop={32} />
         {memberSetRows.length === 0 ? (
           <View style={{ paddingVertical: 12 }}>
             <Text style={{ fontSize: 13.5, color: theme.text3 }}>{t('gear.itemDetail.noMemberSets')}</Text>
@@ -812,7 +813,7 @@ function GearItemDetailView({
           }}
         />
       ) : null}
-    </GearPushPage>
+    </DetailPage>
   );
 }
 

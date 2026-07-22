@@ -18,12 +18,13 @@ import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
-import { GearPushPage, GearItemRow, CircleBtn, yuan } from './parts';
+import { GearItemRow, yuan } from './parts';
+import { AppIconButton, DetailPage } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 
-const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
-const fieldBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
+const fieldBg = (t: Theme) => t.fieldSurface;
+const fieldBorder = (t: Theme) => t.fieldBorder;
 const compactYuan = (value: number) => {
   if (value < 10000) return yuan(value);
   const wan = value / 10000;
@@ -437,13 +438,13 @@ function GearSetDetailView({
   };
 
   return (
-    <GearPushPage
+    <DetailPage
       theme={theme}
       onBack={onBack}
       right={(
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <CircleBtn theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
-          <CircleBtn theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} softShadow size={44} />
+          <AppIconButton theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
+          <AppIconButton theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} softShadow size={44} />
         </View>
       )}
       overlay={(
@@ -548,7 +549,7 @@ function GearSetDetailView({
           </>
         )}
       </View>
-    </GearPushPage>
+    </DetailPage>
   );
 }
 
