@@ -142,7 +142,7 @@ create policy "companions_all" on companions for all to authenticated
 -- ─── gear_categories ─────────────────────────────────────────────────────────
 create table if not exists gear_categories (
   id       text primary key default 'gc_' || gen_random_uuid()::text,
-  user_id  uuid references profiles(id) on delete cascade,
+  user_id  uuid not null references profiles(id) on delete cascade,
   name     text not null,
   color    text not null,
   builtin  boolean default false,
@@ -150,20 +150,42 @@ create table if not exists gear_categories (
 );
 alter table gear_categories enable row level security;
 create policy "gear_cats_select" on gear_categories for select to authenticated
-  using (builtin = true or user_id = auth.uid());
+  using (user_id = auth.uid());
 create policy "gear_cats_insert" on gear_categories for insert to authenticated
   with check (user_id = auth.uid());
 create policy "gear_cats_update" on gear_categories for update to authenticated
-  using (user_id = auth.uid());
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "gear_cats_delete" on gear_categories for delete to authenticated
   using (user_id = auth.uid());
+
+-- Default categories are templates copied into each new user's own library.
+-- After creation they behave exactly like categories created by the user.
+create or replace function create_default_gear_categories()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into gear_categories (user_id, name, color, builtin) values
+    (new.id, '背负系统', '#FF3B30', false),
+    (new.id, '庇护系统', '#FF9500', false),
+    (new.id, '睡眠系统', '#5856D6', false),
+    (new.id, '服饰系统', '#34C759', false),
+    (new.id, '饮食系统', '#00C7BE', false),
+    (new.id, '电子导航', '#32ADE6', false),
+    (new.id, '安全急救', '#FF2D55', false),
+    (new.id, '其他', '#8E8E93', false);
+  return new;
+end;
+$$;
+drop trigger if exists on_profile_created_create_gear_categories on profiles;
+create trigger on_profile_created_create_gear_categories
+  after insert on profiles
+  for each row execute function create_default_gear_categories();
 
 -- ─── gear_items ──────────────────────────────────────────────────────────────
 create table if not exists gear_items (
   id       serial primary key,
   user_id  uuid not null references profiles(id) on delete cascade,
   name     text not null,
-  cat_id   text not null references gear_categories(id),
+  cat_id   text references gear_categories(id) on delete set null,
   weight   float8 not null,
   price    int4 not null,
   qty      int4 default 1,

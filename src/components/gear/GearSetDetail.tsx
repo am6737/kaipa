@@ -194,6 +194,8 @@ function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: The
 
 type SetDisplaySettings = { images: boolean; weight: boolean; value: boolean; groupStats: boolean };
 const DISPLAY_SETTINGS_KEY = 'kaipa_gear_set_display_v1';
+const DEFAULT_DISPLAY_SETTINGS: SetDisplaySettings = { images: true, weight: true, value: true, groupStats: true };
+let cachedDisplaySettings: SetDisplaySettings | null = null;
 
 interface Group {
   cat: GearCat;
@@ -203,7 +205,7 @@ interface Group {
   count: number;
 }
 
-export function GearSetDetail({
+function GearSetDetailView({
   theme,
   set,
   allItems,
@@ -235,7 +237,9 @@ export function GearSetDetail({
   const [exportOpen, setExportOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [displayExpanded, setDisplayExpanded] = useState(false);
-  const [displaySettings, setDisplaySettings] = useState<SetDisplaySettings>({ images: true, weight: true, value: true, groupStats: true });
+  const [displaySettings, setDisplaySettings] = useState<SetDisplaySettings>(() => cachedDisplaySettings || DEFAULT_DISPLAY_SETTINGS);
+  const [displaySettingsReady, setDisplaySettingsReady] = useState(cachedDisplaySettings !== null);
+  const [posterMounted, setPosterMounted] = useState(false);
   const displayProgress = useSharedValue(0);
   const posterRef = useRef<any>(null);
   const exportingRef = useRef(false);
@@ -255,17 +259,29 @@ export function GearSetDetail({
   }));
 
   React.useEffect(() => {
+    if (cachedDisplaySettings) {
+      setDisplaySettingsReady(true);
+      return;
+    }
+    let active = true;
     AsyncStorage.getItem(DISPLAY_SETTINGS_KEY).then((raw) => {
-      if (!raw) return;
+      let next = DEFAULT_DISPLAY_SETTINGS;
       try {
-        const parsed = JSON.parse(raw);
-        setDisplaySettings((current) => ({ ...current, ...parsed }));
+        if (raw) next = { ...DEFAULT_DISPLAY_SETTINGS, ...JSON.parse(raw) };
       } catch {}
-    }).catch(() => {});
+      cachedDisplaySettings = next;
+      if (active) setDisplaySettings(next);
+    }).catch(() => {
+      cachedDisplaySettings = DEFAULT_DISPLAY_SETTINGS;
+    }).finally(() => {
+      if (active) setDisplaySettingsReady(true);
+    });
+    return () => { active = false; };
   }, []);
   const updateDisplaySettings = (patch: Partial<SetDisplaySettings>) => {
     setDisplaySettings((current) => {
       const next = { ...current, ...patch };
+      cachedDisplaySettings = next;
       AsyncStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
@@ -364,10 +380,15 @@ export function GearSetDetail({
     }
   };
   const exportImage = () => runExport(async () => {
-    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-    const uri = await captureRef(posterRef, { format: 'png', quality: 1 });
-    await shareFile(uri, 'image/png', safeFilename('png'));
-    nav.showToast(t('gear.setDetail.exportImageSaved'));
+    setPosterMounted(true);
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))));
+      const uri = await captureRef(posterRef, { format: 'png', quality: 1 });
+      await shareFile(uri, 'image/png', safeFilename('png'));
+      nav.showToast(t('gear.setDetail.exportImageSaved'));
+    } finally {
+      setPosterMounted(false);
+    }
   });
   const exportText = () => runExport(async () => {
     const content = buildGearSetText(exportData);
@@ -427,9 +448,11 @@ export function GearSetDetail({
       )}
       overlay={(
         <>
-          <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, opacity: 0 }}>
-            <GearSetPoster ref={posterRef} data={exportData} theme={theme} width={winW} metric={metric} agg={agg} total={total} items={setItems} selected={sel} displaySettings={displaySettings} />
-          </View>
+          {posterMounted ? (
+            <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, opacity: 0 }}>
+              <GearSetPoster ref={posterRef} data={exportData} theme={theme} width={winW} metric={metric} agg={agg} total={total} items={setItems} selected={sel} displaySettings={displaySettings} />
+            </View>
+          ) : null}
           <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => setExportOpen(false)}>
             <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
               {t('gear.setDetail.exportSection')}
@@ -509,20 +532,30 @@ export function GearSetDetail({
               <Fact theme={theme} label={t('gear.pack.consumable')} value={fmtWeight(focusedPack.consumable, weightUnit, true)} />
             </View>
 
-            {groups.map((g, gi) => (
+            {displaySettingsReady ? groups.map((g, gi) => (
               <View key={g.cat.id} style={{ marginTop: gi === 0 ? 30 : 18 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '700', color: theme.text2 }}>{g.cat.name}</Text>
                   {displaySettings.groupStats ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{g.its.length} · {fmtWeight(g.w, weightUnit, true)}</Text> : null}
                 </View>
-                {g.its.map((it, i) => (
-                  <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={50} />
-                ))}
+                <View style={{ marginTop: 10, paddingHorizontal: 14, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
+                  {g.its.map((it, i) => (
+                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={64} card />
+                  ))}
+                </View>
               </View>
-            ))}
+            )) : null}
           </>
         )}
       </View>
     </GearPushPage>
   );
 }
+
+export const GearSetDetail = React.memo(GearSetDetailView, (previous, next) => (
+  previous.theme === next.theme
+  && previous.set === next.set
+  && previous.allItems === next.allItems
+  && previous.catMap === next.catMap
+  && previous.weightUnit === next.weightUnit
+));

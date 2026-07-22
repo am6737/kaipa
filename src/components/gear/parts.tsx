@@ -7,6 +7,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, View, Text, TextInput, ScrollView, StyleSheet, Dimensions, ViewStyle, KeyboardAvoidingView, Platform, Easing, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { JapaneseYen, Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -50,6 +51,7 @@ export function GearPushPage({
   hero,
   flatChrome,
   onContentTouchStart,
+  onEnterComplete,
   children,
 }: {
   theme: Theme;
@@ -61,15 +63,22 @@ export function GearPushPage({
   hero?: React.ReactNode;
   flatChrome?: boolean;
   onContentTouchStart?: () => void;
+  onEnterComplete?: () => void;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const width = Dimensions.get('window').width;
   const tx = useRef(new Animated.Value(width)).current;
+  const onEnterCompleteRef = useRef(onEnterComplete);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
+  useEffect(() => { onEnterCompleteRef.current = onEnterComplete; }, [onEnterComplete]);
   useEffect(() => {
-    Animated.spring(tx, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 16 }).start();
+    const animation = Animated.spring(tx, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 16 });
+    animation.start(({ finished }) => {
+      if (finished) onEnterCompleteRef.current?.();
+    });
+    return () => animation.stop();
   }, [tx]);
 
   const navH = insets.top + 50;
@@ -260,13 +269,42 @@ type GearItemRowProps = {
   showWeight?: boolean;
   showValue?: boolean;
   imageSize?: number;
+  card?: boolean;
 };
 
-export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38 }: GearItemRowProps) {
+export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38, card = false }: GearItemRowProps) {
   const qty = item.qty || 1;
   const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join(' · ');
   const rowGap = 12;
   const rowPaddingX = flush ? 0 : 13;
+  if (card) {
+    return (
+      <Press onPress={onPress} style={{ minHeight: showImage ? imageSize + 28 : 88, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        {showImage ? <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={Math.max(10, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
+        <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
+          <Text numberOfLines={2} style={{ fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>{item.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Package color={theme.text2} size={14} strokeWidth={1.8} />
+              <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>×{qty}</Text>
+            </View>
+            {showWeight ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
+                <Weight color={theme.text2} size={14} strokeWidth={1.8} />
+                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{fmtKg(itemWeight(item), weightUnit)}</Text>
+              </View>
+            ) : null}
+            {showValue ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 }}>
+                <JapaneseYen color={theme.text2} size={13.5} strokeWidth={1.8} />
+                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{Math.round(itemPrice(item)).toLocaleString('en-US')}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Press>
+    );
+  }
   return (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: rowGap, paddingVertical: 10, paddingHorizontal: rowPaddingX }}>

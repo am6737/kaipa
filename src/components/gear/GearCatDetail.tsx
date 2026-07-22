@@ -12,7 +12,7 @@ import { useI18n } from '../../i18n';
 import { GearItem, GearCat, itemWeight, itemPrice, WeightUnit, fmtWeight } from '../../data/gear';
 import { GearPushPage, GearCard, SectionLabel, GearItemRow, CircleBtn, yuan } from './parts';
 
-export function GearCatDetail({
+function GearCatDetailView({
   theme,
   cat,
   allItems,
@@ -39,21 +39,18 @@ export function GearCatDetail({
     .sort((a, b) => itemWeight(b) - itemWeight(a));
   const totW = items.reduce((a, it) => a + itemWeight(it), 0);
   const totP = items.reduce((a, it) => a + itemPrice(it), 0);
-  const deletable = !cat.builtin && items.length === 0;
-
   const confirmDelete = () =>
     nav.openActionSheet({
       title: t('gear.catDetail.deleteConfirmTitle', { name: cat.name }),
-      message: t('gear.catDetail.deleteConfirmMessage'),
+      message: items.length > 0 ? t('gear.category.deleteMessage', { count: items.length }) : t('gear.catDetail.deleteConfirmMessage'),
       items: [{ label: t('gear.catDetail.deleteCat'), icon: 'trash', destructive: true, onPress: onDelete }],
     });
   const openMenu = () =>
     nav.openActionSheet({
       title: cat.name,
-      message: !deletable && !cat.builtin ? t('gear.catDetail.notEmptyMessage') : undefined,
       items: [
         { label: t('gear.catDetail.editCat'), icon: 'edit', onPress: onEdit },
-        ...(deletable ? [{ label: t('gear.catDetail.deleteCat'), icon: 'trash', destructive: true, onPress: confirmDelete }] : []),
+        { label: t('gear.catDetail.deleteCat'), icon: 'trash', destructive: true, onPress: confirmDelete },
       ],
     });
 
@@ -87,3 +84,10 @@ export function GearCatDetail({
     </GearPushPage>
   );
 }
+
+export const GearCatDetail = React.memo(GearCatDetailView, (previous, next) => (
+  previous.theme === next.theme
+  && previous.cat === next.cat
+  && previous.allItems === next.allItems
+  && previous.weightUnit === next.weightUnit
+));

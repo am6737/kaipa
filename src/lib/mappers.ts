@@ -77,14 +77,14 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
 }
 
 export function toGearCat(r: any): GearCat {
-  return { id: r.id, name: r.name, color: r.color, builtin: r.builtin };
+  return { id: r.id, name: r.name, color: r.color, builtin: r.builtin ?? false };
 }
 
 export function toGearItem(r: any): GearItem {
   return {
     id: r.id,
     name: r.name,
-    cat: r.cat_id,
+    cat: r.cat_id ?? 'uncat',
     w: r.weight,
     p: r.price,
     qty: r.qty ?? 1,

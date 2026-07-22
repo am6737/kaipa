@@ -4,6 +4,14 @@
 do $$
 declare
   uid uuid := '9bc22e65-7352-4936-8f8a-68d02c88a403';
+  pack_id text;
+  shelter_id text;
+  sleep_id text;
+  cloth_id text;
+  cook_id text;
+  elec_id text;
+  safe_id text;
+  misc_id text;
 begin
 
 -- ─── routes (EXPLORE_POIS) ──────────────────────────────────────────────────
@@ -58,48 +66,47 @@ insert into companions (journey_id, ini, name, color, is_self, is_host, sort_ord
 insert into companions (journey_id, ini, name, color, is_self, is_host, sort_order) values
   ('m5', '陈', '陈泽宇', '#FF7A55', true, true, 0);
 
--- ─── gear_categories (builtin) ──────────────────────────────────────────────
-insert into gear_categories (id, user_id, name, color, builtin) values
-  ('pack',    null, '背负系统', '#FF3B30', true),
-  ('shelter', null, '庇护系统', '#FF9500', true),
-  ('sleep',   null, '睡眠系统', '#5856D6', true),
-  ('cloth',   null, '服饰系统', '#34C759', true),
-  ('cook',    null, '饮食系统', '#00C7BE', true),
-  ('elec',    null, '电子导航', '#32ADE6', true),
-  ('safe',    null, '安全急救', '#FF2D55', true),
-  ('misc',    null, '其他',     '#8E8E93', true)
-on conflict (id) do nothing;
+-- ─── gear_categories ────────────────────────────────────────────────────────
+-- New profiles receive editable default categories from the profile trigger.
+select id into pack_id from gear_categories where user_id = uid and name = '背负系统' limit 1;
+select id into shelter_id from gear_categories where user_id = uid and name = '庇护系统' limit 1;
+select id into sleep_id from gear_categories where user_id = uid and name = '睡眠系统' limit 1;
+select id into cloth_id from gear_categories where user_id = uid and name = '服饰系统' limit 1;
+select id into cook_id from gear_categories where user_id = uid and name = '饮食系统' limit 1;
+select id into elec_id from gear_categories where user_id = uid and name = '电子导航' limit 1;
+select id into safe_id from gear_categories where user_id = uid and name = '安全急救' limit 1;
+select id into misc_id from gear_categories where user_id = uid and name = '其他' limit 1;
 
 -- ─── gear_items ──────────────────────────────────────────────────────────────
 insert into gear_items (user_id, name, cat_id, weight, price, qty, attrs) values
-  (uid, 'Osprey Talon 33', 'pack', 0.86, 1100, 1, '[["容量","33 L"],["尺码","S/M"],["颜色","岩灰"]]'),
-  (uid, 'HMG 2400 Southwest', 'pack', 0.78, 2980, 1, '[["容量","40 L"]]'),
-  (uid, '攻顶包 18L', 'pack', 0.32, 320, 1, null),
-  (uid, 'Big Agnes Copper Spur HV UL2', 'shelter', 1.32, 3380, 1, '[["人数","2P"]]'),
-  (uid, 'MSR 地钉 ×8', 'shelter', 0.12, 160, 1, null),
-  (uid, '地布 Tyvek', 'shelter', 0.18, 120, 1, null),
-  (uid, 'Nemo Disco 15 羽绒睡袋', 'sleep', 0.96, 2200, 1, '[["温标","-9°C"]]'),
-  (uid, 'Therm-a-Rest NeoAir XLite', 'sleep', 0.35, 1480, 1, '[["R 值","4.2"]]'),
-  (uid, '充气枕', 'sleep', 0.08, 120, 1, null),
-  (uid, 'Arc''teryx Beta AR 冲锋衣', 'cloth', 0.44, 4200, 1, '[["尺码","M"],["颜色","黑"]]'),
-  (uid, 'Patagonia Nano Puff 棉服', 'cloth', 0.34, 1680, 1, null),
-  (uid, '抓绒中层', 'cloth', 0.3, 680, 1, null),
-  (uid, '速干裤', 'cloth', 0.28, 520, 2, null),
-  (uid, '羊毛袜', 'cloth', 0.06, 120, 3, null),
-  (uid, 'MSR PocketRocket 2 炉头', 'cook', 0.073, 360, 1, null),
-  (uid, 'TOAKS 钛锅 750ml', 'cook', 0.103, 280, 1, null),
-  (uid, '气罐 230g', 'cook', 0.36, 45, 2, null),
-  (uid, '钛勺', 'cook', 0.018, 60, 1, null),
-  (uid, 'Garmin inReach Mini 2', 'elec', 0.1, 3280, 1, '[["卫星通讯","是"]]'),
-  (uid, '头灯 Petzl Actik Core', 'elec', 0.075, 420, 1, null),
-  (uid, '充电宝 20000mAh', 'elec', 0.34, 260, 1, null),
-  (uid, 'GPS 手表 Fenix 7', 'elec', 0.079, 5180, 1, null),
-  (uid, '急救包', 'safe', 0.28, 280, 1, null),
-  (uid, '登山杖 一对', 'safe', 0.46, 680, 1, null),
-  (uid, '哨子 + 指北针', 'safe', 0.04, 90, 1, null),
-  (uid, '防晒霜 + 唇膏', 'misc', 0.12, 160, 1, null),
-  (uid, '驱蚊液', 'misc', 0.1, 60, 1, null),
-  (uid, '湿巾 + 垃圾袋', 'misc', 0.15, 40, 1, null);
+  (uid, 'Osprey Talon 33', pack_id, 0.86, 1100, 1, '[["容量","33 L"],["尺码","S/M"],["颜色","岩灰"]]'),
+  (uid, 'HMG 2400 Southwest', pack_id, 0.78, 2980, 1, '[["容量","40 L"]]'),
+  (uid, '攻顶包 18L', pack_id, 0.32, 320, 1, null),
+  (uid, 'Big Agnes Copper Spur HV UL2', shelter_id, 1.32, 3380, 1, '[["人数","2P"]]'),
+  (uid, 'MSR 地钉 ×8', shelter_id, 0.12, 160, 1, null),
+  (uid, '地布 Tyvek', shelter_id, 0.18, 120, 1, null),
+  (uid, 'Nemo Disco 15 羽绒睡袋', sleep_id, 0.96, 2200, 1, '[["温标","-9°C"]]'),
+  (uid, 'Therm-a-Rest NeoAir XLite', sleep_id, 0.35, 1480, 1, '[["R 值","4.2"]]'),
+  (uid, '充气枕', sleep_id, 0.08, 120, 1, null),
+  (uid, 'Arc''teryx Beta AR 冲锋衣', cloth_id, 0.44, 4200, 1, '[["尺码","M"],["颜色","黑"]]'),
+  (uid, 'Patagonia Nano Puff 棉服', cloth_id, 0.34, 1680, 1, null),
+  (uid, '抓绒中层', cloth_id, 0.3, 680, 1, null),
+  (uid, '速干裤', cloth_id, 0.28, 520, 2, null),
+  (uid, '羊毛袜', cloth_id, 0.06, 120, 3, null),
+  (uid, 'MSR PocketRocket 2 炉头', cook_id, 0.073, 360, 1, null),
+  (uid, 'TOAKS 钛锅 750ml', cook_id, 0.103, 280, 1, null),
+  (uid, '气罐 230g', cook_id, 0.36, 45, 2, null),
+  (uid, '钛勺', cook_id, 0.018, 60, 1, null),
+  (uid, 'Garmin inReach Mini 2', elec_id, 0.1, 3280, 1, '[["卫星通讯","是"]]'),
+  (uid, '头灯 Petzl Actik Core', elec_id, 0.075, 420, 1, null),
+  (uid, '充电宝 20000mAh', elec_id, 0.34, 260, 1, null),
+  (uid, 'GPS 手表 Fenix 7', elec_id, 0.079, 5180, 1, null),
+  (uid, '急救包', safe_id, 0.28, 280, 1, null),
+  (uid, '登山杖 一对', safe_id, 0.46, 680, 1, null),
+  (uid, '哨子 + 指北针', safe_id, 0.04, 90, 1, null),
+  (uid, '防晒霜 + 唇膏', misc_id, 0.12, 160, 1, null),
+  (uid, '驱蚊液', misc_id, 0.1, 60, 1, null),
+  (uid, '湿巾 + 垃圾袋', misc_id, 0.15, 40, 1, null);
 
 -- ─── gear_sets + gear_set_items ─────────────────────────────────────────────
 insert into gear_sets (id, user_id, name) values

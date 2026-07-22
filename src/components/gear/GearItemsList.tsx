@@ -27,7 +27,7 @@ const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
 type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
 
-export function GearItemsList({
+function GearItemsListView({
   theme,
   items,
   catMap,
@@ -35,6 +35,9 @@ export function GearItemsList({
   onBack,
   onOpenItem,
   onAdd,
+  onAddCategory,
+  onEditCategory,
+  onDeleteCategory,
   onDeleteItems,
 }: {
   theme: Theme;
@@ -44,6 +47,9 @@ export function GearItemsList({
   onBack: () => void;
   onOpenItem: (item: GearItem) => void;
   onAdd: () => void;
+  onAddCategory: () => void;
+  onEditCategory: (cat: GearCat) => void;
+  onDeleteCategory: (cat: GearCat) => void;
   onDeleteItems: (ids: number[]) => void;
 }) {
   const { t } = useI18n();
@@ -54,6 +60,7 @@ export function GearItemsList({
   const [moreOpen, setMoreOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [displayExpanded, setDisplayExpanded] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
   const [displaySettings, setDisplaySettings] = useState<ItemDisplaySettings>({ images: true, weight: true, value: true });
@@ -63,7 +70,7 @@ export function GearItemsList({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [205, 375]),
+    height: interpolate(displayProgress.value, [0, 1], [261, 431]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
@@ -92,9 +99,13 @@ export function GearItemsList({
   };
 
   const categories = useMemo(() => {
-    const ids = new Set(items.map((item) => item.cat));
-    return Object.values(catMap).filter((cat) => ids.has(cat.id));
-  }, [catMap, items]);
+    return Object.values(catMap);
+  }, [catMap]);
+  const hasUncategorized = useMemo(() => items.some((item) => !catMap[item.cat]), [catMap, items]);
+
+  React.useEffect(() => {
+    if (category && category !== 'uncat' && !catMap[category]) setCategory(null);
+  }, [catMap, category]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
@@ -234,6 +245,7 @@ export function GearItemsList({
           <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, width - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
             <MenuCaption theme={theme} text={t('gear.itemList.manage')} />
             <MenuRow theme={theme} icon="checkAll" label={t('gear.itemList.batchManage')} onPress={() => closeMoreThen(beginSelect)} />
+            <MenuRow theme={theme} icon="gearSettings" label={t('gear.category.manage')} onPress={() => closeMoreThen(() => setCategoryManagerOpen(true))} />
             <MenuCaption theme={theme} text={t('gear.setList.display')} spaced />
             <MenuRow
               theme={theme}
@@ -260,6 +272,7 @@ export function GearItemsList({
             {categories.map((cat) => (
               <ChoiceRow key={cat.id} theme={theme} label={cat.name} selected={category === cat.id} color={cat.color} onPress={() => { setCategory(cat.id); setFilterOpen(false); }} />
             ))}
+            {hasUncategorized ? <ChoiceRow theme={theme} label={t('gear.uncategorized')} selected={category === 'uncat'} color={theme.text3} onPress={() => { setCategory('uncat'); setFilterOpen(false); }} /> : null}
           </CompactFilterMenu>
 
           <CompactChoiceMenu theme={theme} visible={sortOpen} title={t('gear.itemList.sort')} onClose={() => setSortOpen(false)}>
@@ -272,6 +285,17 @@ export function GearItemsList({
               <CompactMenuRow key={id} theme={theme} icon={icon} label={label} selected={sort === id} onPress={() => { setSort(id); setSortOpen(false); }} />
             ))}
           </CompactChoiceMenu>
+
+          <CategoryManager
+            theme={theme}
+            visible={categoryManagerOpen}
+            categories={categories}
+            items={items}
+            onClose={() => setCategoryManagerOpen(false)}
+            onAdd={onAddCategory}
+            onEdit={onEditCategory}
+            onDelete={onDeleteCategory}
+          />
         </>
       )}
     >
@@ -314,6 +338,70 @@ export function GearItemsList({
         )}
       </View>
     </GearPushPage>
+  );
+}
+
+export const GearItemsList = React.memo(GearItemsListView, (previous, next) => (
+  previous.theme === next.theme
+  && previous.items === next.items
+  && previous.catMap === next.catMap
+  && previous.weightUnit === next.weightUnit
+));
+
+function CategoryManager({ theme, visible, categories, items, onClose, onAdd, onEdit, onDelete }: { theme: Theme; visible: boolean; categories: GearCat[]; items: GearItem[]; onClose: () => void; onAdd: () => void; onEdit: (cat: GearCat) => void; onDelete: (cat: GearCat) => void }) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const counts = useMemo(() => {
+    const next = new Map<string, number>();
+    items.forEach((item) => next.set(item.cat, (next.get(item.cat) || 0) + 1));
+    return next;
+  }, [items]);
+  const confirmDelete = (cat: GearCat) => {
+    const count = counts.get(cat.id) || 0;
+    Alert.alert(
+      t('gear.catDetail.deleteConfirmTitle', { name: cat.name }),
+      count > 0 ? t('gear.category.deleteMessage', { count }) : t('gear.catDetail.deleteConfirmMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('gear.catDetail.deleteCat'), style: 'destructive', onPress: () => onDelete(cat) },
+      ],
+    );
+  };
+  if (!visible) return null;
+  return (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 300, justifyContent: 'flex-end' }]}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.28)' }]} />
+        <View style={{ maxHeight: '78%', paddingTop: 10, paddingBottom: Math.max(insets.bottom, 16), borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: theme.dark ? '#1C1C1E' : '#F4F4F5' }}>
+          <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45 }} />
+          <View style={{ height: 62, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ flex: 1, fontSize: 20, fontWeight: '800', color: theme.text }}>{t('gear.category.manage')}</Text>
+            <CircleBtn theme={theme} name="close" onPress={onClose} size={36} noShadow />
+          </View>
+          <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 10, gap: 8 }}>
+            {categories.map((cat) => {
+              const count = counts.get(cat.id) || 0;
+              return (
+                <Press key={cat.id} onPress={() => onEdit(cat)} style={{ minHeight: 58, paddingHorizontal: 15, borderRadius: 18, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+                  <View style={{ width: 11, height: 11, borderRadius: 4, backgroundColor: cat.color }} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{cat.name}</Text>
+                    <Text style={{ marginTop: 3, fontSize: 11.5, color: theme.text3 }}>{count} {t('gear.unit.items')}</Text>
+                  </View>
+                  <Press onPress={(event) => { event.stopPropagation(); confirmDelete(cat); }} hitSlop={8} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="trash" color={theme.danger} size={17} strokeWidth={1.9} />
+                  </Press>
+                </Press>
+              );
+            })}
+          </ScrollView>
+          <View style={{ paddingHorizontal: 18, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.hairline }}>
+            <Press onPress={onAdd} style={{ height: 50, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.accent }}>
+              <Icon name="plus" color="#FFFFFF" size={17} strokeWidth={2.3} />
+              <Text style={{ fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.category.add')}</Text>
+            </Press>
+          </View>
+        </View>
+      </View>
   );
 }
 

@@ -219,6 +219,7 @@ export const en: SameShape<typeof zh> = {
     home: { overview: 'Gear overview', more: 'See more', mySets: 'My sets', myGear: 'My gear', viewAll: 'View all', ready: 'View set', libraryWeight: 'Library weight', setCount: 'Set count' },
     setList: { gallery: 'All sets', add: 'Add', manage: 'Set management', newSet: 'New set', display: 'View', grid: 'Grid view', list: 'List view', sort: 'Sort by', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name' },
     itemList: { manage: 'Gear management', newItem: 'Add gear', browse: 'Browse', category: 'Category', sort: 'Sort by', all: 'All', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name', batchManage: 'Batch manage' },
+    category: { manage: 'Manage categories', add: 'Add category', deleteMessage: '{count} items in this category will move to Uncategorized. The items themselves will not be deleted.' },
     setSelect: { title: '{count} sets selected', pin: 'Pin', unpin: 'Unpin', deleteConfirm: 'Delete {count} sets', deleteTitle: 'Confirm Deletion', deleteMessage: '{count} sets will be deleted. This cannot be undone.', deletePrompt: 'Select sets to delete' },
     tab: {
       items: 'Gear',
@@ -412,6 +413,11 @@ export const en: SameShape<typeof zh> = {
       namePlaceholder: 'e.g. Camera gear',
       dupName: 'This category already exists',
       color: 'Color',
+      customColor: 'Custom color',
+      hue: 'Hue',
+      saturation: 'Saturation',
+      brightness: 'Brightness',
+      invalidColor: 'Enter a complete HEX color, such as #34C759',
     },
   },
 

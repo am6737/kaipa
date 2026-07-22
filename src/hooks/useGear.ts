@@ -13,7 +13,7 @@ export function useGear(userId: string | undefined) {
     if (!userId) return;
 
     const [catRes, itemRes] = await Promise.all([
-      supabase.from('gear_categories').select('*').order('builtin', { ascending: false }).order('created_at'),
+      supabase.from('gear_categories').select('*').eq('user_id', userId).order('created_at'),
       supabase.from('gear_items').select('*').eq('user_id', userId).order('created_at'),
     ]);
 
@@ -81,6 +81,7 @@ export function useGear(userId: string | undefined) {
   const deleteCat = async (id: string) => {
     await supabase.from('gear_categories').delete().eq('id', id);
     setCats(prev => prev.filter(c => c.id !== id));
+    setItems(prev => prev.map(item => item.cat === id ? { ...item, cat: 'uncat' } : item));
   };
 
   // ── Item CRUD ─────────────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ export function useGear(userId: string | undefined) {
       .insert({
         user_id: userId,
         name: item.name,
-        cat_id: item.cat,
+        cat_id: item.cat === 'uncat' ? null : item.cat,
         weight: item.w,
         price: item.p,
         qty: item.qty ?? 1,
@@ -106,7 +107,7 @@ export function useGear(userId: string | undefined) {
   const updateItem = async (id: number, patch: Partial<GearItem>) => {
     const row: any = {};
     if (patch.name !== undefined) row.name = patch.name;
-    if (patch.cat !== undefined) row.cat_id = patch.cat;
+    if (patch.cat !== undefined) row.cat_id = patch.cat === 'uncat' ? null : patch.cat;
     if (patch.w !== undefined) row.weight = patch.w;
     if (patch.p !== undefined) row.price = patch.p;
     if (patch.qty !== undefined) row.qty = patch.qty;

@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -72,9 +73,9 @@ function MetaCell({ theme, label, value, muted, fullWidth, multiline, scrollOnFo
             }}
             keyboardType={keyboardType}
             multiline={multiline}
-            style={{ alignSelf: 'stretch', width: '100%', marginTop: 3, padding: 0, fontSize: 13, lineHeight: multiline ? 19 : undefined, fontWeight: '700', color: theme.text, minHeight: multiline ? 40 : undefined, textAlign: 'left', textAlignVertical: multiline ? 'top' : undefined }}
+            style={{ alignSelf: 'stretch', width: '100%', marginTop: 8, padding: 0, fontSize: 13, lineHeight: multiline ? 19 : undefined, fontWeight: '700', color: theme.text, minHeight: multiline ? 40 : undefined, textAlign: 'left', textAlignVertical: multiline ? 'top' : undefined }}
           />
-        ) : hasValue ? <Text numberOfLines={multiline ? undefined : 1} style={{ marginTop: 3, fontSize: 13, lineHeight: multiline ? 20 : undefined, fontWeight: '700', color: muted ? theme.text3 : theme.text, textAlign: 'left' }}>{value}</Text> : null}
+        ) : hasValue ? <Text numberOfLines={multiline ? undefined : 1} style={{ marginTop: 8, fontSize: 13, lineHeight: multiline ? 20 : undefined, fontWeight: '700', color: muted ? theme.text3 : theme.text, textAlign: 'left' }}>{value}</Text> : null}
       </View>
     </View>
   );
@@ -137,7 +138,7 @@ function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearIte
   if (photos.length === 0) {
     return (
       <Pressable onPress={() => onOpenPhoto(0)}>
-        <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={1000} style={{ width: galleryWidth, height: galleryHeight }} />
+        <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={720} style={{ width: galleryWidth, height: galleryHeight }} />
       </Pressable>
     );
   }
@@ -383,7 +384,7 @@ function WheelSelectSheet({
   );
 }
 
-export function GearItemDetail({
+function GearItemDetailView({
   theme,
   item,
   cat,
@@ -419,12 +420,30 @@ export function GearItemDetail({
   const itemP = itemPrice(item);
 
   // ── real library context ──────────────────────────────────────────────────
-  const totalW = allItems.reduce((a, it) => a + itemWeight(it), 0) || itemW;
-  const totalP = allItems.reduce((a, it) => a + itemPrice(it), 0) || itemP;
-  const catItems = allItems.filter((it) => it.cat === item.cat);
-  const catW = catItems.reduce((a, it) => a + itemWeight(it), 0) || itemW;
-  const wRank = catItems.slice().sort((a, b) => itemWeight(b) - itemWeight(a)).findIndex((it) => it.name === item.name) + 1;
-  const memberSets = sets.filter((s) => s.items.includes(item.name));
+  const libraryContext = React.useMemo(() => {
+    const catItems = allItems.filter((it) => it.cat === item.cat);
+    return {
+      totalW: allItems.reduce((a, it) => a + itemWeight(it), 0) || itemW,
+      totalP: allItems.reduce((a, it) => a + itemPrice(it), 0) || itemP,
+      catItems,
+      catW: catItems.reduce((a, it) => a + itemWeight(it), 0) || itemW,
+      wRank: catItems.slice().sort((a, b) => itemWeight(b) - itemWeight(a)).findIndex((it) => it.name === item.name) + 1,
+    };
+  }, [allItems, item.cat, item.name, itemP, itemW]);
+  const memberSetRows = React.useMemo(() => {
+    return sets.filter((set) => set.items.includes(item.name)).map((set) => {
+      const items = set.items
+        .map((name) => allItems.find((candidate) => candidate.name === name))
+        .filter(Boolean)
+        .map((candidate) => {
+          const gear = candidate as GearItem;
+          const override = (gear.id != null ? set.overrides?.[String(gear.id)] : undefined) || set.overrides?.[gear.name];
+          return override ? { ...gear, ...override } : gear;
+        });
+      return { set, count: items.length, weight: items.reduce((sum, gear) => sum + itemWeight(gear), 0) };
+    });
+  }, [allItems, item.name, sets]);
+  const { totalW, totalP, catItems, catW, wRank } = libraryContext;
 
   const confirmDelete = () =>
     nav.openActionSheet({
@@ -687,28 +706,41 @@ export function GearItemDetail({
         </View>
 
         {/* 所属清单 */}
-        <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSets.length > 0 ? ' · ' + memberSets.length : ''}`} marginTop={32} />
-        {memberSets.length === 0 ? (
+        <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSetRows.length > 0 ? ' · ' + memberSetRows.length : ''}`} marginTop={32} />
+        {memberSetRows.length === 0 ? (
           <View style={{ paddingVertical: 12 }}>
             <Text style={{ fontSize: 13.5, color: theme.text3 }}>{t('gear.itemDetail.noMemberSets')}</Text>
           </View>
         ) : (
           <View>
-            {memberSets.map((s) => {
-              const its = s.items.map((n) => allItems.find((x) => x.name === n)).filter(Boolean) as GearItem[];
-              const wt = its.reduce((a, x) => a + itemWeight(x), 0);
+            {memberSetRows.map(({ set: memberSet, count, weight }) => {
+              const weightParts = splitWeight(weight, weightUnit, true);
               return (
-                <React.Fragment key={s.id}>
-                  <Press onPress={() => onOpenSet(s)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 }}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{s.name}</Text>
-                      <Text style={{ marginTop: 4, fontFamily: MONO, fontSize: 11, color: theme.text2 }}>{its.length} {t('gear.unit.items')} · {fmtWeight(wt, weightUnit, true)}</Text>
+                <Press
+                  key={memberSet.id}
+                  onPress={() => onOpenSet(memberSet)}
+                  style={{ minHeight: 104, marginBottom: 10, paddingHorizontal: 17, paddingVertical: 15, borderRadius: 22, justifyContent: 'space-between', backgroundColor: softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: softBorder(theme) }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <Text numberOfLines={2} style={{ flex: 1, fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{memberSet.name}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 22, marginTop: 14 }}>
+                    <View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                      <Weight color={theme.text2} size={17} strokeWidth={1.8} />
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+                        <Text style={{ fontFamily: MONO, fontSize: 14.5, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text>
+                        <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text>
+                      </View>
                     </View>
-                    <View style={{ marginLeft: 'auto' }}>
-                      <Icon name="chevronR" color={theme.text3} size={14} />
+                    <View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${count}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                      <Package color={theme.text2} size={17} strokeWidth={1.8} />
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+                        <Text style={{ fontFamily: MONO, fontSize: 14.5, fontWeight: '800', color: theme.text }}>{count}</Text>
+                        <Text style={{ fontSize: 10.5, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text>
+                      </View>
                     </View>
-                  </Press>
-                </React.Fragment>
+                  </View>
+                </Press>
               );
             })}
           </View>
@@ -784,3 +816,13 @@ export function GearItemDetail({
     </GearPushPage>
   );
 }
+
+export const GearItemDetail = React.memo(GearItemDetailView, (previous, next) => (
+  previous.theme === next.theme
+  && previous.item === next.item
+  && previous.cat === next.cat
+  && previous.cats === next.cats
+  && previous.allItems === next.allItems
+  && previous.sets === next.sets
+  && previous.weightUnit === next.weightUnit
+));

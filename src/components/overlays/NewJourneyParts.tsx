@@ -4,6 +4,9 @@ import {
   Text,
   Pressable,
   Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   PanResponder,
 } from 'react-native';
@@ -259,7 +262,7 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
   );
 }
 
-export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean }) {
+export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, keyboardAvoiding, bottomPadding, keyboardOverlap = 18, fillBehindKeyboard }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean; keyboardAvoiding?: boolean; bottomPadding?: number; keyboardOverlap?: number; fillBehindKeyboard?: boolean }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(600)).current;
   const onCloseRef = useRef(onClose);
@@ -284,28 +287,46 @@ export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls }: {
   ).current;
   const grabberHandlers = bodyScrolls ? pan.panHandlers : {};
   const sheetHandlers = bodyScrolls ? {} : pan.panHandlers;
+  const keyboardFillHeight = fillBehindKeyboard ? Dimensions.get('window').height : keyboardOverlap;
+  const sheet = (
+    <Animated.View
+      {...sheetHandlers}
+      style={{
+        transform: [{ translateY }],
+        backgroundColor: theme.bg,
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        paddingBottom: bottomPadding ?? Math.max(insets.bottom, 16) + 6,
+        maxHeight: '92%',
+        ...(full ? {} : { marginHorizontal: 0 }),
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.border,
+        ...(keyboardAvoiding ? { borderBottomWidth: 0 } : {}),
+      }}
+    >
+      <View {...grabberHandlers} style={{ paddingTop: 12, paddingBottom: 6, alignItems: 'center' }}>
+        <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
+      </View>
+      {children}
+      {keyboardAvoiding && keyboardFillHeight > 0 ? (
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: -keyboardFillHeight, height: keyboardFillHeight, backgroundColor: theme.bg }} />
+      ) : null}
+    </Animated.View>
+  );
   return (
-    <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 60 }]}>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 60 }]}>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} />
-      <Animated.View
-        {...sheetHandlers}
-        style={{
-          transform: [{ translateY }],
-          backgroundColor: theme.bg,
-          borderTopLeftRadius: 28,
-          borderTopRightRadius: 28,
-          paddingBottom: Math.max(insets.bottom, 16) + 6,
-          maxHeight: '92%',
-          ...(full ? {} : { marginHorizontal: 0 }),
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.border,
-        }}
-      >
-        <View {...grabberHandlers} style={{ paddingTop: 12, paddingBottom: 6, alignItems: 'center' }}>
-          <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
-        </View>
-        {children}
-      </Animated.View>
+      {keyboardAvoiding ? (
+        <KeyboardAvoidingView
+          pointerEvents="box-none"
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {sheet}
+        </KeyboardAvoidingView>
+      ) : (
+        <View pointerEvents="box-none" style={{ flex: 1, justifyContent: 'flex-end' }}>{sheet}</View>
+      )}
     </View>
   );
 }

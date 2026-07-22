@@ -110,6 +110,7 @@ function designRows(cats: GearCat[], metric: Metric, items: GearItem[]): { rows:
   });
   const rows = cats
     .map((c) => ({ ...c, value: m[c.id]?.v || 0, count: m[c.id]?.c || 0 }))
+    .concat(m.uncat ? [{ ...UNCAT, value: m.uncat.v, count: m.uncat.c }] : [])
     .sort((a, b) => b.value - a.value);
   return { rows, total: rows.reduce((a, r) => a + r.value, 0) };
 }
@@ -317,7 +318,6 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const TABS: { id: Tab; label: string; n: number }[] = [
     { id: 'home', label: t('tabs.gear'), n: 0 },
     { id: 'items', label: t('gear.tab.items'), n: allItems.length },
-    { id: 'cats', label: t('gear.tab.cats'), n: cats.length },
     { id: 'sets', label: t('gear.tab.sets'), n: sets.length },
   ];
   const curTab = TABS.find((t) => t.id === tab) || TABS[0];
@@ -572,6 +572,12 @@ export function GearScreen({ theme }: { theme: Theme }) {
               onBack={popPage}
               onOpenItem={(item) => pushPage({ type: 'item', item })}
               onAdd={() => setAddChoose(true)}
+              onAddCategory={() => setCatEditor({ mode: 'new' })}
+              onEditCategory={(cat) => setCatEditor({ mode: 'edit', cat })}
+              onDeleteCategory={(cat) => {
+                data.deleteCat(cat.id);
+                nav.showToast(t('gear.toast.catDeleted'));
+              }}
               onDeleteItems={(ids) => {
                 ids.forEach((id) => data.deleteItem(id));
                 nav.showToast(t('gear.toast.itemsDeleted', { count: ids.length }));
@@ -637,7 +643,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   );
 }
 
-function GearHome({ theme, sets, items, cats, catMap, weightUnit, onOpenSets, onOpenItems, onOpenStats, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; cats: GearCat[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenSets: () => void; onOpenItems: () => void; onOpenStats: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
+function GearHomeView({ theme, sets, items, cats, catMap, weightUnit, onOpenSets, onOpenItems, onOpenStats, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; cats: GearCat[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenSets: () => void; onOpenItems: () => void; onOpenStats: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
@@ -690,6 +696,14 @@ function GearHome({ theme, sets, items, cats, catMap, weightUnit, onOpenSets, on
     </View>
   </View>;
 }
+const GearHome = React.memo(GearHomeView, (previous, next) => (
+  previous.theme === next.theme
+  && previous.sets === next.sets
+  && previous.items === next.items
+  && previous.cats === next.cats
+  && previous.catMap === next.catMap
+  && previous.weightUnit === next.weightUnit
+));
 function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
 function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : 30, marginBottom: first ? 18 : 12 }}><Text style={{ fontSize: first ? 25 : 18, fontWeight: '800', color: theme.text }}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{action} ›</Text></Press> : null}</View>; }
 

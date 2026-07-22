@@ -224,6 +224,7 @@ export const zh = {
     home: { overview: '装备概览', more: '查看更多', mySets: '我的装备清单', myGear: '我的装备', viewAll: '查看全部', ready: '查看清单', libraryWeight: '库内总重量', setCount: '清单数量' },
     setList: { gallery: '全部清单', add: '添加', manage: '清单管理', newSet: '新建清单', display: '显示方式', grid: '网格视图', list: '列表视图', sort: '排序方式', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序' },
     itemList: { manage: '装备管理', newItem: '添加装备', browse: '浏览方式', category: '装备分类', sort: '排序方式', all: '全部', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序', batchManage: '批量管理' },
+    category: { manage: '管理分类', add: '添加分类', deleteMessage: '分类中的 {count} 件装备会移入「未分类」，装备本身不会被删除。' },
     setSelect: { title: '已选 {count} 份清单', pin: '置顶', unpin: '取消置顶', deleteConfirm: '删除 {count} 份清单', deleteTitle: '确认删除', deleteMessage: '{count} 份清单将被删除，此操作不可撤销。', deletePrompt: '选择要删除的清单' },
     tab: {
       items: '装备',
@@ -417,6 +418,11 @@ export const zh = {
       namePlaceholder: '例如：摄影器材',
       dupName: '该分类已存在',
       color: '颜色',
+      customColor: '自定义颜色',
+      hue: '色相',
+      saturation: '饱和',
+      brightness: '明度',
+      invalidColor: '请输入完整的 HEX 颜色，例如 #34C759',
     },
   },
 

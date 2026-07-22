@@ -57,25 +57,25 @@ export const METRICS: { id: Metric; label: string }[] = [
   { id: 'count', label: '数量' },
 ];
 
-// Apple Health palette for custom categories.
+// Compact preset palette for categories. Arbitrary HEX colours are also
+// supported by the category editor.
 export const GX_PALETTE = [
-  '#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7',
-  '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55', '#A2845E',
-  '#FF6482', '#5AC8FA', '#BF5AF2', '#FF9F0A', '#64D2FF', '#8E8E93',
+  '#FF3B30', '#FF9500', '#34C759', '#00C7BE',
+  '#32ADE6', '#5856D6', '#FF2D55', '#8E8E93',
 ];
 
 export const GX_CATS: GearCat[] = [
-  { id: 'pack', name: '背负系统', color: '#FF3B30', builtin: true },
-  { id: 'shelter', name: '庇护系统', color: '#FF9500', builtin: true },
-  { id: 'sleep', name: '睡眠系统', color: '#5856D6', builtin: true },
-  { id: 'cloth', name: '服饰系统', color: '#34C759', builtin: true },
-  { id: 'cook', name: '饮食系统', color: '#00C7BE', builtin: true },
-  { id: 'elec', name: '电子导航', color: '#32ADE6', builtin: true },
-  { id: 'safe', name: '安全急救', color: '#FF2D55', builtin: true },
-  { id: 'misc', name: '其他', color: '#8E8E93', builtin: true },
+  { id: 'pack', name: '背负系统', color: '#FF3B30', builtin: false },
+  { id: 'shelter', name: '庇护系统', color: '#FF9500', builtin: false },
+  { id: 'sleep', name: '睡眠系统', color: '#5856D6', builtin: false },
+  { id: 'cloth', name: '服饰系统', color: '#34C759', builtin: false },
+  { id: 'cook', name: '饮食系统', color: '#00C7BE', builtin: false },
+  { id: 'elec', name: '电子导航', color: '#32ADE6', builtin: false },
+  { id: 'safe', name: '安全急救', color: '#FF2D55', builtin: false },
+  { id: 'misc', name: '其他', color: '#8E8E93', builtin: false },
 ];
 
-export const UNCAT: GearCat = { id: 'uncat', name: '未分类', color: '#8E8E93', builtin: true };
+export const UNCAT: GearCat = { id: 'uncat', name: '未分类', color: '#8E8E93', builtin: false };
 
 export const GX_ITEMS: GearItem[] = [
   { name: 'Osprey Talon 33', cat: 'pack', w: 0.86, p: 1100, attrs: [['容量', '33 L'], ['尺码', 'S/M'], ['颜色', '岩灰']] },
