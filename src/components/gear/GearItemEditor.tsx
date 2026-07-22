@@ -10,10 +10,9 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GEAR_STATUS, GearCarryStatus } from '../../data/gear';
-import { GearCard, SectionLabel, CircleBtn, toneFor } from './parts';
+import { GearCard, GearItemImage, SectionLabel, CircleBtn } from './parts';
 
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
 const numClean = (s: string) => s.replace(/[^0-9.]/g, '');
@@ -58,10 +57,6 @@ export function GearItemEditor({
   const dup = existingNames.includes(trimmed) && trimmed !== item.name;
   const valid = trimmed.length > 0 && !dup;
   const curCat = cats.find((c) => c.id === cat);
-  // New items have no stable name yet, so the preview tracks what's typed;
-  // editing keeps the original photo (the app derives gear photos from the name).
-  const heroSeed = mode === 'new' ? trimmed || 'gear' : item.name;
-
   const setAttr = (i: number, j: 0 | 1, val: string) => setAttrs((a) => a.map((x, k) => (k === i ? (j === 0 ? [val, x[1]] : [x[0], val]) : x)));
   const addAttr = () => setAttrs((a) => [...a, ['', '']]);
   const delAttr = (i: number) => setAttrs((a) => a.filter((_, k) => k !== i));
@@ -89,7 +84,7 @@ export function GearItemEditor({
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={{ paddingBottom: 28 }}>
           {/* photo preview */}
-          <PhotoTile tone={toneFor(heroSeed)} seed={heroSeed} radius={0} resWidth={1000} darken style={{ width: '100%', height: 220 }} />
+          <GearItemImage theme={theme} item={item} style={{ width: '100%', height: 220 }} />
 
           <View style={{ paddingHorizontal: 18 }}>
             {/* name */}

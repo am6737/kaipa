@@ -5,8 +5,7 @@ import { Theme } from '../../theme/theme';
 import { GearCat, GearItem, Metric, WeightUnit, fmtWeight, itemPrice, itemQty, itemWeight, packStats, splitWeight } from '../../data/gear';
 import { MONO } from '../../theme/fonts';
 import { LabeledDonut, Row } from './LabeledDonut';
-import { PhotoTile } from '../PhotoTile';
-import { toneFor } from './parts';
+import { GearItemImage } from './parts';
 
 export interface GearSetExportGroup {
   cat: GearCat;
@@ -154,7 +153,7 @@ export const GearSetPoster = React.forwardRef<any, { data: GearSetExportData; th
                     const meta = [displaySettings.weight ? fmtWeight(itemWeight(item), data.weightUnit) : null, displaySettings.value ? money(itemPrice(item)) : null, itemQty(item) > 1 ? `×${itemQty(item)}` : null].filter(Boolean).join(' · ');
                     return (
                       <View key={`${group.cat.id}-${item.name}`} style={styles.matchRow}>
-                        {displaySettings.images ? <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={12} style={styles.matchThumb} /> : null}
+                        {displaySettings.images ? <GearItemImage theme={theme} item={item} radius={12} style={styles.matchThumb} /> : null}
                         <View style={styles.matchRowText}>
                           <Text numberOfLines={1} style={[styles.matchItemName, { color: theme.text }]}>{item.name}</Text>
                           {meta ? <Text style={[styles.matchItemMeta, { color: theme.text2 }]}>{meta}</Text> : null}

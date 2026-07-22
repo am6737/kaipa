@@ -5,15 +5,14 @@
 // Kept visually identical to GearScreen's chrome (surfaceTop cards + soft shadow
 // on theme.bg) so a pushed detail reads as the same surface, not a new world.
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, TextInput, ScrollView, StyleSheet, Dimensions, ViewStyle, KeyboardAvoidingView, Platform, Easing, useWindowDimensions } from 'react-native';
+import { Animated, View, Text, TextInput, ScrollView, StyleSheet, Dimensions, ViewStyle, StyleProp, KeyboardAvoidingView, Platform, Easing, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { JapaneseYen, Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
-import { hashStr, TONES } from '../../data/tones';
 import { GearItem, GearCat, itemWeight, itemPrice, fmtWeight, WeightUnit } from '../../data/gear';
 
 // ── Shared theme tokens (mirror GearScreen) ─────────────────────────────────
@@ -27,7 +26,15 @@ export const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
 export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
-export const toneFor = (name: string) => TONES[Math.abs(hashStr(name)) % TONES.length];
+export function GearItemImage({ theme, item, radius = 0, style }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle> }) {
+  const photo = item.photos?.[0];
+  return (
+    <View style={[{ borderRadius: radius, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }, style]}>
+      <Package color={theme.text3} size={24} strokeWidth={1.6} opacity={0.6} />
+      {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={120} style={StyleSheet.absoluteFill} /> : null}
+    </View>
+  );
+}
 
 import { CircleBtn } from '../CircleBtn';
 export { CircleBtn };
@@ -280,7 +287,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
   if (card) {
     return (
       <Press onPress={onPress} style={{ minHeight: showImage ? imageSize + 28 : 88, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        {showImage ? <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={Math.max(10, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
+        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(10, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
         <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
           <Text numberOfLines={2} style={{ fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 }}>
@@ -308,7 +315,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
   return (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: rowGap, paddingVertical: 10, paddingHorizontal: rowPaddingX }}>
-        {showImage ? <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={Math.max(9, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
+        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(9, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>

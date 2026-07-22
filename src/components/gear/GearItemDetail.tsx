@@ -13,11 +13,10 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight, convertWeight } from '../../data/gear';
-import { GearPushPage, GearCard, SectionLabel, ShareBar, CircleBtn, yuan, fmtKg, toneFor, useGearPushScroll } from './parts';
+import { GearPushPage, GearCard, GearItemImage, SectionLabel, ShareBar, CircleBtn, yuan, fmtKg, useGearPushScroll } from './parts';
 
 const softBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
 const softBorder = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.035)');
@@ -138,7 +137,7 @@ function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearIte
   if (photos.length === 0) {
     return (
       <Pressable onPress={() => onOpenPhoto(0)}>
-        <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={720} style={{ width: galleryWidth, height: galleryHeight }} />
+        <GearItemImage theme={theme} item={item} radius={18} style={{ width: galleryWidth, height: galleryHeight }} />
       </Pressable>
     );
   }
@@ -263,7 +262,7 @@ function GearPhotoViewer({
                 {uri ? (
                   <Image source={{ uri }} contentFit="contain" transition={200} style={{ width, height: imageHeight }} />
                 ) : (
-                  <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={0} resWidth={1400} style={{ width, height: imageHeight }} />
+                  <GearItemImage theme={theme} item={item} style={{ width, height: imageHeight }} />
                 )}
               </View>
             </Pressable>

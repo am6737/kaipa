@@ -224,27 +224,16 @@ export const zh = {
     home: { overview: '装备概览', more: '查看更多', mySets: '我的装备清单', myGear: '我的装备', viewAll: '查看全部', ready: '查看清单', libraryWeight: '库内总重量', setCount: '清单数量' },
     setList: { gallery: '全部清单', add: '添加', manage: '清单管理', newSet: '新建清单', display: '显示方式', grid: '网格视图', list: '列表视图', sort: '排序方式', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序' },
     itemList: { manage: '装备管理', newItem: '添加装备', browse: '浏览方式', category: '装备分类', sort: '排序方式', all: '全部', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序', batchManage: '批量管理' },
-    category: { manage: '管理分类', add: '添加分类', deleteMessage: '分类中的 {count} 件装备会移入「未分类」，装备本身不会被删除。' },
+    category: { manage: '管理分类', add: '添加分类', deleteTitle: '删除「{name}」？', deleteConfirmMessage: '该分类将被移除。此操作不可撤销。', deleteMessage: '分类中的 {count} 件装备会移入「未分类」，装备本身不会被删除。', delete: '删除分类' },
     setSelect: { title: '已选 {count} 份清单', pin: '置顶', unpin: '取消置顶', deleteConfirm: '删除 {count} 份清单', deleteTitle: '确认删除', deleteMessage: '{count} 份清单将被删除，此操作不可撤销。', deletePrompt: '选择要删除的清单' },
-    tab: {
-      items: '装备',
-      cats: '分类',
-      sets: '清单',
-    },
     search: {
       items: '搜索装备',
-      cats: '搜索分类',
       sets: '搜索清单',
     },
     empty: {
       noItems: '没有匹配的装备',
       noSets: '没有匹配的清单',
       noSetsYet: '还没有装备清单',
-    },
-    hint: {
-      items: '点装备查看详情 · 长按可批量删除 · 在详情页编辑或删除',
-      cats: '点分类查看该类全部装备 · 在详情页编辑或删除',
-      sets: '点清单查看明细 · 长按可置顶或批量删除',
     },
     unit: {
       items: '件',
@@ -402,15 +391,6 @@ export const zh = {
       displayGroupStats: '分组统计',
       emptyTitle: '这份清单还是空的',
       emptyBody: '编辑清单，把常用装备添加进来',
-    },
-    catDetail: {
-      deleteConfirmTitle: '删除「{name}」？',
-      deleteConfirmMessage: '该分类将被移除。此操作不可撤销。',
-      deleteCat: '删除分类',
-      editCat: '编辑分类',
-      notEmptyMessage: '分类内仍有装备，移空后才能删除。',
-      emptyTitle: '这个分类还是空的',
-      emptyBody: '从「装备」页添加装备并归入该分类',
     },
     catEditor: {
       titleEdit: '编辑分类',

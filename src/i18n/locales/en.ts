@@ -219,27 +219,16 @@ export const en: SameShape<typeof zh> = {
     home: { overview: 'Gear overview', more: 'See more', mySets: 'My sets', myGear: 'My gear', viewAll: 'View all', ready: 'View set', libraryWeight: 'Library weight', setCount: 'Set count' },
     setList: { gallery: 'All sets', add: 'Add', manage: 'Set management', newSet: 'New set', display: 'View', grid: 'Grid view', list: 'List view', sort: 'Sort by', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name' },
     itemList: { manage: 'Gear management', newItem: 'Add gear', browse: 'Browse', category: 'Category', sort: 'Sort by', all: 'All', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name', batchManage: 'Batch manage' },
-    category: { manage: 'Manage categories', add: 'Add category', deleteMessage: '{count} items in this category will move to Uncategorized. The items themselves will not be deleted.' },
+    category: { manage: 'Manage categories', add: 'Add category', deleteTitle: 'Delete "{name}"?', deleteConfirmMessage: 'The category will be removed. This cannot be undone.', deleteMessage: '{count} items in this category will move to Uncategorized. The items themselves will not be deleted.', delete: 'Delete category' },
     setSelect: { title: '{count} sets selected', pin: 'Pin', unpin: 'Unpin', deleteConfirm: 'Delete {count} sets', deleteTitle: 'Confirm Deletion', deleteMessage: '{count} sets will be deleted. This cannot be undone.', deletePrompt: 'Select sets to delete' },
-    tab: {
-      items: 'Gear',
-      cats: 'Categories',
-      sets: 'Sets',
-    },
     search: {
       items: 'Search gear',
-      cats: 'Search categories',
       sets: 'Search sets',
     },
     empty: {
       noItems: 'No matching gear',
       noSets: 'No matching sets',
       noSetsYet: 'No sets yet',
-    },
-    hint: {
-      items: 'Tap an item for details · long-press for batch delete · edit or delete on its page',
-      cats: 'Tap a category to see all its gear · edit or delete on its page',
-      sets: 'Tap a set for details · edit or delete on its page',
     },
     unit: {
       items: 'items',
@@ -397,15 +386,6 @@ export const en: SameShape<typeof zh> = {
       displayGroupStats: 'Group totals',
       emptyTitle: 'This set is empty',
       emptyBody: 'Edit the set to add your go-to gear',
-    },
-    catDetail: {
-      deleteConfirmTitle: 'Delete "{name}"?',
-      deleteConfirmMessage: 'The category will be removed. This cannot be undone.',
-      deleteCat: 'Delete category',
-      editCat: 'Edit category',
-      notEmptyMessage: 'The category still has gear; empty it before deleting.',
-      emptyTitle: 'This category is empty',
-      emptyBody: 'Add gear from the Gear tab and file it under this category',
     },
     catEditor: {
       titleEdit: 'Edit Category',

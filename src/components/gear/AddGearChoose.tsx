@@ -5,10 +5,16 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat } from '../../data/gear';
-import { toneFor } from './parts';
+
+function ProductPlaceholder({ theme, radius = 0, style, camera = false }: { theme: Theme; radius?: number; style?: any; camera?: boolean }) {
+  return (
+    <View style={[{ borderRadius: radius, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? '#202124' : '#ECEDEF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }, style]}>
+      <Icon name={camera ? 'camera' : 'bag'} color={theme.text3} size={camera ? 34 : 25} strokeWidth={1.5} />
+    </View>
+  );
+}
 
 // ── Local product DB for demo recognition (mirrors prototype's GX_SMART_DB) ─
 const SMART_DB = [
@@ -305,7 +311,7 @@ function ScanningStage({ theme, insets, product, stepN, onBack }: {
         <View style={{ backgroundColor: theme.surfaceTop, borderRadius: 18, padding: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, ...cardShadow(theme) }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
             {/* product thumb */}
-            <PhotoTile tone={toneFor(product.name)} seed={product.name} radius={13} style={{ width: 60, height: 60 }} />
+            <ProductPlaceholder theme={theme} radius={13} style={{ width: 60, height: 60 }} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.accent }} />
@@ -342,9 +348,7 @@ function CameraStage({ theme, insets, onCancel, onShoot }: {
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0a0b0d' }]}>
       {/* dark faux camera background */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#111214' }]}>
-        <PhotoTile tone="rock" seed="camera-bg" radius={0} darken style={[StyleSheet.absoluteFill, { opacity: 0.35 }]} />
-      </View>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#111214' }]} />
 
       {/* top bar */}
       <View style={{ zIndex: 3, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: insets.top + 16, paddingHorizontal: 18, paddingBottom: 16 }}>
@@ -364,7 +368,7 @@ function CameraStage({ theme, insets, onCancel, onShoot }: {
           <Corner pos="bl" color={theme.accent} />
           <Corner pos="br" color={theme.accent} />
           {/* center photo preview */}
-          <PhotoTile tone="forest" seed="viewfinder" radius={16} style={{ width: FRAME - 16, height: FRAME - 16 }} />
+          <ProductPlaceholder theme={theme} camera radius={16} style={{ width: FRAME - 16, height: FRAME - 16, backgroundColor: '#191A1D', borderColor: 'rgba(255,255,255,0.12)' }} />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.45)' }}>
           <Text style={{ fontSize: 13, fontWeight: '600', color: '#fff' }}>
@@ -404,9 +408,7 @@ function ScanExtractStage({ theme, product, phase, onCancel }: {
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#07080a', alignItems: 'center', justifyContent: 'center' }]}>
       {/* blurred backdrop */}
-      <View style={[StyleSheet.absoluteFill, { opacity: 0.5 }]}>
-        <PhotoTile tone={toneFor(product.name)} seed={product.name} radius={0} darken style={StyleSheet.absoluteFill} />
-      </View>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#111214' }]} />
 
       {/* cancel button */}
       <View style={{ position: 'absolute', top: 56, left: 16, zIndex: 5 }}>
@@ -417,7 +419,7 @@ function ScanExtractStage({ theme, product, phase, onCancel }: {
 
       {/* floating subject */}
       <View style={{ width: P, height: P, borderRadius: 30, overflow: 'hidden', borderWidth: lifted ? 4 : 0, borderColor: '#fff', ...cardShadow(theme), transform: [{ scale: lifted ? 1.07 : 1 }] }}>
-        <PhotoTile tone={toneFor(product.name)} seed={product.name} radius={26} style={{ width: '100%', height: '100%' }} />
+        <ProductPlaceholder theme={theme} radius={26} style={{ width: '100%', height: '100%', backgroundColor: '#191A1D', borderColor: 'rgba(255,255,255,0.12)' }} />
       </View>
 
       {/* caption */}

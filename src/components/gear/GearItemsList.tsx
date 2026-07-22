@@ -359,11 +359,11 @@ function CategoryManager({ theme, visible, categories, items, onClose, onAdd, on
   const confirmDelete = (cat: GearCat) => {
     const count = counts.get(cat.id) || 0;
     Alert.alert(
-      t('gear.catDetail.deleteConfirmTitle', { name: cat.name }),
-      count > 0 ? t('gear.category.deleteMessage', { count }) : t('gear.catDetail.deleteConfirmMessage'),
+      t('gear.category.deleteTitle', { name: cat.name }),
+      count > 0 ? t('gear.category.deleteMessage', { count }) : t('gear.category.deleteConfirmMessage'),
       [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('gear.catDetail.deleteCat'), style: 'destructive', onPress: () => onDelete(cat) },
+        { text: t('gear.category.delete'), style: 'destructive', onPress: () => onDelete(cat) },
       ],
     );
   };

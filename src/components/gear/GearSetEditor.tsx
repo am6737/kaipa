@@ -9,11 +9,10 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
 import { NJBottomSheet } from '../overlays/NewJourneySheet';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, GearSetOverride, GEAR_STATUS, GearCarryStatus, WeightUnit } from '../../data/gear';
-import { toneFor, yuan, fmtKg } from './parts';
+import { GearItemImage, yuan, fmtKg } from './parts';
 
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
 
@@ -171,7 +170,7 @@ export function GearSetEditor({
                         {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 55 }} />}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, paddingVertical: 8 }}>
                           <Press onPress={() => toggle(it.name)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                            <PhotoTile tone={toneFor(it.name)} seed={it.name} radius={9} style={{ width: 30, height: 30 }} />
+                            <GearItemImage theme={theme} item={it} radius={9} style={{ width: 30, height: 30 }} />
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{it.name}</Text>
                               <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 2 }}>{fmtKg(it.w * (it.qty || 1), weightUnit)} · {yuan(it.p * (it.qty || 1))}</Text>
