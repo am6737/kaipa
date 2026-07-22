@@ -3,7 +3,7 @@
 // thumbnail-or-action-chip trailing. Mirrors the prototype NotifInbox, adapted
 // to the app's Notif shape (data/notifications.ts).
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -12,6 +12,7 @@ import { KPState } from '../State';
 import { useNotifCenter, Notif } from '../../data/notifications';
 import { useI18n, TKey } from '../../i18n';
 import { MePushPage } from './MePushPage';
+import { AppCard, AppSectionHeader, layout, radius, space, type } from '../../design-system';
 
 const FILTERS: { id: 'all' | 'social' | 'system'; labelKey: TKey }[] = [
   { id: 'all', labelKey: 'common.all' },
@@ -73,54 +74,51 @@ function Title({ theme, item }: { theme: Theme; item: Notif }) {
 function Row({
   theme,
   item,
-  last,
   onTap,
 }: {
   theme: Theme;
   item: Notif;
-  last?: boolean;
   onTap: () => void;
 }) {
   const unread = !item.read;
   return (
     <Press onPress={onTap}>
-      <View
+      <AppCard
+        theme={theme}
+        radius={radius.feature}
         style={{
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          gap: 10,
-          paddingLeft: 8,
-          paddingRight: 14,
-          paddingVertical: 13,
-          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
-          backgroundColor: unread ? theme.accentSofter : 'transparent',
+          minHeight: 96,
+          overflow: 'hidden',
+          backgroundColor: unread ? theme.accentSofter : theme.featureSurface,
         }}
       >
-        <View style={{ width: 8, alignSelf: 'center', alignItems: 'center' }}>
-          {unread ? <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.accent }} /> : null}
-        </View>
-        <Glyph theme={theme} item={item} />
-        <View style={{ flex: 1, paddingTop: 1 }}>
-          <Title theme={theme} item={item} />
-          <Text style={{ fontSize: 11, color: theme.text3, marginTop: 5 }}>{item.time}</Text>
-        </View>
-        {item.thumb ? (
-          <PhotoTile tone={item.thumb} seed={item.id} radius={10} style={{ width: 46, height: 46 }} resWidth={120} />
-        ) : item.action ? (
-          <View
-            style={{
-              alignSelf: 'center',
-              paddingHorizontal: 14,
-              paddingVertical: 6,
-              borderRadius: 999,
-              backgroundColor: theme.accent,
-            }}
-          >
-            <Text style={{ fontSize: 12.5, fontWeight: '600', color: '#fff' }}>{item.action}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md }}>
+          <View style={{ width: 8, alignItems: 'center' }}>
+            {unread ? <View style={{ width: 7, height: 7, borderRadius: radius.pill, backgroundColor: theme.accent }} /> : null}
           </View>
-        ) : null}
-      </View>
+          <Glyph theme={theme} item={item} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Title theme={theme} item={item} />
+            <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{item.time}</Text>
+          </View>
+          {item.thumb ? (
+            <PhotoTile tone={item.thumb} seed={item.id} radius={radius.control} style={{ width: 48, height: 48 }} resWidth={120} />
+          ) : item.action ? (
+            <View
+              style={{
+                minHeight: 30,
+                alignSelf: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: space.sm,
+                borderRadius: radius.pill,
+                backgroundColor: theme.accent,
+              }}
+            >
+              <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#fff' }}>{item.action}</Text>
+            </View>
+          ) : null}
+        </View>
+      </AppCard>
     </Press>
   );
 }
@@ -151,15 +149,15 @@ export function NotifInboxPage({
 
   const markAll =
     nc.unread > 0 ? (
-      <Press onPress={nc.markAllRead} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
-        <Text style={{ fontSize: 14, fontWeight: '500', color: theme.accent }}>{t('account.inbox.markAllRead')}</Text>
+      <Press onPress={nc.markAllRead} scaleTo={1} opacityTo={1} style={{ paddingHorizontal: space.xs, paddingVertical: space.xs }}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: theme.accent }}>{t('account.inbox.markAllRead')}</Text>
       </Press>
     ) : undefined;
 
   return (
     <MePushPage theme={theme} title={t('account.inbox.pageTitle')} onBack={onBack} right={markAll}>
       {/* filter chips */}
-      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 14 }}>
+      <View style={{ flexDirection: 'row', gap: space.xs, paddingHorizontal: layout.pagePadding, paddingBottom: space.md }}>
         {FILTERS.map((f) => {
           const on = filter === f.id;
           const n = f.id === 'all' ? 0 : nc.list.filter((x) => x.cat === f.id && !x.read).length;
@@ -167,23 +165,19 @@ export function NotifInboxPage({
             <Press
               key={f.id}
               onPress={() => setFilter(f.id)}
+              scaleTo={1}
+              opacityTo={1}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 5,
-                paddingHorizontal: 15,
-                paddingVertical: 7,
-                borderRadius: 999,
-                // Unselected chips read as white "floating" controls, matching the
-                // back button (light: #fff / dark: #2C2C2E) — same hairline + soft
-                // shadow. Selected stays accent-filled as the highlight.
-                backgroundColor: on ? theme.accent : theme.dark ? '#2C2C2E' : '#fff',
-                borderWidth: on ? 0 : StyleSheet.hairlineWidth,
-                borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-                boxShadow: theme.dark ? '0px 2px 10px rgba(0,0,0,0.5)' : '0px 2px 10px rgba(0,0,0,0.14)',
+                paddingHorizontal: space.md,
+                height: 38,
+                borderRadius: radius.pill,
+                backgroundColor: on ? theme.featureSurface : theme.fieldSurface,
               }}
             >
-              <Text style={{ fontSize: 13, fontWeight: on ? '600' : '500', color: on ? '#fff' : theme.text2 }}>
+              <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? theme.text : theme.text2 }}>
                 {t(f.labelKey)}
               </Text>
               {n > 0 ? (
@@ -193,12 +187,12 @@ export function NotifInboxPage({
                     height: 15,
                     borderRadius: 8,
                     paddingHorizontal: 4,
-                    backgroundColor: on ? 'rgba(255,255,255,0.25)' : theme.accentSoft,
+                    backgroundColor: theme.fieldSurface,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: on ? '#fff' : theme.accent }}>{n}</Text>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: on ? theme.text : theme.text2 }}>{n}</Text>
                 </View>
               ) : null}
             </Press>
@@ -218,24 +212,13 @@ export function NotifInboxPage({
           const rows = visible.filter((n) => n.bucket === b.id);
           if (rows.length === 0) return null;
           return (
-            <View key={b.id} style={{ marginBottom: 4 }}>
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: '600',
-                  color: theme.text2,
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                  paddingHorizontal: 22,
-                  paddingTop: 8,
-                  paddingBottom: 6,
-                }}
-              >
-                {b.label}
-              </Text>
-              {rows.map((item, i) => (
-                <Row key={item.id} theme={theme} item={item} last={i === rows.length - 1} onTap={() => tap(item)} />
-              ))}
+            <View key={b.id} style={{ paddingHorizontal: layout.pagePadding }}>
+              <AppSectionHeader theme={theme} text={b.label} marginTop={space.sm} />
+              <View style={{ gap: space.sm }}>
+                {rows.map((item) => (
+                  <Row key={item.id} theme={theme} item={item} onTap={() => tap(item)} />
+                ))}
+              </View>
             </View>
           );
         })

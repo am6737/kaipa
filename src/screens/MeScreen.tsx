@@ -1,22 +1,22 @@
-// MeScreen.tsx — the 我 tab. Ported faithfully from the prototype me-screen.jsx:
-// a neutral-avatar profile header (bell → 消息中心), an 外观 card whose 主题 /
-// 重点色 rows open anchored popovers, a 设置 card whose rows push real full-screen
-// pages, and 退出登录. Appearance (mode + accent) drives the whole app's theming.
+// MeScreen.tsx — the 我 tab, using the app-wide overview/settings visual system.
+// Appearance choices stay directly accessible while account and support rows
+// continue to push the existing full-screen pages.
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, Modal, useWindowDimensions } from 'react-native';
+import ReAnimated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Theme, ACCENT_PRESETS, AccentPreset } from '../theme/theme';
+import { Theme, ACCENT_PRESETS } from '../theme/theme';
 import { MONO } from '../theme/fonts';
 import { Icon, IconName } from '../components/Icon';
 import { Press } from '../components/Press';
+import { Glass } from '../components/Glass';
 import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { WEIGHT_UNITS, WeightUnit } from '../data/gear';
 import { useNotifCenter } from '../data/notifications';
-import { elevCard } from '../theme/shadow';
-import { MeSection, MeCard, MeRow, ColorDot } from '../components/me/parts';
+import { ColorDot } from '../components/me/parts';
 import { AccountPage } from '../components/me/AccountPage';
 import type { MeProfile } from '../components/me/AccountPage';
 import { EditFieldPage, MeEditField } from '../components/me/EditFieldPage';
@@ -24,9 +24,7 @@ import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettings
 import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
-
-type Anchor = { x: number; y: number; w: number; h: number };
-type Popup = null | 'theme' | 'accent' | 'lang';
+import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
 
 type MePage =
   | { type: 'account' }
@@ -36,86 +34,92 @@ type MePage =
   | { type: 'feedback' }
   | { type: 'about' };
 
-// One 外观 row: leading icon + label + current value + caret. Forwards a ref so
-// the parent can anchor a popover under it via measureInWindow.
+type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
+type PopupAnchor = { x: number; y: number; width: number; height: number };
+const SETTINGS_ROW_HEIGHT = 78;
+
 const AppearanceRow = React.forwardRef<View, {
   theme: Theme;
-  icon: React.ReactNode;
   label: string;
   value: string;
-  valueDot?: React.ReactNode;
+  leading: React.ReactNode;
   open: boolean;
-  onToggle: () => void;
+  onPress: () => void;
   last?: boolean;
-}>(({ theme, icon, label, value, valueDot, open, onToggle, last }, ref) => (
+}>(({ theme, label, value, leading, open, onPress }, ref) => (
   <View ref={ref} collapsable={false}>
-    <Pressable onPress={onToggle} android_ripple={null}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          paddingHorizontal: 14,
-          minHeight: 56,
-          paddingVertical: 9,
-          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
-        }}
-      >
-        <View style={{ width: 24, alignItems: 'center' }}>{icon}</View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 16, color: theme.text }}>{label}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 }}>
-            {valueDot}
-            <Text style={{ fontSize: 12, color: theme.text2 }}>{value}</Text>
-          </View>
+    <Press onPress={onPress} accessibilityRole="button" accessibilityState={{ expanded: open }} scaleTo={1} opacityTo={1}>
+      <View style={{ minHeight: SETTINGS_ROW_HEIGHT, paddingVertical: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <View style={{ width: 32, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+          {leading}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: 3 }]}>{value}</Text>
         </View>
         <View style={{ transform: [{ rotate: open ? '-90deg' : '90deg' }] }}>
-          <Icon name="chevronR" color={theme.text3} size={13} />
+          <Icon name="chevronR" color={theme.text3} size={15} />
         </View>
       </View>
-    </Pressable>
+    </Press>
   </View>
 ));
 
-function PopoverRow({
+function PopupOption({ theme, label, selected, onPress, leading }: { theme: Theme; label: string; selected: boolean; onPress: () => void; leading?: React.ReactNode; last?: boolean }) {
+  return (
+    <Press onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} scaleTo={1} opacityTo={1}>
+      <View style={{ minHeight: 54, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        {leading}
+        <Text style={{ flex: 1, fontSize: 14, fontWeight: selected ? '700' : '500', color: selected ? theme.accent : theme.text }}>{label}</Text>
+        {selected ? <Icon name="check" color={theme.accent} size={17} /> : null}
+      </View>
+    </Press>
+  );
+}
+
+function SettingsRow({
   theme,
+  icon,
   label,
-  leading,
-  active,
+  detail,
   onPress,
   last,
 }: {
   theme: Theme;
+  icon: IconName;
   label: string;
-  leading?: React.ReactNode;
-  active?: boolean;
+  detail?: string;
   onPress: () => void;
   last?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} android_ripple={null}>
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 12,
-        minHeight: 38,
-        paddingVertical: 8,
-        borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
-      }}>
-        {leading}
-        <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: theme.text }}>{label}</Text>
-        {active ? <Icon name="check" color={theme.text} size={16} /> : null}
+    <Press onPress={onPress} accessibilityRole="button" scaleTo={1} opacityTo={1}>
+      <View
+        style={{
+          minHeight: SETTINGS_ROW_HEIGHT,
+          paddingVertical: space.md,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.md,
+        }}
+      >
+        <View style={{ width: 32, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon} color={theme.text2} size={19} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
+          {detail ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: 3 }]}>{detail}</Text> : null}
+        </View>
+        <Icon name="chevronR" color={theme.text3} size={15} />
       </View>
-    </Pressable>
+    </Press>
   );
 }
 
 export function MeScreen({ theme }: { theme: Theme }) {
   const insets = useSafeAreaInsets();
-  const { mode, accent, resolved, setMode, setAccent } = useAppearance();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { mode, accent, setMode, setAccent } = useAppearance();
   const { t, lang, setLang } = useI18n();
   const nav = useNav();
   const data = useData();
@@ -133,12 +137,13 @@ export function MeScreen({ theme }: { theme: Theme }) {
   const [stack, setStack] = useState<MePage[]>([]);
   const push = (pg: MePage) => setStack((s) => [...s, pg]);
   const pop = () => setStack((s) => s.slice(0, -1));
-
-  const [popup, setPopup] = useState<Popup>(null);
-  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const [appearancePopup, setAppearancePopup] = useState<AppearancePopup | null>(null);
+  const [popupAnchor, setPopupAnchor] = useState<PopupAnchor | null>(null);
   const themeRowRef = useRef<View>(null);
   const accentRowRef = useRef<View>(null);
-  const langRowRef = useRef<View>(null);
+  const languageRowRef = useRef<View>(null);
+  const weightRowRef = useRef<View>(null);
+  const appearanceProgress = useSharedValue(0);
 
   // Hide the floating tab bar whenever a sub-page is pushed.
   useEffect(() => {
@@ -161,54 +166,51 @@ export function MeScreen({ theme }: { theme: Theme }) {
     }
   };
 
-  const toggle = (id: Exclude<Popup, null>, ref: React.RefObject<View | null>) => {
-    if (popup === id) {
-      setPopup(null);
-      return;
-    }
-    ref.current?.measureInWindow((x, y, w, h) => {
-      setAnchor({ x, y, w, h });
-      setPopup(id);
-    });
-  };
-
   const themeModes: { id: 'system' | 'light' | 'dark'; label: string }[] = [
     { id: 'system', label: t('me.themeSystem') },
     { id: 'light', label: t('me.themeLight') },
     { id: 'dark', label: t('me.themeDark') },
   ];
-  const modeLabel = (themeModes.find((m) => m.id === mode) || themeModes[0]).label;
-  const themeIcon: IconName = mode === 'system' ? 'system' : resolved === 'dark' ? 'moon' : 'sun';
-
   const langs: { id: Lang; label: string }[] = [
     { id: 'system', label: t('me.langSystem') },
     { id: 'zh', label: t('me.langZh') },
     { id: 'en', label: t('me.langEn') },
   ];
-  const langLabel = (langs.find((l) => l.id === lang) || langs[0]).label;
-
+  const modeLabel = themeModes.find((item) => item.id === mode)?.label || themeModes[0].label;
+  const langLabel = langs.find((item) => item.id === lang)?.label || langs[0].label;
   // Accent preset display names are translated by their stable id (theme.ts
   // keeps the Chinese name only as a fallback label).
   const accentLabel = (id: string) => t(`accent.${id}` as TKey);
   const curAccent = accent || '#0A84FF';
   const curPreset = ACCENT_PRESETS.find((p) => p.color.toLowerCase() === curAccent.toLowerCase());
-  const isPreset = !!curPreset;
   const accentName = curPreset ? accentLabel(curPreset.id) : t('common.custom');
+  const openAppearancePopup = (popup: AppearancePopup, ref: React.RefObject<View | null>) => {
+    if (appearancePopup === popup) {
+      setAppearancePopup(null);
+      return;
+    }
+    ref.current?.measureInWindow((x, y, width, height) => {
+      setPopupAnchor({ x, y, width, height });
+      setAppearancePopup(popup);
+    });
+  };
+
+  useEffect(() => {
+    if (!appearancePopup) {
+      appearanceProgress.value = 0;
+      return;
+    }
+    appearanceProgress.value = 0;
+    appearanceProgress.value = withTiming(1, {
+      duration: 460,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    });
+  }, [appearancePopup, appearanceProgress]);
 
   const setGearWeightUnit = (unit: WeightUnit) => {
     data.updateProfile('gearWeightUnit', unit);
     showToast(t('me.gearWeightUnitSaved', { unit }));
   };
-
-  const openGearWeightUnit = () =>
-    nav.openActionSheet({
-      title: t('me.gearWeightUnit'),
-      message: t('me.gearWeightUnitMessage'),
-      items: WEIGHT_UNITS.map((unit) => ({
-        label: unit === data.profile.gearWeightUnit ? `${unit} ✓` : unit,
-        onPress: () => setGearWeightUnit(unit),
-      })),
-    });
 
   const confirmSignOut = () =>
     nav.openActionSheet({
@@ -250,185 +252,227 @@ export function MeScreen({ theme }: { theme: Theme }) {
         return <AboutPage theme={theme} onBack={pop} showToast={showToast} />;
     }
   };
+  const popupWidth = Math.min(260, windowWidth - space.xl * 2);
+  const popupHeight = appearancePopup === 'accent' ? 340 : appearancePopup === 'weight' ? 232 : 178;
+  const popupCollapsedHeight = 16;
+  const popupLeft = popupAnchor ? Math.max(space.xl, Math.min(popupAnchor.x + popupAnchor.width - popupWidth, windowWidth - popupWidth - space.xl)) : space.xl;
+  const popupTop = popupAnchor
+    ? Math.max(insets.top + space.xs, Math.min(popupAnchor.y + popupAnchor.height + space.xs, windowHeight - insets.bottom - popupHeight - space.md))
+    : insets.top + space.xl;
+  const popupMenuStyle = useAnimatedStyle(() => ({
+    height: interpolate(appearanceProgress.value, [0, 1], [popupCollapsedHeight, popupHeight]),
+  }));
+  const popupContentStyle = useAnimatedStyle(() => ({
+    opacity: appearanceProgress.value,
+    transform: [{ translateY: interpolate(appearanceProgress.value, [0, 1], [-8, 0]) }],
+  }));
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 140 }}
+        contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: insets.top + space.md, paddingBottom: 140 }}
       >
-        {/* profile header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24 }}>
-          <View
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              backgroundColor: theme.dark ? '#1C1C1E' : '#F2F2F4',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {profile.nick ? (
-              <Text style={{ fontSize: 20, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
-            ) : (
-              <Icon name="user" color={theme.text3} size={22} />
-            )}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
-            {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>@{profile.username}</Text> : null}
-          </View>
-          {/* bell → 消息中心 */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg }}>
+          <Text style={[type.pageTitle, { color: theme.text }]}>{t('me.pageTitle')}</Text>
           <Press
             onPress={() => push({ type: 'inbox' })}
+            accessibilityRole="button"
+            accessibilityLabel={t('me.inbox')}
+            scaleTo={1}
+            opacityTo={1}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
+              width: layout.iconButton,
+              height: layout.iconButton,
+              borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-              ...elevCard(theme),
+              backgroundColor: theme.controlSurface,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.hairline,
             }}
           >
             <Icon name="bell" color={theme.text} size={20} />
             {unread > 0 ? (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 3,
-                  right: 3,
-                  minWidth: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  paddingHorizontal: 4,
-                  backgroundColor: theme.danger,
-                  borderWidth: 1.5,
-                  borderColor: theme.bg,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{unread}</Text>
+              <View style={{ position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: theme.danger, borderWidth: 2, borderColor: theme.groupedBg, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#fff' }}>{unread}</Text>
               </View>
             ) : null}
           </Press>
         </View>
 
-        {/* 外观 */}
-        <MeSection theme={theme} title={t('me.appearance')}>
-          <MeCard theme={theme}>
-            <AppearanceRow
-              ref={themeRowRef}
-              theme={theme}
-              icon={<Icon name={themeIcon} color={theme.text} size={18} />}
-              label={t('me.theme')}
-              value={modeLabel}
-              open={popup === 'theme'}
-              onToggle={() => toggle('theme', themeRowRef)}
-            />
-            <AppearanceRow
-              ref={accentRowRef}
-              theme={theme}
-              icon={<ColorDot theme={theme} color={curAccent} size={20} dashed={!isPreset} />}
-              label={t('me.accent')}
-              value={accentName}
-              open={popup === 'accent'}
-              onToggle={() => toggle('accent', accentRowRef)}
-            />
-            <AppearanceRow
-              ref={langRowRef}
-              theme={theme}
-              icon={<Icon name="globe" color={theme.text} size={18} />}
-              label={t('me.language')}
-              value={langLabel}
-              open={popup === 'lang'}
-              onToggle={() => toggle('lang', langRowRef)}
-              last
-            />
-          </MeCard>
-        </MeSection>
+        <AppCard theme={theme} radius={radius.feature} style={{ overflow: 'hidden', backgroundColor: theme.featureSurface, borderWidth: 0 }}>
+          <Press onPress={() => push({ type: 'account' })} accessibilityRole="button" scaleTo={1} opacityTo={1} style={{ padding: space.lg }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>
+                  {profile.nick || t('me.unnamed')}
+                </Text>
+                <Text numberOfLines={1} style={{ fontFamily: profile.username ? MONO : undefined, fontSize: 12, color: theme.text2, marginTop: space.xs }}>
+                  {profile.username || profile.email || t('me.unnamed')}
+                </Text>
+              </View>
+              <View style={{ width: 68, height: 68, borderRadius: radius.pill, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, alignItems: 'center', justifyContent: 'center' }}>
+                {profile.nick ? <Text style={{ fontSize: 24, fontWeight: '800', color: theme.text }}>{profile.nick.slice(0, 1)}</Text> : <Icon name="user" color={theme.text2} size={26} />}
+              </View>
+            </View>
+            {profile.bio ? <Text numberOfLines={2} style={[type.body, { color: theme.text2, lineHeight: 20, marginTop: space.md }]}>{profile.bio}</Text> : null}
+          </Press>
+        </AppCard>
 
-        {/* 设置 */}
-        <MeSection theme={theme} title={t('me.settings')}>
-          <MeCard theme={theme}>
-            <MeRow theme={theme} label={t('me.account')} onPress={() => push({ type: 'account' })} />
-            <MeRow theme={theme} label={t('me.notifications')} detail={notif.push ? t('common.on') : t('common.off')} onPress={() => push({ type: 'notif' })} />
-            <MeRow theme={theme} label={t('me.gearWeightUnit')} detail={data.profile.gearWeightUnit} onPress={openGearWeightUnit} />
-            <MeRow theme={theme} label={t('me.helpFeedback')} onPress={() => push({ type: 'feedback' })} />
-            <MeRow theme={theme} label={t('me.about')} detail="v1.0.2" onPress={() => push({ type: 'about' })} last />
-          </MeCard>
-        </MeSection>
+        <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
+        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+          <AppearanceRow
+            ref={themeRowRef}
+            theme={theme}
+            label={t('me.theme')}
+            value={modeLabel}
+            leading={<Icon name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sun' : 'system'} color={theme.text2} size={19} />}
+            open={appearancePopup === 'theme'}
+            onPress={() => openAppearancePopup('theme', themeRowRef)}
+          />
+          <AppearanceRow
+            ref={accentRowRef}
+            theme={theme}
+            label={t('me.accent')}
+            value={accentName}
+            leading={<ColorDot theme={theme} color={curAccent} size={20} dashed={!curPreset} />}
+            open={appearancePopup === 'accent'}
+            onPress={() => openAppearancePopup('accent', accentRowRef)}
+          />
+          <AppearanceRow
+            ref={languageRowRef}
+            theme={theme}
+            label={t('me.language')}
+            value={langLabel}
+            leading={<Icon name="globe" color={theme.text2} size={19} />}
+            open={appearancePopup === 'language'}
+            onPress={() => openAppearancePopup('language', languageRowRef)}
+            last
+          />
+        </AppCard>
 
-        {/* 退出登录 */}
-        <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
-          <MeCard theme={theme}>
-            <MeRow theme={theme} label={t('me.signOut')} danger onPress={confirmSignOut} last />
-          </MeCard>
-        </View>
+        <AppSectionHeader theme={theme} text={t('me.preferences')} marginTop={layout.sectionGap} />
+        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+          <SettingsRow theme={theme} icon="bell" label={t('me.notifications')} detail={notif.push ? t('common.on') : t('common.off')} onPress={() => push({ type: 'notif' })} />
+          <AppearanceRow
+            ref={weightRowRef}
+            theme={theme}
+            label={t('me.gearWeightUnit')}
+            value={data.profile.gearWeightUnit}
+            leading={<Icon name="gearSettings" color={theme.text2} size={19} />}
+            open={appearancePopup === 'weight'}
+            onPress={() => openAppearancePopup('weight', weightRowRef)}
+            last
+          />
+        </AppCard>
+
+        <AppSectionHeader theme={theme} text={t('me.support')} marginTop={layout.sectionGap} />
+        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+          <SettingsRow theme={theme} icon="send" label={t('me.helpFeedback')} onPress={() => push({ type: 'feedback' })} />
+          <SettingsRow theme={theme} icon="compass" label={t('me.about')} detail="v1.0.2" onPress={() => push({ type: 'about' })} last />
+        </AppCard>
+
+        <Press
+          onPress={confirmSignOut}
+          accessibilityRole="button"
+          scaleTo={1}
+          opacityTo={1}
+          style={{ height: 52, marginTop: space.xl, borderRadius: radius.feature, backgroundColor: theme.dangerSoft, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.dangerSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}
+        >
+          <Icon name="arrowL" color={theme.danger} size={18} />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.danger }}>{t('me.signOut')}</Text>
+        </Press>
       </ScrollView>
 
-      {/* anchored 外观 popover + outside-tap catcher */}
-      {popup && anchor ? (
-        <>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPopup(null)} />
-          <View style={{ position: 'absolute', top: anchor.y + anchor.h + 4, right: 16, width: 200 }}>
-            <View
-              style={{
-                borderRadius: 16,
-                overflow: 'hidden',
-                backgroundColor: theme.dark ? '#2C2C2E' : '#fff',
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                boxShadow: theme.dark ? '0px 14px 20px rgba(0,0,0,0.55)' : '0px 14px 20px rgba(0,0,0,0.16)',
-              }}
+      {appearancePopup && popupAnchor ? (
+        <Modal visible transparent statusBarTranslucent animationType="none" onRequestClose={() => setAppearancePopup(null)}>
+          <View style={StyleSheet.absoluteFill}>
+            <Pressable
+              style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]}
+              onPress={() => setAppearancePopup(null)}
+            />
+            <ReAnimated.View
+              style={[
+                {
+                  position: 'absolute',
+                  top: popupTop,
+                  left: popupLeft,
+                  width: popupWidth,
+                  borderRadius: 26,
+                  overflow: 'hidden',
+                  boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
+                },
+                popupMenuStyle,
+              ]}
             >
-              {popup === 'theme'
-                ? themeModes.map((m, i, arr) => (
-                    <PopoverRow
-                      key={m.id}
-                      theme={theme}
-                      label={m.id === 'system' ? t('me.themeSystemDefault') : m.label}
-                      active={mode === m.id}
-                      onPress={() => {
-                        setMode(m.id);
-                        setPopup(null);
-                      }}
-                      last={i === arr.length - 1}
-                    />
-                  ))
-                : popup === 'lang'
-                ? langs.map((l, i, arr) => (
-                    <PopoverRow
-                      key={l.id}
-                      theme={theme}
-                      label={l.label}
-                      active={lang === l.id}
-                      onPress={() => {
-                        setLang(l.id);
-                        setPopup(null);
-                      }}
-                      last={i === arr.length - 1}
-                    />
-                  ))
-                : ACCENT_PRESETS.map((p: AccentPreset, i) => (
-                    <PopoverRow
-                      key={p.id}
-                      theme={theme}
-                      leading={<ColorDot theme={theme} color={p.color} size={14} />}
-                      label={accentLabel(p.id)}
-                      active={curAccent.toLowerCase() === p.color.toLowerCase()}
-                      onPress={() => {
-                        setAccent(p.color);
-                        setPopup(null);
-                      }}
-                      last={i === ACCENT_PRESETS.length - 1}
-                    />
-                  ))}
-            </View>
+              <Glass theme={theme} radius={26} intensity={76}>
+                <View style={{ paddingVertical: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>
+                  <ReAnimated.View style={popupContentStyle}>
+                    {appearancePopup === 'theme'
+                      ? themeModes.map((item, index) => (
+                          <PopupOption
+                            key={item.id}
+                            theme={theme}
+                            label={item.id === 'system' ? t('me.themeSystemDefault') : item.label}
+                            selected={mode === item.id}
+                            onPress={() => {
+                              setMode(item.id);
+                              setAppearancePopup(null);
+                            }}
+                            last={index === themeModes.length - 1}
+                          />
+                        ))
+                      : appearancePopup === 'language'
+                        ? langs.map((item, index) => (
+                            <PopupOption
+                              key={item.id}
+                              theme={theme}
+                              label={item.label}
+                              selected={lang === item.id}
+                              onPress={() => {
+                                setLang(item.id);
+                                setAppearancePopup(null);
+                              }}
+                              last={index === langs.length - 1}
+                            />
+                          ))
+                        : appearancePopup === 'weight'
+                          ? WEIGHT_UNITS.map((unit, index) => (
+                              <PopupOption
+                                key={unit}
+                                theme={theme}
+                                label={unit}
+                                selected={data.profile.gearWeightUnit === unit}
+                                onPress={() => {
+                                  setGearWeightUnit(unit);
+                                  setAppearancePopup(null);
+                                }}
+                                last={index === WEIGHT_UNITS.length - 1}
+                              />
+                            ))
+                        : ACCENT_PRESETS.map((preset) => {
+                            const selected = curAccent.toLowerCase() === preset.color.toLowerCase();
+                            return (
+                              <PopupOption
+                                key={preset.id}
+                                theme={theme}
+                                label={accentLabel(preset.id)}
+                                leading={<ColorDot theme={theme} color={preset.color} size={20} />}
+                                selected={selected}
+                                onPress={() => {
+                                  setAccent(preset.color);
+                                  setAppearancePopup(null);
+                                }}
+                              />
+                            );
+                          })}
+                  </ReAnimated.View>
+                </View>
+              </Glass>
+            </ReAnimated.View>
           </View>
-        </>
+        </Modal>
       ) : null}
 
       {/* pushed full-screen pages */}
