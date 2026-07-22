@@ -1,4 +1,4 @@
-// GearSetEditor.tsx — 新建 / 编辑套装. A bottom sheet (reusing NJBottomSheet) that
+// GearSetEditor.tsx — 新建 / 编辑清单. A bottom sheet (reusing NJBottomSheet) that
 // names a packing set and picks its gear: a fixed header (取消 / 标题 / 保存, name
 // field, search + 已选 count) over a scrollable gear list grouped by category, each
 // group with a 全选 / 取消全选 shortcut and per-row checkboxes. Mirrors the

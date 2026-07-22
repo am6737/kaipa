@@ -1,9 +1,10 @@
-// GearSetDetail.tsx — 套装详情. Uses the same calm, airy visual language as the
+// GearSetDetail.tsx — 清单详情. Uses the same calm, airy visual language as the
 // redesigned 装备详情: floating chrome, a strong typographic header, generous
 // whitespace, soft stat tiles, lightweight metadata and an unboxed item list.
 import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, useWindowDimensions, Modal, Pressable, Animated, Platform, Share, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
@@ -150,7 +151,7 @@ function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trail
   );
 }
 
-function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: any; onClose: () => void; children: React.ReactNode }) {
+function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; animatedStyle?: any; onClose: () => void; children: React.ReactNode }) {
   return (
     <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
       <View style={StyleSheet.absoluteFill}>
@@ -158,22 +159,23 @@ function FloatingMenu({ theme, visible, top, width, onClose, children }: { theme
           onPress={onClose}
           style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]}
         />
-        <Animated.View
-          style={{
+        <ReAnimated.View
+          style={[{
             position: 'absolute',
             top,
             right: 14,
             width,
             borderRadius: 26,
+            overflow: 'hidden',
             boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
-          }}
+          }, animatedStyle]}
         >
           <Glass theme={theme} radius={26} intensity={76}>
             <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>
               {children}
             </View>
           </Glass>
-        </Animated.View>
+        </ReAnimated.View>
       </View>
     </Modal>
   );
@@ -234,9 +236,23 @@ export function GearSetDetail({
   const [moreOpen, setMoreOpen] = useState(false);
   const [displayExpanded, setDisplayExpanded] = useState(false);
   const [displaySettings, setDisplaySettings] = useState<SetDisplaySettings>({ images: true, weight: true, value: true, groupStats: true });
-  const displayProgress = useRef(new Animated.Value(0)).current;
+  const displayProgress = useSharedValue(0);
   const posterRef = useRef<any>(null);
   const exportingRef = useRef(false);
+
+  const moreMenuStyle = useAnimatedStyle(() => ({
+    height: interpolate(displayProgress.value, [0, 1], [194, 420]),
+  }));
+  const displayPanelStyle = useAnimatedStyle(() => ({
+    opacity: displayProgress.value,
+    transform: [{ translateY: interpolate(displayProgress.value, [0, 1], [-8, 0]) }],
+  }));
+  const displayActionsStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(displayProgress.value, [0, 1], [-226, 0]) }],
+  }));
+  const displayChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(displayProgress.value, [0, 1], [0, 180])}deg` }],
+  }));
 
   React.useEffect(() => {
     AsyncStorage.getItem(DISPLAY_SETTINGS_KEY).then((raw) => {
@@ -387,7 +403,16 @@ export function GearSetDetail({
   const toggleDisplayExpanded = () => {
     const next = !displayExpanded;
     setDisplayExpanded(next);
-    Animated.timing(displayProgress, { toValue: next ? 1 : 0, duration: 280, useNativeDriver: false }).start();
+    displayProgress.value = withTiming(next ? 1 : 0, {
+      duration: next ? 460 : 380,
+      easing: next ? Easing.bezier(0.16, 1, 0.3, 1) : Easing.bezier(0.4, 0, 0.2, 1),
+    });
+  };
+  const closeMore = () => {
+    setDisplayExpanded(false);
+    cancelAnimation(displayProgress);
+    displayProgress.value = 0;
+    setMoreOpen(false);
   };
 
   return (
@@ -397,7 +422,7 @@ export function GearSetDetail({
       right={(
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <CircleBtn theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
-          <CircleBtn theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.setValue(0); setMoreOpen(true); }} softShadow size={44} />
+          <CircleBtn theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} softShadow size={44} />
         </View>
       )}
       overlay={(
@@ -417,28 +442,30 @@ export function GearSetDetail({
             </Text>
             <ExportMenuRow theme={theme} icon="share" label={t('gear.setDetail.systemShare')} onPress={() => runFromExportMenu(systemShare)} />
           </FloatingMenu>
-          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={displayProgress.interpolate({ inputRange: [0, 1], outputRange: [Math.min(204, winW - 28), Math.min(232, winW - 28)] })} onClose={() => { setDisplayExpanded(false); displayProgress.stopAnimation(); displayProgress.setValue(0); setMoreOpen(false); }}>
+          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
             <ExportMenuRow
               theme={theme}
               icon="gearSettings"
               label={t('gear.setDetail.displaySettings')}
               onPress={toggleDisplayExpanded}
               trailing={(
-                <Animated.View style={{ transform: [{ rotate: displayProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+                <ReAnimated.View style={displayChevronStyle}>
                   <Icon name="chevronDown" color={theme.text2} size={14} strokeWidth={2} />
-                </Animated.View>
+                </ReAnimated.View>
               )}
             />
-            <Animated.View style={{ height: displayProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 238] }), opacity: displayProgress, overflow: 'hidden' }}>
+            <ReAnimated.View pointerEvents={displayExpanded ? 'auto' : 'none'} style={displayPanelStyle}>
               <View style={{ marginTop: -2, paddingBottom: 4 }}>
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayImages')} value={displaySettings.images} onChange={(value) => updateDisplaySettings({ images: value })} />
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayWeight')} value={displaySettings.weight} onChange={(value) => updateDisplaySettings({ weight: value })} />
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayValue')} value={displaySettings.value} onChange={(value) => updateDisplaySettings({ value })} />
                 <DisplaySettingRow theme={theme} label={t('gear.setDetail.displayGroupStats')} value={displaySettings.groupStats} onChange={(value) => updateDisplaySettings({ groupStats: value })} last />
               </View>
-            </Animated.View>
-            <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
-            <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
+            </ReAnimated.View>
+            <ReAnimated.View style={displayActionsStyle}>
+              <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
+              <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
+            </ReAnimated.View>
           </FloatingMenu>
         </>
       )}

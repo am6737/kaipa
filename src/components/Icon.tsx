@@ -25,6 +25,7 @@ export type IconName =
   | 'locate'
   | 'filter'
   | 'check'
+  | 'checkAll'
   | 'bell'
   | 'camera'
   | 'copy'
@@ -43,6 +44,7 @@ export type IconName =
   | 'grid'
   | 'list'
   | 'arrowUp'
+  | 'arrowDown'
   | 'star'
   | 'starFill'
   | 'eye'
@@ -216,6 +218,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Polyline points="6 11 12 5 18 11" {...common} />
         </Svg>
       );
+    case 'arrowDown':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Line x1={12} y1={5} x2={12} y2={19} {...common} />
+          <Polyline points="6 13 12 19 18 13" {...common} />
+        </Svg>
+      );
     case 'plus':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
@@ -261,6 +270,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Polyline points="5 12.5 10 17.5 19 6.5" {...common} strokeWidth={strokeWidth + 0.4} />
+        </Svg>
+      );
+    case 'checkAll':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Polyline points="2.5 12.5 6.5 16.5 13.5 9.5" {...common} strokeWidth={strokeWidth + 0.2} />
+          <Polyline points="9 12.5 13 16.5 21.5 7.5" {...common} strokeWidth={strokeWidth + 0.2} />
         </Svg>
       );
     case 'bell':

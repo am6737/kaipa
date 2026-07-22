@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import * as Sharing from 'expo-sharing';
-import * as MediaLibrary from 'expo-media-library';
 import { File, Paths } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -32,6 +31,7 @@ import { useInspo } from '../../hooks/useInspo';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
 import { formatDuration } from '../../lib/time';
+import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 
 
 interface WallPhoto {
@@ -470,9 +470,9 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
               <Pressable onPress={() => act(async () => {
                 if (!photo.uri) return;
                 try {
-                  const { status } = await MediaLibrary.requestPermissionsAsync();
+                  const { status } = await requestMediaLibraryPermissions();
                   if (status !== 'granted') { nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
-                  await MediaLibrary.Asset.create(photo.uri);
+                  await createMediaLibraryAsset(photo.uri);
                   nav.showToast(tr('journey.photoWall.savedToAlbum'));
                 } catch { nav.showToast(tr('journey.photoWall.errorTitle')); }
               })} style={({ pressed }) => ({ alignItems: 'center', justifyContent: 'center', height: 52, backgroundColor: pressed ? (t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)') : 'transparent' })}>
@@ -554,7 +554,7 @@ function SavePickerSheet({ theme: t, allPhotos, saveSelectedIds, setSaveSelected
 
   const doSave = async () => {
     if (saveCount === 0) return;
-    const { status: permStatus } = await MediaLibrary.requestPermissionsAsync();
+    const { status: permStatus } = await requestMediaLibraryPermissions();
     if (permStatus !== 'granted') { nav.showToast(tr('journey.photoWall.needLibraryPerm')); return; }
     try {
       const uris = savePhotos.filter((p: any) => saveSelectedIds.has(p.id)).map((p: any) => p.uri!);
@@ -564,7 +564,7 @@ function SavePickerSheet({ theme: t, allPhotos, saveSelectedIds, setSaveSelected
           const downloaded = await File.downloadFileAsync(uri, Paths.cache);
           localUri = downloaded.uri;
         }
-        await MediaLibrary.Asset.create(localUri);
+        await createMediaLibraryAsset(localUri);
       }
       nav.showToast(tr('journey.savePicker.saved'));
       closeSavePicker();

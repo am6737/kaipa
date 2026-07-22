@@ -1,11 +1,11 @@
 // parts.tsx — shared primitives for the 装备 detail pages (装备详情 / 分类详情 /
-// 套装详情). Mirrors the gx-design prototype's drill-down screens: a slide-in
+// 清单详情). Mirrors the gx-design prototype's drill-down screens: a slide-in
 // full-screen shell with floating circular back / ··· buttons, frosted cards,
 // section labels, gear rows with a photo thumbnail, share bars and stat strips.
 // Kept visually identical to GearScreen's chrome (surfaceTop cards + soft shadow
 // on theme.bg) so a pushed detail reads as the same surface, not a new world.
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, ScrollView, StyleSheet, Dimensions, ViewStyle, KeyboardAvoidingView, Platform } from 'react-native';
+import { Animated, View, Text, TextInput, ScrollView, StyleSheet, Dimensions, ViewStyle, KeyboardAvoidingView, Platform, Easing, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -43,18 +43,24 @@ export function useGearPushScroll() {
 export function GearPushPage({
   theme,
   onBack,
+  backgroundColor,
   title,
   right,
   overlay,
   hero,
+  flatChrome,
+  onContentTouchStart,
   children,
 }: {
   theme: Theme;
   onBack: () => void;
+  backgroundColor?: string;
   title?: string;
   right?: React.ReactNode;
   overlay?: React.ReactNode;
   hero?: React.ReactNode;
+  flatChrome?: boolean;
+  onContentTouchStart?: () => void;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -69,7 +75,7 @@ export function GearPushPage({
   const navH = insets.top + 50;
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? theme.bg : '#FFFFFF', transform: [{ translateX: tx }] }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: backgroundColor || (theme.dark ? theme.bg : '#FFFFFF'), transform: [{ translateX: tx }] }]}>
       <View style={{ flex: 1 }}>
         {hero}
         <KeyboardAvoidingView
@@ -83,6 +89,7 @@ export function GearPushPage({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             automaticallyAdjustKeyboardInsets
+            onTouchStart={onContentTouchStart}
             onScroll={(event) => {
               scrollY.current = event.nativeEvent.contentOffset.y;
             }}
@@ -99,7 +106,7 @@ export function GearPushPage({
       {/* floating nav chrome */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navH }} pointerEvents="box-none">
         <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
-          <CircleBtn theme={theme} name="arrowL" onPress={onBack} softShadow size={44} />
+          <CircleBtn theme={theme} name="arrowL" onPress={onBack} noShadow={flatChrome} softShadow={!flatChrome} size={44} />
         </View>
         {title && !hero ? (
           <View pointerEvents="none" style={{ position: 'absolute', left: 64, right: 64, top: insets.top + 12, height: 26, justifyContent: 'center' }}>
@@ -112,6 +119,96 @@ export function GearPushPage({
       </View>
       {overlay}
     </Animated.View>
+  );
+}
+
+// Animated search chrome for pushed list pages. It starts at the search
+// button's position and grows left across the top bar, keeping search controls
+// out of the scrolling content and making opening/closing feel continuous.
+export function GearHeaderSearch({
+  theme,
+  open,
+  value,
+  placeholder,
+  onChangeText,
+  onClose,
+  actions,
+}: {
+  theme: Theme;
+  open: boolean;
+  value: string;
+  placeholder: string;
+  onChangeText: (value: string) => void;
+  onClose: () => void;
+  actions: React.ReactNode;
+}) {
+  const { width } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
+  const inputRef = useRef<TextInput>(null);
+  const expandedWidth = Math.max(180, width - 84);
+
+  useEffect(() => {
+    if (!open) inputRef.current?.blur();
+    Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 280 : 230,
+      easing: open ? Easing.bezier(0.2, 0.8, 0.2, 1) : Easing.bezier(0.4, 0, 0.6, 1),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished && open) inputRef.current?.focus();
+    });
+  }, [open, progress]);
+
+  return (
+    <View pointerEvents="box-none" style={{ width: expandedWidth, height: 44 }}>
+      <Animated.View
+        pointerEvents={open ? 'none' : 'box-none'}
+        style={{
+          position: 'absolute',
+          right: 0,
+          height: 44,
+          opacity: progress.interpolate({ inputRange: [0, 0.45, 1], outputRange: [1, 0, 0] }),
+        }}
+      >
+        {actions}
+      </Animated.View>
+
+      <Animated.View
+        pointerEvents={open ? 'auto' : 'none'}
+        style={{
+          position: 'absolute',
+          right: 0,
+          width: progress.interpolate({ inputRange: [0, 1], outputRange: [44, expandedWidth] }),
+          height: 44,
+          borderRadius: 22,
+          paddingHorizontal: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 9,
+          overflow: 'hidden',
+          opacity: progress.interpolate({ inputRange: [0, 0.08, 1], outputRange: [0, 1, 1] }),
+          backgroundColor: theme.dark ? '#000000' : '#FFFFFF',
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.hairline,
+        }}
+      >
+        <Icon name="search" color={theme.text2} size={17} />
+        <TextInput
+          ref={inputRef}
+          value={value}
+          onChangeText={onChangeText}
+          onBlur={onClose}
+          placeholder={placeholder}
+          placeholderTextColor={theme.text3}
+          returnKeyType="search"
+          editable={open}
+          style={{ flex: 1, minWidth: 0, padding: 0, fontSize: 15, color: theme.text }}
+        />
+        <Press onPress={onClose} hitSlop={10}>
+          <Icon name="close" color={theme.text2} size={15} />
+        </Press>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -150,7 +247,7 @@ export function KV({ theme, k, v, leadingDot, first }: { theme: Theme; k: string
   );
 }
 
-// Gear row with a photo thumbnail — used in 分类详情 / 套装详情 lists.
+// Gear row with a photo thumbnail — used in 分类详情 / 清单详情 lists.
 type GearItemRowProps = {
   theme: Theme;
   item: GearItem;

@@ -1,6 +1,6 @@
 // GearScreen.tsx — the 装备 tab, aligned to the converged gx-design prototype.
 //
-// Chrome: thin nav bar with a tap-to-switch title (装备 / 分类 / 套装 ▾ + count)
+// Chrome: thin nav bar with a tap-to-switch title (装备 / 分类 / 清单 ▾ + count)
 // and a contextual add button — NO large iOS title, NO segmented pill. Each tab
 // has a list⇄grid toggle. 装备 leads with a leader-line labeled donut (thick
 // ring, empty center, callouts per category) over a 4-stat readout strip.
@@ -29,13 +29,16 @@ import { GearSetEditor } from '../components/gear/GearSetEditor';
 import { GearItemEditor } from '../components/gear/GearItemEditor';
 import { GearCatEditor } from '../components/gear/GearCatEditor';
 import { AddGearChoose } from '../components/gear/AddGearChoose';
+import { GearSetsList } from '../components/gear/GearSetsList';
+import { GearItemsList } from '../components/gear/GearItemsList';
+import { usePinnedSets } from '../components/gear/usePinnedSets';
 
 type Tab = 'home' | 'items' | 'cats' | 'sets';
 type Layout = 'list' | 'grid';
 
 // A pushed gear detail page. Mirrors MeScreen's local page stack: tap a row/card
 // to push, back to pop, and the floating tab bar hides while any page is open.
-type GearPage = { type: 'item'; item: GearItem } | { type: 'cat'; cat: GearCat } | { type: 'set'; set: GearSet };
+type GearPage = { type: 'item'; item: GearItem } | { type: 'cat'; cat: GearCat } | { type: 'set'; set: GearSet } | { type: 'setsList' } | { type: 'itemsList' };
 
 // ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
 const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
@@ -147,6 +150,11 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const cats = data.cats;
   const allItems = data.items;
   const sets = data.sets;
+  const { pinnedIds: pinnedSetIds, setPinned: setSetsPinned } = usePinnedSets();
+  const orderedSets = useMemo(
+    () => sets.slice().sort((a, b) => Number(pinnedSetIds.has(b.id)) - Number(pinnedSetIds.has(a.id))),
+    [pinnedSetIds, sets],
+  );
 
   // ── multi-select (long-press to enter, batch delete) ──
   const [selectMode, setSelectMode] = useState(false);
@@ -191,11 +199,11 @@ export function GearScreen({ theme }: { theme: Theme }) {
     );
   }, [selectedIds, data, nav, t, exitSelect]);
 
-  // Pushed detail pages (装备 / 分类 / 套装), newest last.
+  // Pushed detail pages (装备 / 分类 / 清单), newest last.
   const [pageStack, setPageStack] = useState<GearPage[]>([]);
   const pushPage = (p: GearPage) => setPageStack((s) => [...s, p]);
   const popPage = () => setPageStack((s) => s.slice(0, -1));
-  // 新建 / 编辑套装 bottom sheet.
+  // 新建 / 编辑清单 bottom sheet.
   const [setEditor, setSetEditor] = useState<{ mode: 'new' | 'edit'; set?: GearSet } | null>(null);
   // 新建 / 编辑装备 full-screen form (holds the item being edited / a blank draft).
   const [itemEditor, setItemEditor] = useState<{ mode: 'new' | 'edit'; item: GearItem } | null>(null);
@@ -304,7 +312,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   if (q) items = items.filter((it) => it.name.includes(q) || (catMap[it.cat] && catMap[it.cat].name.includes(q)));
   const catRows = q ? rows.filter((c) => c.name.includes(q) || allItems.some((it) => it.cat === c.id && it.name.includes(q))) : rows;
   const sq = setsQuery.trim();
-  const setRows = sq ? sets.filter((s) => s.name.includes(sq) || s.items.some((n) => n.includes(sq))) : sets;
+  const setRows = sq ? orderedSets.filter((s) => s.name.includes(sq) || s.items.some((n) => n.includes(sq))) : orderedSets;
 
   const TABS: { id: Tab; label: string; n: number }[] = [
     { id: 'home', label: t('tabs.gear'), n: 0 },
@@ -367,8 +375,8 @@ export function GearScreen({ theme }: { theme: Theme }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
         {tab === 'home' && (
-          <GearHome theme={theme} sets={sets} items={allItems} cats={cats} catMap={catMap} weightUnit={weightUnit}
-            onOpenSets={() => setTab('sets')} onOpenItems={() => setTab('items')} onOpenStats={() => setTab('items')}
+          <GearHome theme={theme} sets={orderedSets} items={allItems} cats={cats} catMap={catMap} weightUnit={weightUnit}
+            onOpenSets={() => pushPage({ type: 'setsList' })} onOpenItems={() => pushPage({ type: 'itemsList' })} onOpenStats={() => setTab('items')}
             onOpenSet={(set) => pushPage({ type: 'set', set })} onOpenItem={(item) => pushPage({ type: 'item', item })} />
         )}
         {tab === 'items' && (
@@ -497,7 +505,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
         </>
       )}
 
-      {/* ── Pushed detail pages (装备 / 分类 / 套装) ── */}
+      {/* ── Pushed detail pages (装备 / 分类 / 清单) ── */}
       {pageStack.map((pg, i) => (
         <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
           {pg.type === 'item' ? (
@@ -526,7 +534,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
               onDelete={() => deleteCat(pg.cat.id)}
               onEdit={() => setCatEditor({ mode: 'edit', cat: pg.cat })}
             />
-          ) : (
+          ) : pg.type === 'set' ? (
             <GearSetDetail
               theme={theme}
               set={pg.set}
@@ -539,11 +547,41 @@ export function GearScreen({ theme }: { theme: Theme }) {
               onEdit={() => setSetEditor({ mode: 'edit', set: pg.set })}
               onDuplicate={() => duplicateSet(pg.set)}
             />
+          ) : pg.type === 'setsList' ? (
+            <GearSetsList
+              theme={theme}
+              sets={sets}
+              allItems={allItems}
+              weightUnit={weightUnit}
+              onBack={popPage}
+              onOpenSet={(set) => pushPage({ type: 'set', set })}
+              onAdd={() => setSetEditor({ mode: 'new' })}
+              pinnedSetIds={pinnedSetIds}
+              onSetPinned={setSetsPinned}
+              onDeleteSets={(ids) => {
+                ids.forEach((id) => data.deleteSet(id));
+                nav.showToast(t('gear.toast.setsDeleted', { count: ids.length }));
+              }}
+            />
+          ) : (
+            <GearItemsList
+              theme={theme}
+              items={allItems}
+              catMap={catMap}
+              weightUnit={weightUnit}
+              onBack={popPage}
+              onOpenItem={(item) => pushPage({ type: 'item', item })}
+              onAdd={() => setAddChoose(true)}
+              onDeleteItems={(ids) => {
+                ids.forEach((id) => data.deleteItem(id));
+                nav.showToast(t('gear.toast.itemsDeleted', { count: ids.length }));
+              }}
+            />
           )}
         </View>
       ))}
 
-      {/* ── 新建 / 编辑套装 ── */}
+      {/* ── 新建 / 编辑清单 ── */}
       {setEditor && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
           <GearSetEditor
@@ -831,7 +869,7 @@ function CatRow({ theme, cat, total, metric, items, last, onPress, weightUnit }:
   );
 }
 
-// ── 套装 rows / cards ───────────────────────────────────────────────────────
+// ── 清单 rows / cards ───────────────────────────────────────────────────────
 type SetG = ReturnType<typeof setComp>;
 
 function SetRow({ theme, set, g, last, onPress, weightUnit }: { theme: Theme; set: GearSet; g: SetG; last: boolean; onPress: () => void; weightUnit: WeightUnit }) {

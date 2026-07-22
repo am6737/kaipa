@@ -2,7 +2,7 @@
 // gear-library apps: floating chrome, centered product photo, generous whitespace,
 // soft stat tiles, icon-led metadata, then secondary library context.
 import React from 'react';
-import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, KeyboardAvoidingView, Platform, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
@@ -187,7 +187,7 @@ function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearIte
   );
 }
 
-function PhotoChoiceSheet({
+function GearPhotoViewer({
   theme,
   item,
   index,
@@ -201,8 +201,21 @@ function PhotoChoiceSheet({
   onPhotosChange?: (photos: string[]) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const photos = (item.photos || []).filter(Boolean);
-  const current = photos[index];
+  const pages = photos.length ? photos : [null];
+  const initialIndex = Math.min(index, pages.length - 1);
+  const listRef = React.useRef<FlatList<string | null>>(null);
+  const [page, setPage] = React.useState(initialIndex);
+  const fade = React.useRef(new Animated.Value(0)).current;
+  const controlsBottom = Math.max(insets.bottom, 14) + 4;
+  const imageTop = insets.top + 52;
+  const imageBottom = controlsBottom + 58;
+  const imageHeight = Math.max(1, height - imageTop - imageBottom);
+
+  React.useEffect(() => {
+    Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  }, [fade]);
 
   const addFromLibrary = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -211,66 +224,98 @@ function PhotoChoiceSheet({
       selectionLimit: 9,
       quality: 0.85,
     });
-    if (!result.canceled) {
-      onPhotosChange?.([...photos, ...result.assets.map((asset) => asset.uri)]);
-      onClose();
-    }
+    if (!result.canceled) onPhotosChange?.([...photos, ...result.assets.map((asset) => asset.uri)]);
   };
 
   const addFromCamera = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) return;
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
-    if (!result.canceled) {
-      onPhotosChange?.([...photos, result.assets[0].uri]);
-      onClose();
-    }
+    if (!result.canceled) onPhotosChange?.([...photos, result.assets[0].uri]);
   };
 
   const removeCurrent = () => {
-    if (!current) return;
-    onPhotosChange?.(photos.filter((_, photoIndex) => photoIndex !== index));
-    onClose();
+    if (!photos[page]) return;
+    const nextPhotos = photos.filter((_, photoIndex) => photoIndex !== page);
+    const nextPage = Math.min(page, Math.max(0, nextPhotos.length - 1));
+    setPage(nextPage);
+    onPhotosChange?.(nextPhotos);
+    requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: nextPage, animated: false }));
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.46)' }]} />
-        <View style={{ backgroundColor: theme.dark ? theme.bg : '#FFFFFF', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingTop: 10, paddingHorizontal: 28, paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
-          <View style={{ alignSelf: 'center', width: 48, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45, marginBottom: 28 }} />
-          <Text style={{ fontSize: 15, color: theme.text2, marginBottom: 18 }}>选择图像</Text>
-          <View style={{ alignItems: 'center', minHeight: 220, justifyContent: 'center' }}>
-            {current ? (
-              <Image source={{ uri: current }} contentFit="contain" style={{ width: 220, height: 220, borderRadius: 18, backgroundColor: pageBg(theme) }} />
-            ) : (
-              <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={18} resWidth={720} style={{ width: 220, height: 220 }} />
-            )}
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 28 }}>
-            {current ? (
-              <View style={{ alignItems: 'center', gap: 8 }}>
-                <Pressable onPress={removeCurrent} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                  <Icon name="trash" color={theme.danger} size={24} />
-                </Pressable>
-                <Text style={{ fontSize: 11.5, color: theme.text3 }}>删除</Text>
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.94)', opacity: fade }]}>
+        <FlatList
+          ref={listRef}
+          data={pages}
+          horizontal
+          pagingEnabled
+          initialScrollIndex={initialIndex}
+          getItemLayout={(_, itemIndex) => ({ length: width, offset: width * itemIndex, index: itemIndex })}
+          keyExtractor={(uri, itemIndex) => uri ? `${uri}-${itemIndex}` : `fallback-${itemIndex}`}
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(event) => setPage(Math.round(event.nativeEvent.contentOffset.x / width))}
+          renderItem={({ item: uri }) => (
+            <Pressable onPress={onClose} style={{ width, height }}>
+              <View style={{ position: 'absolute', top: imageTop, left: 0, right: 0, height: imageHeight, alignItems: 'center', justifyContent: 'center' }}>
+                {uri ? (
+                  <Image source={{ uri }} contentFit="contain" transition={200} style={{ width, height: imageHeight }} />
+                ) : (
+                  <PhotoTile tone={toneFor(item.name)} seed={item.name} radius={0} resWidth={1400} style={{ width, height: imageHeight }} />
+                )}
               </View>
-            ) : null}
-            <View style={{ alignItems: 'center', gap: 8 }}>
-              <Pressable onPress={addFromLibrary} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                <Icon name="photo" color={theme.text} size={25} />
-              </Pressable>
-              <Text style={{ fontSize: 11.5, color: theme.text3 }}>相册</Text>
-            </View>
-            <View style={{ alignItems: 'center', gap: 8 }}>
-              <Pressable onPress={addFromCamera} style={{ width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                <Icon name="camera" color={theme.text} size={25} />
-              </Pressable>
-              <Text style={{ fontSize: 11.5, color: theme.text3 }}>拍摄</Text>
-            </View>
+            </Pressable>
+          )}
+        />
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 18,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Press onPress={onClose} hitSlop={12} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 34, lineHeight: 34, fontWeight: '200' }}>×</Text>
+          </Press>
+          <View style={{ minWidth: 44, height: 28, borderRadius: 14, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{`${page + 1}/${pages.length}`}</Text>
           </View>
         </View>
-      </View>
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: 24,
+            paddingBottom: controlsBottom,
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            gap: 10,
+          }}
+        >
+          <Press onPress={addFromLibrary} style={{ height: 48, borderRadius: 24, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8FB' }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#202124' }}>相册</Text>
+          </Press>
+          <Press onPress={addFromCamera} style={{ height: 48, borderRadius: 24, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8FB' }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#202124' }}>拍摄</Text>
+          </Press>
+          {photos[page] ? (
+            <Press onPress={removeCurrent} style={{ height: 48, borderRadius: 24, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8FB' }}>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: theme.danger ?? '#FF5A7A' }}>删除</Text>
+            </Press>
+          ) : null}
+        </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -389,7 +434,7 @@ export function GearItemDetail({
     });
   const primaryAttrs = item.attrs || [];
   const weightMain = splitWeight(itemW, weightUnit);
-  const [photoSheetIndex, setPhotoSheetIndex] = React.useState<number | null>(null);
+  const [photoViewerIndex, setPhotoViewerIndex] = React.useState<number | null>(null);
   const [editingField, setEditingField] = React.useState<'name' | 'weight' | 'qty' | 'price' | 'status' | 'note' | null>(null);
   const [editingAttrIndex, setEditingAttrIndex] = React.useState<number | null>(null);
   const [addingAttr, setAddingAttr] = React.useState(false);
@@ -480,12 +525,12 @@ export function GearItemDetail({
       theme={theme}
       onBack={onBack}
       right={<CircleBtn theme={theme} name="trash" danger onPress={confirmDelete} softShadow size={44} />}
-      overlay={photoSheetIndex !== null ? (
-        <PhotoChoiceSheet
+      overlay={photoViewerIndex !== null ? (
+        <GearPhotoViewer
           theme={theme}
           item={item}
-          index={photoSheetIndex}
-          onClose={() => setPhotoSheetIndex(null)}
+          index={photoViewerIndex}
+          onClose={() => setPhotoViewerIndex(null)}
           onPhotosChange={onPhotosChange}
         />
       ) : null}
@@ -493,7 +538,7 @@ export function GearItemDetail({
       <View style={{ paddingHorizontal: 32, paddingTop: 8 }}>
         {/* spacious product header */}
         <View style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 18 }}>
-          <GearGallery theme={theme} item={item} onOpenPhoto={setPhotoSheetIndex} />
+          <GearGallery theme={theme} item={item} onOpenPhoto={setPhotoViewerIndex} />
 
           {editingField === 'name' ? (
             <TextInput
@@ -641,7 +686,7 @@ export function GearItemDetail({
           </View>
         </View>
 
-        {/* 所属套装 */}
+        {/* 所属清单 */}
         <SectionLabel theme={theme} text={`${t('gear.section.memberSets')}${memberSets.length > 0 ? ' · ' + memberSets.length : ''}`} marginTop={32} />
         {memberSets.length === 0 ? (
           <View style={{ paddingVertical: 12 }}>

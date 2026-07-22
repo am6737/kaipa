@@ -4,11 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
-import { Asset as MLAsset, requestPermissionsAsync } from 'expo-media-library';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
 import { paletteFor } from '../../data/tones';
 import { MONO } from '../../theme/fonts';
+import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n, TKey } from '../../i18n';
@@ -132,9 +132,9 @@ export function SharePoster({ theme, poi, onClose, onToast }: { theme: Theme; po
         link.download = `${poi.name || 'kaipa'}.png`;
         link.click();
       } else {
-        const { status } = await requestPermissionsAsync(true);
+        const { status } = await requestMediaLibraryPermissions(true);
         if (status === 'granted') {
-          await MLAsset.create(uri);
+          await createMediaLibraryAsset(uri);
         }
       }
       onToast(t('poster.saved'));
