@@ -22,7 +22,7 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 ## Design system
 
 - Treat the redesigned gear overview, gear detail/list, and checklist detail/list pages as the app-wide visual baseline.
-- Read and follow `docs/design-system.md` when creating or substantially redesigning app UI.
+- Read and follow `DESIGN.md` and `docs/design-system.md` when creating or substantially redesigning app UI.
 - Import public design-system APIs from `src/design-system/index.ts`; do not depend on its internal files directly.
 - Prefer semantic `Theme` colors and shared spacing, radius, typography, layout, and motion tokens over one-off values.
 - Keep business-specific components in their feature directory; only promote components that are genuinely reusable across product domains.
