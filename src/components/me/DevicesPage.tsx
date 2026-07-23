@@ -1,11 +1,12 @@
 // DevicesPage.tsx — 登录设备 list + 退出其他设备. Mirrors the prototype DevicesPage.
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import Svg, { Rect, Path } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { MePushPage } from './MePushPage';
 import { MeCard, MeRow } from './parts';
+import { space, type } from '../../design-system';
 
 function PhoneIcon({ c }: { c: string }) {
   return (
@@ -45,17 +46,16 @@ function DeviceRow({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 13,
-        paddingHorizontal: 14,
-        paddingVertical: 13,
-        borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
+        gap: space.md,
+        minHeight: 78,
+        paddingHorizontal: space.md,
+        paddingVertical: space.md,
       }}
     >
       {icon}
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 16, color: theme.text }}>{name}</Text>
-        <Text style={{ fontSize: 12, color: theme.text2, marginTop: 2 }}>{meta}</Text>
+        <Text style={[type.cardTitle, { color: theme.text }]}>{name}</Text>
+        <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{meta}</Text>
       </View>
       {current ? <Text style={{ fontSize: 12, fontWeight: '600', color: '#34C759' }}>{t('account.devices.current')}</Text> : null}
     </View>
@@ -74,12 +74,12 @@ export function DevicesPage({
   const { t } = useI18n();
   return (
     <MePushPage theme={theme} title={t('account.devices.pageTitle')} onBack={onBack}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
         <MeCard theme={theme}>
           <DeviceRow theme={theme} icon={<PhoneIcon c={theme.text2} />} name="iPhone 15 Pro" meta="上海 · 刚刚活跃" current />
           <DeviceRow theme={theme} icon={<LaptopIcon c={theme.text2} />} name="MacBook Air" meta="上海 · 3 天前" last />
         </MeCard>
-        <View style={{ marginTop: 24 }}>
+        <View style={{ marginTop: space.xl }}>
           <MeCard theme={theme}>
             <MeRow theme={theme} label={t('account.devices.logOutOthers')} danger onPress={() => showToast(t('account.devices.toastLoggedOutOthers'))} last />
           </MeCard>

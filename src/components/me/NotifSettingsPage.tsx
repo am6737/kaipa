@@ -6,6 +6,7 @@ import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { MePushPage } from './MePushPage';
 import { MeCard, SwitchRow } from './parts';
+import { space, type } from '../../design-system';
 
 export interface NotifSettings {
   push: boolean;
@@ -27,7 +28,7 @@ export function NotifSettingsPage({
   const { t } = useI18n();
   return (
     <MePushPage theme={theme} title={t('account.notif.pageTitle')} onBack={onBack}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
         <MeCard theme={theme}>
           <SwitchRow
             theme={theme}
@@ -52,7 +53,7 @@ export function NotifSettingsPage({
             last
           />
         </MeCard>
-        <Text style={{ fontSize: 12, color: theme.text3, paddingHorizontal: 6, paddingTop: 12, lineHeight: 18 }}>
+        <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
           {t('account.notif.helper')}
         </Text>
       </View>

@@ -2,13 +2,13 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   Dimensions,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { AppIconButton } from '../components/AppIconButton';
@@ -51,8 +51,6 @@ export function DetailPage({
   const width = Dimensions.get('window').width;
   const translateX = useRef(new Animated.Value(width)).current;
   const onEnterCompleteRef = useRef(onEnterComplete);
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollY = useRef(0);
 
   useEffect(() => {
     onEnterCompleteRef.current = onEnterComplete;
@@ -70,6 +68,7 @@ export function DetailPage({
     return () => animation.stop();
   }, [translateX]);
 
+
   const navHeight = insets.top + layout.topBarHeight;
 
   return (
@@ -84,36 +83,22 @@ export function DetailPage({
     >
       <View style={{ flex: 1 }}>
         {hero}
-        <KeyboardAvoidingView
+        <KeyboardAwareScrollView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={insets.top}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          onTouchStart={onContentTouchStart}
+          onScrollBeginDrag={Keyboard.dismiss}
+          bottomOffset={insets.bottom + 24}
+          extraKeyboardSpace={insets.bottom}
+          contentContainerStyle={{
+            paddingTop: hero ? 6 : navHeight + 4,
+            paddingBottom: insets.bottom + 120,
+          }}
         >
-          <ScrollView
-            ref={scrollRef}
-            style={{ flex: 1 }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            automaticallyAdjustKeyboardInsets
-            onTouchStart={onContentTouchStart}
-            onScroll={(event) => {
-              scrollY.current = event.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={16}
-            contentContainerStyle={{
-              paddingTop: hero ? 6 : navHeight + 4,
-              paddingBottom: insets.bottom + 120,
-            }}
-          >
-            <DetailPageScrollContext.Provider
-              value={{
-                scrollBy: (dy: number) => scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current + dy), animated: true }),
-              }}
-            >
-              {children}
-            </DetailPageScrollContext.Provider>
-          </ScrollView>
-        </KeyboardAvoidingView>
+          {children}
+        </KeyboardAwareScrollView>
       </View>
 
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navHeight }} pointerEvents="box-none">

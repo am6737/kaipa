@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, TextInput, View, useWindowDimensions } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../../components/Icon';
 import { Press } from '../../components/Press';
@@ -68,8 +68,6 @@ export function AppHeaderSearch({
           overflow: 'hidden',
           opacity: progress.interpolate({ inputRange: [0, 0.08, 1], outputRange: [0, 1, 1] }),
           backgroundColor: theme.featureSurface,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
         }}
       >
         <Icon name="search" color={theme.text2} size={17} />

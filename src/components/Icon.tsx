@@ -9,6 +9,7 @@ export type IconName =
   | 'bag'
   | 'user'
   | 'search'
+  | 'scan'
   | 'heart'
   | 'heartFill'
   | 'share'
@@ -135,6 +136,13 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Circle cx={10.5} cy={10.5} r={6.5} {...common} />
           <Line x1={15.5} y1={15.5} x2={20} y2={20} {...common} />
+        </Svg>
+      );
+    case 'scan':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" {...common} />
+          <Line x1={6.5} y1={12} x2={17.5} y2={12} {...common} />
         </Svg>
       );
     case 'heart':

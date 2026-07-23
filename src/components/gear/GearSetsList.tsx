@@ -262,7 +262,7 @@ function SetListCard({ theme, row, weightUnit, onPress, onLongPress, selectMode,
   const { t } = useI18n();
   const handlers = useLongPressGuard(onPress, onLongPress);
   return (
-    <Press {...handlers} style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+    <Press {...handlers} style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
         <Text numberOfLines={2} style={{ flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '800', letterSpacing: -0.25, color: theme.text }}>{row.set.name}</Text>
         {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{row.pinned ? <Icon name="pin" color={theme.accent} size={15} strokeWidth={2.1} /> : null}<View style={{ height: 28, paddingHorizontal: 10, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#FFFFFF' }}><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{row.items.length} {t('gear.unit.items')}</Text></View></View>}
@@ -373,7 +373,7 @@ function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPr
   const foreground = theme.text;
   const secondary = theme.text2;
   return (
-    <Press {...handlers} style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+    <Press {...handlers} style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: row.pinned && !selectMode ? 'space-between' : 'flex-end' }}>
         {row.pinned && !selectMode ? <Icon name="pin" color={theme.accent} size={16} strokeWidth={2.1} /> : null}
         {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ paddingHorizontal: 9, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text }}>{row.items.length} {t('gear.unit.items')}</Text></View>}

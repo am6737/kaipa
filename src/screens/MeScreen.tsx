@@ -274,7 +274,23 @@ export function MeScreen({ theme }: { theme: Theme }) {
         contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: insets.top + space.md, paddingBottom: 140 }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg }}>
-          <Text style={[type.pageTitle, { color: theme.text }]}>{t('me.pageTitle')}</Text>
+          <Press
+            onPress={() => showToast(t('me.scanComingSoon'))}
+            accessibilityRole="button"
+            accessibilityLabel={t('me.scan')}
+            scaleTo={1}
+            opacityTo={1}
+            style={{
+              width: layout.iconButton,
+              height: layout.iconButton,
+              borderRadius: radius.pill,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.controlSurface,
+            }}
+          >
+            <Icon name="scan" color={theme.text} size={21} />
+          </Press>
           <Press
             onPress={() => push({ type: 'inbox' })}
             accessibilityRole="button"
@@ -288,8 +304,6 @@ export function MeScreen({ theme }: { theme: Theme }) {
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: theme.controlSurface,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: theme.hairline,
             }}
           >
             <Icon name="bell" color={theme.text} size={20} />

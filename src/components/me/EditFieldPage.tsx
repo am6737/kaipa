@@ -1,12 +1,13 @@
 // EditFieldPage.tsx — full-screen single-field editor (昵称 / 用户名 / 简介 /
 // 手机号 / 邮箱 / 密码). 完成 lives in the nav bar. Mirrors the prototype EditPage.
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { useI18n } from '../../i18n';
 import { MePushPage } from './MePushPage';
+import { radius, space, type } from '../../design-system';
 
 export interface MeEditField {
   label: string;
@@ -39,22 +40,22 @@ export function EditFieldPage({
   }, []);
 
   const done = (
-    <Press onPress={() => onSave(val)} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
-      <Text style={{ fontSize: 16, fontWeight: '600', color: theme.accent }}>{t('common.done')}</Text>
+    <Press onPress={() => onSave(val)} scaleTo={1} opacityTo={1} style={{ minWidth: 54, height: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ fontSize: 13, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
     </Press>
   );
 
   return (
     <MePushPage theme={theme} title={field.label} onBack={onBack} right={done}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
+        <Text style={[type.eyebrow, { color: theme.text3, marginBottom: space.xs }]}>{field.label}</Text>
         <View
           style={{
             flexDirection: 'row',
             alignItems: field.multiline ? 'flex-start' : 'center',
-            borderRadius: 12,
+            borderRadius: radius.feature,
             backgroundColor: theme.surfaceTop,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.hairline,
+            borderWidth: 0,
           }}
         >
           <TextInput
@@ -71,9 +72,9 @@ export function EditFieldPage({
               flex: 1,
               fontSize: 16,
               color: theme.text,
-              paddingHorizontal: 14,
-              paddingVertical: 13,
-              minHeight: field.multiline ? 110 : undefined,
+              paddingHorizontal: space.md,
+              paddingVertical: space.md,
+              minHeight: field.multiline ? 150 : 56,
               textAlignVertical: field.multiline ? 'top' : 'center',
             }}
           />
@@ -83,7 +84,9 @@ export function EditFieldPage({
                 setVal('');
                 ref.current?.focus();
               }}
-              style={{ paddingHorizontal: 12, paddingVertical: 12 }}
+              scaleTo={1}
+              opacityTo={1}
+              style={{ paddingHorizontal: space.md, paddingVertical: space.md }}
             >
               <View
                 style={{
@@ -101,7 +104,7 @@ export function EditFieldPage({
           ) : null}
         </View>
         {field.hint ? (
-          <Text style={{ fontSize: 12, color: theme.text3, paddingHorizontal: 6, paddingTop: 11, lineHeight: 18 }}>
+          <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
             {field.hint}
           </Text>
         ) : null}

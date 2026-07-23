@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { I18nProvider } from './src/i18n';
 import { AppearanceProvider } from './src/theme/AppearanceContext';
@@ -21,11 +22,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <I18nProvider>
-          <AppearanceProvider>
-            <AppRoot />
-          </AppearanceProvider>
-        </I18nProvider>
+        <KeyboardProvider>
+          <I18nProvider>
+            <AppearanceProvider>
+              <AppRoot />
+            </AppearanceProvider>
+          </I18nProvider>
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

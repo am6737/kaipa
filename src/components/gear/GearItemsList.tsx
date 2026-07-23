@@ -21,6 +21,7 @@ import { Glass } from '../Glass';
 import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
+import { GearDeleteDialog } from './GearDeleteDialog';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
@@ -67,6 +68,7 @@ function GearItemsListView({
   const [sort, setSort] = usePersistedSort(SORT_STORAGE_KEY);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const moreMenuStyle = useAnimatedStyle(() => ({
     height: interpolate(displayProgress.value, [0, 1], [261, 431]),
@@ -178,21 +180,7 @@ function GearItemsListView({
   };
   const confirmDelete = () => {
     if (!selectedIds.size) return;
-    Alert.alert(
-      t('gear.select.deleteTitle'),
-      t('gear.select.deleteMessage', { count: selectedIds.size }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('gear.select.deleteConfirm', { count: selectedIds.size }),
-          style: 'destructive',
-          onPress: () => {
-            onDeleteItems([...selectedIds]);
-            exitSelect();
-          },
-        },
-      ],
-    );
+    setDeleteDialogOpen(true);
   };
 
   return (
@@ -295,6 +283,21 @@ function GearItemsListView({
             onEdit={onEditCategory}
             onDelete={onDeleteCategory}
           />
+
+          <GearDeleteDialog
+            theme={theme}
+            visible={deleteDialogOpen}
+            title={t('gear.select.deleteTitle')}
+            message={t('gear.select.deleteMessage', { count: selectedIds.size })}
+            confirmLabel={t('gear.select.deleteConfirm', { count: selectedIds.size })}
+            cancelLabel={t('common.cancel')}
+            onCancel={() => setDeleteDialogOpen(false)}
+            onConfirm={() => {
+              setDeleteDialogOpen(false);
+              onDeleteItems([...selectedIds]);
+              exitSelect();
+            }}
+          />
         </>
       )}
     >
@@ -380,7 +383,7 @@ function CategoryManager({ theme, visible, categories, items, onClose, onAdd, on
             {categories.map((cat) => {
               const count = counts.get(cat.id) || 0;
               return (
-                <Press key={cat.id} onPress={() => onEdit(cat)} style={{ minHeight: 58, paddingHorizontal: 15, borderRadius: 18, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+                <Press key={cat.id} onPress={() => onEdit(cat)} style={{ minHeight: 58, paddingHorizontal: 15, borderRadius: 18, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
                   <View style={{ width: 11, height: 11, borderRadius: 4, backgroundColor: cat.color }} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text }}>{cat.name}</Text>
@@ -425,8 +428,8 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
     onPress();
   };
   return (
-    <Press onPress={handlePress} onLongPress={handleLongPress} style={{ minHeight: showImage ? 112 : 88, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: showImage ? 15 : 0, backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-      {showImage ? <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+    <Press onPress={handlePress} onLongPress={handleLongPress} style={{ minHeight: showImage ? 112 : 88, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: showImage ? 15 : 0, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      {showImage ? <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
         <Package color={accent} size={25} strokeWidth={1.6} opacity={0.6} />
         {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
       </View> : null}
@@ -459,7 +462,7 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
 
 function SummaryPill({ theme, icon, label, value }: { theme: Theme; icon: 'weight' | 'value'; label: string; value: string }) {
   return (
-    <View style={{ flex: 1, minWidth: 0, height: 82, paddingHorizontal: 17, paddingVertical: 13, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+    <View style={{ flex: 1, minWidth: 0, height: 82, paddingHorizontal: 17, paddingVertical: 13, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         {icon === 'weight' ? <Weight color={theme.text3} size={15} /> : <JapaneseYen color={theme.text3} size={15} />}
         <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{label}</Text>

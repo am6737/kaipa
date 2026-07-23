@@ -19,16 +19,16 @@ import { GearCatEditor } from '../components/gear/GearCatEditor';
 import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
+import { GearOverviewDetail } from '../components/gear/GearOverviewDetail';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import { radius, space, type } from '../design-system';
 
-type GearPage = { type: 'item'; item: GearItem } | { type: 'set'; set: GearSet } | { type: 'setsList' } | { type: 'itemsList' };
+type GearPage = { type: 'item'; item: GearItem } | { type: 'set'; set: GearSet } | { type: 'overview' } | { type: 'setsList' } | { type: 'itemsList' };
 
 // ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
 const fieldBg = (t: Theme) => t.fieldSurface;
 const homePageBg = (t: Theme) => t.groupedBg;
 const homeCardBg = (t: Theme) => t.featureSurface;
-const cardBorder = (t: Theme) => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
 const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
@@ -114,14 +114,6 @@ export function GearScreen({ theme }: { theme: Theme }) {
     nav.showToast(t('gear.toast.itemUpdated'), 'top');
   };
 
-  const updateItemPhotos = (name: string, photos: string[]) => {
-    const current = allItems.find((it) => it.name === name);
-    if (current?.id) data.updateItem(current.id, { photos });
-    setPageStack((stk) =>
-      stk.map((pg) => (pg.type === 'item' && pg.item.name === name ? { type: 'item', item: { ...pg.item, photos } } : pg))
-    );
-  };
-
   const addItem = (ni: GearItem) => {
     data.addItem(ni);
     setItemEditor(null);
@@ -192,6 +184,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
           items={allItems}
           catMap={catMap}
           weightUnit={weightUnit}
+          onOpenOverview={() => pushPage({ type: 'overview' })}
           onOpenSets={() => pushPage({ type: 'setsList' })}
           onOpenItems={() => pushPage({ type: 'itemsList' })}
           onOpenSet={(set) => pushPage({ type: 'set', set })}
@@ -202,20 +195,28 @@ export function GearScreen({ theme }: { theme: Theme }) {
       {/* ── Pushed detail and list pages ── */}
       {pageStack.map((pg, i) => (
         <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
-          {pg.type === 'item' ? (
+          {pg.type === 'overview' ? (
+            <GearOverviewDetail
+              theme={theme}
+              items={allItems}
+              sets={sets}
+              catMap={catMap}
+              weightUnit={weightUnit}
+              onBack={popPage}
+              onOpenItem={(item) => pushPage({ type: 'item', item })}
+            />
+          ) : pg.type === 'item' ? (
             <GearItemDetail
               theme={theme}
               item={pg.item}
               cat={catMap[pg.item.cat] || UNCAT}
-              cats={cats}
               weightUnit={weightUnit}
               allItems={allItems}
               sets={sets}
               onBack={popPage}
               onOpenSet={(s) => pushPage({ type: 'set', set: s })}
+              onEdit={() => setItemEditor({ mode: 'edit', item: pg.item })}
               onDelete={() => deleteItem(pg.item.name)}
-              onPhotosChange={(photos) => updateItemPhotos(pg.item.name, photos)}
-              onInlineChange={(patch) => updateItem(pg.item.name, { ...pg.item, ...patch })}
             />
           ) : pg.type === 'set' ? (
             <GearSetDetail
@@ -326,7 +327,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   );
 }
 
-function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOpenItems, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenSets: () => void; onOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
+function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenSets, onOpenItems, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenSets: () => void; onOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
@@ -334,14 +335,14 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
   return <View style={{ paddingHorizontal: space.xl, paddingTop: insets.top + space.md }}>
     <SectionHeader theme={theme} title={t('gear.home.overview')} first />
-    <Press onPress={onOpenItems} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: radius.feature, padding: 6, backgroundColor: homeCardBg(theme), ...cardBorder(theme) }}>
+    <Press onPress={onOpenOverview} accessibilityRole="button" accessibilityLabel={t('gear.overview.open')} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: radius.feature, padding: 6, backgroundColor: homeCardBg(theme) }}>
       <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
       <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
       <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
       <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuan(totalValue)} />
     </Press>
     <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
-    {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}><View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Weight color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text></View></View><View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${set.items.length}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Package color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text></View></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
+    {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}><View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Weight color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text></View></View><View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${set.items.length}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Package color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text></View></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
     <SectionHeader theme={theme} title={t('gear.home.myGear')} action={t('gear.home.viewAll')} onPress={onOpenItems} />
     <View style={{ gap: 10 }}>
       {recent.length ? recent.map((item) => {
@@ -351,8 +352,8 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
         const weight = fmtWeight(itemWeight(item), weightUnit);
         const value = yuan(itemPrice(item));
         return (
-          <Press key={item.name} onPress={() => onOpenItem(item)} style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 15, backgroundColor: homeCardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-            <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <Press key={item.name} onPress={() => onOpenItem(item)} style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 15, backgroundColor: homeCardBg(theme) }}>
+            <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: fieldBg(theme) }}>
               <Package color={category?.color || theme.text3} size={25} strokeWidth={1.6} opacity={0.6} />
               {photo ? <Image source={{ uri: photo }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
             </View>

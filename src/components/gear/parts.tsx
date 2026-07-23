@@ -32,12 +32,12 @@ export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.ha
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
 export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
-export function GearItemImage({ theme, item, radius = 0, style }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle> }) {
+export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover' }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain' }) {
   const photo = item.photos?.[0];
   return (
     <View style={[{ borderRadius: radius, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }, style]}>
       <Package color={theme.text3} size={24} strokeWidth={1.6} opacity={0.6} />
-      {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={120} style={StyleSheet.absoluteFill} /> : null}
+      {photo ? <Image source={{ uri: photo }} contentFit={contentFit} transition={120} style={StyleSheet.absoluteFill} /> : null}
     </View>
   );
 }

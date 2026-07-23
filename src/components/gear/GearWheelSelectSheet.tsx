@@ -1,0 +1,69 @@
+import React from 'react';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import WheelPicker from '@quidone/react-native-wheel-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Theme } from '../../theme/theme';
+
+export function GearWheelSelectSheet({
+  theme,
+  title,
+  data,
+  value,
+  onClose,
+  onConfirm,
+}: {
+  theme: Theme;
+  title: string;
+  data: { value: string; label: string }[];
+  value: string;
+  onClose: () => void;
+  onConfirm: (value: string) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [selected, setSelected] = React.useState(value);
+
+  React.useEffect(() => {
+    setSelected(value);
+  }, [value]);
+
+  const finish = () => {
+    const next = selected;
+    onClose();
+    requestAnimationFrame(() => onConfirm(next));
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
+        <View style={{ minHeight: 280, backgroundColor: theme.dark ? theme.bg : '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 14, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 12 }}>
+          <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45, marginBottom: 16 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 4 }}>
+            <Pressable onPress={onClose} style={{ padding: 4 }}>
+              <Text style={{ fontSize: 14.5, color: theme.text2 }}>取消</Text>
+            </Pressable>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>{title}</Text>
+            <Pressable onPress={finish} style={{ padding: 4 }}>
+              <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>完成</Text>
+            </Pressable>
+          </View>
+          <View style={{ height: 200, overflow: 'hidden', alignItems: 'center', marginTop: 10, marginBottom: 8 }}>
+            <WheelPicker
+              data={data}
+              value={selected}
+              onValueChanging={() => { Haptics.selectionAsync(); }}
+              onValueChanged={({ item }) => setSelected(String(item.value))}
+              itemHeight={40}
+              visibleItemCount={5}
+              width={220}
+              enableScrollByTapOnItem
+              itemTextStyle={{ fontSize: 18, fontWeight: '500', color: theme.text }}
+              overlayItemStyle={{ backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.045)', borderRadius: 10 }}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}

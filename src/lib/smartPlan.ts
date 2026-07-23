@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import type { Poi } from '../data/pois';
 import type { TLRow } from '../data/timeline';
 
-export type SmartPlanProvider = 'auto' | 'deepseek' | 'openai' | 'anthropic' | 'gemini' | 'openai-compatible';
+export type SmartPlanProvider = 'auto' | 'kaipa-ai' | 'openai-compatible';
 
 export interface SmartPlanPreferences {
   days?: number;

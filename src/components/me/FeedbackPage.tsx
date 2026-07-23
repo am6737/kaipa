@@ -1,11 +1,12 @@
 // FeedbackPage.tsx — 帮助与反馈: category chips + free-text + 提交 in the nav bar.
 // Mirrors the prototype FeedbackPage.
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { useI18n, TKey } from '../../i18n';
 import { MePushPage } from './MePushPage';
 import { Press } from '../Press';
+import { radius, space, type } from '../../design-system';
 
 const CAT_KEYS: TKey[] = [
   'account.feedback.catFeature',
@@ -29,29 +30,34 @@ export function FeedbackPage({
   const canSubmit = val.trim().length > 0;
 
   const submit = (
-    <Press onPress={() => canSubmit && onSubmit()} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
-      <Text style={{ fontSize: 16, fontWeight: '600', color: canSubmit ? theme.accent : theme.text3 }}>{t('account.feedback.submit')}</Text>
+    <Press onPress={() => canSubmit && onSubmit()} scaleTo={1} opacityTo={1} style={{ minWidth: 54, height: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: canSubmit ? theme.accentSoft : theme.fieldSurface, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ fontSize: 13, fontWeight: '700', color: canSubmit ? theme.accent : theme.text3 }}>{t('account.feedback.submit')}</Text>
     </Press>
   );
 
   return (
     <MePushPage theme={theme} title={t('account.feedback.pageTitle')} onBack={onBack} right={submit}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
+        <Text style={[type.eyebrow, { color: theme.text3, marginBottom: space.sm }]}>{t('account.feedback.pageTitle')}</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.md }}>
           {CAT_KEYS.map((ck, i) => {
             const on = cat === i;
             return (
               <Press
                 key={ck}
                 onPress={() => setCat(i)}
+                scaleTo={1}
+                opacityTo={1}
                 style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 7,
-                  borderRadius: 999,
-                  backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                  paddingHorizontal: space.md,
+                  height: 38,
+                  borderRadius: radius.pill,
+                  backgroundColor: on ? theme.accentSoft : theme.fieldSurface,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: '500', color: on ? '#fff' : theme.text2 }}>{t(ck)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? theme.accent : theme.text2 }}>{t(ck)}</Text>
               </Press>
             );
           })}
@@ -64,18 +70,17 @@ export function FeedbackPage({
           multiline
           style={{
             backgroundColor: theme.surfaceTop,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.hairline,
-            borderRadius: 12,
-            paddingHorizontal: 14,
-            paddingVertical: 13,
+            borderWidth: 0,
+            borderRadius: radius.feature,
+            paddingHorizontal: space.md,
+            paddingVertical: space.md,
             fontSize: 15,
             color: theme.text,
-            minHeight: 140,
+            minHeight: 180,
             textAlignVertical: 'top',
           }}
         />
-        <Text style={{ fontSize: 12, color: theme.text3, paddingHorizontal: 6, paddingTop: 11, lineHeight: 18 }}>
+        <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
           {t('account.feedback.helper', { email: 'hi@kaipa.app' })}
         </Text>
       </View>

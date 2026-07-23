@@ -12,6 +12,7 @@ import { useData } from '../../data/DataContext';
 import { MePushPage } from './MePushPage';
 import { MeSection, MeCard, MeRow } from './parts';
 import { MeEditField } from './EditFieldPage';
+import { AppCard, radius, space } from '../../design-system';
 
 export interface MeProfile {
   nick: string;
@@ -58,45 +59,24 @@ export function AccountPage({
 
   return (
     <MePushPage theme={theme} title={t('account.profile.pageTitle')} onBack={onBack}>
-      {/* avatar — tap directly to change */}
-      <View style={{ alignItems: 'center', paddingTop: 4 }}>
-        <Press onPress={avatarSheet}>
-          <View
-            style={{
-              width: 84,
-              height: 84,
-              borderRadius: 42,
-              backgroundColor: theme.dark ? '#1C1C1E' : '#F2F2F4',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {profile.nick ? (
-              <Text style={{ fontSize: 32, fontWeight: '600', color: theme.text }}>{profile.nick.slice(0, 1)}</Text>
-            ) : (
-              <Icon name="user" color={theme.text3} size={32} />
-            )}
-            <View
-              style={{
-                position: 'absolute',
-                right: -2,
-                bottom: -2,
-                width: 28,
-                height: 28,
-                borderRadius: 14,
-                backgroundColor: theme.accent,
-                borderWidth: 2.5,
-                borderColor: theme.bg,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name="camera" color="#fff" size={14} />
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
+        <AppCard theme={theme} radius={radius.feature} style={{ borderWidth: 0, overflow: 'hidden', backgroundColor: theme.featureSurface }}>
+          <View pointerEvents="none" style={{ position: 'absolute', width: 142, height: 142, borderRadius: radius.pill, right: -54, top: -76, backgroundColor: theme.accentSofter }} />
+          <Press onPress={avatarSheet} scaleTo={1} opacityTo={1} style={{ padding: space.lg }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
+                {profile.username || profile.email ? <Text numberOfLines={1} style={{ fontFamily: profile.username ? MONO : undefined, fontSize: 12, color: theme.text2, marginTop: space.xs }}>{profile.username || profile.email}</Text> : null}
+              </View>
+              <View style={{ width: 76, height: 76, borderRadius: radius.pill, backgroundColor: theme.accentSofter, alignItems: 'center', justifyContent: 'center' }}>
+                {profile.nick ? <Text style={{ fontSize: 28, fontWeight: '800', color: theme.accent }}>{profile.nick.slice(0, 1)}</Text> : <Icon name="user" color={theme.accent} size={30} />}
+                <View style={{ position: 'absolute', right: -1, bottom: -1, width: 28, height: 28, borderRadius: radius.pill, backgroundColor: theme.accent, borderWidth: 2.5, borderColor: theme.featureSurface, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="camera" color="#fff" size={14} />
+                </View>
+              </View>
             </View>
-          </View>
-        </Press>
-        <Text style={{ fontSize: 17, fontWeight: '600', color: theme.text, marginTop: 14 }}>{profile.nick || t('me.unnamed')}</Text>
-        {profile.username ? <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 3 }}>@{profile.username}</Text> : null}
+          </Press>
+        </AppCard>
       </View>
 
       <MeSection theme={theme} title={t('account.profile.sectionProfile')}>
@@ -110,7 +90,7 @@ export function AccountPage({
           <MeRow
             theme={theme}
             label={t('account.profile.username')}
-            detail={profile.username ? `@${profile.username}` : undefined}
+            detail={profile.username || undefined}
             onPress={() =>
               onEdit({ label: t('account.profile.username'), key: 'username', value: profile.username, placeholder: t('account.profile.usernamePlaceholder'), hint: t('account.profile.usernameHint') })
             }
@@ -156,8 +136,8 @@ export function AccountPage({
         </MeCard>
       </MeSection>
 
-      <View style={{ paddingHorizontal: 16, marginTop: 28 }}>
-        <MeCard theme={theme}>
+      <View style={{ paddingHorizontal: space.xl, marginTop: space.xxl }}>
+        <MeCard theme={theme} style={{ backgroundColor: theme.dangerSoft }}>
           <MeRow theme={theme} label={t('account.delete.row')} danger onPress={deleteSheet} last />
         </MeCard>
       </View>
@@ -170,7 +150,7 @@ export function AccountPage({
           textAlign: 'center',
           letterSpacing: 0.3,
           lineHeight: 18,
-          marginTop: 32,
+          marginTop: space.xxl,
         }}
       >
         UID {uid.slice(0, 8)}{'\n'}{t('account.profile.joinedAt', { date: createdAt ? new Date(createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, ' · ') : '—' })}

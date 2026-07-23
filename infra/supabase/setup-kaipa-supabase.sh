@@ -142,6 +142,39 @@ repls={
 for a,b in repls.items(): s=s.replace(a,b)
 compose.write_text(s)
 
+# AI and product-link preview credentials are server-only. Keep the values in
+# the generated runtime .env and expose only these names to the Edge Runtime.
+s=compose.read_text()
+ai_env='''      # smart-plan：统一大模型服务端凭证
+      KAIPA_AI_API_KEY: "${KAIPA_AI_API_KEY:-}"
+'''
+gear_env='''      # gear-link-preview：淘宝/天猫、京东开放平台服务端凭证
+      TAOBAO_APP_KEY: "${TAOBAO_APP_KEY:-}"
+      TAOBAO_APP_SECRET: "${TAOBAO_APP_SECRET:-}"
+      TAOBAO_ADZONE_ID: "${TAOBAO_ADZONE_ID:-}"
+      TAOBAO_SESSION: "${TAOBAO_SESSION:-}"
+      TAOBAO_API_METHOD: "${TAOBAO_API_METHOD:-}"
+      TAOBAO_MATERIAL_SEARCH_METHOD: "${TAOBAO_MATERIAL_SEARCH_METHOD:-}"
+      TAOBAO_MATERIAL_ID: "${TAOBAO_MATERIAL_ID:-}"
+      TAOBAO_BIZ_SCENE_ID: "${TAOBAO_BIZ_SCENE_ID:-}"
+      JD_APP_KEY: "${JD_APP_KEY:-}"
+      JD_APP_SECRET: "${JD_APP_SECRET:-}"
+      JD_ACCESS_TOKEN: "${JD_ACCESS_TOKEN:-}"
+      JD_API_METHOD: "${JD_API_METHOD:-}"
+      GEAR_LINK_ALLOWED_HOSTS: "${GEAR_LINK_ALLOWED_HOSTS:-}"
+'''
+if 'KAIPA_AI_API_KEY:' not in s or 'TAOBAO_APP_KEY:' not in s:
+    marker='      SMART_PLAN_DEFAULT_PROVIDER: "${SMART_PLAN_DEFAULT_PROVIDER:-}"\n'
+    if marker not in s:
+        raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
+    missing=''
+    if 'KAIPA_AI_API_KEY:' not in s:
+        missing+=ai_env
+    if 'TAOBAO_APP_KEY:' not in s:
+        missing+=gear_env
+    s=s.replace(marker, marker+missing, 1)
+    compose.write_text(s)
+
 def b64url(data: bytes): return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
 def jwt(role: str, secret: str):
     header={'alg':'HS256','typ':'JWT'}

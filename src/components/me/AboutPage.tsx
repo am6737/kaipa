@@ -8,6 +8,7 @@ import { rgba } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { MePushPage } from './MePushPage';
 import { MeCard, MeRow } from './parts';
+import { radius, space, type } from '../../design-system';
 
 export function AboutPage({
   theme,
@@ -21,8 +22,8 @@ export function AboutPage({
   const { t } = useI18n();
   return (
     <MePushPage theme={theme} title={t('account.about.pageTitle')} onBack={onBack}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 22 }}>
-        <View style={{ alignItems: 'center', marginBottom: 26 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.md }}>
+        <View style={{ alignItems: 'center', marginBottom: space.xxl }}>
           <LinearGradient
             colors={[theme.accent, rgba(theme.accent, 0.67)]}
             start={{ x: 0, y: 0 }}
@@ -30,16 +31,15 @@ export function AboutPage({
             style={{
               width: 76,
               height: 76,
-              borderRadius: 18,
+              borderRadius: radius.card,
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0px 10px 13px rgba(0,0,0,0.22)',
             }}
           >
             <Text style={{ fontSize: 38, fontWeight: '700', color: '#fff' }}>开</Text>
           </LinearGradient>
-          <Text style={{ fontSize: 19, fontWeight: '700', color: theme.text, marginTop: 14 }}>kaipa</Text>
-          <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: 4 }}>v1.0.2 (220)</Text>
+          <Text style={[type.sectionTitle, { color: theme.text, marginTop: space.md }]}>kaipa</Text>
+          <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: space.xxs }}>v1.0.2 (220)</Text>
         </View>
         <MeCard theme={theme}>
           <MeRow theme={theme} label={t('account.about.terms')} onPress={() => showToast(t('account.about.toastTermsOpened'))} />
@@ -53,7 +53,7 @@ export function AboutPage({
             color: theme.text3,
             textAlign: 'center',
             letterSpacing: 0.3,
-            marginTop: 24,
+            marginTop: space.xl,
           }}
         >
           {t('account.about.copyright', { year: '2026' })}

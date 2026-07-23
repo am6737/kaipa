@@ -154,29 +154,11 @@ type ProviderConfig = {
 type ProviderRegistry = Record<string, ProviderConfig>;
 
 const PRESET_PROVIDERS: ProviderRegistry = {
-  deepseek: {
+  'kaipa-ai': {
     kind: 'openai-chat',
-    baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
-    apiKeyEnv: 'DEEPSEEK_API_KEY',
-  },
-  openai: {
-    kind: 'openai-responses',
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4.1-mini',
-    apiKeyEnv: 'OPENAI_API_KEY',
-  },
-  anthropic: {
-    kind: 'anthropic',
-    baseUrl: 'https://api.anthropic.com',
-    model: 'claude-haiku-4-5',
-    apiKeyEnv: 'ANTHROPIC_API_KEY',
-  },
-  gemini: {
-    kind: 'gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    model: 'gemini-2.5-flash',
-    apiKeyEnv: 'GEMINI_API_KEY',
+    baseUrl: 'https://ai.dootask.com/v1',
+    model: 'gpt-5.6-sol',
+    apiKeyEnv: 'KAIPA_AI_API_KEY',
   },
 };
 
@@ -233,7 +215,7 @@ function resolveProvider(id: Provider | undefined): { id: string; cfg?: Provider
   if (firstConfigured) return { id: firstConfigured, cfg: registry[firstConfigured] };
   // Nothing is configured — return a default so callConfiguredProvider emits the
   // "key missing" template fallback with a helpful warning.
-  const defaultId = preferred || 'deepseek';
+  const defaultId = preferred || 'kaipa-ai';
   return { id: defaultId, cfg: registry[defaultId] };
 }
 

@@ -1,13 +1,10 @@
-// parts.tsx — shared primitives for the 我 (Me) screen and its pushed sub-pages.
-// Ported from the prototype's MeSection / MeCard / MeRow / SwitchRow / ColorDot
-// so every 我 surface (main screen, 账户与登录, 通知, 关于 …) shares one look:
-// uppercase section labels, frosted soft-shadow cards, hairline-divided rows.
+// Shared settings primitives used by the pushed pages under 设置.
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle, StyleProp } from 'react-native';
+import { View, Text, StyleSheet, Switch, ViewStyle, StyleProp } from 'react-native';
 import { Theme } from '../../theme/theme';
-import { elevCard } from '../../theme/shadow';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
+import { layout, radius, space, type } from '../../design-system';
 
 export function MeSection({
   theme,
@@ -21,24 +18,21 @@ export function MeSection({
   children: React.ReactNode;
 }) {
   return (
-    <View style={{ marginTop: first ? 22 : 28 }}>
+    <View style={{ marginTop: first ? space.lg : layout.sectionGap }}>
       {title ? (
         <Text
           style={{
-            fontSize: 11,
-            fontWeight: '600',
-            color: theme.text2,
-            letterSpacing: 1,
+            ...type.eyebrow,
+            color: theme.text3,
             textTransform: 'uppercase',
-            paddingLeft: 22,
-            paddingRight: 22,
-            marginBottom: 8,
+            paddingHorizontal: space.xl,
+            marginBottom: space.xs,
           }}
         >
           {title}
         </Text>
       ) : null}
-      <View style={{ paddingHorizontal: 16 }}>{children}</View>
+      <View style={{ paddingHorizontal: space.xl }}>{children}</View>
     </View>
   );
 }
@@ -63,16 +57,14 @@ export function MeCard({
     <View
       style={[
         {
-          borderRadius: 16,
-          backgroundColor: theme.dark ? theme.surfaceTop : '#FFFFFF',
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
+          borderRadius: radius.feature,
+          backgroundColor: theme.surfaceTop,
+          borderWidth: 0,
         },
-        elevCard(theme),
         style,
       ]}
     >
-      <View style={{ borderRadius: 16, overflow: clip ? 'hidden' : 'visible' }}>{children}</View>
+      <View style={{ borderRadius: radius.feature, overflow: clip ? 'hidden' : 'visible' }}>{children}</View>
     </View>
   );
 }
@@ -101,21 +93,19 @@ export function MeRow({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: leading ? 12 : 0,
-        paddingHorizontal: 14,
-        minHeight: 56,
-        paddingVertical: 14,
-        borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
+        gap: leading ? space.md : 0,
+        paddingHorizontal: space.md,
+        minHeight: 78,
+        paddingVertical: space.md,
       }}
     >
       {leading}
       <Text
         style={{
           flex: 1,
-          fontSize: 16,
+          ...type.cardTitle,
           color: danger ? theme.danger : theme.text,
-          fontWeight: danger ? '600' : '400',
+          fontWeight: danger ? '700' : type.cardTitle.fontWeight,
           textAlign: danger ? 'center' : 'left',
         }}
       >
@@ -123,7 +113,7 @@ export function MeRow({
       </Text>
       {detailLeading}
       {detail ? (
-        <Text style={{ fontSize: 15, color: theme.text2, marginRight: onPress && !danger ? 6 : 0 }} numberOfLines={1}>
+        <Text style={[type.caption, { color: theme.text2, marginRight: onPress && !danger ? space.xxs : 0 }]} numberOfLines={1}>
           {detail}
         </Text>
       ) : null}
@@ -131,34 +121,7 @@ export function MeRow({
     </View>
   );
   if (!onPress) return body;
-  return <Press onPress={onPress}>{body}</Press>;
-}
-
-// iOS-style toggle.
-export function MeSwitch({ theme, on }: { theme: Theme; on: boolean }) {
-  return (
-    <View
-      style={{
-        width: 44,
-        height: 27,
-        borderRadius: 14,
-        backgroundColor: on ? '#34C759' : theme.dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)',
-      }}
-    >
-      <View
-        style={{
-          position: 'absolute',
-          top: 2.5,
-          left: on ? 19.5 : 2.5,
-          width: 22,
-          height: 22,
-          borderRadius: 11,
-          backgroundColor: '#fff',
-          boxShadow: '0px 1px 2.5px rgba(0,0,0,0.25)',
-        }}
-      />
-    </View>
-  );
+  return <Press onPress={onPress} scaleTo={1} opacityTo={1}>{body}</Press>;
 }
 
 export function SwitchRow({
@@ -177,26 +140,30 @@ export function SwitchRow({
   last?: boolean;
 }) {
   return (
-    <Press onPress={() => onChange(!value)}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          paddingHorizontal: 14,
-          minHeight: 56,
-          paddingVertical: 14,
-          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          borderColor: theme.hairline,
-        }}
-      >
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
+        paddingHorizontal: space.md,
+        minHeight: 78,
+        paddingVertical: space.md,
+      }}
+    >
+      <Press onPress={() => onChange(!value)} scaleTo={1} opacityTo={1} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 16, color: theme.text }}>{label}</Text>
-          {sub ? <Text style={{ fontSize: 12, color: theme.text2, marginTop: 2 }}>{sub}</Text> : null}
+          <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
+          {sub ? <Text style={[type.caption, { color: theme.text2, lineHeight: 17, marginTop: space.xxs }]}>{sub}</Text> : null}
         </View>
-        <MeSwitch theme={theme} on={value} />
-      </View>
-    </Press>
+      </Press>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: theme.progressTrack, true: theme.accent }}
+        thumbColor="#FFFFFF"
+        ios_backgroundColor={theme.progressTrack}
+      />
+    </View>
   );
 }
 
