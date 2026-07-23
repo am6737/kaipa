@@ -32,10 +32,10 @@ export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.ha
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
 export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
-export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover' }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain' }) {
+export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover', borderless = false }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain'; borderless?: boolean }) {
   const photo = item.photos?.[0];
   return (
-    <View style={[{ borderRadius: radius, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }, style]}>
+    <View style={[{ borderRadius: radius, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: borderless ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }, style]}>
       <Package color={theme.text3} size={24} strokeWidth={1.6} opacity={0.6} />
       {photo ? <Image source={{ uri: photo }} contentFit={contentFit} transition={120} style={StyleSheet.absoluteFill} /> : null}
     </View>
@@ -69,9 +69,10 @@ type GearItemRowProps = {
   showValue?: boolean;
   imageSize?: number;
   card?: boolean;
+  borderlessImage?: boolean;
 };
 
-export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38, card = false }: GearItemRowProps) {
+export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38, card = false, borderlessImage = false }: GearItemRowProps) {
   const qty = item.qty || 1;
   const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join(' · ');
   const rowGap = 12;
@@ -79,7 +80,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
   if (card) {
     return (
       <Press onPress={onPress} style={{ minHeight: showImage ? imageSize + 28 : 88, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(10, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
+        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(10, Math.round(imageSize * 0.24))} borderless={borderlessImage} style={{ width: imageSize, height: imageSize }} /> : null}
         <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
           <Text numberOfLines={2} style={{ fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 }}>
@@ -107,7 +108,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
   return (
     <>
       <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: rowGap, paddingVertical: 10, paddingHorizontal: rowPaddingX }}>
-        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(9, Math.round(imageSize * 0.24))} style={{ width: imageSize, height: imageSize }} /> : null}
+        {showImage ? <GearItemImage theme={theme} item={item} radius={Math.max(9, Math.round(imageSize * 0.24))} borderless={borderlessImage} style={{ width: imageSize, height: imageSize }} /> : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>

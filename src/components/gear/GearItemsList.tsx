@@ -26,6 +26,10 @@ import { GearDeleteDialog } from './GearDeleteDialog';
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
 type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
+type GearPickerConfig = {
+  selectedNames: Set<string>;
+  onDone: (selectedNames: Set<string>) => void;
+};
 
 function GearItemsListView({
   theme,
@@ -39,6 +43,7 @@ function GearItemsListView({
   onEditCategory,
   onDeleteCategory,
   onDeleteItems,
+  picker,
 }: {
   theme: Theme;
   items: GearItem[];
@@ -51,6 +56,7 @@ function GearItemsListView({
   onEditCategory: (cat: GearCat) => void;
   onDeleteCategory: (cat: GearCat) => void;
   onDeleteItems: (ids: number[]) => void;
+  picker?: GearPickerConfig;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -69,6 +75,9 @@ function GearItemsListView({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const pickerMode = !!picker;
+  const effectiveSelectMode = pickerMode || selectMode;
+  const [pickerSelectedNames, setPickerSelectedNames] = useState<Set<string>>(() => new Set(picker?.selectedNames || []));
 
   const moreMenuStyle = useAnimatedStyle(() => ({
     height: interpolate(displayProgress.value, [0, 1], [261, 431]),
@@ -127,7 +136,10 @@ function GearItemsListView({
   const totalWeight = items.reduce((sum, item) => sum + itemWeight(item), 0);
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
   const selectableIds = rows.map((item) => item.id).filter((id): id is number => id != null);
-  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const selectableNames = rows.map((item) => item.name);
+  const allSelected = picker
+    ? selectableNames.length > 0 && selectableNames.every((name) => pickerSelectedNames.has(name))
+    : selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
   const sortLabel = sort === 'created'
     ? t('gear.itemList.created')
     : sort === 'weight'
@@ -169,7 +181,29 @@ function GearItemsListView({
       return next;
     });
   };
-  const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
+  const toggleAll = () => {
+    if (picker) {
+      setPickerSelectedNames((current) => {
+        const next = new Set(current);
+        selectableNames.forEach((name) => allSelected ? next.delete(name) : next.add(name));
+        return next;
+      });
+      return;
+    }
+    setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
+  };
+  const togglePickerItem = (itemName: string) => {
+    if (!picker) return;
+    setPickerSelectedNames((current) => {
+      const next = new Set(current);
+      if (next.has(itemName)) next.delete(itemName);
+      else next.add(itemName);
+      return next;
+    });
+  };
+  const finishPicker = () => {
+    if (picker) picker.onDone(new Set(pickerSelectedNames));
+  };
   const beginSelect = () => {
     setSelectedIds(new Set());
     setSelectMode(true);
@@ -186,11 +220,27 @@ function GearItemsListView({
   return (
     <DetailPage
       theme={theme}
-      onBack={selectMode ? exitSelect : onBack}
+      onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
       backgroundColor={theme.groupedBg}
       flatChrome
       onContentTouchStart={searchOpen ? closeSearch : undefined}
-      right={selectMode ? (
+      right={pickerMode ? (
+        <AppHeaderSearch
+          theme={theme}
+          open={searchOpen}
+          value={query}
+          placeholder={t('gear.search.items')}
+          onChangeText={setQuery}
+          onClose={closeSearch}
+          actions={(
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <AppIconButton theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+            </View>
+          )}
+        />
+      ) : selectMode ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
           <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
@@ -216,7 +266,15 @@ function GearItemsListView({
         <>
           <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'space-between' }}>
-              {selectMode ? (
+              {picker ? (
+                <View style={{ flex: 1, flexDirection: 'row', gap: 12 }}>
+                  <BottomControl theme={theme} icon="arrowDown" label={sortLabel} onPress={() => setSortOpen(true)} minWidth={122} />
+                  <Press onPress={finishPicker} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.accent }}>
+                    <Icon name="check" color="#FFFFFF" size={18} strokeWidth={2.4} />
+                    <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.setEditor.pickerDone', { count: pickerSelectedNames.size })}</Text>
+                  </Press>
+                </View>
+              ) : selectMode ? (
                 <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? '#2C2C2E' : '#FFFFFF') }}>
                   <Text style={{ fontSize: 16, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>{selectedIds.size ? t('gear.select.deleteConfirm', { count: selectedIds.size }) : t('gear.select.deletePrompt')}</Text>
                 </Press>
@@ -304,7 +362,7 @@ function GearItemsListView({
       <View style={{ paddingHorizontal: 24 }}>
         <View style={{ marginTop: 10, marginBottom: 22 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>{selectMode ? t('gear.select.title', { count: selectedIds.size }) : t('gear.home.myGear')}</Text>
+              <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>{picker ? t('gear.setEditor.itemsTitle') : selectMode ? t('gear.select.title', { count: selectedIds.size }) : t('gear.home.myGear')}</Text>
               <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text3 }}>{items.length} {t('gear.unit.items')}</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
@@ -322,13 +380,13 @@ function GearItemsListView({
                 item={item}
                 cat={catMap[item.cat]}
                 weightUnit={weightUnit}
-                selectMode={selectMode}
-                selected={item.id != null && selectedIds.has(item.id)}
+                selectMode={effectiveSelectMode}
+                selected={picker ? pickerSelectedNames.has(item.name) : item.id != null && selectedIds.has(item.id)}
                 showImage={displaySettings.images}
                 showWeight={displaySettings.weight}
                 showValue={displaySettings.value}
-                onPress={() => item.id != null && selectMode ? toggleSelected(item.id) : onOpenItem(item)}
-                onLongPress={item.id != null ? () => enterSelect(item.id!) : undefined}
+                onPress={() => picker ? togglePickerItem(item.name) : item.id != null && selectMode ? toggleSelected(item.id) : onOpenItem(item)}
+                onLongPress={!picker && item.id != null ? () => enterSelect(item.id!) : undefined}
               />
             ))}
           </View>
@@ -348,6 +406,8 @@ export const GearItemsList = React.memo(GearItemsListView, (previous, next) => (
   && previous.items === next.items
   && previous.catMap === next.catMap
   && previous.weightUnit === next.weightUnit
+  && previous.picker?.selectedNames === next.picker?.selectedNames
+  && previous.picker?.onDone === next.picker?.onDone
 ));
 
 function CategoryManager({ theme, visible, categories, items, onClose, onAdd, onEdit, onDelete }: { theme: Theme; visible: boolean; categories: GearCat[]; items: GearItem[]; onClose: () => void; onAdd: () => void; onEdit: (cat: GearCat) => void; onDelete: (cat: GearCat) => void }) {

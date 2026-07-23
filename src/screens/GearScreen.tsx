@@ -279,7 +279,6 @@ export function GearScreen({ theme }: { theme: Theme }) {
             weightUnit={weightUnit}
             mode={setEditor.mode}
             initial={setEditor.set}
-            cats={cats}
             allItems={allItems}
             catMap={catMap}
             onCancel={() => setSetEditor(null)}

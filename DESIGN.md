@@ -58,6 +58,8 @@ Prefer open sections and unboxed lists. Use cards to frame meaningful repeated g
 - Weight, distance, money, duration, quantity, coordinates, and percentages should use the shared metric/monospace language where practical.
 - Text must wrap, shrink, or truncate deliberately inside its parent; it must not overlap adjacent content.
 - Do not introduce a new font scale in an individual screen when an existing role fits.
+- Do not use middle dots (`·`), bullets, slashes, or similar punctuation as the default separator between independent metadata values. Prefer distinct icon-value groups, spacing, labels, rows, columns, or wrapping to express structure.
+- Punctuation separators are acceptable only when they are part of natural language, a conventional data format, legal/brand copy, or another deliberate textual expression. Do not copy legacy middle-dot metadata patterns into new or redesigned UI; migrate them when that UI is touched.
 
 ## Surfaces and Color
 

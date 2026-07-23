@@ -1,27 +1,35 @@
-// GearSetEditor.tsx — 新建 / 编辑清单. A bottom sheet (reusing NJBottomSheet) that
-// names a packing set and picks its gear: a fixed header (取消 / 标题 / 保存, name
-// field, search + 已选 count) over a scrollable gear list grouped by category, each
-// group with a 全选 / 取消全选 shortcut and per-row checkboxes. Mirrors the
-// prototype's GxSetEditorSheet; saving hands back (name, itemNames) to GearScreen.
-import React, { useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+// GearSetEditor.tsx — 新建 / 编辑清单的全屏表单。
+// 延续新版清单列表与详情页的浮动导航、克制表面和开放式分组节奏。
+import React, { useMemo, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Info, JapaneseYen, Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { NJBottomSheet } from '../overlays/NewJourneySheet';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet, GearSetOverride, GEAR_STATUS, GearCarryStatus, WeightUnit } from '../../data/gear';
-import { GearItemImage, yuan, fmtKg } from './parts';
-
-const fieldBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)');
+import {
+  GearItem,
+  GearCat,
+  GearSet,
+  GearSetOverride,
+  GEAR_STATUS,
+  GearCarryStatus,
+  WeightUnit,
+  fmtWeight,
+  itemWeight,
+  packStats,
+} from '../../data/gear';
+import { GearItemImage, yuan } from './parts';
+import { GearItemsList } from './GearItemsList';
+import { AppCard, AppSectionHeader, DetailPage, layout, radius, space, type } from '../../design-system';
 
 export function GearSetEditor({
   theme,
   mode,
   weightUnit = 'kg',
   initial,
-  cats,
   allItems,
   catMap,
   onCancel,
@@ -31,176 +39,357 @@ export function GearSetEditor({
   mode: 'new' | 'edit';
   weightUnit?: WeightUnit;
   initial?: GearSet | null;
-  cats: GearCat[];
   allItems: GearItem[];
   catMap: Record<string, GearCat>;
   onCancel: () => void;
   onSave: (name: string, items: string[], overrides: Record<string, GearSetOverride>) => void;
 }) {
   const { t } = useI18n();
-  const { height: winH } = useWindowDimensions();
-  const [name, setName] = useState(initial ? initial.name : '');
-  const [sel, setSel] = useState<Set<string>>(() => new Set(initial ? initial.items : []));
+  const insets = useSafeAreaInsets();
+  const [name, setName] = useState(initial?.name || '');
+  const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set(initial?.items || []));
   const [overrides, setOverrides] = useState<Record<string, GearSetOverride>>(() => {
-    const out: Record<string, GearSetOverride> = {};
-    (initial?.items || []).forEach((name) => {
-      const it = allItems.find((x) => x.name === name);
-      const source = (it?.id != null ? initial?.overrides?.[String(it.id)] : undefined) || initial?.overrides?.[name];
-      if (source) out[it?.id != null ? String(it.id) : name] = source;
+    const next: Record<string, GearSetOverride> = {};
+    (initial?.items || []).forEach((itemName) => {
+      const item = allItems.find((candidate) => candidate.name === itemName);
+      const source = (item?.id != null ? initial?.overrides?.[String(item.id)] : undefined) || initial?.overrides?.[itemName];
+      if (source) next[item?.id != null ? String(item.id) : itemName] = source;
     });
-    return out;
+    return next;
   });
-  const [q, setQ] = useState('');
-  const qq = q.trim();
-  const valid = name.trim().length > 0 && sel.size > 0;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [weightInfo, setWeightInfo] = useState<'base' | 'pack' | 'skinOut' | null>(null);
 
-  const toggle = (n: string) =>
-    setSel((s) => {
-      const x = new Set(s);
-      x.has(n) ? x.delete(n) : x.add(n);
-      return x;
+  const keyFor = (item: GearItem) => item.id != null ? String(item.id) : item.name;
+  const getOverride = (item: GearItem) => overrides[keyFor(item)] || {};
+  const applyOverride = (item: GearItem): GearItem => ({ ...item, ...getOverride(item) });
+  const patchOverride = (item: GearItem, patch: GearSetOverride) => {
+    const key = keyFor(item);
+    setOverrides((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
+  };
+
+  const selectedItems = useMemo(
+    () => allItems.filter((item) => selectedNames.has(item.name)).map(applyOverride),
+    [allItems, overrides, selectedNames],
+  );
+  const selectedPack = packStats(selectedItems);
+  const selectedGroups = useMemo(() => {
+    const byCategory: Record<string, GearItem[]> = {};
+    selectedItems.forEach((item) => { (byCategory[item.cat] = byCategory[item.cat] || []).push(item); });
+    const ids = [...Object.keys(catMap), ...Object.keys(byCategory)]
+      .filter((id, index, values) => values.indexOf(id) === index && byCategory[id]);
+    return ids.map((id) => ({
+      category: catMap[id] || { id, name: t('gear.uncategorized'), color: theme.text3, builtin: true },
+      items: byCategory[id],
+      weight: byCategory[id].reduce((sum, item) => sum + itemWeight(item), 0),
+    }));
+  }, [catMap, selectedItems, t, theme.text3]);
+  const trimmedName = name.trim();
+  const valid = trimmedName.length > 0 && selectedNames.size > 0;
+
+  const removeItem = (itemName: string) => {
+    setSelectedNames((current) => {
+      const next = new Set(current);
+      next.delete(itemName);
+      return next;
     });
-  const toggleCat = (names: string[]) =>
-    setSel((s) => {
-      const x = new Set(s);
-      const all = names.every((n) => x.has(n));
-      names.forEach((n) => (all ? x.delete(n) : x.add(n)));
-      return x;
-    });
-  const save = () => {
+  };
+  const submit = () => {
     if (!valid) return;
-    const selected = allItems.filter((it) => sel.has(it.name));
     const cleanOverrides: Record<string, GearSetOverride> = {};
-    selected.forEach((it) => {
-      const key = it.id != null ? String(it.id) : it.name;
+    allItems.filter((item) => selectedNames.has(item.name)).forEach((item) => {
+      const key = keyFor(item);
       if (overrides[key]) cleanOverrides[key] = overrides[key];
     });
-    onSave(name.trim(), selected.map((it) => it.name), cleanOverrides);
+    onSave(trimmedName, allItems.filter((item) => selectedNames.has(item.name)).map((item) => item.name), cleanOverrides);
   };
 
-  // Group items by category, honoring the category list's order; filter by query.
-  const byCat: Record<string, GearItem[]> = {};
-  allItems.forEach((it) => {
-    if (!qq || it.name.includes(qq)) (byCat[it.cat] = byCat[it.cat] || []).push(it);
-  });
-  const order = [...cats.map((c) => c.id), ...Object.keys(byCat)].filter((id, i, a) => a.indexOf(id) === i && byCat[id]);
-
-  const keyFor = (it: GearItem) => it.id != null ? String(it.id) : it.name;
-  const getOverride = (it: GearItem) => overrides[keyFor(it)] || {};
-  const patchOverride = (it: GearItem, patch: GearSetOverride) => {
-    const key = keyFor(it);
-    setOverrides((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-  };
-  const cycleStatus = (it: GearItem) => {
-    const current = getOverride(it).status || it.status || 'packed';
-    const idx = GEAR_STATUS.findIndex((s) => s.id === current);
-    patchOverride(it, { status: GEAR_STATUS[(idx + 1) % GEAR_STATUS.length].id as GearCarryStatus });
-  };
+  const pickerPage = pickerOpen ? (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
+      <GearItemsList
+        theme={theme}
+        items={allItems}
+        catMap={catMap}
+        weightUnit={weightUnit}
+        onBack={() => setPickerOpen(false)}
+        onOpenItem={() => {}}
+        onAdd={() => {}}
+        onAddCategory={() => {}}
+        onEditCategory={() => {}}
+        onDeleteCategory={() => {}}
+        onDeleteItems={() => {}}
+        picker={{
+          selectedNames,
+          onDone: (nextSelectedNames) => {
+            setSelectedNames(nextSelectedNames);
+            setPickerOpen(false);
+          },
+        }}
+      />
+    </View>
+  ) : null;
 
   return (
-    <NJBottomSheet theme={theme} onClose={onCancel} full bodyScrolls>
-      {/* fixed header */}
-      <View style={{ paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Press onPress={onCancel} hitSlop={8} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
-          </Press>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{mode === 'edit' ? t('gear.setEditor.titleEdit') : t('gear.setEditor.titleNew')}</Text>
-          <Press onPress={save} disabled={!valid} hitSlop={8} style={{ padding: 4 }}>
-            <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>{t('common.save')}</Text>
-          </Press>
-        </View>
-
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder={t('gear.setEditor.namePlaceholder')}
-          placeholderTextColor={theme.text3}
-          maxLength={24}
-          style={{
-            marginTop: 14,
-            paddingHorizontal: 14,
-            height: 44,
-            borderRadius: 12,
-            backgroundColor: fieldBg(theme),
-            fontSize: 15.5,
-            fontWeight: '600',
-            color: theme.text,
-          }}
-        />
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 }}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, height: 40, borderRadius: 11, backgroundColor: fieldBg(theme) }}>
-            <Icon name="search" color={theme.text2} size={16} />
-            <TextInput value={q} onChangeText={setQ} placeholder={t('gear.search.items')} placeholderTextColor={theme.text3} style={{ flex: 1, fontSize: 15, color: theme.text, padding: 0 }} />
-            {q ? (
-              <Press onPress={() => setQ('')} style={{ padding: 2 }}>
-                <Icon name="close" color={theme.text2} size={14} />
-              </Press>
+    <View style={{ flex: 1 }}>
+      <DetailPage
+      theme={theme}
+      title={mode === 'edit' ? t('gear.setEditor.titleEdit') : t('gear.setEditor.titleNew')}
+      onBack={onCancel}
+      backgroundColor={theme.groupedBg}
+      flatChrome
+      overlay={(
+        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingBottom: Math.max(insets.bottom, space.sm) + space.xxs }}>
+            {!valid ? (
+              <Text style={{ marginBottom: space.xs, textAlign: 'center', fontSize: 11.5, color: theme.text3 }}>
+                {trimmedName ? t('gear.setEditor.selectionRequired') : t('gear.setEditor.nameRequired')}
+              </Text>
             ) : null}
+            <Press
+              onPress={submit}
+              disabled={!valid}
+              style={{ height: 54, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: valid ? theme.accent : theme.controlSurface, borderWidth: valid ? 0 : StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+            >
+              <Icon name="check" color={valid ? '#FFFFFF' : theme.text3} size={18} strokeWidth={2.3} />
+              <Text style={{ fontSize: 16, fontWeight: '800', color: valid ? '#FFFFFF' : theme.text3 }}>
+                {mode === 'edit' ? t('gear.setEditor.saveChanges') : t('gear.setEditor.createSet')}
+              </Text>
+            </Press>
           </View>
-          <Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text2 }}>{t('gear.setEditor.selectedCount', { count: sel.size })}</Text>
         </View>
-      </View>
+      )}
+    >
+      <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs }}>
+        <AppSectionHeader theme={theme} text={t('gear.setEditor.nameLabel')} marginTop={space.sm} />
+        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder={t('gear.setEditor.namePlaceholder')}
+            placeholderTextColor={theme.text3}
+            maxLength={24}
+            returnKeyType="done"
+            style={{ minHeight: 34, padding: 0, fontSize: 19, lineHeight: 26, fontWeight: '800', letterSpacing: -0.35, color: theme.text }}
+          />
+          <Text style={{ marginTop: space.xs, fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{name.length}/24</Text>
+        </AppCard>
 
-      {/* scrolling gear list */}
-      <ScrollView style={{ maxHeight: winH * 0.5 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        {order.length === 0 ? (
-          <Text style={{ paddingVertical: 40, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{t('gear.empty.noItems')}</Text>
-        ) : (
-          order.map((id) => {
-            const cat = catMap[id] || { id, name: t('gear.uncategorized'), color: theme.text3, builtin: true };
-            const its = byCat[id];
-            const names = its.map((it) => it.name);
-            const allOn = names.every((n) => sel.has(n));
-            return (
-              <View key={id} style={{ marginBottom: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 7, paddingHorizontal: 2 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: cat.color }} />
-                  <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: theme.text2 }}>{cat.name}</Text>
-                  <Press onPress={() => toggleCat(names)} hitSlop={6}>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: theme.accent }}>{allOn ? t('gear.setEditor.deselectAll') : t('gear.setEditor.selectAll')}</Text>
-                  </Press>
-                </View>
-                <View style={{ backgroundColor: theme.surfaceTop, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, overflow: 'hidden' }}>
-                  {its.map((it, i) => {
-                    const on = sel.has(it.name);
+        <View style={{ marginTop: space.sm, flexDirection: 'row', gap: space.xs }}>
+          <SummaryTile theme={theme} icon={<Weight color={theme.text2} size={16} strokeWidth={1.8} />} label={t('gear.pack.base')} value={fmtWeight(selectedPack.base, weightUnit, true)} onPress={() => setWeightInfo('base')} />
+          <SummaryTile theme={theme} icon={<Package color={theme.text2} size={16} strokeWidth={1.8} />} label={t('gear.pack.pack')} value={fmtWeight(selectedPack.pack, weightUnit, true)} onPress={() => setWeightInfo('pack')} />
+          <SummaryTile theme={theme} icon={<Weight color={theme.text2} size={16} strokeWidth={1.8} />} label={t('gear.pack.skinOut')} value={fmtWeight(selectedPack.skinOut, weightUnit, true)} onPress={() => setWeightInfo('skinOut')} />
+        </View>
+
+        <AppSectionHeader
+          theme={theme}
+          text={t('gear.setEditor.itemsTitle')}
+          marginTop={space.xxl}
+          trailing={selectedNames.size ? (
+            <Press onPress={() => setPickerOpen(true)} style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.accentSoft }}>
+              <Icon name="edit" color={theme.accent} size={14} strokeWidth={2.1} />
+              <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.accent }}>{t('gear.setEditor.changeSelection')}</Text>
+            </Press>
+          ) : undefined}
+        />
+        <Text style={{ marginBottom: space.sm, fontSize: 12.5, lineHeight: 18, color: theme.text2 }}>{t('gear.setEditor.itemsHint')}</Text>
+        {selectedItems.length ? (
+          <View style={{ paddingBottom: space.xxxl }}>
+            {selectedGroups.map((group, groupIndex) => (
+              <View key={group.category.id}>
+                <AppSectionHeader
+                  theme={theme}
+                  text={group.category.name}
+                  marginTop={groupIndex === 0 ? space.sm : space.xl}
+                  trailing={(
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                        <View style={{ width: 7, height: 7, borderRadius: 3, backgroundColor: group.category.color }} />
+                        <Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text3 }}>{group.items.length} {t('gear.unit.items')}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                        <Weight color={theme.text3} size={12} strokeWidth={1.8} />
+                        <Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text3 }}>{fmtWeight(group.weight, weightUnit, true)}</Text>
+                      </View>
+                    </View>
+                  )}
+                />
+                <AppCard theme={theme} radius={radius.feature} style={{ overflow: 'hidden' }}>
+                  {group.items.map((item) => {
+                    const sourceItem = allItems.find((candidate) => candidate.name === item.name) || item;
                     return (
-                      <React.Fragment key={it.name}>
-                        {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 55 }} />}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, paddingVertical: 8 }}>
-                          <Press onPress={() => toggle(it.name)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                            <GearItemImage theme={theme} item={it} radius={9} style={{ width: 30, height: 30 }} />
-                            <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{it.name}</Text>
-                              <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 2 }}>{fmtKg(it.w * (it.qty || 1), weightUnit)} · {yuan(it.p * (it.qty || 1))}</Text>
-                            </View>
-                            <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? theme.accent : 'transparent', borderWidth: on ? 0 : 1.5, borderColor: theme.hairline }}>
-                              {on ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
-                            </View>
-                          </Press>
-                          {on ? (
-                            <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                                <Press onPress={() => patchOverride(it, { qty: Math.max(1, (getOverride(it).qty || it.qty || 1) - 1) })} style={{ width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: fieldBg(theme) }}><Text style={{ color: theme.text2, fontWeight: '800' }}>−</Text></Press>
-                                <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '800', color: theme.text, minWidth: 18, textAlign: 'center' }}>×{getOverride(it).qty || it.qty || 1}</Text>
-                                <Press onPress={() => patchOverride(it, { qty: (getOverride(it).qty || it.qty || 1) + 1 })} style={{ width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: fieldBg(theme) }}><Text style={{ color: theme.text2, fontWeight: '800' }}>+</Text></Press>
-                              </View>
-                              <Press onPress={() => cycleStatus(it)} style={{ paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: fieldBg(theme) }}>
-                                <Text style={{ fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{t(`gear.status.${getOverride(it).status || it.status || 'packed'}` as any)}</Text>
-                              </Press>
-                            </View>
-                          ) : null}
-                        </View>
-                      </React.Fragment>
+                      <SelectedGearRow
+                        key={item.id ?? item.name}
+                        theme={theme}
+                        item={sourceItem}
+                        override={getOverride(sourceItem)}
+                        weightUnit={weightUnit}
+                        onRemove={() => removeItem(item.name)}
+                        onPatch={(patch) => patchOverride(sourceItem, patch)}
+                      />
                     );
                   })}
-                </View>
+                </AppCard>
               </View>
-            );
-          })
+            ))}
+          </View>
+        ) : (
+          <Press onPress={() => setPickerOpen(true)} style={{ minHeight: 190, marginBottom: space.xxxl, borderRadius: radius.feature, alignItems: 'center', justifyContent: 'center', gap: space.sm, backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+            <View style={{ width: 62, height: 62, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}>
+              <Package color={theme.accent} size={26} strokeWidth={1.6} />
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{t('gear.setEditor.chooseGear')}</Text>
+            <Text style={{ fontSize: 12.5, color: theme.text2 }}>{t('gear.setEditor.noSelected')}</Text>
+          </Press>
         )}
-      </ScrollView>
-    </NJBottomSheet>
+      </View>
+      </DetailPage>
+      {pickerPage}
+      <WeightInfoSheet
+        theme={theme}
+        selected={weightInfo}
+        values={{
+          base: fmtWeight(selectedPack.base, weightUnit, true),
+          pack: fmtWeight(selectedPack.pack, weightUnit, true),
+          skinOut: fmtWeight(selectedPack.skinOut, weightUnit, true),
+        }}
+        onClose={() => setWeightInfo(null)}
+      />
+    </View>
+  );
+}
+
+function SummaryTile({ theme, icon, label, value, onPress }: { theme: Theme; icon: React.ReactNode; label: string; value: string; onPress: () => void }) {
+  return (
+    <Press onPress={onPress} accessibilityRole="button" style={{ flex: 1, minWidth: 0, minHeight: 82, paddingHorizontal: space.sm, paddingVertical: space.sm, borderRadius: radius.card, justifyContent: 'space-between', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+        {icon}
+        <Text numberOfLines={1} style={{ flex: 1, fontSize: 10.5, color: theme.text2 }}>{label}</Text>
+        <Info color={theme.text3} size={11} strokeWidth={1.8} />
+      </View>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 15, fontWeight: '800', color: theme.text }}>{value}</Text>
+    </Press>
+  );
+}
+
+function WeightInfoSheet({
+  theme,
+  selected,
+  values,
+  onClose,
+}: {
+  theme: Theme;
+  selected: 'base' | 'pack' | 'skinOut' | null;
+  values: Record<'base' | 'pack' | 'skinOut', string>;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const rows: { id: 'base' | 'pack' | 'skinOut'; label: string; description: string }[] = [
+    { id: 'base', label: t('gear.pack.base'), description: t('gear.setEditor.baseWeightDefinition') },
+    { id: 'pack', label: t('gear.pack.pack'), description: t('gear.setEditor.packWeightDefinition') },
+    { id: 'skinOut', label: t('gear.pack.skinOut'), description: t('gear.setEditor.skinOutWeightDefinition') },
+  ];
+
+  return (
+    <Modal visible={selected !== null} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.28)' }]} />
+        <View style={{ paddingTop: space.sm, paddingHorizontal: space.lg, paddingBottom: Math.max(insets.bottom, space.md) + space.sm, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: theme.groupedBg }}>
+          <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.45 }} />
+          <View style={{ minHeight: 64, flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: theme.text }}>{t('gear.setEditor.weightInfoTitle')}</Text>
+              <Text style={{ marginTop: space.xxs, fontSize: 12.5, lineHeight: 18, color: theme.text2 }}>{t('gear.setEditor.weightInfoIntro')}</Text>
+            </View>
+            <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} style={{ width: 38, height: 38, marginLeft: space.sm, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}>
+              <Icon name="close" color={theme.text2} size={16} />
+            </Press>
+          </View>
+
+          <View style={{ marginTop: space.sm, gap: space.xs }}>
+            {rows.map((row) => {
+              const active = row.id === selected;
+              return (
+                <View key={row.id} style={{ minHeight: 78, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card, backgroundColor: active ? theme.accentSofter : theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: active ? theme.accent : theme.fieldBorder }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                    <Text style={{ flex: 1, fontSize: 14.5, fontWeight: '800', color: active ? theme.accent : theme.text }}>{row.label}</Text>
+                    <Text style={{ fontFamily: MONO, fontSize: 13, fontWeight: '800', color: theme.text }}>{values[row.id]}</Text>
+                  </View>
+                  <Text style={{ marginTop: space.xs, fontSize: 12, lineHeight: 18, color: theme.text2 }}>{row.description}</Text>
+                </View>
+              );
+            })}
+          </View>
+          <Text style={{ marginTop: space.sm, paddingHorizontal: space.xs, fontSize: 11.5, lineHeight: 17, color: theme.text3 }}>{t('gear.setEditor.optionalWeightDefinition')}</Text>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SelectedGearRow({
+  theme,
+  item,
+  override,
+  weightUnit,
+  onRemove,
+  onPatch,
+}: {
+  theme: Theme;
+  item: GearItem;
+  override: GearSetOverride;
+  weightUnit: WeightUnit;
+  onRemove: () => void;
+  onPatch: (patch: GearSetOverride) => void;
+}) {
+  const { t } = useI18n();
+  const quantity = override.qty || item.qty || 1;
+  const status = override.status || item.status || 'packed';
+  const statusIndex = GEAR_STATUS.findIndex((candidate) => candidate.id === status);
+  const cycleStatus = () => onPatch({ status: GEAR_STATUS[(statusIndex + 1) % GEAR_STATUS.length].id as GearCarryStatus });
+
+  return (
+    <View>
+      <View style={{ minHeight: layout.listRowMinHeight + 10, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <GearItemImage theme={theme} item={item} radius={radius.control} borderless style={{ width: 46, height: 46 }} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text>
+          <View style={{ marginTop: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+              <Weight color={theme.text3} size={13} strokeWidth={1.8} />
+              <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{fmtWeight(item.w * quantity, weightUnit, true)}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+              <JapaneseYen color={theme.text3} size={13} strokeWidth={1.8} />
+              <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{yuan(item.p * quantity)}</Text>
+            </View>
+          </View>
+        </View>
+        <Press onPress={onRemove} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('common.delete')} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+          <Icon name="close" color={theme.text2} size={15} strokeWidth={2.1} />
+        </Press>
+      </View>
+
+      <View style={{ marginHorizontal: space.md, paddingTop: space.xxs, paddingBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
+        <Press onPress={cycleStatus} style={{ height: 32, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}>
+          <Text style={{ fontSize: 11, color: theme.text3 }}>{t('gear.spec.status')}</Text>
+          <Text style={{ fontSize: 11.5, fontWeight: '700', color: theme.text }}>{t(`gear.status.${status}` as any)}</Text>
+          <Icon name="chevronR" color={theme.text3} size={12} strokeWidth={2} />
+        </Press>
+        <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <SmallStepButton theme={theme} label="−" disabled={quantity <= 1} onPress={() => onPatch({ qty: Math.max(1, quantity - 1) })} />
+          <Text style={{ minWidth: 28, textAlign: 'center', fontFamily: MONO, fontSize: 12, fontWeight: '800', color: theme.text }}>×{quantity}</Text>
+          <SmallStepButton theme={theme} label="+" onPress={() => onPatch({ qty: quantity + 1 })} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SmallStepButton({ theme, label, disabled, onPress }: { theme: Theme; label: string; disabled?: boolean; onPress: () => void }) {
+  return (
+    <Press onPress={onPress} disabled={disabled} style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+      <Text style={{ fontSize: 17, lineHeight: 20, fontWeight: '700', color: disabled ? theme.text3 : theme.text }}>{label}</Text>
+    </Press>
   );
 }

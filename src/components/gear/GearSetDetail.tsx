@@ -541,7 +541,7 @@ function GearSetDetailView({
                 </View>
                 <View style={{ marginTop: 10, paddingHorizontal: 14, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
                   {g.its.map((it, i) => (
-                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={64} card />
+                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={64} card borderlessImage />
                   ))}
                 </View>
               </View>
