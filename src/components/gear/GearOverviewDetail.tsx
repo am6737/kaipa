@@ -20,7 +20,7 @@ import {
 import { Press } from '../Press';
 import { AppCard, AppProgressBar, AppSectionHeader, DetailPage, layout, radius, space, type } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
-import { yuan } from './parts';
+import { yuanWithGap } from './parts';
 
 type Props = {
   theme: Theme;
@@ -105,7 +105,7 @@ export function GearOverviewDetail({ theme, items, sets, catMap, weightUnit, onB
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
             <SummaryFact theme={theme} label={t('gear.stat.totalItems')} value={`${totals.count} ${t('gear.unit.items')}`} />
             <SummaryFact theme={theme} label={t('gear.stat.totalWeight')} value={fmtWeight(totals.weight, weightUnit)} />
-            <SummaryFact theme={theme} label={t('gear.stat.totalValue')} value={yuan(totals.price)} />
+            <SummaryFact theme={theme} label={t('gear.stat.totalValue')} value={yuanWithGap(totals.price)} />
             <SummaryFact theme={theme} label={t('gear.stat.categoryCount')} value={`${usedCategoryCount} ${t('gear.unit.cats')}`} />
           </View>
         </AppCard>

@@ -18,7 +18,7 @@ import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
-import { GearItemRow, yuan } from './parts';
+import { GearItemRow, yuan, yuanWithGap } from './parts';
 import { AppIconButton, DetailPage } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
@@ -26,9 +26,9 @@ import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExp
 const fieldBg = (t: Theme) => t.fieldSurface;
 const fieldBorder = (t: Theme) => t.fieldBorder;
 const compactYuan = (value: number) => {
-  if (value < 10000) return yuan(value);
+  if (value < 10000) return yuanWithGap(value);
   const wan = value / 10000;
-  return `¥${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+  return `¥ ${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
 };
 
 function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric; setMetric: (m: Metric) => void }) {

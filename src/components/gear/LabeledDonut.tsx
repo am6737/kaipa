@@ -4,7 +4,7 @@ import Svg, { Circle, G, Path, Polyline, Rect } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, Metric, itemWeight, itemPrice, itemQty, fmtWeight, WeightUnit } from '../../data/gear';
-import { yuan } from './parts';
+import { yuan, yuanWithGap } from './parts';
 
 export interface Row extends GearCat {
   value: number;
@@ -170,7 +170,7 @@ export function LabeledDonut({ theme, agg, total, metric, items, width, sel, onS
         { id: 'share', label: t('gear.stat.share'), value: (sum ? (selSeg.value / sum) * 100 : 0).toFixed(1) + '%' },
       ]
     : [
-        { id: 'price', label: t('gear.stat.totalValue'), value: yuan(sp) },
+        { id: 'price', label: t('gear.stat.totalValue'), value: yuanWithGap(sp) },
         { id: 'weight', label: t('gear.stat.totalWeight'), value: fmtWeight(sw, weightUnit) },
         { id: 'count', label: t('gear.stat.itemCount'), value: sc + ' ' + t('gear.unit.items') },
         { id: 'cats', label: t('gear.stat.cats'), value: agg.length + ' ' + t('gear.unit.cats') },

@@ -32,6 +32,7 @@ const homeCardBg = (t: Theme) => t.featureSurface;
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
 const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
+const yuanWithGap = (v: number) => '¥ ' + Math.round(v).toLocaleString('en-US');
 
 const normItem = (it: GearItem) => ({
   name: it.name,
@@ -338,7 +339,7 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, 
       <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
       <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
       <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
-      <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuan(totalValue)} />
+      <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuanWithGap(totalValue)} />
     </Press>
     <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
     {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}><View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Weight color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text></View></View><View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${set.items.length}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Package color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text></View></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}

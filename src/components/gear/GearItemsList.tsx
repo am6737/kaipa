@@ -25,6 +25,7 @@ import { GearDeleteDialog } from './GearDeleteDialog';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
+type LayoutMode = 'list' | 'grid';
 type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
 type GearPickerConfig = {
   selectedNames: Set<string>;
@@ -68,6 +69,7 @@ function GearItemsListView({
   const [sortOpen, setSortOpen] = useState(false);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [displayExpanded, setDisplayExpanded] = useState(false);
+  const [layout, setLayout] = useState<LayoutMode>('list');
   const [category, setCategory] = useState<string | null>(null);
   const [displaySettings, setDisplaySettings] = useState<ItemDisplaySettings>({ images: true, weight: true, value: true });
   const displayProgress = useSharedValue(0);
@@ -80,7 +82,7 @@ function GearItemsListView({
   const [pickerSelectedNames, setPickerSelectedNames] = useState<Set<string>>(() => new Set(picker?.selectedNames || []));
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [261, 431]),
+    height: interpolate(displayProgress.value, [0, 1], [373, 543]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
@@ -134,6 +136,8 @@ function GearItemsListView({
   }, [catMap, category, items, query, sort, t]);
 
   const totalWeight = items.reduce((sum, item) => sum + itemWeight(item), 0);
+  const itemColumns = [rows.filter((_, index) => index % 2 === 0), rows.filter((_, index) => index % 2 === 1)];
+  const gridCardWidth = (width - 48 - 12) / 2;
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
   const selectableIds = rows.map((item) => item.id).filter((id): id is number => id != null);
   const selectableNames = rows.map((item) => item.name);
@@ -292,6 +296,8 @@ function GearItemsListView({
             <MenuRow theme={theme} icon="checkAll" label={t('gear.itemList.batchManage')} onPress={() => closeMoreThen(beginSelect)} />
             <MenuRow theme={theme} icon="gearSettings" label={t('gear.category.manage')} onPress={() => closeMoreThen(() => setCategoryManagerOpen(true))} />
             <MenuCaption theme={theme} text={t('gear.setList.display')} spaced />
+            <MenuRow theme={theme} icon="grid" label={t('gear.setList.grid')} selected={layout === 'grid'} onPress={() => closeMoreThen(() => setLayout('grid'))} />
+            <MenuRow theme={theme} icon="list" label={t('gear.setList.list')} selected={layout === 'list'} onPress={() => closeMoreThen(() => setLayout('list'))} />
             <MenuRow
               theme={theme}
               icon="gearSettings"
@@ -367,11 +373,35 @@ function GearItemsListView({
             </View>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
               <SummaryPill theme={theme} icon="weight" label={t('gear.stat.totalWeight')} value={fmtWeight(totalWeight, weightUnit, true)} />
-              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={`¥${Math.round(totalValue).toLocaleString('en-US')}`} />
+              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={`¥ ${Math.round(totalValue).toLocaleString('en-US')}`} />
             </View>
         </View>
 
-        {rows.length ? (
+        {rows.length && layout === 'grid' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+            {itemColumns.map((column, columnIndex) => (
+              <View key={columnIndex} style={{ width: gridCardWidth, gap: 14 }}>
+                {column.map((item) => (
+                  <ItemGridCard
+                    key={item.id || item.name}
+                    theme={theme}
+                    item={item}
+                    cat={catMap[item.cat]}
+                    weightUnit={weightUnit}
+                    width={gridCardWidth}
+                    selectMode={effectiveSelectMode}
+                    selected={picker ? pickerSelectedNames.has(item.name) : item.id != null && selectedIds.has(item.id)}
+                    showImage={displaySettings.images}
+                    showWeight={displaySettings.weight}
+                    showValue={displaySettings.value}
+                    onPress={() => picker ? togglePickerItem(item.name) : item.id != null && selectMode ? toggleSelected(item.id) : onOpenItem(item)}
+                    onLongPress={!picker && item.id != null ? () => enterSelect(item.id!) : undefined}
+                  />
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : rows.length ? (
           <View style={{ gap: 12 }}>
             {rows.map((item) => (
               <ItemCard
@@ -512,6 +542,68 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
       </View>
       {selectMode ? (
         <View style={{ width: 25, height: 25, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: selected ? theme.accent : theme.text3, backgroundColor: selected ? theme.accent : 'transparent' }}>
+          {selected ? <Icon name="check" color="#FFFFFF" size={16} strokeWidth={2.4} /> : null}
+        </View>
+      ) : null}
+      {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}
+    </Press>
+  );
+}
+
+
+function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPress, selectMode, selected, showImage, showWeight, showValue }: { theme: Theme; item: GearItem; cat?: GearCat; weightUnit: WeightUnit; width: number; onPress: () => void; onLongPress?: () => void; selectMode: boolean; selected: boolean; showImage: boolean; showWeight: boolean; showValue: boolean }) {
+  const { t } = useI18n();
+  const ignorePressAfterLongPress = React.useRef(false);
+  const photo = item.photos?.[0];
+  const category = cat?.name || t('gear.uncategorized');
+  const accent = cat?.color || theme.accent;
+  const weight = fmtWeight(itemWeight(item), weightUnit, true);
+  const value = `¥${Math.round(itemPrice(item)).toLocaleString('en-US')}`;
+  const handleLongPress = onLongPress ? () => {
+    ignorePressAfterLongPress.current = true;
+    onLongPress();
+    setTimeout(() => { ignorePressAfterLongPress.current = false; }, 700);
+  } : undefined;
+  const handlePress = () => {
+    if (ignorePressAfterLongPress.current) {
+      ignorePressAfterLongPress.current = false;
+      return;
+    }
+    onPress();
+  };
+  return (
+    <Press onPress={handlePress} onLongPress={handleLongPress} style={{ width, minHeight: showImage ? 246 : 164, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      {showImage ? (
+        <View style={{ height: Math.max(116, width - 28), borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
+          <Package color={accent} size={28} strokeWidth={1.6} opacity={0.6} />
+          {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
+        </View>
+      ) : null}
+      <View style={{ marginTop: showImage ? 14 : 0, gap: 10 }}>
+        <Text numberOfLines={2} style={{ fontSize: 15, lineHeight: 21, fontWeight: '800', color: theme.text }}>{item.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 }}>
+          <Tag color={accent} size={14} strokeWidth={1.8} />
+          <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: theme.text2 }}>{category}</Text>
+        </View>
+        {(showWeight || showValue) ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 7, paddingTop: 1 }}>
+            {showWeight ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Weight color={theme.text3} size={13} strokeWidth={1.8} />
+                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{weight}</Text>
+              </View>
+            ) : null}
+            {showValue ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <JapaneseYen color={theme.text3} size={13} strokeWidth={1.8} />
+                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{value}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+      {selectMode ? (
+        <View style={{ position: 'absolute', top: 10, right: 10, width: 25, height: 25, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: selected ? theme.accent : '#FFFFFF', backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.22)' }}>
           {selected ? <Icon name="check" color="#FFFFFF" size={16} strokeWidth={2.4} /> : null}
         </View>
       ) : null}

@@ -31,6 +31,7 @@ export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.ha
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
+export const yuanWithGap = (v: number) => '¥ ' + Math.round(v).toLocaleString('en-US');
 export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
 export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover', borderless = false }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain'; borderless?: boolean }) {
   const photo = item.photos?.[0];
