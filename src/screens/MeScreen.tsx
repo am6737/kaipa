@@ -24,7 +24,7 @@ import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettings
 import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
-import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
+import { AppCard, AppSectionHeader, layout, motion, radius, space, type } from '../design-system';
 
 type MePage =
   | { type: 'account' }
@@ -37,6 +37,27 @@ type MePage =
 type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
 type PopupAnchor = { x: number; y: number; width: number; height: number };
 const SETTINGS_ROW_HEIGHT = 78;
+
+function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
+  const progress = useSharedValue(open ? 1 : 0);
+
+  useEffect(() => {
+    progress.value = withTiming(open ? 1 : 0, {
+      duration: motion.emphasized,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    });
+  }, [open, progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(progress.value, [0, 1], [90, -90])}deg` }],
+  }));
+
+  return (
+    <ReAnimated.View style={animatedStyle}>
+      <Icon name="chevronR" color={theme.text3} size={15} />
+    </ReAnimated.View>
+  );
+}
 
 const AppearanceRow = React.forwardRef<View, {
   theme: Theme;
@@ -57,9 +78,7 @@ const AppearanceRow = React.forwardRef<View, {
           <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
           <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: 3 }]}>{value}</Text>
         </View>
-        <View style={{ transform: [{ rotate: open ? '-90deg' : '90deg' }] }}>
-          <Icon name="chevronR" color={theme.text3} size={15} />
-        </View>
+        <AppearanceChevron theme={theme} open={open} />
       </View>
     </Press>
   </View>
