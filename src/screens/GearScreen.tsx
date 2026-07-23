@@ -9,7 +9,7 @@ import { MONO } from '../theme/fonts';
 import { Press } from '../components/Press';
 import { useNav } from '../nav/NavContext';
 import { useI18n } from '../i18n';
-import { UNCAT, GearCat, GearItem, GearSet, GearSetOverride, itemWeight, itemPrice, WeightUnit, fmtWeight, splitWeight } from '../data/gear';
+import { GearCat, GearItem, GearSet, GearSetOverride, itemWeight, itemPrice, WeightUnit, fmtWeight, splitWeight } from '../data/gear';
 import { useData } from '../data/DataContext';
 import { GearItemDetail } from '../components/gear/GearItemDetail';
 import { GearSetDetail } from '../components/gear/GearSetDetail';
@@ -31,8 +31,14 @@ const homePageBg = (t: Theme) => t.groupedBg;
 const homeCardBg = (t: Theme) => t.featureSurface;
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
-const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
-const yuanWithGap = (v: number) => '¥ ' + Math.round(v).toLocaleString('en-US');
+const compactWan = (value: number) => {
+  const rounded = Math.round(value);
+  if (Math.abs(rounded) <= 100000) return String(rounded);
+  const wan = rounded / 10000;
+  return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+};
+const yuan = (v: number) => '¥' + compactWan(v);
+const yuanWithGap = (v: number) => '¥ ' + compactWan(v);
 
 const normItem = (it: GearItem) => ({
   name: it.name,
@@ -88,7 +94,11 @@ export function GearScreen({ theme }: { theme: Theme }) {
   // 新建 / 编辑清单 bottom sheet.
   const [setEditor, setSetEditor] = useState<{ mode: 'new' | 'edit'; set?: GearSet } | null>(null);
   // 新建 / 编辑装备 full-screen form (holds the item being edited / a blank draft).
-  const [itemEditor, setItemEditor] = useState<{ mode: 'new' | 'edit'; item: GearItem } | null>(null);
+  const [itemEditor, setItemEditor] = useState<{
+    mode: 'new' | 'edit';
+    item: GearItem;
+    recognitionSource?: { label: string; url: string };
+  } | null>(null);
   // 新建 / 编辑分类 bottom sheet.
   const [catEditor, setCatEditor] = useState<{ mode: 'new' | 'edit'; cat?: GearCat } | null>(null);
   // 添加装备入口选择（链接 / 拍照 / 手动）
@@ -171,9 +181,9 @@ export function GearScreen({ theme }: { theme: Theme }) {
   };
 
   const catMap = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c])) as Record<string, GearCat>, [cats]);
-  const onAddResult = (item: GearItem) => {
+  const onAddResult = (item: GearItem, recognitionSource?: { label: string; url: string }) => {
     setAddChoose(false);
-    setItemEditor({ mode: 'new', item });
+    setItemEditor({ mode: 'new', item, recognitionSource });
   };
 
   return (
@@ -210,13 +220,13 @@ export function GearScreen({ theme }: { theme: Theme }) {
             <GearItemDetail
               theme={theme}
               item={pg.item}
-              cat={catMap[pg.item.cat] || UNCAT}
+              cats={cats}
               weightUnit={weightUnit}
               allItems={allItems}
               sets={sets}
               onBack={popPage}
               onOpenSet={(s) => pushPage({ type: 'set', set: s })}
-              onEdit={() => setItemEditor({ mode: 'edit', item: pg.item })}
+              onSave={(next) => updateItem(pg.item.name, next)}
               onDelete={() => deleteItem(pg.item.name)}
             />
           ) : pg.type === 'set' ? (
@@ -303,6 +313,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
             item={itemEditor.item}
             cats={cats}
             mode={itemEditor.mode}
+            recognitionSource={itemEditor.recognitionSource}
             existingNames={allItems.map((i) => i.name)}
             onCancel={() => setItemEditor(null)}
             onSave={(ni) => (itemEditor.mode === 'new' ? addItem(ni) : updateItem(itemEditor.item.name, ni))}

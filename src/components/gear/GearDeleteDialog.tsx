@@ -92,11 +92,7 @@ export function GearDeleteDialog({
             elevation: 18,
           }}
         >
-          <View style={{ width: 58, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dangerSoft }}>
-            <Icon name="trash" color={theme.danger} size={25} strokeWidth={1.9} />
-          </View>
-
-          <Text style={[type.pageTitle, { marginTop: space.lg, color: theme.text, lineHeight: 31 }]}>{title}</Text>
+          <Text style={[type.pageTitle, { color: theme.text, lineHeight: 31 }]}>{title}</Text>
           <Text style={[type.body, { marginTop: space.sm, color: theme.text2, lineHeight: 22 }]}>{message}</Text>
 
           <View style={{ marginTop: space.xl, gap: space.sm }}>

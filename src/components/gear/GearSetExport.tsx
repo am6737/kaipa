@@ -33,12 +33,14 @@ export interface GearSetExportData {
 
 export type GearSetExportDisplaySettings = { images: boolean; weight: boolean; value: boolean; groupStats: boolean };
 
-const money = (value: number) => `¥${Math.round(value).toLocaleString('en-US')}`;
-const compactMoney = (value: number) => {
-  if (value < 10000) return money(value);
-  const wan = value / 10000;
-  return `¥${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+const formatMoneyValue = (value: number) => {
+  const rounded = Math.round(value);
+  if (Math.abs(rounded) <= 100000) return String(rounded);
+  const wan = rounded / 10000;
+  return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
 };
+const money = (value: number) => `¥${formatMoneyValue(value)}`;
+const compactMoney = money;
 
 const totalsFor = (groups: GearSetExportGroup[]) => {
   const items = groups.flatMap((group) => group.items);

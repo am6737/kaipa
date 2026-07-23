@@ -32,6 +32,13 @@ type GearPickerConfig = {
   onDone: (selectedNames: Set<string>) => void;
 };
 
+const formatItemValue = (value: number) => {
+  const rounded = Math.round(value);
+  if (Math.abs(rounded) <= 100000) return String(rounded);
+  const wan = rounded / 10000;
+  return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+};
+
 function GearItemsListView({
   theme,
   items,
@@ -373,7 +380,7 @@ function GearItemsListView({
             </View>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
               <SummaryPill theme={theme} icon="weight" label={t('gear.stat.totalWeight')} value={fmtWeight(totalWeight, weightUnit, true)} />
-              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={`¥ ${Math.round(totalValue).toLocaleString('en-US')}`} />
+              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={`¥ ${formatItemValue(totalValue)}`} />
             </View>
         </View>
 
@@ -504,7 +511,7 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
   const category = cat?.name || t('gear.uncategorized');
   const accent = cat?.color || theme.accent;
   const weight = fmtWeight(itemWeight(item), weightUnit);
-  const value = `¥${Math.round(itemPrice(item)).toLocaleString('en-US')}`;
+  const value = `¥${formatItemValue(itemPrice(item))}`;
   const handleLongPress = onLongPress ? () => {
     ignorePressAfterLongPress.current = true;
     onLongPress();
@@ -558,7 +565,7 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
   const category = cat?.name || t('gear.uncategorized');
   const accent = cat?.color || theme.accent;
   const weight = fmtWeight(itemWeight(item), weightUnit, true);
-  const value = `¥${Math.round(itemPrice(item)).toLocaleString('en-US')}`;
+  const value = `¥${formatItemValue(itemPrice(item))}`;
   const handleLongPress = onLongPress ? () => {
     ignorePressAfterLongPress.current = true;
     onLongPress();

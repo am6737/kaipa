@@ -30,8 +30,15 @@ export const cardShadow = (t: Theme): ViewStyle =>
 export const cardBorder = (t: Theme): ViewStyle => ({ borderWidth: StyleSheet.hairlineWidth, borderColor: t.hairline });
 
 // ── Formatting ──────────────────────────────────────────────────────────────
-export const yuan = (v: number) => '¥' + Math.round(v).toLocaleString('en-US');
-export const yuanWithGap = (v: number) => '¥ ' + Math.round(v).toLocaleString('en-US');
+const PRICE_COMPACT_THRESHOLD = 100000;
+const compactWan = (value: number) => {
+  const rounded = Math.round(value);
+  if (Math.abs(rounded) <= PRICE_COMPACT_THRESHOLD) return String(rounded);
+  const wan = rounded / 10000;
+  return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+};
+export const yuan = (v: number) => '¥' + compactWan(v);
+export const yuanWithGap = (v: number) => '¥ ' + compactWan(v);
 export const fmtKg = (v: number, unit: WeightUnit = 'kg') => fmtWeight(v, unit);
 export function GearItemImage({ theme, item, radius = 0, style, contentFit = 'cover', borderless = false }: { theme: Theme; item: GearItem; radius?: number; style?: StyleProp<ViewStyle>; contentFit?: 'cover' | 'contain'; borderless?: boolean }) {
   const photo = item.photos?.[0];
@@ -98,7 +105,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
             {showValue ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 }}>
                 <JapaneseYen color={theme.text2} size={13.5} strokeWidth={1.8} />
-                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{Math.round(itemPrice(item)).toLocaleString('en-US')}</Text>
+                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{compactWan(itemPrice(item))}</Text>
               </View>
             ) : null}
           </View>

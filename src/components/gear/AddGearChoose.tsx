@@ -52,7 +52,7 @@ function inferCategory(preview: GearLinkPreview, cats: GearCat[]) {
 export function AddGearChoose({ theme, cats, onResult, onCancel }: {
   theme: Theme;
   cats: GearCat[];
-  onResult: (item: GearItem, source?: string) => void;
+  onResult: (item: GearItem, source?: { label: string; url: string }) => void;
   onCancel: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -92,7 +92,6 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
       scanProgressRef.current = null;
       if (requestId !== scanRequestId.current) return;
       setScanSteps(SCAN_STEPS.length);
-      const noteParts = [...preview.warnings, `商品链接：${preview.sourceUrl}`].filter(Boolean);
       onResult({
         name: preview.name,
         cat: inferCategory(preview, cats),
@@ -100,8 +99,7 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
         p: preview.priceCny || 0,
         attrs: preview.attrs.length ? preview.attrs : undefined,
         photos: preview.imageUrl ? [preview.imageUrl] : undefined,
-        note: noteParts.join('\n'),
-      }, providerLabel(preview.provider));
+      }, { label: providerLabel(preview.provider), url: preview.sourceUrl });
     } catch (error) {
       if (scanProgressRef.current) clearInterval(scanProgressRef.current);
       scanProgressRef.current = null;

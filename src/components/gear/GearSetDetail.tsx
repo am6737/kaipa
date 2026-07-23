@@ -25,11 +25,7 @@ import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExp
 
 const fieldBg = (t: Theme) => t.fieldSurface;
 const fieldBorder = (t: Theme) => t.fieldBorder;
-const compactYuan = (value: number) => {
-  if (value < 10000) return yuanWithGap(value);
-  const wan = value / 10000;
-  return `¥ ${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
-};
+const compactYuan = yuanWithGap;
 
 function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric; setMetric: (m: Metric) => void }) {
   const anchorRef = useRef<View>(null);

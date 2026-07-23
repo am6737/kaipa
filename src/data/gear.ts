@@ -186,7 +186,7 @@ export function convertWeight(kg: number, unit: WeightUnit): number {
 
 export function fmtWeight(kg: number, unit: WeightUnit = 'kg', compact = false): string {
   const v = convertWeight(kg, unit);
-  if (unit === 'g') return `${Math.round(v).toLocaleString('en-US')} g`;
+  if (unit === 'g') return `${Math.round(v)} g`;
   if (unit === 'oz') return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} oz`;
   if (unit === 'lb') return `${v >= 10 || compact ? v.toFixed(1) : v.toFixed(2)} lb`;
   return `${v >= 10 || compact ? v.toFixed(1) : v.toFixed(2)} kg`;
@@ -198,8 +198,15 @@ export function splitWeight(kg: number, unit: WeightUnit = 'kg', compact = false
   return i > 0 ? { value: text.slice(0, i), unit: text.slice(i + 1) } : { value: text, unit };
 }
 
+const fmtPriceValue = (value: number): string => {
+  const rounded = Math.round(value);
+  if (Math.abs(rounded) <= 100000) return String(rounded);
+  const wan = rounded / 10000;
+  return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
+};
+
 export function fmtMetric(value: number, metric: Metric, unit: WeightUnit = 'kg'): string {
-  if (metric === 'price') return '¥' + Math.round(value).toLocaleString('en-US');
+  if (metric === 'price') return '¥' + fmtPriceValue(value);
   if (metric === 'weight') return fmtWeight(value, unit);
   return String(Math.round(value)) + ' 件';
 }

@@ -95,6 +95,7 @@ export function GearSetsList({
   const cardWidth = (width - 48) / 2;
   const allSelected = sets.length > 0 && sets.every((set) => selectedIds.has(set.id));
   const allSelectedPinned = selectedIds.size > 0 && [...selectedIds].every((id) => pinnedSetIds.has(id));
+  const bottomControlBg = theme.controlSurface;
   const sortLabel = sort === 'created'
     ? t('gear.setList.created')
     : sort === 'weight'
@@ -175,24 +176,24 @@ export function GearSetsList({
       overlay={(
         <>
           <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'space-between', backgroundColor: theme.dark ? 'rgba(28,28,30,0.94)' : 'rgba(244,244,245,0.94)' }}>
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'space-between', backgroundColor: 'transparent' }}>
               {selectMode ? (
                 <View style={{ flex: 1, flexDirection: 'row', gap: 12 }}>
-                  <Press onPress={selectedIds.size ? togglePinned : undefined} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
+                  <Press onPress={selectedIds.size ? togglePinned : undefined} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg }}>
                     <Icon name="pin" color={selectedIds.size ? theme.accent : theme.text3} size={18} strokeWidth={2} />
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: selectedIds.size ? theme.text : theme.text3 }}>{allSelectedPinned ? t('gear.setSelect.unpin') : t('gear.setSelect.pin')}</Text>
                   </Press>
-                  <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1.35, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? '#2C2C2E' : '#FFFFFF') }}>
+                  <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1.35, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : bottomControlBg }}>
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>{selectedIds.size ? t('gear.setSelect.deleteConfirm', { count: selectedIds.size }) : t('gear.setSelect.deletePrompt')}</Text>
                   </Press>
                 </View>
               ) : (
                 <>
-                  <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
+                  <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
                     <Icon name="plus" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{t('gear.setList.add')}</Text>
                   </Press>
-                  <Press onPress={() => setSortOpen(true)} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
+                  <Press onPress={() => setSortOpen(true)} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
                     <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{sortLabel}</Text>
                   </Press>
@@ -270,7 +271,7 @@ function SetListCard({ theme, row, weightUnit, onPress, onLongPress, selectMode,
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 15 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}><Package color={theme.text2} size={13} strokeWidth={1.7} /><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{row.cats} {t('gear.unit.cats')}</Text></View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 }}><Weight color={theme.text2} size={13} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{fmtWeight(row.weight, weightUnit, true)}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1 }}><JapaneseYen color={theme.text2} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{Math.round(row.value).toLocaleString('en-US')}</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1 }}><JapaneseYen color={theme.text2} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text2 }}>{Math.round(row.value)}</Text></View>
       </View>
       {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 22, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}
     </Press>
@@ -383,7 +384,7 @@ function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPr
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 }}><Package color={secondary} size={12.5} strokeWidth={1.7} /><Text style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{row.cats} {t('gear.unit.cats')}</Text></View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1, minWidth: 0 }}><Weight color={secondary} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{fmtWeight(row.weight, weightUnit, true)}</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1, minWidth: 0 }}><JapaneseYen color={secondary} size={12} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{Math.round(row.value).toLocaleString('en-US')}</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1, minWidth: 0 }}><JapaneseYen color={secondary} size={12} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{Math.round(row.value)}</Text></View>
         </View>
       </View>
       {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}

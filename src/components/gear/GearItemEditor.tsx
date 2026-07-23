@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Animated, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { JapaneseYen, Package, Weight } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,11 +20,12 @@ const pageBg = (theme: Theme) => (theme.dark ? '#1C1C1E' : '#F4F4F5');
 const cardBg = (theme: Theme) => (theme.dark ? '#000000' : '#FFFFFF');
 const fieldBg = (theme: Theme) => (theme.dark ? '#1C1C1E' : '#F1F1F3');
 
-export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames = [], onCancel, onSave }: {
+export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSource, existingNames = [], onCancel, onSave }: {
   theme: Theme;
   item: GearItem;
   cats: GearCat[];
   mode?: 'new' | 'edit';
+  recognitionSource?: { label: string; url: string };
   existingNames?: string[];
   onCancel: () => void;
   onSave: (next: GearItem) => void;
@@ -45,6 +46,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
   const [photos, setPhotos] = useState((item.photos || []).filter(Boolean));
   const [openChoice, setOpenChoice] = useState<'category' | 'status' | null>(null);
   const [photoSourceOpen, setPhotoSourceOpen] = useState(false);
+  const [recognitionNoticeVisible, setRecognitionNoticeVisible] = useState(!!recognitionSource);
 
   useEffect(() => {
     Animated.spring(translateX, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 18 }).start();
@@ -123,6 +125,34 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
               {duplicate ? <Text style={{ alignSelf: 'stretch', marginTop: space.xs, fontSize: 12, color: theme.danger }}>{t('gear.editor.dupName')}</Text> : null}
             </View>
 
+            {recognitionSource && recognitionNoticeVisible ? (
+              <View style={{ marginBottom: space.lg, paddingLeft: space.md, paddingRight: space.xs, paddingVertical: space.sm, borderRadius: radius.card, backgroundColor: theme.accentSofter, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <Text style={[type.body, { flex: 1, paddingTop: space.xxs, lineHeight: 21, color: theme.text }]}>
+                    {t('gear.editor.recognitionNotice', { source: recognitionSource.label })}
+                  </Text>
+                  <Press
+                    onPress={() => setRecognitionNoticeVisible(false)}
+                    accessibilityLabel={t('gear.editor.dismissRecognitionNotice')}
+                    hitSlop={4}
+                    style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Icon name="close" color={theme.text2} size={15} />
+                  </Press>
+                </View>
+                <Press
+                  onPress={() => Linking.openURL(recognitionSource.url)}
+                  accessibilityRole="link"
+                  style={{ alignSelf: 'flex-start', minHeight: 36, marginTop: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accentSoft }}
+                >
+                  <Icon name="link" color={theme.accent} size={14} strokeWidth={2} />
+                  <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>
+                    {t('gear.editor.openInSource', { source: recognitionSource.label })}
+                  </Text>
+                </Press>
+              </View>
+            ) : null}
+
             <View style={{ flexDirection: 'row', gap: space.lg, marginTop: space.xs }}>
               <DetailMetricInput theme={theme} label={t('gear.spec.weight')} value={w} onChangeText={(value) => setW(numClean(value))} placeholder="0.00" suffix="kg" />
               <DetailQuantityInput theme={theme} label={t('gear.spec.qty')} value={qty} onChange={setQty} />
@@ -160,7 +190,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
             />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
               {attrs.map(([key, value], index) => (
-                <View key={index} style={{ width: '48%', minHeight: 96, paddingHorizontal: space.sm, paddingVertical: space.sm, paddingRight: space.xl, borderRadius: radius.card, backgroundColor: theme.fieldSurface }}>
+                <View key={index} style={{ width: '48%', minHeight: 84, paddingHorizontal: space.sm, paddingVertical: space.sm, paddingRight: space.xl, borderRadius: radius.card, backgroundColor: theme.fieldSurface }}>
                   <Press onPress={() => setAttrs((current) => current.filter((_, entryIndex) => entryIndex !== index))} hitSlop={8} style={{ position: 'absolute', right: space.xs, top: space.xs, zIndex: 1, padding: space.xxs }}>
                     <Icon name="close" color={theme.text3} size={13} />
                   </Press>
@@ -169,7 +199,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
                     onChangeText={(next) => setAttr(index, 0, next)}
                     placeholder={t('gear.editor.attrNamePlaceholder')}
                     placeholderTextColor={theme.text3}
-                    style={{ padding: 0, paddingRight: space.xs, fontSize: 12.5, color: theme.text2 }}
+                    style={{ padding: 0, paddingRight: space.xs, fontSize: 14, fontWeight: '600', color: theme.text2 }}
                   />
                   <TextInput
                     value={value}
@@ -177,7 +207,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
                     placeholder={t('gear.editor.attrValuePlaceholder')}
                     placeholderTextColor={theme.text3}
                     multiline
-                    style={{ minHeight: 38, marginTop: space.xs, padding: 0, fontSize: 14, lineHeight: 19, fontWeight: '700', color: theme.text, textAlignVertical: 'top' }}
+                    style={{ minHeight: 30, marginTop: space.xs, padding: 0, fontSize: 12.5, lineHeight: 18, fontWeight: '700', color: theme.text, textAlignVertical: 'top' }}
                   />
                 </View>
               ))}
@@ -291,23 +321,40 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', existingNames
               </View>
             </View>
 
-            <SectionTitle theme={theme} title={t('gear.section.customAttrs')} detail={attrs.length ? `${attrs.length} ${t('gear.unit.attrs')}` : undefined} />
-            <View style={{ overflow: 'hidden', borderRadius: 24, backgroundColor: cardBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <AppSectionHeader
+              theme={theme}
+              text={t('gear.section.customAttrs')}
+              marginTop={space.xxl}
+              trailing={(
+                <Press onPress={() => setAttrs((current) => [...current, ['', '']])} style={{ minHeight: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.fieldSurface }}>
+                  <Icon name="plus" color={theme.accent} size={15} strokeWidth={2.2} />
+                  <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>{t('gear.editor.addAttr')}</Text>
+                </Press>
+              )}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
               {attrs.map(([key, value], index) => (
-                <React.Fragment key={index}>
-                  {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: theme.hairline }} /> : null}
-                  <View style={{ minHeight: 54, paddingLeft: 16, paddingRight: 12, flexDirection: 'row', alignItems: 'center' }}>
-                    <TextInput value={key} onChangeText={(next) => setAttr(index, 0, next)} placeholder={t('gear.editor.attrNamePlaceholder')} placeholderTextColor={theme.text3} style={{ width: '34%', padding: 0, fontSize: 14, color: theme.text }} />
-                    <TextInput value={value} onChangeText={(next) => setAttr(index, 1, next)} placeholder={t('gear.editor.attrValuePlaceholder')} placeholderTextColor={theme.text3} style={{ flex: 1, padding: 0, fontSize: 14, fontWeight: '600', textAlign: 'right', color: theme.text2 }} />
-                    <Press onPress={() => setAttrs((current) => current.filter((_, entryIndex) => entryIndex !== index))} hitSlop={8} style={{ marginLeft: 8, padding: 4 }}><Icon name="close" color={theme.text3} size={14} /></Press>
-                  </View>
-                </React.Fragment>
+                <View key={index} style={{ width: '48%', minHeight: 84, paddingHorizontal: space.sm, paddingVertical: space.sm, paddingRight: space.xl, borderRadius: radius.card, backgroundColor: theme.fieldSurface }}>
+                  <Press onPress={() => setAttrs((current) => current.filter((_, entryIndex) => entryIndex !== index))} hitSlop={8} style={{ position: 'absolute', right: space.xs, top: space.xs, zIndex: 1, padding: space.xxs }}>
+                    <Icon name="close" color={theme.text3} size={13} />
+                  </Press>
+                  <TextInput
+                    value={key}
+                    onChangeText={(next) => setAttr(index, 0, next)}
+                    placeholder={t('gear.editor.attrNamePlaceholder')}
+                    placeholderTextColor={theme.text3}
+                    style={{ padding: 0, paddingRight: space.xs, fontSize: 14, fontWeight: '600', color: theme.text2 }}
+                  />
+                  <TextInput
+                    value={value}
+                    onChangeText={(next) => setAttr(index, 1, next)}
+                    placeholder={t('gear.editor.attrValuePlaceholder')}
+                    placeholderTextColor={theme.text3}
+                    multiline
+                    style={{ minHeight: 30, marginTop: space.xs, padding: 0, fontSize: 12.5, lineHeight: 18, fontWeight: '700', color: theme.text, textAlignVertical: 'top' }}
+                  />
+                </View>
               ))}
-              {attrs.length ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: theme.hairline }} /> : null}
-              <Press onPress={() => setAttrs((current) => [...current, ['', '']])} style={{ height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}><Icon name="plus" color={theme.accent} size={15} strokeWidth={2.3} /></View>
-                <Text style={{ marginLeft: 10, fontSize: 14, fontWeight: '700', color: theme.accent }}>{t('gear.editor.addAttr')}</Text>
-              </Press>
             </View>
 
             <SectionTitle theme={theme} title={t('gear.section.note')} />
