@@ -126,14 +126,14 @@ function AppShell() {
           onCreate={(poi) => {
             nav.addJoinedJourney(poi);
             nav.closeNewJourney();
-            nav.showToast(poi.status === 'ongoing' ? t('appShell.toastJourneyStarted') : poi.status === 'completed' ? t('appShell.toastMemoryLogged') : t('appShell.toastPlanJoined'));
+            nav.showToast(t('appShell.toastJourneyCreated'));
             nav.openPoint(poi);
           }}
         />
       )}
       {nav.detail && <JourneyDetailSplit theme={theme} poi={nav.detail} onClose={() => nav.closeDetail()} />}
       {nav.elevFull && <ElevationFull theme={theme} info={nav.elevFull.info} isMine={nav.elevFull.isMine} onClose={() => nav.closeElevation()} />}
-      {nav.photoWall && <PhotoWall theme={theme} info={nav.photoWall.info} status={nav.photoWall.status} onClose={() => nav.closePhotoWall()} />}
+      {nav.photoWall && <PhotoWall theme={theme} info={nav.photoWall.info} onClose={() => nav.closePhotoWall()} />}
       {nav.timelineAdd && <JourneyEntryEditor theme={theme} info={nav.timelineAdd.poi} initialDay={nav.timelineAdd.day} editRow={nav.timelineAdd.editRow} onClose={() => nav.closeTimelineAdd()} />}
       {nav.editJourney && (
         <EditJourneySheet

@@ -7,7 +7,6 @@ import {
   Animated,
   PanResponder,
   StyleSheet,
-  ScrollView,
   ViewStyle,
   StyleProp,
 } from 'react-native';
@@ -31,6 +30,10 @@ interface Props {
   /** compact (POI-card) mode: hide the header, let the body bleed to the top,
       and reduce the drag affordance to a floating grab handle over the hero */
   compact?: boolean;
+  /** semantic surface override for grouped collection sheets */
+  backgroundColor?: string;
+  /** remove the translucent-looking edge on fully opaque detail sheets */
+  borderless?: boolean;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -52,6 +55,8 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     bottomOffset = 0,
     onDismiss,
     compact = false,
+    backgroundColor,
+    borderless = false,
   },
   ref
 ) {
@@ -164,14 +169,11 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     })
   ).current;
 
-  // ── compact-mode drag-to-dismiss (react-native-gesture-handler) ──────────
-  // The compact POI card is one big draggable surface that ALSO scrolls when
-  // expanded. The old PanResponder stole the touch from the inner ScrollView via
-  // the capture phase, which only works on iOS — its overscroll bounce hands the
-  // responder back. Android's native ScrollView keeps the gesture, so the card
-  // could never be pulled down to close. Gesture Handler runs the pan
-  // SIMULTANEOUSLY with the scroll view and coordinates natively, so a downward
-  // pull at the top closes the card on both platforms.
+  // ── sheet-body drag coordination (react-native-gesture-handler) ──────────
+  // The list and compact POI card can scroll when expanded, but a downward pull
+  // at scroll position zero belongs to the sheet. Gesture Handler runs the pan
+  // simultaneously with the scroll view so that gesture collapses or dismisses
+  // the sheet consistently on both iOS and Android.
   const scrollRef = useRef<any>(null);
   const dragging = useRef(false);
   const dragBase = useRef(0);
@@ -209,7 +211,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const dragEndRef = useRef(onDragEnd);
   dragMoveRef.current = onDragMove;
   dragEndRef.current = onDragEnd;
-  const compactGesture = useMemo(
+  const sheetBodyGesture = useMemo(
     () =>
       Gesture.Pan()
         .runOnJS(true)
@@ -251,10 +253,10 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: compact ? 'transparent' : theme.dark ? '#1c1c1e' : '#fff',
+            backgroundColor: compact ? 'transparent' : backgroundColor || theme.surfaceTop,
             borderTopLeftRadius: compact ? 0 : 26,
             borderTopRightRadius: compact ? 0 : 26,
-            borderWidth: compact ? 0 : StyleSheet.hairlineWidth,
+            borderWidth: compact || borderless ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.hairline,
           },
         ]}
@@ -265,13 +267,13 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         // dismiss). The hero fills the very top; rounded corners clip it. The
         // body scrolls only once expanded; before then a swipe dismisses. The
         // drag is driven by Gesture Handler so it cooperates with the scroll view
-        // on Android too (see compactGesture above).
-        <GestureDetector gesture={compactGesture}>
+        // on Android too (see sheetBodyGesture above).
+        <GestureDetector gesture={sheetBodyGesture}>
           <View style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }]}>
             <GHScrollView
               ref={scrollRef}
               scrollEnabled={compactCanScroll}
-              // the drag-to-dismiss is driven by compactGesture, so kill the
+              // the drag-to-dismiss is driven by sheetBodyGesture, so kill the
               // scroll view's own overscroll — its rubber-band would otherwise
               // expose a blank strip above the hero while pulling the card down.
               bounces={false}
@@ -319,14 +321,26 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           </View>
 
           {/* body */}
-          <ScrollView
-            scrollEnabled={expanded}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: bottomPad }}
-            style={{ flex: 1 }}
-          >
-            {children}
-          </ScrollView>
+          <View style={{ flex: 1 }}>
+            <GestureDetector gesture={sheetBodyGesture}>
+              <GHScrollView
+                ref={scrollRef}
+                scrollEnabled={expanded}
+                bounces={false}
+                alwaysBounceVertical={false}
+                overScrollMode="never"
+                onScroll={(e) => {
+                  scrollY.current = e.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: bottomPad }}
+                style={{ flex: 1 }}
+              >
+                {children}
+              </GHScrollView>
+            </GestureDetector>
+          </View>
         </>
       )}
     </Animated.View>

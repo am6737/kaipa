@@ -34,6 +34,7 @@ export function GearSetEditor({
   catMap,
   onCancel,
   onSave,
+  onAddGear,
 }: {
   theme: Theme;
   mode: 'new' | 'edit';
@@ -43,6 +44,7 @@ export function GearSetEditor({
   catMap: Record<string, GearCat>;
   onCancel: () => void;
   onSave: (name: string, items: string[], overrides: Record<string, GearSetOverride>) => void;
+  onAddGear?: (onAdded: (item: GearItem) => void) => void;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -85,7 +87,7 @@ export function GearSetEditor({
     }));
   }, [catMap, selectedItems, t, theme.text3]);
   const trimmedName = name.trim();
-  const valid = trimmedName.length > 0 && selectedNames.size > 0;
+  const valid = trimmedName.length > 0;
 
   const removeItem = (itemName: string) => {
     setSelectedNames((current) => {
@@ -124,6 +126,9 @@ export function GearSetEditor({
             setSelectedNames(nextSelectedNames);
             setPickerOpen(false);
           },
+          onAdd: onAddGear ? () => onAddGear((item) => {
+            setSelectedNames((current) => new Set(current).add(item.name));
+          }) : undefined,
         }}
       />
     </View>
@@ -142,7 +147,7 @@ export function GearSetEditor({
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingBottom: Math.max(insets.bottom, space.sm) + space.xxs }}>
             {!valid ? (
               <Text style={{ marginBottom: space.xs, textAlign: 'center', fontSize: 11.5, color: theme.text3 }}>
-                {trimmedName ? t('gear.setEditor.selectionRequired') : t('gear.setEditor.nameRequired')}
+                {t('gear.setEditor.nameRequired')}
               </Text>
             ) : null}
             <Press
@@ -350,7 +355,7 @@ function SelectedGearRow({
 
   return (
     <View>
-      <View style={{ minHeight: layout.listRowMinHeight + 10, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+      <View style={{ minHeight: layout.listRowMinHeight + 10, paddingLeft: space.md, paddingRight: 48, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <GearItemImage theme={theme} item={item} radius={radius.control} borderless style={{ width: 46, height: 46 }} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text>
@@ -365,7 +370,7 @@ function SelectedGearRow({
             </View>
           </View>
         </View>
-        <Press onPress={onRemove} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('common.delete')} style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+        <Press onPress={onRemove} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('common.delete')} style={{ position: 'absolute', top: space.xs, right: space.xs, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
           <Icon name="close" color={theme.text2} size={15} strokeWidth={2.1} />
         </Press>
       </View>

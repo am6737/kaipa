@@ -23,6 +23,7 @@ import { uploadMedia } from '../../lib/storage';
 import { generateSmartPlan, parseJourneySchedule, SmartPlanItem } from '../../lib/smartPlan';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
+import { radius, space, type } from '../../design-system';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -278,22 +279,22 @@ function DaySection({ theme, label, count, collapsible, collapsed, onToggle, chi
   children: React.ReactNode;
 }) {
   return (
-    <View style={{ marginBottom: 14 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, minHeight: 52 }}>
-        <Pressable
-          onPress={collapsible ? onToggle : undefined}
-          hitSlop={8}
-          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-        >
-          <Text style={{ fontSize: 18, fontWeight: '800', color: theme.text }} numberOfLines={1}>{label}</Text>
-          <Text style={{ fontSize: 13.5, color: theme.text3 }}>{count}</Text>
-        </Pressable>
+    <View style={{ marginBottom: space.xl }}>
+      <Pressable
+        onPress={collapsible ? onToggle : undefined}
+        hitSlop={8}
+        style={{ minHeight: 60, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center' }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={[type.pageTitle, { color: theme.text, fontSize: 23 }]} numberOfLines={1}>{label.toUpperCase()}</Text>
+          <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{count}</Text>
+        </View>
         {collapsible ? (
-          <Press onPress={onToggle} hitSlop={8} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: collapsed ? '0deg' : '180deg' }] }}>
+          <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: collapsed ? '0deg' : '180deg' }] }}>
             <Icon name="chevronDown" color={theme.text2} size={18} />
-          </Press>
+          </View>
         ) : null}
-      </View>
+      </Pressable>
       {collapsed ? null : children}
     </View>
   );
@@ -439,51 +440,46 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia }: {
   onOpenMedia?: (media: TLMedia[], index: number, row: TLRow) => void;
 }) {
   const media = row.media || [];
+  const cover = media[0];
+  const coverUri = cover?.video ? cover.thumb : cover?.uri;
   return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingVertical: 14,
-        gap: media.length ? 10 : 8,
-      }}
-    >
-      <View style={{ gap: 7 }}>
-        {row.timeStart != null ? (
-          <Text style={{ fontSize: 12.5, fontWeight: '600', color: theme.text3 }}>
-            {fmtRange(row.timeStart, row.timeEnd ?? undefined)}
-          </Text>
-        ) : null}
-        <Text style={{ fontSize: 17, fontWeight: '800', lineHeight: 24, color: theme.text, letterSpacing: -0.2 }}>
-          {row.title}
-        </Text>
+    <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.sm }}>
+      <View
+        style={{
+          width: 68,
+          height: 68,
+          borderRadius: radius.card,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: theme.fieldSurface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.fieldBorder,
+        }}
+      >
+        {coverUri ? <Image source={{ uri: coverUri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : <Icon name="calendar" color={theme.text2} size={22} />}
       </View>
-      {media.length ? (
-        <View style={{ marginTop: 2, flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {media.map((mm, idx) => {
-            const uri = mm.video ? mm.thumb : mm.uri;
-            return (
-              <Pressable
-                key={idx}
-                onPress={onOpenMedia ? () => onOpenMedia(media, idx, row) : undefined}
-                style={{
-                  width: 104,
-                  height: 104,
-                  borderRadius: 18,
-                  overflow: 'hidden',
-                  backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : '#F3F5FA',
-                }}
-              >
-                {uri ? <Image source={{ uri }} contentFit="cover" style={{ width: 104, height: 104 }} /> : null}
-                {mm.video ? (
-                  <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.18)' }]}>
-                    <Icon name="play" color="#fff" size={16} />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.accent }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
+        <Text style={[type.sectionTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 24 }]}>{row.title}</Text>
+        {media.length > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
+            {media.slice(1).map((item, index) => {
+              const uri = item.video ? item.thumb : item.uri;
+              return (
+                <Pressable
+                  key={index}
+                  onPress={onOpenMedia ? () => onOpenMedia(media, index + 1, row) : undefined}
+                  style={{ width: 64, height: 52, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.fieldSurface }}
+                >
+                  {uri ? <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+      </View>
+      {onPress ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
     </Pressable>
   );
 }
@@ -612,7 +608,7 @@ function SmartPlanSheet({ theme, info, rows, defaultDays, onApply, onClose }: {
   );
 }
 
-export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; info: Poi; readOnly?: boolean }) {
+export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDayTabs = true }: { theme: Theme; info: Poi; readOnly?: boolean; selectedDay?: string; showDayTabs?: boolean }) {
   const nav = useNav();
   const { t } = useI18n();
   const { userId } = useData();
@@ -624,8 +620,11 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
   const [dismissChipsSignal, setDismissChipsSignal] = useState(0);
   const [smartPlanOpen, setSmartPlanOpen] = useState(false);
 
-  const groups = groupRows(tl.rows, tl.knownGroups);
+  const defaultDayCount = Math.max(1, info.totalDays || Number.parseInt(info.days || '', 10) || 1);
+  const defaultDays = info.kind === 'journey' ? Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`) : [];
+  const groups = groupRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
   const dayLabel = (g: TLGroup) => g.label.trim() || t('journey.timeline.ungrouped');
+  const currentDay = selectedDay || activeDay;
   const nextDayName = () => {
     const used = new Set(groups.map((g) => g.key));
     let n = 1;
@@ -658,14 +657,14 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
           style: 'destructive',
           onPress: () => {
             tl.removeGroup(g.key);
-            if (activeDay === g.key) setActiveDay(ALL_DAYS);
+            if (currentDay === g.key) setActiveDay(ALL_DAYS);
           },
         },
       ],
     );
   };
 
-  if (tl.rows.length === 0) {
+  if (tl.rows.length === 0 && groups.length === 0) {
     return (
       <View style={{ paddingBottom: 18 }}>
         {readOnly ? null : (
@@ -706,7 +705,7 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
   }
 
   const chips = [{ key: ALL_DAYS, label: t('journey.tab.overview') }, ...groups.map((g) => ({ key: g.key, label: dayLabel(g) }))];
-  const shownGroups = activeDay === ALL_DAYS ? groups : groups.filter((g) => g.key === activeDay);
+  const shownGroups = currentDay === ALL_DAYS ? groups : groups.filter((g) => g.key === currentDay);
 
   // a day's entries as a grouped, hairline-separated card + (editable) an add row
   const renderItems = (g: TLGroup) => {
@@ -727,7 +726,7 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
         }}
       >
         {rows.map((r, i) => (
-          <View key={r.id} style={{ paddingHorizontal: 0, marginTop: i === 0 ? 0 : 14 }}>
+          <View key={r.id} style={{ paddingHorizontal: 0, marginTop: i === 0 ? 0 : space.md }}>
             <View style={{ paddingHorizontal: 0 }}>
               <ItineraryItem
                 theme={theme}
@@ -740,7 +739,7 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
         ))}
         {readOnly ? null : (
           <>
-            <View style={{ height: 14 }} />
+            <View style={{ height: space.sm }} />
             <Press
               onPress={() => nav.openTimelineAdd(info, g.key)}
               style={{
@@ -770,11 +769,11 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
           style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
         />
       ) : null}
-      <View style={{ marginBottom: 14, zIndex: 2 }}>
+      {showDayTabs ? <View style={{ marginBottom: 14, zIndex: 2 }}>
         <DayChips
           theme={theme}
           items={chips}
-          active={activeDay}
+          active={currentDay}
           onSelect={setActiveDay}
           onAdd={readOnly ? undefined : addNextDay}
           editable={!readOnly}
@@ -786,11 +785,11 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
           }}
           onRenameItem={(key, label) => {
             tl.renameGroup(key, label);
-            if (activeDay === key) setActiveDay(label);
+            if (currentDay === key) setActiveDay(label);
           }}
         />
-      </View>
-      {readOnly ? null : (
+      </View> : null}
+      {readOnly || !showDayTabs ? null : (
         <View style={{ marginBottom: 16, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <Press
             onPress={openSmartPlan}
@@ -806,8 +805,8 @@ export function JourneyTimelineCard({ theme, info, readOnly }: { theme: Theme; i
           theme={theme}
           label={dayLabel(g)}
           count={t('journey.timeline.itemCount', { count: g.rows.length })}
-          collapsible={activeDay === ALL_DAYS}
-          collapsed={activeDay === ALL_DAYS && collapsed.has(g.key)}
+          collapsible={currentDay === ALL_DAYS}
+          collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
           onToggle={() => toggleCollapse(g.key)}
         >
           {renderItems(g)}

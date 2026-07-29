@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toJourneyPoi } from '../lib/mappers';
-import type { Poi, JourneyStatus } from '../data/pois';
+import type { Poi } from '../data/pois';
 
 const has = (obj: object, key: keyof Poi) => Object.prototype.hasOwnProperty.call(obj, key);
 
@@ -43,7 +43,6 @@ export function useJourneys(userId: string | undefined) {
       diff: poi.diff || null,
       tone: poi.tone || 'forest',
       desc: poi.desc || null,
-      status: poi.status || 'planning',
       date: poi.date || null,
       days: poi.days || null,
       planned_date: poi.plannedDate || null,
@@ -89,7 +88,6 @@ export function useJourneys(userId: string | undefined) {
     if (has(patch, 'name')) row.name = patch.name;
     if (has(patch, 'region')) row.region = patch.region;
     if (has(patch, 'desc')) row.desc = patch.desc;
-    if (has(patch, 'status')) row.status = patch.status;
     if (has(patch, 'date')) row.date = patch.date;
     if (has(patch, 'days')) row.days = patch.days;
     if (has(patch, 'plannedDate')) row.planned_date = patch.plannedDate;

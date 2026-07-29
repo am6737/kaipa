@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -8,6 +10,7 @@ import { Press } from '../Press';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat } from '../../data/gear';
 import { fetchGearLinkPreview, GearLinkPreview } from '../../lib/gearLinkPreview';
+import { recognizeGearImage } from '../../lib/gearImageRecognition';
 import { CircleBtn } from './parts';
 
 type ScanDisplay = {
@@ -52,9 +55,10 @@ function inferCategory(preview: GearLinkPreview, cats: GearCat[]) {
 export function AddGearChoose({ theme, cats, onResult, onCancel }: {
   theme: Theme;
   cats: GearCat[];
-  onResult: (item: GearItem, source?: { label: string; url: string }) => void;
+  onResult: (item: GearItem, source?: { label: string; url?: string }) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const width = Dimensions.get('window').width;
   const translateX = useRef(new Animated.Value(width)).current;
@@ -64,13 +68,17 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
   const [scanSteps, setScanSteps] = useState(0);
   const [scanPhase, setScanPhase] = useState<'trace' | 'lift'>('trace');
   const [scanError, setScanError] = useState('');
+  const [recognizedPhotoUri, setRecognizedPhotoUri] = useState('');
   const scanRequestId = useRef(0);
   const scanProgressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const imagePhaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recognizedAssetRef = useRef<ImagePicker.ImagePickerAsset | null>(null);
 
   useEffect(() => {
     Animated.spring(translateX, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 18 }).start();
     return () => {
       if (scanProgressRef.current) clearInterval(scanProgressRef.current);
+      if (imagePhaseTimerRef.current) clearTimeout(imagePhaseTimerRef.current);
     };
   }, [translateX]);
 
@@ -108,26 +116,52 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
     }
   };
 
-  const toManual = () => {
+  const toManual = (photoUri = '') => {
     const cat = cats.find((candidate) => candidate.id === 'misc')?.id || cats[0]?.id || 'misc';
-    onResult({ name: '', cat, w: 0, p: 0 });
+    onResult({ name: '', cat, w: 0, p: 0, photos: photoUri ? [photoUri] : undefined });
   };
 
-  useEffect(() => {
-    if (stage !== 'scanStage') return;
+  const runImageRecognition = async (asset: ImagePicker.ImagePickerAsset) => {
+    const requestId = ++scanRequestId.current;
+    setScanError('');
     setScanPhase('trace');
-    const lift = setTimeout(() => setScanPhase('lift'), 1300);
-    const done = setTimeout(toManual, 2700);
-    return () => { clearTimeout(lift); clearTimeout(done); };
-  }, [stage]);
+    if (imagePhaseTimerRef.current) clearTimeout(imagePhaseTimerRef.current);
+    imagePhaseTimerRef.current = setTimeout(() => setScanPhase('lift'), 1300);
+    try {
+      const item = await recognizeGearImage(asset, cats);
+      if (requestId !== scanRequestId.current) return;
+      onResult(item, { label: t('gear.add.photoRecognize') });
+    } catch (error) {
+      if (requestId !== scanRequestId.current) return;
+      setScanError(error instanceof Error ? error.message : t('gear.add.imageRecognitionFailed'));
+    } finally {
+      if (imagePhaseTimerRef.current) clearTimeout(imagePhaseTimerRef.current);
+      imagePhaseTimerRef.current = null;
+    }
+  };
+
+  const recognizePhoto = (asset: ImagePicker.ImagePickerAsset) => {
+    recognizedAssetRef.current = asset;
+    setRecognizedPhotoUri(asset.uri);
+    setScanProduct({ name: '', site: t('gear.add.photoRecognize') });
+    setStage('scanStage');
+    void runImageRecognition(asset);
+  };
+
+  const cancelImageRecognition = () => {
+    scanRequestId.current += 1;
+    if (imagePhaseTimerRef.current) clearTimeout(imagePhaseTimerRef.current);
+    imagePhaseTimerRef.current = null;
+    setStage('choose');
+  };
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: pageBg(theme), transform: [{ translateX }] }]}>
-      {stage === 'choose' ? <ChooseStage theme={theme} top={insets.top} onCancel={onCancel} onPaste={() => setStage('paste')} onCamera={() => setStage('camera')} onManual={toManual} /> : null}
+      {stage === 'choose' ? <ChooseStage theme={theme} top={insets.top} onCancel={onCancel} onPaste={() => setStage('paste')} onCamera={() => setStage('camera')} onManual={() => toManual()} /> : null}
       {stage === 'paste' ? <PasteStage theme={theme} top={insets.top} linkText={linkText} setLinkText={setLinkText} valid={!!link} onBack={() => setStage('choose')} onSubmit={submitLink} /> : null}
-      {stage === 'scanning' && scanProduct ? <ScanningStage theme={theme} top={insets.top} product={scanProduct} stepN={scanSteps} error={scanError} onBack={() => { scanRequestId.current += 1; if (scanProgressRef.current) clearInterval(scanProgressRef.current); scanProgressRef.current = null; setStage('paste'); }} onRetry={submitLink} onManual={toManual} /> : null}
-      {stage === 'camera' ? <CameraStage theme={theme} top={insets.top} bottom={insets.bottom} onCancel={() => setStage('choose')} onShoot={() => { setScanProduct({ name: '', site: '拍照识别' }); setStage('scanStage'); }} /> : null}
-      {stage === 'scanStage' && scanProduct ? <ScanExtractStage theme={theme} product={scanProduct} phase={scanPhase} onCancel={() => setStage('choose')} /> : null}
+      {stage === 'scanning' && scanProduct ? <ScanningStage theme={theme} top={insets.top} product={scanProduct} stepN={scanSteps} error={scanError} onBack={() => { scanRequestId.current += 1; if (scanProgressRef.current) clearInterval(scanProgressRef.current); scanProgressRef.current = null; setStage('paste'); }} onRetry={submitLink} onManual={() => toManual()} /> : null}
+      {stage === 'camera' ? <CameraStage theme={theme} top={insets.top} bottom={insets.bottom} onCancel={() => setStage('choose')} onImage={recognizePhoto} /> : null}
+      {stage === 'scanStage' && scanProduct ? <ScanExtractStage theme={theme} product={scanProduct} imageUri={recognizedPhotoUri} phase={scanPhase} error={scanError} onCancel={cancelImageRecognition} onRetry={() => { if (recognizedAssetRef.current) void runImageRecognition(recognizedAssetRef.current); }} onManual={() => toManual(recognizedPhotoUri)} /> : null}
     </Animated.View>
   );
 }
@@ -260,9 +294,48 @@ function ScanningStage({ theme, top, product, stepN, error, onBack, onRetry, onM
   );
 }
 
-function CameraStage({ theme, top, bottom, onCancel, onShoot }: { theme: Theme; top: number; bottom: number; onCancel: () => void; onShoot: () => void }) {
+function CameraStage({ theme, top, bottom, onCancel, onImage }: { theme: Theme; top: number; bottom: number; onCancel: () => void; onImage: (asset: ImagePicker.ImagePickerAsset) => void }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<'object' | 'tag'>('object');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const takePhoto = async () => {
+    setError('');
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError(t('gear.editor.cameraPermission'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.65, base64: true });
+      if (!result.canceled) onImage(result.assets[0]);
+    } catch {
+      setError(t('gear.add.imageReadFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const choosePhoto = async () => {
+    setError('');
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError(t('gear.editor.libraryPermission'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.65, base64: true });
+      if (!result.canceled) onImage(result.assets[0]);
+    } catch {
+      setError(t('gear.add.imageReadFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0B0C0E' }]}>
       <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}><CircleBtn theme={{ ...theme, dark: true, text: '#FFFFFF', surfaceTop: '#2C2C2E' }} name="close" onPress={onCancel} noShadow /></View>
@@ -275,21 +348,47 @@ function CameraStage({ theme, top, bottom, onCancel, onShoot }: { theme: Theme; 
         <View style={{ flexDirection: 'row', marginTop: 18, padding: 4, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.1)' }}>
           {(['object', 'tag'] as const).map((key) => <Press key={key} onPress={() => setMode(key)} style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 13, backgroundColor: mode === key ? '#FFFFFF' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '800', color: mode === key ? '#000000' : '#FFFFFF' }}>{key === 'object' ? t('gear.add.cameraObject') : t('gear.add.cameraTag')}</Text></Press>)}
         </View>
+        {error ? <Text style={{ marginTop: 16, paddingHorizontal: 28, textAlign: 'center', fontSize: 13, lineHeight: 19, color: theme.danger }}>{error}</Text> : null}
       </View>
-      <View style={{ alignItems: 'center', paddingBottom: Math.max(bottom, 20) + 18 }}><Press onPress={onShoot} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFFFFF' }} /></Press></View>
+      <View style={{ paddingHorizontal: 24, paddingBottom: Math.max(bottom, 20) + 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 28 }}>
+        <Press accessibilityLabel={t('gear.add.choosePhoto')} onPress={busy ? undefined : choosePhoto} style={{ width: 76, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.12)' }}>
+          <Icon name="photo" color="#FFFFFF" size={21} />
+          <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.choosePhoto')}</Text>
+        </Press>
+        <Press accessibilityLabel={t('gear.add.takePhoto')} onPress={busy ? undefined : takePhoto} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
+          {busy ? <ActivityIndicator color="#FFFFFF" /> : <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFFFFF' }} />}
+        </Press>
+        <View style={{ width: 76 }} />
+      </View>
     </View>
   );
 }
 
-function ScanExtractStage({ theme, product, phase, onCancel }: { theme: Theme; product: ScanDisplay; phase: 'trace' | 'lift'; onCancel: () => void }) {
+function ScanExtractStage({ theme, product, imageUri, phase, error, onCancel, onRetry, onManual }: { theme: Theme; product: ScanDisplay; imageUri: string; phase: 'trace' | 'lift'; error: string; onCancel: () => void; onRetry: () => void; onManual: () => void }) {
   const { t } = useI18n();
   const lifted = phase === 'lift';
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0B0C0E', alignItems: 'center', justifyContent: 'center' }]}>
       <View style={{ position: 'absolute', top: 56, left: 16 }}><Press onPress={onCancel}><Text style={{ fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>{t('gear.add.cancel')}</Text></Press></View>
-      <View style={{ width: 218, height: 218, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#191A1D', borderWidth: lifted ? 3 : StyleSheet.hairlineWidth, borderColor: lifted ? '#FFFFFF' : 'rgba(255,255,255,0.12)', transform: [{ scale: lifted ? 1.06 : 1 }] }}><Icon name="bag" color="rgba(255,255,255,0.3)" size={52} strokeWidth={1.3} /></View>
-      <Text style={{ marginTop: 50, fontSize: 19, fontWeight: '800', color: '#FFFFFF' }}>{lifted ? t('gear.add.extractingSpec') : t('gear.add.extractingObject')}</Text>
-      <Text style={{ marginTop: 8, fontSize: 12.5, color: 'rgba(255,255,255,0.5)' }}>{product.site} · {t('gear.add.autoFillHint')}</Text>
+      <View style={{ width: 218, height: 218, overflow: 'hidden', borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#191A1D', borderWidth: lifted ? 3 : StyleSheet.hairlineWidth, borderColor: lifted ? '#FFFFFF' : 'rgba(255,255,255,0.12)', transform: [{ scale: lifted ? 1.06 : 1 }] }}>
+        {imageUri ? <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Icon name="bag" color="rgba(255,255,255,0.3)" size={52} strokeWidth={1.3} />}
+      </View>
+      {error ? (
+        <View style={{ width: '100%', paddingHorizontal: 28, marginTop: 38 }}>
+          <Text style={{ fontSize: 16, lineHeight: 23, fontWeight: '800', textAlign: 'center', color: '#FFFFFF' }}>{t('gear.add.imageRecognitionFailed')}</Text>
+          <Text style={{ marginTop: 8, fontSize: 13, lineHeight: 19, textAlign: 'center', color: 'rgba(255,255,255,0.62)' }}>{error}</Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 22 }}>
+            <Press onPress={onRetry} style={{ flex: 1, height: 48, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}><Text style={{ fontSize: 14, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.retry')}</Text></Press>
+            <Press onPress={onManual} style={{ flex: 1, height: 48, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' }}><Text style={{ fontSize: 14, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.manualContinue')}</Text></Press>
+          </View>
+        </View>
+      ) : (
+        <>
+          <ActivityIndicator style={{ marginTop: 42 }} color="#FFFFFF" />
+          <Text style={{ marginTop: 16, fontSize: 19, fontWeight: '800', color: '#FFFFFF' }}>{lifted ? t('gear.add.extractingSpec') : t('gear.add.extractingObject')}</Text>
+          <Text style={{ marginTop: 8, fontSize: 12.5, color: 'rgba(255,255,255,0.5)' }}>{product.site} · {t('gear.add.autoFillHint')}</Text>
+        </>
+      )}
     </View>
   );
 }

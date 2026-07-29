@@ -1,6 +1,6 @@
 // NavContext.tsx — central UI/navigation state, mirroring the prototype's `nav`
 // object: which tab + subtab is active, the selected POI, the bottom sheet, live
-// journey edits (status flips / favourites / removals), and every full-screen
+// journey edits (favourites / removals), and every full-screen
 // overlay. Screens read this via useNav().
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { Poi } from '../data/pois';
@@ -27,7 +27,6 @@ interface OverlayCfg {
   info: Poi;
   isMine?: boolean;
   title?: string;
-  status?: string;
 }
 
 export interface NavValue {
@@ -55,8 +54,6 @@ export interface NavValue {
   journeyPatch: Record<string, JourneyPatch>;
   removedIds: string[];
   patchCurrent: (patch: JourneyPatch) => void;
-  startJourney: () => void;
-  completeJourney: () => void;
   removeJourney: () => void;
   removeJourneys: (ids: string[]) => void;
   toggleFav: () => void;
@@ -298,8 +295,6 @@ export function NavProvider({
       journeyPatch,
       removedIds,
       patchCurrent,
-      startJourney: () => patchCurrent({ status: 'ongoing', dayIndex: 1 }),
-      completeJourney: () => patchCurrent({ status: 'completed' }),
       removeJourney: removeCurrent,
       removeJourneys: removeBatch,
       toggleFav: () => {

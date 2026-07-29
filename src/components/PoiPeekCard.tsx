@@ -10,7 +10,7 @@ import { BlurView, BlurTargetView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
-import { Poi, STATUS_COLOR, JourneyStatus } from '../data/pois';
+import { Poi } from '../data/pois';
 import { buildElevation } from '../data/elevation';
 import { PhotoTile } from './PhotoTile';
 import { Icon } from './Icon';
@@ -24,7 +24,6 @@ export function PoiPeekCard({ theme, poi, onPress }: { theme: Theme; poi: Poi; o
   const insets = useSafeAreaInsets();
   const cardBottomGap = 14;
   const isJourney = poi.kind === 'journey';
-  const status = (poi.status || 'completed') as JourneyStatus;
   const cover = poi.photoUris?.[0];
   const blurTargetRef = useRef<View | null>(null);
   // labeled key stats under the title — distance, total ascent, max elevation,
@@ -46,14 +45,13 @@ export function PoiPeekCard({ theme, poi, onPress }: { theme: Theme; poi: Poi; o
   };
   const startOrPlan = (e: any) => {
     stop(e);
-    if (isJourney && status === 'planning') {
-      nav.openDetail(poi);
-    } else {
+    if (isJourney) nav.openDetail(poi);
+    else {
       nav.openNewJourney(poi);
-      if (!isJourney) nav.showToast(t('journey.toast.startPlanning'));
+      nav.showToast(t('journey.toast.startPlanning'));
     }
   };
-  const ctaLabel = isJourney && status === 'planning' ? t('journey.cta.depart') : isJourney ? t('journey.cta.departAgain') : '规划';
+  const ctaLabel = isJourney ? t('journey.tab.overview') : '规划';
 
   return (
     <Press onPress={onPress} style={{ flex: 1, paddingHorizontal: 14, paddingBottom: cardBottomGap, justifyContent: 'flex-end' }}>

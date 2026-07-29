@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
-import { Poi, type JourneyStatus } from '../../data/pois';
+import { Poi } from '../../data/pois';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
@@ -96,7 +96,7 @@ export function JourneySettings({
   const [routeShowTimeline, setRouteShowTimeline] = useState(poi.routeShowTimeline ?? true);
 
   const hasTrack = !!poi.trackCoords && poi.trackCoords.length > 0;
-  const showTrackOptions = hasTrack && poi.status === 'completed';
+  const showTrackOptions = hasTrack;
 
   const shareInfo = useMemo(() => {
     const slug = (poi.name || 'kaipa').replace(/\s+/g, '').slice(0, 8);
@@ -168,21 +168,6 @@ export function JourneySettings({
     }
   };
 
-  const [status, setStatus] = useState<JourneyStatus>(poi.status || 'planning');
-  const statusLabel = t(`common.status.${status}`);
-
-  const allStatuses: JourneyStatus[] = ['planning', 'ongoing', 'completed'];
-  const handleStatusPress = () => {
-    Alert.alert(t('journey.settings.statusLabel'), undefined,
-      [
-        ...allStatuses.map((s) => ({
-          text: t(`common.status.${s}`),
-          onPress: () => { setStatus(s); nav.patchCurrent({ status: s }); },
-        })),
-        { text: t('common.cancel'), style: 'cancel' as const },
-      ],
-    );
-  };
 
   return (
     <FullOverlay theme={theme} title={t('journey.settings.title')} onClose={onClose} zIndex={150}>
@@ -239,9 +224,9 @@ export function JourneySettings({
               value={[poi.date, poi.days].filter(Boolean).join(' · ') || '—'}
               onPress={onEdit}
               trailing={<Icon name="chevronR" color={theme.text3} size={14} />}
+              last
             />
           ) : null}
-          <Row theme={theme} label={t('journey.settings.statusLabel')} value={statusLabel} onPress={handleStatusPress} trailing={<Icon name="chevronR" color={theme.text3} size={14} />} last />
         </Section>
 
         {/* Permissions */}

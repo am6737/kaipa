@@ -25,7 +25,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
   item: GearItem;
   cats: GearCat[];
   mode?: 'new' | 'edit';
-  recognitionSource?: { label: string; url: string };
+  recognitionSource?: { label: string; url?: string };
   existingNames?: string[];
   onCancel: () => void;
   onSave: (next: GearItem) => void;
@@ -140,16 +140,18 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
                     <Icon name="close" color={theme.text2} size={15} />
                   </Press>
                 </View>
-                <Press
-                  onPress={() => Linking.openURL(recognitionSource.url)}
-                  accessibilityRole="link"
-                  style={{ alignSelf: 'flex-start', minHeight: 36, marginTop: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accentSoft }}
-                >
-                  <Icon name="link" color={theme.accent} size={14} strokeWidth={2} />
-                  <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>
-                    {t('gear.editor.openInSource', { source: recognitionSource.label })}
-                  </Text>
-                </Press>
+                {recognitionSource.url ? (
+                  <Press
+                    onPress={() => Linking.openURL(recognitionSource.url!)}
+                    accessibilityRole="link"
+                    style={{ alignSelf: 'flex-start', minHeight: 36, marginTop: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accentSoft }}
+                  >
+                    <Icon name="link" color={theme.accent} size={14} strokeWidth={2} />
+                    <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>
+                      {t('gear.editor.openInSource', { source: recognitionSource.label })}
+                    </Text>
+                  </Press>
+                ) : null}
               </View>
             ) : null}
 

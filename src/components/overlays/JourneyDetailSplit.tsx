@@ -3,7 +3,7 @@
 // a draggable divider snaps between three detents: map-maximised, 50/50, and
 // details-maximised. Replaces the old full-screen JourneyCardFull.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, PanResponder, ScrollView, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Animated, PanResponder, ScrollView, useWindowDimensions, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
@@ -12,24 +12,55 @@ import { Poi } from '../../data/pois';
 import { buildElevation } from '../../data/elevation';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
+import { CircleBtn } from '../CircleBtn';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { CircleBtn } from '../CircleBtn';
 import { PhotoTile } from '../PhotoTile';
-import { TrackMap, TrackMapHandle, MapStyleId } from './TrackMap';
+import { TrackMap, TrackMapHandle, MapStyleId, MAPBOX_TOKEN } from './TrackMap';
 import { SelectedPoiCard } from '../../screens/JourneyCard';
+import { RoutePreviewPanel } from '../discover/RoutePreviewPanel';
+import { AppIconButton, radius, space } from '../../design-system';
+import { useData } from '../../data/DataContext';
+import { useTimeline } from '../../hooks/useTimeline';
 
 export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi: Poi; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const nav = useNav();
   const { t } = useI18n();
+  const { userId } = useData();
 
   const isJourney = poi.kind === 'journey';
   const coords = poi.trackCoords || [];
-  const hasMap = coords.length >= 2;
+  const hasTrack = coords.length >= 2;
+  const mapCoords = hasTrack ? coords : Number.isFinite(poi.lng) && Number.isFinite(poi.lat) ? [[poi.lng, poi.lat] as [number, number]] : [];
+  const hasMap = mapCoords.length > 0 && !!MAPBOX_TOKEN;
   const cover = poi.photoUris?.[0];
   const [trackScrub, setTrackScrub] = useState<{ index: number | null; coord?: [number, number] }>({ index: null });
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
+  const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
+  const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
+
+  const deleteSelectedPlanDays = () => {
+    if (!selectedPlanDays.size) return;
+    const selected = [...selectedPlanDays];
+    const itemCount = timeline.rows.filter((row) => selectedPlanDays.has(row.day)).length;
+    Alert.alert(
+      t('journey.timeline.batchDeleteGroupTitle', { count: selected.length }),
+      t('journey.timeline.batchDeleteGroupMessage', { count: itemCount }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            void Promise.all(selected.map((day) => timeline.removeGroup(day)));
+            setSelectedPlanDays(new Set());
+          },
+        },
+      ],
+    );
+  };
 
   // ── map chrome (2bulu-style side controls) ──────────────────────────────
   const trackMapRef = useRef<TrackMapHandle>(null);
@@ -70,13 +101,18 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
   // Minimized detail panel should only peek identity info; keep tabs out of view.
   const MIN_CARD_PEEK = insets.bottom + 70;
   const MAX_TOP = Math.round(height - MIN_CARD_PEEK);
-  const MID = Math.round(height * 0.5);
+  const MID = Math.round(height * (isJourney ? 0.5 : 0.4));
   const detents = [MIN_TOP, MID, MAX_TOP];
   // Keep the native Mapbox surface at a stable size while the split handle moves.
   // Resizing MapView every frame can make the underlying native surface flash a
   // dark/grey loading mask; we resize only the clipping window around it.
   const stableMapH = MAX_TOP;
-  const panelBg = theme.dark ? '#28282C' : theme.surfaceTop;
+  const panelBg = theme.featureSurface;
+  const mapChromeTheme = useMemo<Theme>(() => ({
+    ...theme,
+    controlSurface: 'rgba(0,0,0,0.46)',
+    text: '#FFFFFF',
+  }), [theme]);
 
   const topH = useRef(new Animated.Value(MID)).current;
   const topHVal = useRef(MID);
@@ -127,7 +163,7 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
           {hasMap ? (
             <TrackMap
               ref={trackMapRef}
-              coords={coords}
+              coords={mapCoords}
               theme={theme}
               fill
               interactive
@@ -145,28 +181,20 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
           )}
         </View>
 
-        {/* back + top actions — bare icons, no circular backdrop */}
-        <View style={{ position: 'absolute', top: insets.top + 6, left: 14 }}>
-          <Press onPress={close} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="arrowL" color="#fff" size={23} />
-          </Press>
+        {/* Standard floating detail controls stay legible over every map style. */}
+        <View style={{ position: 'absolute', top: insets.top + space.xs, left: space.sm }}>
+          <AppIconButton theme={mapChromeTheme} name="arrowL" onPress={close} noShadow />
         </View>
-        <View style={{ position: 'absolute', top: insets.top + 6, right: 14, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Press onPress={() => nav.openSharePanel(poi)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="share" color="#fff" size={21} />
-          </Press>
-          {isJourney && (
-            <Press onPress={() => nav.openJourneySettings(poi)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="gearSettings" color="#fff" size={22} />
-            </Press>
-          )}
+        <View style={{ position: 'absolute', top: insets.top + space.xs, right: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <AppIconButton theme={mapChromeTheme} name="share" onPress={() => nav.openSharePanel(poi)} noShadow />
+          {isJourney ? <AppIconButton theme={mapChromeTheme} name="gearSettings" onPress={() => nav.openJourneySettings(poi)} noShadow /> : null}
         </View>
 
         {/* right-edge map controls stay out of the way until the map is
             maximised: waypoint toggle, base-map, and recenter-to-track. */}
         {hasMap && expanded && (
-          <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, right: 12, justifyContent: 'flex-end' }}>
-            <View pointerEvents="box-none" style={{ gap: 10, paddingBottom: 40 }}>
+          <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, right: space.sm, justifyContent: 'flex-end' }}>
+            <View pointerEvents="box-none" style={{ gap: space.xs, paddingBottom: space.xxxl }}>
               {mapWaypoints.length > 0 && (
                 <CircleBtn theme={theme} name="pin" active={showWaypoints} onPress={() => setShowWaypoints((v) => !v)} />
               )}
@@ -186,15 +214,15 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
           height: 26,
           marginTop: -26,
           backgroundColor: panelBg,
-          borderTopLeftRadius: 26,
-          borderTopRightRadius: 26,
+          borderTopLeftRadius: radius.feature,
+          borderTopRightRadius: radius.feature,
           alignItems: 'center',
           justifyContent: 'center',
           // a faint upward shadow so the rounded card lifts off the map a touch
-          ...shadow(theme.dark ? 0.45 : 0.1, 12, -3),
+          ...shadow(theme.dark ? 0.45 : 0.04, theme.dark ? 12 : 8, -2),
         }}
       >
-        <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: theme.text3 }} />
+        <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: theme.dark ? theme.text3 : 'rgba(0,0,0,0.12)' }} />
       </View>
 
       {/* ── BOTTOM: route / journey details — white panel in light mode ─────── */}
@@ -204,16 +232,57 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
           bounces={false}
           alwaysBounceVertical={false}
           overScrollMode="never"
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 28 }}
+          contentContainerStyle={{ paddingHorizontal: space.md, paddingBottom: insets.bottom + (planEditorOpen ? 96 : space.xxl) }}
         >
-          <SelectedPoiCard
-            theme={theme}
-            poi={poi}
-            embedded
-            onTrackSelectionChange={(index, coord) => setTrackScrub({ index, coord })}
-          />
+          {isJourney ? (
+            <SelectedPoiCard
+              theme={theme}
+              poi={poi}
+              embedded
+              onTrackSelectionChange={(index, coord) => setTrackScrub({ index, coord })}
+              planEditorOpen={planEditorOpen}
+              onPlanEditorOpenChange={(open) => { setPlanEditorOpen(open); if (!open) setSelectedPlanDays(new Set()); }}
+              selectedPlanDays={selectedPlanDays}
+              onSelectedPlanDaysChange={setSelectedPlanDays}
+            />
+          ) : (
+            <RoutePreviewPanel theme={theme} poi={poi} />
+          )}
         </ScrollView>
+
       </View>
+
+      {planEditorOpen ? (
+        <Press
+            onPress={deleteSelectedPlanDays}
+            disabled={!selectedPlanDays.size}
+            accessibilityState={{ disabled: !selectedPlanDays.size }}
+            style={{
+              position: 'absolute',
+              right: space.md,
+              bottom: insets.bottom + space.md,
+              zIndex: 1000,
+              height: 48,
+              paddingHorizontal: space.lg,
+              borderRadius: radius.pill,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: space.xs,
+              backgroundColor: selectedPlanDays.size ? theme.danger : theme.text,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: selectedPlanDays.size ? theme.danger : theme.text,
+              opacity: 1,
+              elevation: 100,
+              ...shadow(theme.dark ? 0.5 : 0.22, 18, 5),
+            }}
+          >
+            <Icon name="trash" color="#FFFFFF" size={17} />
+            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800' }}>
+              {t('journey.timeline.deleteSelected', { count: selectedPlanDays.size })}
+            </Text>
+          </Press>
+      ) : null}
     </Animated.View>
   );
 }

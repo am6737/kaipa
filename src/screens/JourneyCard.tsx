@@ -5,7 +5,8 @@ import { View, Text, StyleSheet, ScrollView, Modal } from 'react-native';
 import { Image } from 'expo-image';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
-import { Poi, STATUS_COLOR, JourneyStatus } from '../data/pois';
+import { Poi } from '../data/pois';
+import { TLRow } from '../data/timeline';
 import { JourneyTimelineCard } from '../components/overlays/JourneyTimeline';
 import { PhotoTile } from '../components/PhotoTile';
 import { Avatar } from '../components/Avatar';
@@ -14,23 +15,21 @@ import { Press } from '../components/Press';
 import { Segmented } from '../components/Segmented';
 import { useNav } from '../nav/NavContext';
 import { useInspo } from '../hooks/useInspo';
+import { useTimeline } from '../hooks/useTimeline';
 import { useData } from '../data/DataContext';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey } from '../i18n';
 import { NJBottomSheet, NJMiniCalendar, NJWheelPicker, njFormatTime } from '../components/overlays/NewJourneyParts';
 import { ElevationStrip } from '../components/overlays/ElevationStrip';
+import { AppCard, AppPropertyRow, AppSectionHeader, radius, space, type } from '../design-system';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <Text style={{ fontSize: 16.5, fontWeight: '700', color: theme.text }}>{title}</Text>
-      {action ? (
-        <Press onPress={onAction}>
-          <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.accent }}>{action}</Text>
-        </Press>
-      ) : null}
-    </View>
-  );
+  const trailing = action ? (
+    <Press onPress={onAction} style={{ paddingVertical: space.xxs }}>
+      <Text style={[type.body, { fontWeight: '600', color: theme.accent }]}>{action}</Text>
+    </Press>
+  ) : undefined;
+  return <AppSectionHeader theme={theme} text={title} trailing={trailing} variant="title" marginTop={0} />;
 }
 
 function FloatingIconButton({ name, onPress, color }: { name: IconName; onPress?: () => void; color?: string }) {
@@ -110,13 +109,18 @@ function FactItem({ theme, label, value }: { theme: Theme; label: string; value:
   );
 }
 
-function MetaChip({ theme, icon, iconColor, text }: { theme: Theme; icon?: IconName; iconColor?: string; text: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+type TabId = 'overview' | 'moments' | 'checklist' | 'plan' | `day:${string}`;
+
+
+function MetaChip({ theme, icon, iconColor, text, mono, onPress }: { theme: Theme; icon?: IconName; iconColor?: string; text: string; mono?: boolean; onPress?: () => void }) {
+  const style = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: space.xxs, height: 30, maxWidth: '100%' as const, paddingHorizontal: space.sm, borderRadius: radius.control, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder };
+  const content = (
+    <>
       {icon ? <Icon name={icon} size={13} color={iconColor || theme.text3} /> : null}
-      <Text style={{ fontSize: 12.5, color: theme.text2, fontWeight: '500' }}>{text}</Text>
-    </View>
+      <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: mono ? MONO : undefined, fontSize: 11.5, color: theme.text2, fontWeight: '700' }}>{text}</Text>
+    </>
   );
+  return onPress ? <Press onPress={onPress} style={style}>{content}</Press> : <View style={style}>{content}</View>;
 }
 
 // Companions collapse to a compact facepile "button" (overlapping avatars + a
@@ -124,11 +128,11 @@ function MetaChip({ theme, icon, iconColor, text }: { theme: Theme; icon?: IconN
 // Tap opens the roster/manage editor. Empty = a small "+ 同行" add pill.
 function CompanionPile({ theme, companions, onPress }: { theme: Theme; companions: NonNullable<Poi['companionList']>; onPress: () => void }) {
   const { t } = useI18n();
-  const chipBg = theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
-  const ring = theme.bg;
+  const chipBg = theme.fieldSurface;
+  const ring = theme.featureSurface;
   if (companions.length === 0) {
     return (
-      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, height: 30, paddingHorizontal: space.sm, borderRadius: radius.control, backgroundColor: chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
         <Icon name="plus" size={13} color={theme.text3} />
         <Text style={{ fontSize: 12.5, color: theme.text3, fontWeight: '500' }}>{t('journey.tab.companions')}</Text>
       </Press>
@@ -137,7 +141,7 @@ function CompanionPile({ theme, companions, onPress }: { theme: Theme; companion
   const shown = companions.slice(0, 3);
   const extra = companions.length - shown.length;
   return (
-    <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: 30, paddingLeft: 5, paddingRight: 9, borderRadius: 15, backgroundColor: chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+    <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, height: 30, paddingLeft: space.xxs, paddingRight: space.xs, borderRadius: radius.control, backgroundColor: chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {shown.map((c, i) => (
           <View key={c.name + i} style={{ marginLeft: i === 0 ? 0 : -9, borderRadius: 13, borderWidth: 1.5, borderColor: ring }}>
@@ -145,7 +149,7 @@ function CompanionPile({ theme, companions, onPress }: { theme: Theme; companion
           </View>
         ))}
         {extra > 0 ? (
-          <View style={{ marginLeft: -9, width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: ring, backgroundColor: theme.dark ? '#3a3a3e' : '#d6d6db', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ marginLeft: -9, width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: ring, backgroundColor: theme.controlSurface, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontSize: 10, fontWeight: '700', color: theme.text2 }}>+{extra}</Text>
           </View>
         ) : null}
@@ -331,35 +335,122 @@ function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi
   );
 }
 
-type TabId = 'overview' | 'moments' | 'plan';
+function JourneyPlanEditContent({
+  theme,
+  days,
+  rows,
+  selectedDays,
+  onToggleDay,
+  onEditDate,
+  onAddGroup,
+}: {
+  theme: Theme;
+  days: string[];
+  rows: TLRow[];
+  selectedDays: Set<string>;
+  onToggleDay: (day: string) => void;
+  onEditDate: () => void;
+  onAddGroup: () => void;
+}) {
+  const { t } = useI18n();
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void }) {
+
+  return (
+    <View style={{ paddingHorizontal: space.md, paddingBottom: space.lg }}>
+      <Press
+        onPress={onEditDate}
+        style={{ alignSelf: 'flex-start', height: 38, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+      >
+        <Icon name="calendar" color={theme.text2} size={16} />
+        <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{t('journey.timeline.changeDate')}</Text>
+      </Press>
+
+      <View style={{ marginTop: space.md, gap: space.sm }}>
+        {days.map((day) => {
+          const dayRows = rows.filter((row) => row.day === day);
+          const selected = selectedDays.has(day);
+          return (
+            <Press
+              key={day}
+              onPress={() => onToggleDay(day)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selected }}
+              style={{ minHeight: 96, padding: space.md, borderRadius: radius.feature, backgroundColor: selected ? theme.accentSofter : theme.fieldSurface, borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth, borderColor: selected ? theme.accent : theme.fieldBorder }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+                <View style={{ width: 24, height: 24, marginTop: space.xxs, borderRadius: radius.pill, borderWidth: 2, borderColor: selected ? theme.accent : theme.fieldBorder, backgroundColor: selected ? theme.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {selected ? <Icon name="check" color="#FFFFFF" size={13} strokeWidth={3} /> : null}
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[type.sectionTitle, { color: theme.text }]}>{day.toUpperCase()}</Text>
+                  <Text numberOfLines={3} style={[type.body, { color: dayRows[0] ? theme.text2 : theme.text3, marginTop: space.xs, lineHeight: 21 }]}>
+                    {dayRows.length ? dayRows.slice(0, 3).map((row) => row.title).join(' → ') : t('journey.empty.timelineHint')}
+                  </Text>
+                </View>
+
+                <View pointerEvents="none" style={{ width: 28, height: 36, alignItems: 'center', justifyContent: 'center', gap: 4, opacity: 0.55 }}>
+                  <View style={{ width: 16, height: 2, borderRadius: radius.pill, backgroundColor: theme.text3 }} />
+                  <View style={{ width: 16, height: 2, borderRadius: radius.pill, backgroundColor: theme.text3 }} />
+                  <View style={{ width: 16, height: 2, borderRadius: radius.pill, backgroundColor: theme.text3 }} />
+                </View>
+              </View>
+            </Press>
+          );
+        })}
+      </View>
+
+      <Press onPress={onAddGroup} style={{ alignSelf: 'flex-start', marginTop: space.lg, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <View style={{ width: 34, height: 34, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+          <Icon name="plus" color={theme.text2} size={17} />
+        </View>
+        <Text style={[type.body, { color: theme.text2, fontWeight: '700' }]}>{t('journey.timeline.newGroup')}</Text>
+      </Press>
+    </View>
+  );
+}
+
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void }) {
   const nav = useNav();
   const { t } = useI18n();
-  const { userId, profile } = useData();
+  const { userId, profile, sets } = useData();
   const isJourney = poi.kind === 'journey';
-  const status = (poi.status || 'completed') as JourneyStatus;
   const isMine = isJourney;
+  const embeddedSurface = embedded && !theme.dark ? theme.featureSurface : theme.fieldSurface;
   const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
 
   const inspo = useInspo(poi.id, userId);
+  const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
+  const journeyDays = useMemo(() => {
+    if (!isJourney) return [];
+    const labels = new Set<string>();
+    const total = Math.max(1, poi.totalDays || Number.parseInt(poi.days || '', 10) || 1);
+    for (let day = 1; day <= total; day += 1) labels.add(`Day ${day}`);
+    timeline.knownGroups.forEach((label) => { if (label.trim()) labels.add(label.trim()); });
+    timeline.rows.forEach((row) => { if (row.day.trim()) labels.add(row.day.trim()); });
+    return [...labels].sort((a, b) => {
+      const ai = Number(a.match(/day\s*(\d+)/i)?.[1] || Number.POSITIVE_INFINITY);
+      const bi = Number(b.match(/day\s*(\d+)/i)?.[1] || Number.POSITIVE_INFINITY);
+      return ai === bi ? a.localeCompare(b) : ai - bi;
+    });
+  }, [isJourney, poi.totalDays, poi.days, timeline.knownGroups, timeline.rows]);
 
   // photo preview — genPhotos (from poi.photoUris) + inspo (user-uploaded)
   // For routes, show photos from index 1 onwards (index 0 is hero cover);
   // for journeys, genPhotos already skips the cover.
   const wallPhotos = useMemo(
     () => isJourney
-      ? genPhotos(poi, status)
+      ? genPhotos(poi)
       : (poi.routeShowPhotos !== false && poi.photoUris && poi.photoUris.length > 1
           ? poi.photoUris.slice(1).map((uri, i) => ({ id: `real-${i}`, uri, tone: poi.tone || 'ridge', ratio: 1, kind: 'image' as const, caption: '', day: 1, author: { ini: '?', name: '', color: '#888' } }))
           : []),
-    [isJourney, poi.name, poi.photoUris, poi.tone, status, poi.routeShowPhotos],
+    [isJourney, poi.name, poi.photoUris, poi.tone, poi.routeShowPhotos],
   );
   const inspoAsWall = useMemo(
     () => (isJourney || poi.routeShowPhotos !== false ? inspo.media.map(m => ({ id: m.id, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, tone: poi.tone || 'ridge', ratio: 1 })) : []),
     [inspo.media, poi.tone, isJourney, poi.routeShowPhotos],
   );
-  const allPhotos = status === 'planning' ? inspoAsWall : [...wallPhotos, ...inspoAsWall];
+  const allPhotos = [...wallPhotos, ...inspoAsWall];
   // Peer tabs: 总览 / 瞬间 / 行程. 轨迹 is no longer a tab — the elevation lives on the
   // map above (a toggle reveals a scrubbable strip), since the map already is the
   // track. 同行 is a facepile inside 总览. Routes tab only what applies.
@@ -368,7 +459,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       return [
         { id: 'overview', label: t('journey.tab.overview') },
         { id: 'moments', label: t('journey.tab.moments') },
-        { id: 'plan', label: t('journey.tab.plan') },
+        { id: 'checklist', label: t('journey.tab.checklist') },
+        ...journeyDays.map((day) => ({ id: `day:${day}` as TabId, label: day.toUpperCase() })),
       ];
     }
     const opts: { id: TabId; label: string }[] = [
@@ -377,12 +469,18 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     if (poi.routeShowTimeline !== false) opts.push({ id: 'plan', label: t('journey.tab.plan') });
     if (poi.routeShowPhotos !== false && allPhotos.length > 0) opts.push({ id: 'moments', label: t('journey.moments.userPhotos') });
     return opts;
-  }, [isJourney, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, t]);
-  // Status only picks where you land — planning opens on the itinerary,
-  // everything else lands on 总览.
-  const [seg, setSeg] = useState<TabId>(isJourney && status === 'planning' ? 'plan' : 'overview');
+  }, [isJourney, journeyDays, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, t]);
+  const [seg, setSeg] = useState<TabId>('overview');
+  const [planOverviewOpen, setPlanOverviewOpen] = useState(false);
+  const [internalPlanEditorOpen, setInternalPlanEditorOpen] = useState(false);
+  const [internalSelectedPlanDays, setInternalSelectedPlanDays] = useState<Set<string>>(() => new Set());
+  const planEditorOpen = controlledPlanEditorOpen ?? internalPlanEditorOpen;
+  const selectedPlanDays = controlledSelectedPlanDays ?? internalSelectedPlanDays;
+  const setPlanEditorOpen = (open: boolean) => onPlanEditorOpenChange ? onPlanEditorOpenChange(open) : setInternalPlanEditorOpen(open);
+  const setSelectedPlanDays = (days: Set<string>) => onSelectedPlanDaysChange ? onSelectedPlanDaysChange(days) : setInternalSelectedPlanDays(days);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const headerDuration = useMemo(() => detailDurationLabel(parseJourneyDurationMins(poi)), [poi.days, poi.totalDays, poi.trackDurationMs, poi.plannedDate, poi.date]);
+  const headerDate = poi.plannedDate || (poi.dayIndex ? undefined : poi.date);
   // Author/host shown beside the title — a route's uploader, or a journey's host
   // (falls back to you, since a journey shown here is your own).
   const author = useMemo(() => {
@@ -432,11 +530,42 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const intensity = fmtIntensity(poi.dist, poi.asc);
     if (intensity !== '—') stats.push({ label: t('journey.stat.intensity'), value: intensity });
     return stats;
-  }, [isJourney, elevationSummary, poi.plannedDate, poi.date, poi.companionList, poi.companions, poi.rating, poi.reviews, poi.dist, poi.asc, poi.trackDurationMs, allPhotos.length, status, t]);
-  // Destructive label + confirm copy adapt to the journey's status (a plan is
-  // "cancelled", an in-progress trip is "abandoned", a finished one "deleted").
-  const removeLabel = status === 'planning' ? t('journey.remove.labelPlanning') : status === 'ongoing' ? t('journey.remove.labelOngoing') : t('journey.remove.labelCompleted');
-  const confirmTitle = status === 'planning' ? t('journey.remove.confirmPlanning') : status === 'ongoing' ? t('journey.remove.confirmOngoing') : t('journey.remove.confirmCompleted');
+  }, [isJourney, elevationSummary, poi.plannedDate, poi.date, poi.companionList, poi.companions, poi.rating, poi.reviews, poi.dist, poi.asc, poi.trackDurationMs, allPhotos.length, t]);
+  const firstJourneyDay = journeyDays[0];
+  const firstDayRows = useMemo(
+    () => firstJourneyDay ? timeline.rows.filter((row) => row.day === firstJourneyDay).slice(0, 3) : [],
+    [firstJourneyDay, timeline.rows],
+  );
+  const selectedJourneyDay = seg.startsWith('day:') ? seg.slice(4) : undefined;
+  const addJourneyGroup = (select = true) => {
+    const used = new Set(journeyDays.map((day) => day.toLowerCase()));
+    let index = 1;
+    while (used.has(`day ${index}`)) index += 1;
+    const label = `Day ${index}`;
+    timeline.addGroup(label);
+    if (select) setSeg(`day:${label}`);
+  };
+  const openGearLists = () => {
+    nav.closeDetail();
+    nav.setMainTab('gear');
+  };
+  const closePlanEditor = () => {
+    setPlanEditorOpen(false);
+    setSelectedPlanDays(new Set());
+  };
+  const togglePlanEditor = () => {
+    if (planEditorOpen) closePlanEditor();
+    else setPlanEditorOpen(true);
+  };
+  const toggleSelectedPlanDay = (day: string) => {
+    const next = new Set(selectedPlanDays);
+    if (next.has(day)) next.delete(day);
+    else next.add(day);
+    setSelectedPlanDays(next);
+  };
+
+  const removeLabel = t('common.delete');
+  const confirmTitle = t('common.delete');
   const confirmRemove = () =>
     nav.openActionSheet({
       title: confirmTitle,
@@ -467,28 +596,28 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
   return (
     <View>
-      {/* identity header — lives in the card when embedded, so the split map stays clean */}
-      {embedded ? (
-        <View style={{ paddingTop: 4, paddingBottom: 14 }}>
-          <Text style={{ fontSize: 24, fontWeight: '800', color: theme.text }}>{poi.name}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              {isJourney ? (
-                <Press
-                  onPress={() => setTimePickerOpen(true)}
-                  style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 }}
-                >
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2, letterSpacing: -0.05 }}>{headerDuration}</Text>
-                  <Icon name="chevronR" color={theme.text3} size={12} />
-                </Press>
-              ) : (
-                <Text style={{ fontSize: 13, color: theme.text2 }} numberOfLines={1}>{poi.region}</Text>
-              )}
-            </View>
-            {/* author/host beside the title — route uploader or journey host (falls back to you) */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginLeft: 10, flexShrink: 0 }}>
+      {/* identity header — lives in the sheet so the map remains focused on the route */}
+      {embedded ? isJourney ? (
+        <View style={{ paddingTop: space.xxs, paddingBottom: space.lg }}>
+          <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34 }]}>{poi.name}</Text>
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: space.md }}>
+            <MetaChip theme={theme} icon="distance" text={poi.dist} mono />
+            <MetaChip theme={theme} icon="arrowUp" text={poi.asc.replace('+', '')} mono />
+            {poi.region ? <MetaChip theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} /> : null}
+            <MetaChip theme={theme} icon="calendar" text={headerDate || t('journey.stat.date')} onPress={() => setTimePickerOpen(true)} />
+            <MetaChip theme={theme} icon="clock" text={headerDuration} onPress={() => setTimePickerOpen(true)} />
+            <CompanionPile theme={theme} companions={poi.companionList || []} onPress={() => nav.openJourneySettings(poi)} />
+          </View>
+        </View>
+      ) : (
+        <View style={{ paddingTop: space.xxs, paddingBottom: space.md }}>
+          <Text style={[type.pageTitle, { color: theme.text }]}>{poi.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.xs }}>
+            <Text style={[type.body, { color: theme.text2, flex: 1 }]} numberOfLines={1}>{poi.region}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginLeft: space.sm }}>
               <Avatar ini={author.ini} color={author.color} size={22} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2 }} numberOfLines={1}>{author.name}</Text>
+              <Text style={[type.caption, { fontWeight: '600', color: theme.text2 }]} numberOfLines={1}>{author.name}</Text>
             </View>
           </View>
         </View>
@@ -528,27 +657,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             {quickActions}
           </View>
           <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
-            {isJourney && (
-              <View
-                style={{
-                  alignSelf: 'flex-start',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 5,
-                  paddingHorizontal: 8,
-                  height: 22,
-                  borderRadius: 7,
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                  marginBottom: 8,
-                }}
-              >
-                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_COLOR(status, theme.accent, true) }} />
-                <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '600' }}>
-                  {t(`common.status.${status}` as TKey)}
-                  {status === 'ongoing' && poi.dayIndex ? ` · Day ${poi.dayIndex}/${poi.totalDays}` : ''}
-                </Text>
-              </View>
-            )}
+
             <Text style={{ color: '#fff', fontSize: 26, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 6, textShadowOffset: { width: 0, height: 1 } }}>
               {poi.name}
             </Text>
@@ -562,58 +671,199 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       )}
 
 
-      {/* content tabs — 总览 / 瞬间 / 行程 (轨迹 lives on the map above) */}
+      {/* Journeys use one clear navigation level: 总览 + each DAY. */}
       {tabOptions.length > 1 ? (
-        <View style={{ paddingTop: 2, paddingBottom: 14 }}>
-          <Segmented variant="underline" size="compact" theme={theme} value={seg} options={tabOptions} onChange={(v) => setSeg(v)} stretch={false} />
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginHorizontal: -space.md }}
+          contentContainerStyle={{ paddingHorizontal: space.md, paddingTop: space.xxs, paddingBottom: space.md }}
+        >
+          <Segmented variant="underline" size="compact" theme={theme} value={seg} options={tabOptions} onChange={(v) => { closePlanEditor(); setSeg(v); }} stretch={false} />
+          {isJourney && !planEditorOpen ? (
+            <Press
+              onPress={() => addJourneyGroup()}
+              accessibilityLabel={t('journey.timeline.newGroup')}
+              style={{ width: 42, height: 39, alignItems: 'center', justifyContent: 'center', marginLeft: space.xxs }}
+            >
+              <Icon name="plus" color={theme.text2} size={18} />
+            </Press>
+          ) : null}
+        </ScrollView>
       ) : null}
 
       <View style={{ paddingBottom: 18 }}>
         {/* 总览 overview — stat tiles, meta chips, 同行 facepile, about */}
-        {seg === 'overview' ? (
+        {seg === 'overview' ? isJourney ? (
           <>
-            <View style={{ flexDirection: 'row', paddingBottom: 12 }}>
+            <AppCard
+              theme={theme}
+              radius={radius.feature}
+              style={{ marginHorizontal: -space.md, overflow: 'hidden', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+            >
+              <View style={{ paddingHorizontal: space.md, paddingTop: space.lg, paddingBottom: planEditorOpen ? space.sm : space.md }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={[type.sectionTitle, { flex: 1, color: theme.text }]}>{t('journey.section.planOverview')}</Text>
+                  <Press
+                    onPress={togglePlanEditor}
+                    style={{ height: 32, paddingHorizontal: space.sm, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Text style={[type.body, { color: theme.accent, fontWeight: '700' }]}>{planEditorOpen ? t('common.done') : t('common.edit')}</Text>
+                  </Press>
+                  {!planEditorOpen ? (
+                    <Press
+                      onPress={() => setPlanOverviewOpen((open) => !open)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: planOverviewOpen }}
+                      style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: planOverviewOpen ? '180deg' : '0deg' }] }}
+                    >
+                      <Icon name="chevronDown" color={theme.text2} size={17} />
+                    </Press>
+                  ) : null}
+                </View>
+
+                {!planEditorOpen && !planOverviewOpen ? (
+                  <Press onPress={() => setPlanOverviewOpen(true)} style={{ marginTop: space.md }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text numberOfLines={1} style={[type.cardTitle, { flex: 1, color: theme.text }]}>{firstJourneyDay?.toUpperCase() || 'DAY 1'}</Text>
+                      <Text style={[type.caption, { color: theme.text3 }]}>{t('journey.timeline.itemCount', { count: firstDayRows.length })}</Text>
+                    </View>
+                    {firstDayRows.length ? firstDayRows.slice(0, 3).map((row, index) => (
+                      <Text key={row.id} numberOfLines={1} style={[type.caption, { color: index === 0 ? theme.text2 : theme.text3, marginTop: space.xs }]}>
+                        {row.title}
+                      </Text>
+                    )) : (
+                      <Text style={[type.caption, { color: theme.text3, marginTop: space.xs }]}>{t('journey.empty.timelineHint')}</Text>
+                    )}
+                  </Press>
+                ) : null}
+              </View>
+
+              {planEditorOpen ? (
+                <JourneyPlanEditContent
+                  theme={theme}
+                  days={journeyDays}
+                  rows={timeline.rows}
+                  selectedDays={selectedPlanDays}
+                  onToggleDay={toggleSelectedPlanDay}
+                  onEditDate={() => setTimePickerOpen(true)}
+                  onAddGroup={() => addJourneyGroup(false)}
+                />
+              ) : planOverviewOpen ? (
+                <View style={{ paddingHorizontal: space.md, paddingBottom: space.md }}>
+                  {journeyDays.map((day, index) => {
+                    const rows = timeline.rows.filter((row) => row.day === day);
+                    return (
+                      <React.Fragment key={day}>
+                        {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline }} /> : null}
+                        <Press
+                          onPress={() => setSeg(`day:${day}`)}
+                          style={{ minHeight: 66, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center' }}
+                        >
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={[type.cardTitle, { color: theme.text }]}>{day.toUpperCase()}</Text>
+                            <Text numberOfLines={2} style={[type.caption, { color: rows[0] ? theme.text2 : theme.text3, marginTop: space.xxs, lineHeight: 18 }]}>
+                              {rows.length ? rows.slice(0, 3).map((row) => row.title).join(' → ') : t('journey.empty.timelineHint')}
+                            </Text>
+                          </View>
+                          <Icon name="chevronR" color={theme.text3} size={15} />
+                        </Press>
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </AppCard>
+
+            {hasTrack ? (
+              <>
+                <AppSectionHeader theme={theme} text={t('journey.stat.elevationProfile')} variant="title" marginTop={space.xxl} />
+                <AppCard theme={theme} style={{ paddingHorizontal: space.sm, paddingVertical: space.md, backgroundColor: theme.fieldSurface }}>
+                  <ElevationStrip theme={theme} poi={poi} onScrub={(index, coord) => onTrackSelectionChange?.(index, coord)} />
+                </AppCard>
+              </>
+            ) : null}
+
+            {poi.desc ? (
+              <>
+                <AppSectionHeader theme={theme} text={t('journey.section.about')} variant="title" marginTop={space.xxl} />
+                <Text style={[type.body, { lineHeight: 23, color: theme.text2 }]}>{poi.desc}</Text>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', paddingBottom: space.sm }}>
               {primaryStats.map((s) => {
                 const { value, unit } = splitStat(s.raw);
                 return <StatTile key={s.label} theme={theme} value={value} unit={unit} label={s.label} mono={s.mono} />;
               })}
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 0, marginTop: 4 }}>
-              {overviewStats.map((s) => (
-                <FactItem key={s.label} theme={theme} label={s.label} value={s.value} />
-              ))}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              {overviewStats.map((s) => <FactItem key={s.label} theme={theme} label={s.label} value={s.value} />)}
             </View>
-            {/* 海拔 — the ascent number's visual companion, right under the tiles;
-                scrubbing it syncs the map marker above. The full track view lives
-                on the interactive map itself now, so no 更多 button here. */}
             {hasTrack ? (
-              <View style={{ paddingTop: 16 }}>
+              <View style={{ paddingTop: space.md }}>
                 <SectionHeader theme={theme} title={t('journey.stat.elevationProfile')} />
                 <ElevationStrip theme={theme} poi={poi} onScrub={(index, coord) => onTrackSelectionChange?.(index, coord)} />
               </View>
             ) : null}
             {poi.desc ? (
-              <View style={{ paddingTop: 18 }}>
+              <View style={{ paddingTop: space.lg }}>
                 <SectionHeader theme={theme} title={t('journey.section.about')} />
-                <Text style={{ fontSize: 14.5, lineHeight: 22, color: theme.text2 }}>{poi.desc}</Text>
+                <Text style={[type.body, { lineHeight: 22, color: theme.text2 }]}>{poi.desc}</Text>
               </View>
-            ) : null}
-            {/* 轨迹 moved to the map above; when there's no track yet, offer to add one */}
-            {isMine && !hasTrack ? (
-              <Press onPress={() => nav.openAddRoute()} style={{ marginTop: 18 }}>
-                <View style={{ alignItems: 'center', paddingVertical: 22, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                  <Icon name="route" color={theme.text3} size={22} />
-                  <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.route')}</Text>
-                  <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.routeHint')}</Text>
-                </View>
-              </Press>
             ) : null}
           </>
         ) : null}
 
+        {seg === 'checklist' && isJourney ? (
+          <View>
+            <AppSectionHeader
+              theme={theme}
+              text={t('journey.tab.checklist')}
+              variant="title"
+              marginTop={space.xs}
+              trailing={
+                <Press onPress={openGearLists} style={{ paddingVertical: space.xxs }}>
+                  <Text style={[type.body, { color: theme.accent, fontWeight: '600' }]}>{t('journey.checklist.manage')}</Text>
+                </Press>
+              }
+            />
+            {sets.length ? (
+              <AppCard theme={theme} style={{ overflow: 'hidden' }}>
+                {sets.map((set, index) => (
+                  <React.Fragment key={set.id}>
+                    {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: space.md, backgroundColor: theme.hairline }} /> : null}
+                    <Press onPress={openGearLists} style={{ minHeight: 66, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ width: 38, height: 38, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                        <Icon name="check" color={theme.text2} size={17} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+                        <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{set.name}</Text>
+                        <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{t('journey.checklist.itemCount', { count: set.items.length })}</Text>
+                      </View>
+                      <Icon name="chevronR" color={theme.text3} size={15} />
+                    </Press>
+                  </React.Fragment>
+                ))}
+              </AppCard>
+            ) : (
+              <AppCard theme={theme} style={{ alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.xxl, backgroundColor: theme.fieldSurface }}>
+                <Icon name="check" color={theme.text3} size={24} />
+                <Text style={[type.cardTitle, { color: theme.text, marginTop: space.sm }]}>{t('journey.checklist.empty')}</Text>
+                <Text style={[type.caption, { color: theme.text2, textAlign: 'center', marginTop: space.xxs }]}>{t('journey.checklist.emptyHint')}</Text>
+                <Press onPress={openGearLists} style={{ marginTop: space.md, paddingHorizontal: space.md, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}>
+                  <Text style={[type.body, { color: '#FFFFFF', fontWeight: '700' }]}>{t('journey.checklist.create')}</Text>
+                </Press>
+              </AppCard>
+            )}
+          </View>
+        ) : null}
+
         {/* 行程 timeline */}
         {seg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney} /> : null}
+        {selectedJourneyDay ? <JourneyTimelineCard theme={theme} info={poi} selectedDay={selectedJourneyDay} showDayTabs={false} /> : null}
 
         {/* 瞬间 moments — full inline grid (tap a tile for the immersive viewer) */}
         {seg === 'moments' ? (
@@ -622,12 +872,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               {allPhotos.map((p) => {
                 const displayUri = p.kind === 'video' ? (p.thumbnail || p.uri) : p.uri;
                 return (
-                  <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })} style={{ width: '31.7%' }}>
-                    <View style={{ aspectRatio: 1, borderRadius: 11, overflow: 'hidden', backgroundColor: theme.dark ? '#1a1a1a' : '#e8e8e8' }}>
+                  <Press key={p.id} onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine' })} style={{ width: '31.7%' }}>
+                    <View style={{ aspectRatio: 1, borderRadius: radius.card, overflow: 'hidden', backgroundColor: embeddedSurface }}>
                       {displayUri ? (
                         <Image source={{ uri: displayUri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
                       ) : (
-                        <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={11} style={{ width: '100%', height: '100%' }} resWidth={420} />
+                        <PhotoTile tone={p.tone} seed={poi.id + p.id} radius={radius.card} style={{ width: '100%', height: '100%' }} resWidth={420} />
                       )}
                       {p.kind === 'video' ? (
                         <View style={{ position: 'absolute', right: 4, top: 4, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.5)' }}>
@@ -640,12 +890,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               })}
             </View>
           ) : (
-            <Press onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}>
-              <View style={{ alignItems: 'center', paddingVertical: 24, borderRadius: 16, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+            <Press onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine' })}>
+              <AppCard theme={theme} style={{ alignItems: 'center', paddingVertical: space.xl, backgroundColor: embeddedSurface }}>
                 <Icon name="camera" color={theme.text3} size={24} />
                 <Text style={{ fontSize: 13, color: theme.text3, marginTop: 8 }}>{t('journey.empty.moments')}</Text>
                 <Text style={{ fontSize: 11.5, color: theme.text3, marginTop: 2 }}>{t('journey.empty.momentsHint')}</Text>
-              </View>
+              </AppCard>
             </Press>
           )
         ) : null}

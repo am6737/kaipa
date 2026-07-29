@@ -81,7 +81,6 @@ create table if not exists journeys (
   diff            text,
   tone            text not null,
   "desc"          text,
-  status          text not null default 'planning',
   date            text,
   days            text,
   planned_date    text,
@@ -102,7 +101,7 @@ create table if not exists journeys (
 );
 alter table journeys enable row level security;
 create policy "journeys_all" on journeys for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "journeys_public_select" on journeys for select to authenticated using (track_public = true and status = 'completed');
+create policy "journeys_public_select" on journeys for select to authenticated using (track_public = true);
 
 -- migration: add columns to existing journeys tables (safe to re-run)
 do $$ begin

@@ -325,7 +325,6 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
   const [planned, setPlanned] = useState(poi.plannedDate || '');
   const [desc, setDesc] = useState(poi.desc || '');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const isPlanning = poi.status === 'planning';
 
   const fmtRange = (s: Date, e: Date | null) => {
     // 行程跨天，日期只展示到「日」，不带时分
@@ -336,10 +335,10 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
 
   const handleDatePick = (s: Date, e: Date | null) => {
     const str = fmtRange(s, e);
-    if (isPlanning) setPlanned(str); else setDate(str);
+    setPlanned(str);
   };
 
-  const currentField = isPlanning ? planned : date;
+  const currentField = planned || date;
   const parsed = parseRange(currentField);
   const computedDays = parsed.start && parsed.end ? Math.round((parsed.end.getTime() - parsed.start.getTime()) / DAY_MS) + 1 : null;
 
@@ -349,7 +348,7 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
   const save = () => {
     if (!canSave) { onClose(); return; }
     const patch: JourneyPatch = { name: name.trim(), region: region.trim(), days: computedDays ? t('journeyEdit.meta.days', { count: computedDays }) : '', desc: desc.trim() };
-    if (isPlanning) patch.plannedDate = planned.trim(); else patch.date = date.trim();
+    patch.plannedDate = planned.trim();
     onSave(patch);
   };
 
@@ -369,11 +368,7 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
               <Field theme={theme} label={t('journeyEdit.fieldRegion')} value={region} onChange={setRegion} placeholder={t('journeyEdit.placeholderRegion')} last />
             </Group>
             <Group theme={theme} title={t('journeyEdit.sectionItinerary')}>
-              {isPlanning ? (
-                <DateField theme={theme} label={t('journeyEdit.fieldPlannedStart')} value={planned} placeholder={t('journeyEdit.placeholderPlannedStart')} onPress={() => setShowDatePicker(true)} last={!computedDays} />
-              ) : (
-                <DateField theme={theme} label={t('journeyEdit.fieldDate')} value={date} placeholder={t('journeyEdit.placeholderDate')} onPress={() => setShowDatePicker(true)} last={!computedDays} />
-              )}
+              <DateField theme={theme} label={t('journeyEdit.fieldDate')} value={currentField} placeholder={t('journeyEdit.placeholderDate')} onPress={() => setShowDatePicker(true)} last={!computedDays} />
               {computedDays ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, minHeight: 44 }}>
                   <Text style={{ width: 72, fontSize: 14.5, color: theme.text2 }}>{t('journeyEdit.fieldDays')}</Text>
@@ -388,7 +383,7 @@ export function EditJourneySheet({ theme, poi, onClose, onSave }: {
         </KeyboardAvoidingView>
       </FullOverlay>
       {showDatePicker ? (
-        <DateRangeSheet theme={theme} initStart={parsed.start} initEnd={parsed.end} allowPast={!isPlanning} onPick={handleDatePick} onClose={() => setShowDatePicker(false)} />
+        <DateRangeSheet theme={theme} initStart={parsed.start} initEnd={parsed.end} allowPast onPick={handleDatePick} onClose={() => setShowDatePicker(false)} />
       ) : null}
     </>
   );

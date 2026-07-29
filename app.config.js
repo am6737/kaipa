@@ -32,8 +32,8 @@ module.exports = ({ config }) => ({
     [
       'expo-image-picker',
       {
-        photosPermission: 'Kaipa 需要访问你的相册，以便把照片或视频加入旅程瞬间。',
-        cameraPermission: 'Kaipa 需要使用相机，以便为旅程拍摄照片或视频。',
+        photosPermission: 'Kaipa 需要访问你的相册，以便选择装备图片或把照片和视频加入旅程瞬间。',
+        cameraPermission: 'Kaipa 需要使用相机，以便拍摄装备图片或旅程照片和视频。',
         microphonePermission: 'Kaipa 在录制视频时需要使用麦克风。',
       },
     ],

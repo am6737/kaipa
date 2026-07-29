@@ -27,12 +27,12 @@ insert into routes (id, name, region, coord, lng, lat, dist, asc_, diff, rating,
 on conflict (id) do nothing;
 
 -- ─── journeys (MEMORY_POIS) ─────────────────────────────────────────────────
-insert into journeys (id, user_id, route_id, name, region, coord, lng, lat, dist, asc_, tone, "desc", status, date, days, planned_date, countdown, day_index, total_days, fav) values
-  ('m1', uid, null, '四姑娘二峰', '四川 · 阿坝', '31.10 N · 102.90 E', 102.9, 31.1, '18.4 km', '+2,140 m', 'snow', '六月的二峰雪线还在，计划三天完成大本营适应与冲顶。重点准备高海拔保暖与冰爪。', 'planning', '2026 · 6 月', '3 天', '6 月 24 日', 14, null, 3, true),
-  ('m2', uid, 'e2', '武功山三日穿越', '江西 · 萍乡', '27.46 N · 114.17 E', 114.17, 27.46, '24.6 km', '+1,640 m', 'ridge', '正走在金顶到发云界的草甸上，昨夜扎营看到了完整的银河。今天目标是绝望坡前的营地。', 'ongoing', '记录到 Day 2/3', '3 天', null, null, 2, 3, false),
-  ('m3', uid, 'e3', '贡嘎西坡转山', '四川 · 甘孜', '29.59 N · 101.88 E', 101.88, 29.59, '38.4 km', '+2,980 m', 'snow', '翻越日乌且垭口那天遇到了完美的日照金山。五天高海拔重装，是迄今最难也最难忘的一段。', 'completed', '2025 · 10 月', '5 天', null, null, null, 5, true),
-  ('m4', uid, 'e6', '雨崩神瀑', '云南 · 德钦', '28.40 N · 98.85 E', 98.85, 28.4, '14.2 km', '+760 m', 'river', '从西当温泉一路走到神瀑，雨季的森林格外通透。住在雨崩下村，慢悠悠走了四天。', 'completed', '2025 · 5 月', '4 天', null, null, null, 4, false),
-  ('m5', uid, 'e5', '哈巴雪山大本营', '云南 · 香格里拉', '27.36 N · 100.10 E', 100.1, 27.36, '9.8 km', '+980 m', 'moss', '独行的一次适应性徒步，从哈巴村慢慢爬到大本营。云海在脚下翻涌，安静得只剩风声。', 'completed', '2024 · 11 月', '2 天', null, null, null, 2, false)
+insert into journeys (id, user_id, route_id, name, region, coord, lng, lat, dist, asc_, tone, "desc", date, days, planned_date, countdown, day_index, total_days, fav) values
+  ('m1', uid, null, '四姑娘二峰', '四川 · 阿坝', '31.10 N · 102.90 E', 102.9, 31.1, '18.4 km', '+2,140 m', 'snow', '六月的二峰雪线还在，计划三天完成大本营适应与冲顶。重点准备高海拔保暖与冰爪。', '2026 · 6 月', '3 天', '6 月 24 日', 14, null, 3, true),
+  ('m2', uid, 'e2', '武功山三日穿越', '江西 · 萍乡', '27.46 N · 114.17 E', 114.17, 27.46, '24.6 km', '+1,640 m', 'ridge', '正走在金顶到发云界的草甸上，昨夜扎营看到了完整的银河。今天目标是绝望坡前的营地。', '记录到 Day 2/3', '3 天', null, null, 2, 3, false),
+  ('m3', uid, 'e3', '贡嘎西坡转山', '四川 · 甘孜', '29.59 N · 101.88 E', 101.88, 29.59, '38.4 km', '+2,980 m', 'snow', '翻越日乌且垭口那天遇到了完美的日照金山。五天高海拔重装，是迄今最难也最难忘的一段。', '2025 · 10 月', '5 天', null, null, null, 5, true),
+  ('m4', uid, 'e6', '雨崩神瀑', '云南 · 德钦', '28.40 N · 98.85 E', 98.85, 28.4, '14.2 km', '+760 m', 'river', '从西当温泉一路走到神瀑，雨季的森林格外通透。住在雨崩下村，慢悠悠走了四天。', '2025 · 5 月', '4 天', null, null, null, 4, false),
+  ('m5', uid, 'e5', '哈巴雪山大本营', '云南 · 香格里拉', '27.36 N · 100.10 E', 100.1, 27.36, '9.8 km', '+980 m', 'moss', '独行的一次适应性徒步，从哈巴村慢慢爬到大本营。云海在脚下翻涌，安静得只剩风声。', '2024 · 11 月', '2 天', null, null, null, 2, false)
 on conflict (id) do nothing;
 
 -- ─── companions ──────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ insert into notifications (id, user_id, kind, cat, bucket, time, who, avatar, co
   ('n6', uid, 'system', 'system', 'earlier',  '3 天前',     null,       null, null,      'kaipa 1.2 已更新：装备库支持批量识别', null, null, '了解', null);
 
 -- ─── timeline_rows (SYNTH entries for each journey) ─────────────────────────
--- m1 (planning)
+-- m1 timeline
 insert into timeline_rows (id, journey_id, user_id, title, day, is_synth, checked, sort_order) values
   ('m1-i-map',  'm1', uid, '保存离线地图',         'pre',  true, true,  0),
   ('m1-i-book', 'm1', uid, '确认营地预订',         'pre',  true, false, 1),
@@ -152,7 +152,7 @@ insert into timeline_rows (id, journey_id, user_id, title, day, is_synth, checke
   ('m1-i-knee', 'm1', uid, '下撤路滑，注意膝盖',    'D3',   true, false, 8),
   ('m1-i-up',   'm1', uid, '上传轨迹与照片',        'post', true, false, 9);
 
--- m2 (ongoing, day 2 — pre + D1 checked)
+-- m2 timeline (day 2 — pre + D1 checked)
 insert into timeline_rows (id, journey_id, user_id, title, day, media, is_synth, checked, sort_order) values
   ('m2-i-map',  'm2', uid, '保存离线地图',         'pre',  null,  true, true,  0),
   ('m2-i-book', 'm2', uid, '确认营地预订',         'pre',  null,  true, true,  1),
@@ -165,7 +165,7 @@ insert into timeline_rows (id, journey_id, user_id, title, day, media, is_synth,
   ('m2-i-knee', 'm2', uid, '下撤路滑，注意膝盖',    'D3',   null,  true, false, 8),
   ('m2-i-up',   'm2', uid, '上传轨迹与照片',        'post', null,  true, false, 9);
 
--- m3 (completed — all checked)
+-- m3 timeline (all checked)
 insert into timeline_rows (id, journey_id, user_id, title, day, media, is_synth, checked, sort_order) values
   ('m3-i-map',  'm3', uid, '保存离线地图',         'pre',  null,  true, true, 0),
   ('m3-i-book', 'm3', uid, '确认营地预订',         'pre',  null,  true, true, 1),
@@ -178,7 +178,7 @@ insert into timeline_rows (id, journey_id, user_id, title, day, media, is_synth,
   ('m3-i-knee', 'm3', uid, '下撤路滑，注意膝盖',    'D3',   null,  true, true, 8),
   ('m3-i-up',   'm3', uid, '上传轨迹与照片',        'post', null,  true, true, 9);
 
--- m4 + m5 (completed — all checked)
+-- m4 + m5 timelines (all checked)
 insert into timeline_rows (id, journey_id, user_id, title, day, is_synth, checked, sort_order) values
   ('m4-i-map',  'm4', uid, '保存离线地图',         'pre',  true, true, 0),
   ('m4-i-book', 'm4', uid, '确认营地预订',         'pre',  true, true, 1),

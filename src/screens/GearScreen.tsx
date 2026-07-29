@@ -1,5 +1,5 @@
 // GearScreen.tsx — 装备首页及新版装备、清单页面的本地导航容器。
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -97,12 +97,13 @@ export function GearScreen({ theme }: { theme: Theme }) {
   const [itemEditor, setItemEditor] = useState<{
     mode: 'new' | 'edit';
     item: GearItem;
-    recognitionSource?: { label: string; url: string };
+    recognitionSource?: { label: string; url?: string };
   } | null>(null);
   // 新建 / 编辑分类 bottom sheet.
   const [catEditor, setCatEditor] = useState<{ mode: 'new' | 'edit'; cat?: GearCat } | null>(null);
   // 添加装备入口选择（链接 / 拍照 / 手动）
   const [addChoose, setAddChoose] = useState(false);
+  const pendingSetItemAdded = useRef<((item: GearItem) => void) | null>(null);
   // Hide the floating tab bar whenever a detail page is open (matches MeScreen).
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
@@ -125,8 +126,10 @@ export function GearScreen({ theme }: { theme: Theme }) {
     nav.showToast(t('gear.toast.itemUpdated'), 'top');
   };
 
-  const addItem = (ni: GearItem) => {
-    data.addItem(ni);
+  const addItem = async (ni: GearItem) => {
+    await data.addItem(ni);
+    pendingSetItemAdded.current?.(ni);
+    pendingSetItemAdded.current = null;
     setItemEditor(null);
     nav.showToast(t('gear.toast.itemAdded'));
   };
@@ -181,9 +184,21 @@ export function GearScreen({ theme }: { theme: Theme }) {
   };
 
   const catMap = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c])) as Record<string, GearCat>, [cats]);
-  const onAddResult = (item: GearItem, recognitionSource?: { label: string; url: string }) => {
+  const onAddResult = (item: GearItem, recognitionSource?: { label: string; url?: string }) => {
     setAddChoose(false);
     setItemEditor({ mode: 'new', item, recognitionSource });
+  };
+  const addGearFromSetEditor = (onAdded: (item: GearItem) => void) => {
+    pendingSetItemAdded.current = onAdded;
+    setAddChoose(true);
+  };
+  const cancelAddChoose = () => {
+    pendingSetItemAdded.current = null;
+    setAddChoose(false);
+  };
+  const cancelItemEditor = () => {
+    if (itemEditor?.mode === 'new') pendingSetItemAdded.current = null;
+    setItemEditor(null);
   };
 
   return (
@@ -294,6 +309,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
             catMap={catMap}
             onCancel={() => setSetEditor(null)}
             onSave={saveSet}
+            onAddGear={addGearFromSetEditor}
           />
         </View>
       )}
@@ -301,7 +317,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
       {/* ── 添加装备入口选择 ── */}
       {addChoose && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 205 }]}>
-          <AddGearChoose theme={theme} cats={cats} onResult={onAddResult} onCancel={() => setAddChoose(false)} />
+          <AddGearChoose theme={theme} cats={cats} onResult={onAddResult} onCancel={cancelAddChoose} />
         </View>
       )}
 
@@ -315,7 +331,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
             mode={itemEditor.mode}
             recognitionSource={itemEditor.recognitionSource}
             existingNames={allItems.map((i) => i.name)}
-            onCancel={() => setItemEditor(null)}
+            onCancel={cancelItemEditor}
             onSave={(ni) => (itemEditor.mode === 'new' ? addItem(ni) : updateItem(itemEditor.item.name, ni))}
           />
         </View>

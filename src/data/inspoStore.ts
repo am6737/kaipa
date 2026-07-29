@@ -1,6 +1,5 @@
-// inspoStore.ts — session-local 灵感 media store for 计划中 journeys. A plan
-// hasn't happened yet, so it has no real 瞬间; while planning, the user pre-
-// collects a few inspiration shots here (拍照 / 从相册选照片或视频), and after 出发
+// inspoStore.ts — session-local inspiration media attached to a journey.
+// Users can collect reference photos and videos here; data lives for the app session only.
 // the section fills with the trip's real moments instead. Holds the picked
 // assets' local URIs (from expo-image-picker), not placeholders. Module-level
 // store + subscribe/bump, keyed by journey id, so the inline card and the full-

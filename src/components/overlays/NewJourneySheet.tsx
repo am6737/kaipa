@@ -1,5 +1,5 @@
 // NewJourneySheet.tsx — 新增旅程 flow (full-screen overlay). Faithful RN port of
-// the prototype's new-journey.jsx *planning* path:
+// the prototype's new-journey creation flow:
 //   mode picker (记录走过的 / 计划未来的) → 选路线/自定义 → 完善行程信息
 //   (含 日历 + 时间滚轮 + 时长 选择器、邀请同行二维码) → 成功页 → 加入「我的旅程」。
 // The "记录走过的" (record-past) sub-flow is intentionally deferred — its card is
@@ -21,7 +21,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
-import { Poi, Companion, JourneyStatus } from '../../data/pois';
+import { Poi, Companion } from '../../data/pois';
 import { useData } from '../../data/DataContext';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
@@ -472,7 +472,7 @@ function NJStepDetails({
   setTripName,
   startDt,
   durationMins,
-  isOngoing,
+  isStartingNow,
   onInvite,
   onOpenTimePicker,
 }: {
@@ -482,7 +482,7 @@ function NJStepDetails({
   setTripName: (v: string) => void;
   startDt: Date;
   durationMins: number;
-  isOngoing: boolean;
+  isStartingNow: boolean;
   onInvite: () => void;
   onOpenTimePicker: () => void;
 }) {
@@ -493,7 +493,7 @@ function NJStepDetails({
 
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 32 }}>
-      {!isOngoing && (
+      {!isStartingNow && (
         <>
           <Text style={{ fontSize: 28, fontWeight: '700', color: theme.text, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 }}>{t('journeyEdit.details.heading')}</Text>
           <Text style={{ fontSize: 14, color: theme.text2, marginTop: 6, marginBottom: 22, lineHeight: 21 }}>{t('journeyEdit.details.subheading')}</Text>
@@ -548,7 +548,7 @@ function NJStepDetails({
       </NJSection>
 
       {/* Companions */}
-      {!isOngoing && (
+      {!isStartingNow && (
         <NJSection theme={theme} label={t('journeyEdit.details.companionsLabel')} hint={t('journeyEdit.details.companionsHint')}>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
@@ -568,7 +568,7 @@ function NJStepDetails({
       )}
 
       {/* "创建后" signpost */}
-      {!isOngoing && (
+      {!isStartingNow && (
         <NJSection theme={theme} label={t('journeyEdit.details.afterCreateLabel')}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.035)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
@@ -588,7 +588,7 @@ function NJStepDetails({
 // ──────────────────────────────────────────────────────────────
 // Step 2 — success
 // ──────────────────────────────────────────────────────────────
-function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { theme: Theme; route: NJRoute; tripName: string; isOngoing: boolean; durationMins: number }) {
+function NJStepSuccess({ theme, route, tripName, isStartingNow, durationMins }: { theme: Theme; route: NJRoute; tripName: string; isStartingNow: boolean; durationMins: number }) {
   const { t } = useI18n();
   const pop = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -598,7 +598,7 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
       <Animated.View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', transform: [{ scale }], ...shadow(0.4, 20, 8, theme.accent) }}>
-        {isOngoing ? (
+        {isStartingNow ? (
           <Svg width={40} height={40} viewBox="0 0 24 24" fill="none">
             <Path d="M5 4v16L18 12 5 4Z" fill="#fff" />
           </Svg>
@@ -606,17 +606,17 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
           <Icon name="check" color="#fff" size={48} strokeWidth={3.2} />
         )}
       </Animated.View>
-      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{isOngoing ? t('journeyEdit.success.startedTitle') : t('journeyEdit.success.joinedTitle')}</Text>
+      <Text style={{ fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 26, letterSpacing: -0.5 }}>{isStartingNow ? t('journeyEdit.success.startedTitle') : t('journeyEdit.success.joinedTitle')}</Text>
       <Text style={{ fontSize: 14.5, color: theme.text2, marginTop: 8, lineHeight: 21, textAlign: 'center', maxWidth: 280 }}>
         <Text style={{ color: theme.text, fontWeight: '600' }}>《{tripName || route.name}》</Text>
         {'\n'}
         {njDurationLabel(durationMins, t)}
-        {isOngoing ? t('journeyEdit.success.startedNote') : t('journeyEdit.success.joinedNote')}
+        {isStartingNow ? t('journeyEdit.success.startedNote') : t('journeyEdit.success.joinedNote')}
       </Text>
       <View style={{ marginTop: 28, width: '100%', maxWidth: 320 }}>
         <NJRouteCard theme={theme} route={route} compact />
       </View>
-      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>{isOngoing ? t('journeyEdit.success.redirectDetail') : t('journeyEdit.success.redirectMine')}</Text>
+      <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text3, marginTop: 20, letterSpacing: 0.4 }}>{isStartingNow ? t('journeyEdit.success.redirectDetail') : t('journeyEdit.success.redirectMine')}</Text>
     </View>
   );
 }
@@ -624,7 +624,7 @@ function NJStepSuccess({ theme, route, tripName, isOngoing, durationMins }: { th
 // ──────────────────────────────────────────────────────────────
 // Build the journey Poi created by the flow
 // ──────────────────────────────────────────────────────────────
-function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number, status: JourneyStatus, t: TFn): Poi {
+function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number, t: TFn): Poi {
   const totalDays = Math.max(1, Math.ceil(durationMins / (60 * 24)));
   const m = startDt.getMonth() + 1;
   const d = startDt.getDate();
@@ -633,7 +633,6 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
   const base: Poi = {
     id: `j-${Date.now()}`,
     kind: 'journey',
-    status,
     name: tripName.trim() || route.name,
     region: route.region,
     coord: route.coord || `${lat.toFixed(2)} N · ${lng.toFixed(2)} E`,
@@ -656,15 +655,9 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     trackDurationMs: route.trackDurationMs,
     trackWaypoints: route.trackWaypoints,
   };
-  if (status === 'ongoing') {
-    base.dayIndex = 1;
-    base.date = t('journeyEdit.meta.recordedToDay', { total: totalDays });
-  } else {
-    base.plannedDate = t('journeyEdit.meta.plannedDate', { month: m, day: d });
-    base.date = t('journeyEdit.meta.yearMonth', { year: startDt.getFullYear(), month: m });
-    const cd = Math.max(0, njDayDiff(startDt, njRoundedNow()));
-    base.countdown = cd;
-  }
+  base.plannedDate = t('journeyEdit.meta.plannedDate', { month: m, day: d });
+  base.date = t('journeyEdit.meta.yearMonth', { year: startDt.getFullYear(), month: m });
+  base.countdown = Math.max(0, njDayDiff(startDt, njRoundedNow()));
   return base;
 }
 
@@ -724,7 +717,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
   }, [route]);
 
   // 「现在出发」 if start within 1h of now
-  const isOngoing = useMemo(() => Math.abs(startDt.getTime() - Date.now()) < 60 * 60 * 1000, [startDt]);
+  const isStartingNow = useMemo(() => Math.abs(startDt.getTime() - Date.now()) < 60 * 60 * 1000, [startDt]);
   const nameValid = tripName.trim().length > 0;
   const canAdvance = step === 0 ? !!route : step === 1 ? nameValid : true;
 
@@ -743,7 +736,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
     } else if (step === 1 && nameValid && route) {
       setDirection(1);
       setStep(2);
-      const poi = buildJourney(route, tripName, startDt, durationMins, isOngoing ? 'ongoing' : 'planning', t);
+      const poi = buildJourney(route, tripName, startDt, durationMins, t);
       setTimeout(() => {
         onCreate(poi);
       }, 1500);
@@ -771,7 +764,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
         ? t('journeyEdit.cta.continue')
         : t('journeyEdit.cta.pickRoute')
       : nameValid
-      ? isOngoing
+      ? isStartingNow
         ? t('journeyEdit.cta.startNow')
         : t('journeyEdit.cta.joinPlan')
       : t('journeyEdit.cta.fillName');
@@ -811,7 +804,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
         {/* Body */}
         <Animated.View style={{ flex: 1, opacity: anim, transform: [{ translateX: stepTranslate }] }}>
           {step === 2 ? (
-            <NJStepSuccess theme={theme} route={route as NJRoute} tripName={tripName} isOngoing={isOngoing} durationMins={durationMins} />
+            <NJStepSuccess theme={theme} route={route as NJRoute} tripName={tripName} isStartingNow={isStartingNow} durationMins={durationMins} />
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {step === 0 && <NJStepRoute theme={theme} route={route} setRoute={setRoute} />}
@@ -823,7 +816,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
                   setTripName={setTripName}
                   startDt={startDt}
                   durationMins={durationMins}
-                  isOngoing={isOngoing}
+                  isStartingNow={isStartingNow}
                   onInvite={() => setShareOpen(true)}
                   onOpenTimePicker={() => setTimeOpen(true)}
                 />

@@ -1,5 +1,5 @@
 // RecordJourneySheet.tsx — 记录走过的: log a PAST hike from a recorded track
-// and/or photos, producing a 已完成 journey (回忆).
+// and/or photos, producing a journey record.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, ScrollView, Animated, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, Alert } from 'react-native';
 import { Image } from 'expo-image';
@@ -11,7 +11,7 @@ import Mapbox, { MapView, Camera, ShapeSource, LineLayer, MarkerView, Atmosphere
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
-import { Poi, Companion, JourneyStatus } from '../../data/pois';
+import { Poi, Companion } from '../../data/pois';
 import { Tone } from '../../data/tones';
 import { TrackPt, TrackStats, haversine, computeStats, parseTrack, buildTrackData } from '../../lib/trackParser';
 import { extractKmlFromKmz } from '../../lib/kmz';
@@ -1047,7 +1047,7 @@ function RJSuccess({ theme, name, dateLabel, distLabel, visibility }: { theme: T
 }
 
 // ──────────────────────────────────────────────────────────────
-// Build the completed journey Poi
+// Build the recorded journey Poi
 // ──────────────────────────────────────────────────────────────
 function buildRecordJourney(args: {
   name: string;
@@ -1105,7 +1105,6 @@ function buildRecordJourney(args: {
   return {
     id: `j-${Date.now()}`,
     kind: 'journey',
-    status: 'completed' as JourneyStatus,
     name: name.trim() || t('record.build.untitledJourney'),
     region: region.trim() || t('record.build.untitledRegion'),
     coord: `${lat.toFixed(2)} N · ${lng.toFixed(2)} E`,

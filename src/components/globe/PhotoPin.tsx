@@ -1,6 +1,6 @@
 // PhotoPin.tsx — the circular photo marker shared by both the real Mapbox globe
-// and the SVG fallback. It renders ONLY the visual (status ring → thin gap →
-// circular photo → float shadow); each globe wraps it in its own positioning
+// and the SVG fallback. It renders only the circular photo marker and shadow;
+// each globe wraps it in its own positioning
 // (MarkerView coordinate vs. absolute orthographic projection).
 //
 // The photo is the real scenery image picked deterministically from the POI's

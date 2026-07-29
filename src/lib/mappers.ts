@@ -54,7 +54,6 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     tone: j.tone,
     mine: true,
     desc: j.desc,
-    status: j.status,
     date: j.date,
     days: j.days,
     plannedDate: j.planned_date,

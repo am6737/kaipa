@@ -36,6 +36,7 @@ export type IconName =
   | 'gear'
   | 'gearSettings'
   | 'route'
+  | 'distance'
   | 'calendar'
   | 'clock'
   | 'photo'
@@ -86,6 +87,14 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Circle cx={12} cy={12} r={9} {...common} />
           <Path d="M12 7.5V12l3 2" {...common} fill="none" />
+        </Svg>
+      );
+    case 'distance':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={5} cy={12} r={2.25} {...common} />
+          <Circle cx={19} cy={12} r={2.25} {...common} />
+          <Line x1={8.5} y1={12} x2={15.5} y2={12} {...common} strokeDasharray="2.2 2.2" />
         </Svg>
       );
     case 'compassN':

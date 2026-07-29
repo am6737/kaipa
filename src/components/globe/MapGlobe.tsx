@@ -10,9 +10,9 @@
 // Route/journey points are drawn as circular photo markers (PhotoPin via
 // MarkerView) — the default style — rather than flat colored dots, so each point
 // previews its real scenery. The current-location pin stays a plain locating dot.
-import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
-import Mapbox, { MapView, Camera, Atmosphere, StyleImport, MarkerView } from '@rnmapbox/maps';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
+import Mapbox, { MapView, Camera, Atmosphere, StyleImport, MarkerView, ShapeSource, LineLayer } from '@rnmapbox/maps';
 import { GlobeProps } from './types';
 import { PhotoPin } from './PhotoPin';
 
@@ -33,10 +33,47 @@ function ensureToken() {
   }
 }
 
-export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackgroundPress, center, pin }: GlobeProps) {
+function boundsFor(coords: [number, number][]) {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  coords.forEach(([lon, lat]) => {
+    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+    minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon);
+  });
+  const pad = Math.max(maxLat - minLat, maxLon - minLon, 0.01) * 0.12;
+  return { ne: [maxLon + pad, maxLat + pad] as [number, number], sw: [minLon - pad, minLat - pad] as [number, number] };
+}
+
+export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackgroundPress, center, focusCoords, pin }: GlobeProps) {
   ensureToken();
+  const { height } = useWindowDimensions();
   const lon0 = center?.lon ?? 100;
   const lat0 = center?.lat ?? 32;
+  const cameraRef = useRef<Camera>(null);
+  const focusKey = focusCoords?.map(([lon, lat]) => `${lon.toFixed(5)},${lat.toFixed(5)}`).join('|') || '';
+  const focusShape = useMemo<GeoJSON.FeatureCollection | null>(() => focusCoords && focusCoords.length >= 2 ? ({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: focusCoords } }],
+  }) : null, [focusKey]);
+
+  useEffect(() => {
+    if (focusCoords?.length) {
+      if (focusCoords.length >= 2) {
+        const bounds = boundsFor(focusCoords);
+        cameraRef.current?.setCamera({
+          bounds: {
+            ...bounds,
+            paddingTop: 90,
+            paddingRight: 54,
+            paddingBottom: Math.round(height * 0.54),
+            paddingLeft: 54,
+          },
+          animationDuration: 900,
+        });
+      } else {
+        cameraRef.current?.setCamera({ centerCoordinate: focusCoords[0], zoomLevel: 11, animationDuration: 900 });
+      }
+    }
+  }, [focusKey, height]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: SPACE }]}>
@@ -64,7 +101,7 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
             stick and the camera never snaps back on re-render. Opens framed on
             the globe; the user can freely zoom all the way into a detailed map,
             Apple-Maps style. */}
-        <Camera defaultSettings={{ centerCoordinate: [lon0, lat0], zoomLevel: 1.6 }} />
+        <Camera ref={cameraRef} defaultSettings={{ centerCoordinate: [lon0, lat0], zoomLevel: 1.6 }} />
         {/* Standard style basemap config: show all labels (place / road / POI /
             transit) so zooming in reveals region, road and place names — a full
             map experience. Follows the app's light/dark mode via the light preset. */}
@@ -92,6 +129,13 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
             starIntensity: 0.55,
           }}
         />
+
+        {focusShape ? (
+          <ShapeSource id="discover-focus-route" shape={focusShape}>
+            <LineLayer slot="top" id="discover-focus-route-halo" style={{ lineColor: '#fff', lineWidth: 7, lineOpacity: 0.92, lineCap: 'round', lineJoin: 'round' } as any} />
+            <LineLayer slot="top" id="discover-focus-route-line" style={{ lineColor: theme.accent, lineWidth: 4, lineEmissiveStrength: 1.3, lineCap: 'round', lineJoin: 'round' } as any} />
+          </ShapeSource>
+        ) : null}
 
         {/* Circular photo markers — the default point style. allowOverlap keeps
             every photo visible even when the globe is zoomed far out. Press is

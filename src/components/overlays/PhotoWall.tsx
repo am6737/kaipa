@@ -515,7 +515,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   );
 }
 
-export function genPhotos(info: Poi, status: string | undefined): WallPhoto[] {
+export function genPhotos(info: Poi): WallPhoto[] {
   const roster = info.companionList || [];
   // real photos — skip the first one (cover), moments start from the second
   if (info.photoUris) {
@@ -712,7 +712,7 @@ function SavePickerSheet({ theme: t, allPhotos, saveSelectedIds, setSaveSelected
   );
 }
 
-export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info: Poi; status?: string; onClose: () => void }) {
+export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; onClose: () => void }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const nav = useNav();
@@ -720,7 +720,6 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
   const t = theme;
   const { userId } = useData();
   const [moreMenu, setMoreMenu] = useState(false);
-  const isPlanning = status === 'planning';
   const inspo = useInspo(info.id, userId);
   const inspoRef = useRef(inspo);
   inspoRef.current = inspo;
@@ -908,13 +907,13 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
     });
 
   // ── photos ──
-  const fakePhotos = useMemo(() => genPhotos(info, status), [info.name, status, info.totalDays]);
+  const fakePhotos = useMemo(() => genPhotos(info), [info.name, info.photoUris, info.companionList]);
   const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
   const inspoPhotos = useMemo<WallPhoto[]>(
     () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: m.caption || '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
     [inspo.media, selfAuthor]
   );
-  const allPhotos = isPlanning ? inspoPhotos : [...fakePhotos, ...inspoPhotos];
+  const allPhotos = [...fakePhotos, ...inspoPhotos];
 
   // Generate missing video thumbnails lazily
   const [thumbCache, setThumbCache] = useState<Record<string, string>>({});
@@ -959,11 +958,6 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
 
   const bodyPad = 16;
 
-  const statusLabel = status === 'completed'
-    ? tr('journey.stat.ended')
-    : status === 'ongoing'
-      ? tr('journey.stat.ongoing')
-      : tr('journey.stat.planning');
   const dateDisplay = info.date || '—';
   const peopleCount = info.companions ?? 0;
   const gridGap = 7;
@@ -1002,7 +996,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                   </View>
                   <View style={{ flex: 1, alignItems: 'center' }}>
                     <Text style={{ fontSize: 18, fontWeight: '700', fontStyle: 'italic', color: '#fff' }}>{dateDisplay}</Text>
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{statusLabel}</Text>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{tr('journey.stat.date')}</Text>
                   </View>
                   <Press onPress={openCompanionSheet} style={{ flex: 1, alignItems: 'center' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
@@ -1064,11 +1058,7 @@ export function PhotoWall({ theme, info, status, onClose }: { theme: Theme; info
                 {filter ? tr('journey.photoWall.emptyFilterTitle') : tr('journey.photoWall.emptyTitle')}
               </Text>
               <Text style={{ fontSize: 13.5, color: t.text2, textAlign: 'center', lineHeight: 20, marginTop: 8, paddingHorizontal: 24 }}>
-                {filter
-                  ? tr('journey.photoWall.emptyFilterBody')
-                  : isPlanning
-                    ? tr('journey.photoWall.emptyPlanningBody')
-                    : tr('journey.photoWall.emptyBody')}
+                {filter ? tr('journey.photoWall.emptyFilterBody') : tr('journey.photoWall.emptyBody')}
               </Text>
             </View>
           ) : (

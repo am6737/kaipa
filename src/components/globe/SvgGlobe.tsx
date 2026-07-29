@@ -1,8 +1,8 @@
 // SvgGlobe.tsx — stylized fallback globe (ported from the prototype's globe.jsx),
 // upgraded to place POIs by real orthographic projection so they sit
 // geographically. Used when no Mapbox token is configured (e.g. Expo Go).
-import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing, Pressable } from 'react-native';
+import React from 'react';
+import { View, Pressable } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G } from 'react-native-svg';
 import { GlobeProps, poiColor } from './types';
 import { project, graticule } from './projection';
@@ -18,17 +18,6 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
 
   const lines = graticule(lon0, lat0, R - 1, cx, cy);
 
-  // gentle pulse for ongoing / active points
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(pulse, { toValue: 1, duration: 2200, easing: Easing.out(Easing.ease), useNativeDriver: true })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
-  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 0.8, 1], outputRange: [0.5, 0, 0] });
 
   return (
     <View style={{ width: size, height: size }}>
@@ -77,7 +66,6 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
         if (!pr.visible) return null;
         const active = activePoiId != null && p.id === activePoiId;
         const { fill } = poiColor(p, t);
-        const isOngoing = p.status === 'ongoing';
         const box = active ? 66 : 44; // big enough to hold the pin + its halo
         return (
           <Pressable
@@ -94,20 +82,6 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
             }}
             hitSlop={6}
           >
-            {isOngoing && (
-              <Animated.View
-                style={{
-                  position: 'absolute',
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  borderWidth: 1.4,
-                  borderColor: fill,
-                  opacity: pulseOpacity,
-                  transform: [{ scale: pulseScale }],
-                }}
-              />
-            )}
             <PhotoPin theme={t} poi={p} active={active} />
           </Pressable>
         );

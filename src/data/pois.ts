@@ -4,8 +4,6 @@
 
 import { Tone } from './tones';
 
-export type JourneyStatus = 'planning' | 'ongoing' | 'completed';
-
 export interface Companion {
   ini: string;
   name: string;
@@ -34,7 +32,6 @@ export interface Poi {
   mine?: boolean;
   desc?: string;
   // journey-only
-  status?: JourneyStatus;
   date?: string;
   days?: string;
   companions?: number;
@@ -198,7 +195,6 @@ export const MEMORY_POIS: Poi[] = [
   {
     id: 'm1',
     kind: 'journey',
-    status: 'planning',
     name: '四姑娘二峰',
     region: '四川 · 阿坝',
     coord: '31.10 N · 102.90 E',
@@ -225,7 +221,6 @@ export const MEMORY_POIS: Poi[] = [
   {
     id: 'm2',
     kind: 'journey',
-    status: 'ongoing',
     name: '武功山三日穿越',
     region: '江西 · 萍乡',
     coord: '27.46 N · 114.17 E',
@@ -250,7 +245,6 @@ export const MEMORY_POIS: Poi[] = [
   {
     id: 'm3',
     kind: 'journey',
-    status: 'completed',
     name: '贡嘎西坡转山',
     region: '四川 · 甘孜',
     coord: '29.59 N · 101.88 E',
@@ -277,7 +271,6 @@ export const MEMORY_POIS: Poi[] = [
   {
     id: 'm4',
     kind: 'journey',
-    status: 'completed',
     name: '雨崩神瀑',
     region: '云南 · 德钦',
     coord: '28.40 N · 98.85 E',
@@ -300,7 +293,6 @@ export const MEMORY_POIS: Poi[] = [
   {
     id: 'm5',
     kind: 'journey',
-    status: 'completed',
     name: '哈巴雪山大本营',
     region: '云南 · 香格里拉',
     coord: '27.36 N · 100.10 E',
@@ -318,16 +310,3 @@ export const MEMORY_POIS: Poi[] = [
     desc: '独行的一次适应性徒步，从哈巴村慢慢爬到大本营。云海在脚下翻涌，安静得只剩风声。',
   },
 ];
-
-// favourite + status helpers
-export const STATUS_LABEL: Record<JourneyStatus, string> = {
-  planning: '计划中',
-  ongoing: '进行中',
-  completed: '已完成',
-};
-
-export const STATUS_COLOR = (s: JourneyStatus, accent: string, dark: boolean): string => {
-  if (s === 'planning') return '#5FB3FF';
-  if (s === 'ongoing') return accent;
-  return dark ? '#9AA0A6' : '#7E7E84';
-};

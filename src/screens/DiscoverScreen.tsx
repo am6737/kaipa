@@ -1,8 +1,8 @@
 // DiscoverScreen.tsx — the 发现 tab. A Mapbox 3D globe (SVG fallback) of routes
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
-// and a per-POI detail card.
+// and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, ScrollView, useWindowDimensions, StyleSheet } from 'react-native';
+import { View, Text, useWindowDimensions, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
@@ -13,29 +13,24 @@ import { Globe, MAPBOX_ENABLED } from '../components/globe';
 import { Glass, GlassIconBtn } from '../components/Glass';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
-import { FilterChip } from '../components/Chip';
-import { PoiRow } from '../components/ListRow';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
-import { PoiPeekCard } from '../components/PoiPeekCard';
 import { KPState, KPSkeletonLine } from '../components/State';
+import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
+import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
+import { radius, space, type } from '../design-system';
+import { SelectedPoiCard } from './JourneyCard';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
 const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
-const MEMORY_CHIPS = ['all', 'planning', 'ongoing', 'completed', 'fav'] as const;
+const MEMORY_CHIPS = ['all', 'fav'] as const;
 
 function num(s: string) {
   const m = s.replace(/,/g, '').match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
 }
 
-// One pin per place: journeys that share a trailhead are grouped (再次出发 clones
-// a route at the same coordinate, so the new plan would otherwise sit exactly on
-// top of the old memory and hide it). The representative pin shows the most
-// "active" status — an in-progress trip wins over an upcoming plan over a past
-// memory — and a badge with the group size.
-const STATUS_RANK: Record<string, number> = { ongoing: 0, planning: 1, completed: 2 };
-const poiRank = (p: Poi) => (p.status ? STATUS_RANK[p.status] ?? 3 : 3);
+// One pin per place: journeys sharing a trailhead are grouped under one marker.
 const placeKey = (p: Poi) => `${(p.lng ?? 0).toFixed(4)},${(p.lat ?? 0).toFixed(4)}`;
 
 function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
@@ -47,7 +42,7 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
     else byPlace.set(k, [p]);
   }
   return [...byPlace.values()].map((group) => ({
-    rep: group.reduce((best, p) => (poiRank(p) < poiRank(best) ? p : best), group[0]),
+    rep: group[0],
     group,
   }));
 }
@@ -65,6 +60,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // When a clustered map pin is tapped, the same journey-list sheet is scoped to
   // that trailhead (coordinate key) — only the header copy changes to 这个地点的旅程.
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
+  const [focusReturnToList, setFocusReturnToList] = React.useState(false);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
 
   // ── multi-select (long-press to enter, batch delete) ──
@@ -100,7 +96,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     setPlaceSel(null);
   }, [isMemory]);
 
-  // Public-track journeys to inject into explore tab: completed journeys from
+  // Public-track journeys to inject into explore tab: shared journeys from
   // the user (and eventually from other users) that are trackPublic + have track data.
   const publicTrackPois: Poi[] = useMemo(() => {
     if (isMemory) return [];
@@ -110,7 +106,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       .filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
       .filter((p) => !nav.removedIds.includes(p.id))
       .map((p) => nav.merged(p)) // apply journeyPatch (e.g. trackPublic toggle before DB sync)
-      .filter((p) => p.status === 'completed' && p.trackPublic && p.trackCoords && p.trackCoords.length > 0)
+      .filter((p) => p.trackPublic && p.trackCoords && p.trackCoords.length > 0)
       .map((p) => ({ ...p, kind: 'route' as const, mine: true, fav: false })); // show as route card in explore tab
   }, [isMemory, nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
 
@@ -133,10 +129,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     let list = [...basePois];
     if (isMemory) {
       const key = MEMORY_CHIPS[chip];
-      if (key === 'planning') list = list.filter((p) => p.status === 'planning');
-      else if (key === 'ongoing') list = list.filter((p) => p.status === 'ongoing');
-      else if (key === 'completed') list = list.filter((p) => p.status === 'completed');
-      else if (key === 'fav') list = list.filter((p) => p.fav);
+      if (key === 'fav') list = list.filter((p) => p.fav);
     } else {
       const key = EXPLORE_CHIPS[chip];
       if (key === 'easy') list = list.filter((p) => p.diff === '易' || p.diff === '中');
@@ -177,13 +170,11 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   React.useEffect(() => { exitSelect(); }, [isMemory, chip, exitSelect]);
 
   // In place view the header ＋ means 再次出发 on this trailhead: seed the new
-  // journey flow with the place's route (most-active journey as the template).
+  // journey flow with the place's first matching route as the template.
   // Drawn from basePois so it survives chip filtering hiding every row.
   const placePreset = useMemo(() => {
     if (!placeSel) return undefined;
-    return basePois
-      .filter((p) => placeKey(p) === placeSel)
-      .reduce<Poi | undefined>((best, p) => (!best || poiRank(p) < poiRank(best) ? p : best), undefined);
+    return basePois.find((p) => placeKey(p) === placeSel);
   }, [placeSel, basePois]);
 
   // Map pins: one per place, with a count badge when several journeys share it.
@@ -204,12 +195,17 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
   const globeSize = Math.min(width * 0.86, 360);
   const tabSpace = insets.bottom + 76;
-  const collapsed = 120;
-  const peek = 284; // compact floating peek card height
-  const mid = Math.round(height * 0.52);
+  const collapsed = Math.round(height * 0.4);
   const full = Math.round(height * 0.95);
+  const focusPanel = Math.round(height * 0.56);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
+  const focusCoords = useMemo<[number, number][] | null>(() => {
+    const point = nav.pointInfo;
+    if (!point) return null;
+    if ((point.trackCoords?.length ?? 0) >= 2) return point.trackCoords!;
+    return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
+  }, [nav.pointInfo]);
 
   // sheet stats
   const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
@@ -220,85 +216,23 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // selected the sheet switches to compact mode and this header is not shown —
   // the card's hero fills the top and the floating grab handle dismisses it.
   const header = (
-    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        {placeSel ? (
-          <Press onPress={() => setPlaceSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
-            <Icon name="chevronL" color={theme.accent} size={16} />
-            <View style={{ flexShrink: 1 }}>
-              <Text style={{ fontSize: 11, fontWeight: '600', color: theme.accent, letterSpacing: 0.4 }}>{t('discover.titleMyJourneys')}</Text>
-              <Text numberOfLines={1} style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
-                {t('discover.titlePlace')}
-              </Text>
-              <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-                {t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })}
-              </Text>
-            </View>
-          </Press>
-        ) : (
-          <View>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              {isMemory ? t('discover.kickerMyJourneys') : t('discover.kickerFeatured')}
-            </Text>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, marginTop: 2 }}>
-              {isMemory ? t('discover.titleMyJourneys') : t('discover.titleFeatured')}
-            </Text>
-            <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-              {isMemory
-                ? t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })
-                : t('discover.countRoutes', { count: displayPois.length })}
-            </Text>
-          </View>
-        )}
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-          <Press
-            onPress={() => nav.showToast(t('discover.toastFilter'))}
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 15,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-            }}
-          >
-            <Icon name="filter" color={theme.text2} size={17} />
-          </Press>
-          {isMemory ? (
-            <Press
-              onPress={() => nav.openNearbyJoin()}
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 15,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-              }}
-            >
-              <Icon name="download" color={theme.text2} size={17} />
-            </Press>
-          ) : null}
-          <Press
-            onPress={() =>
-              placeSel ? nav.openNewJourney(placePreset) : isMemory ? nav.openNewJourney() : nav.openAddRoute()
-            }
-            style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}
-          >
-            <Icon name="plus" color="#fff" size={18} />
-          </Press>
-        </View>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingTop: 12, paddingRight: 16 }}
-      >
-        {(isMemory ? MEMORY_CHIPS : EXPLORE_CHIPS).map((c, i) => (
-          <FilterChip key={c} theme={theme} label={chipLabel(c)} active={chip === i} onPress={() => setChip(i)} />
-        ))}
-      </ScrollView>
-    </View>
+    <DiscoverCollectionHeader
+      theme={theme}
+      eyebrow={placeSel ? t('discover.titleMyJourneys') : ''}
+      title={placeSel ? t('discover.titlePlace') : isMemory ? t('discover.titleMyJourneys') : t('discover.titleFeatured')}
+      summary={isMemory || placeSel
+        ? t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })
+        : ''}
+      filters={(isMemory ? MEMORY_CHIPS : []).map((id) => ({ id, label: chipLabel(id) }))}
+      activeFilter={chip}
+      onFilterChange={setChip}
+      onFilter={() => nav.showToast(t('discover.toastFilter'))}
+      onSecondary={isMemory ? () => nav.openNearbyJoin() : undefined}
+      secondaryIcon={isMemory ? 'download' : undefined}
+      onAdd={() => placeSel ? nav.openNewJourney(placePreset) : isMemory ? nav.openNewJourney() : nav.openAddRoute()}
+      onBack={placeSel ? () => setPlaceSel(null) : undefined}
+      showActions={isMemory || !!placeSel}
+    />
   );
 
   return (
@@ -309,16 +243,19 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         <Globe
           theme={theme}
           size={globeSize}
-          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, status: rep.status, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
+          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
           activePoiId={activeRepId}
+          focusCoords={focusCoords}
+          center={nav.pointInfo ? { lon: nav.pointInfo.lng, lat: nav.pointInfo.lat } : undefined}
           onPoiPress={(id) => {
             const group = repIdToGroup.get(id);
             if (!group) return;
-            // One journey here → open its card. Several → scope the journey-list
+            // One route/journey here → open its map detail. Several → scope the journey-list
             // sheet to this trailhead so the user can pick the past memory vs. the
             // 再次出发 plan (same list, just a 这个地点的旅程 header).
             if (group.length === 1) {
               setPlaceSel(null);
+              setFocusReturnToList(false);
               nav.openPoint(group[0]);
               return;
             }
@@ -331,6 +268,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       </View>
 
       {/* subtabs */}
+      {!nav.pointInfo ? (
       <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>
         <Glass theme={chromeTheme} radius={16} intensity={30}>
           <View style={{ flexDirection: 'row', padding: 3, gap: 3 }}>
@@ -361,8 +299,10 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           </View>
         </Glass>
       </View>
+      ) : null}
 
       {/* top-right chrome */}
+      {!nav.pointInfo ? (
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
         <GlassIconBtn theme={chromeTheme} onPress={() => nav.openSearch()}>
           <Icon name="search" color={chromeTheme.text} size={19} />
@@ -373,32 +313,60 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           </View>
         </GlassIconBtn>
       </View>
+      ) : nav.pointInfo.kind === 'journey' ? (
+        <>
+          <View style={{ position: 'absolute', top: insets.top + 8, left: 16 }}>
+            <GlassIconBtn theme={chromeTheme} onPress={() => sheetRef.current?.dismiss()}>
+              <Icon name="arrowL" color={chromeTheme.text} size={20} />
+            </GlassIconBtn>
+          </View>
+          <View style={{ position: 'absolute', top: insets.top + 8, right: 16 }}>
+            <GlassIconBtn theme={chromeTheme} onPress={() => nav.pointInfo && nav.openSharePanel(nav.pointInfo)}>
+              <Icon name="share" color={chromeTheme.text} size={19} />
+            </GlassIconBtn>
+          </View>
+        </>
+      ) : null}
 
-      <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? (nav.pointInfo ? peek : mid) + 16 : tabSpace + 56 }}>
+      {!nav.pointInfo ? <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56 }}>
         <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
           <Icon name="locate" color={chromeTheme.accent} size={21} />
         </GlassIconBtn>
-      </View>
+      </View> : null}
 
       {sheetVisible && (
       <TrailSheet
         ref={sheetRef}
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        snapHeights={nav.pointInfo ? [peek] : [collapsed, mid, full]}
-        initialIndex={nav.pointInfo ? 0 : 1}
-        header={header}
-        compact={!!nav.pointInfo}
+        snapHeights={nav.pointInfo ? [focusPanel, full] : [collapsed, full]}
+        initialIndex={0}
+        header={nav.pointInfo ? <View /> : header}
+        compact={false}
+        backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
+        borderless={nav.pointInfo?.kind === 'route'}
         bottomOffset={0}
         onDismiss={() => {
           setPlaceSel(null);
-          nav.closeSheet();
+          if (nav.pointInfo && focusReturnToList) {
+            nav.closePoint();
+            nav.openSheet();
+          } else {
+            nav.closeSheet();
+          }
+          setFocusReturnToList(false);
         }}
       >
         {nav.pointInfo ? (
-          <PoiPeekCard theme={theme} poi={nav.pointInfo} onPress={() => nav.pointInfo && nav.openDetail(nav.pointInfo)} />
+          <View style={{ paddingHorizontal: space.md }}>
+            {nav.pointInfo.kind === 'route' ? (
+              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={() => sheetRef.current?.dismiss()} showActions={false} />
+            ) : (
+              <SelectedPoiCard theme={theme} poi={nav.pointInfo} embedded />
+            )}
+          </View>
         ) : (
-        <View style={{ paddingHorizontal: 16 }}>
+        <View style={{ paddingHorizontal: space.md }}>
           {listState === 'normal' ? (
             displayPois.length === 0 ? (
               <KPState
@@ -408,17 +376,30 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                 body={isMemory ? t('discover.emptyJourneysBody') : t('discover.emptyRoutesBody')}
               />
             ) : (
-              displayPois.map((p) => (
-                <PoiRow
-                  key={p.id}
-                  theme={theme}
-                  poi={p}
-                  selectMode={selectMode}
-                  selected={selectedIds.has(p.id)}
-                  onPress={() => (selectMode ? toggleSelect(p.id) : nav.openPoint(p))}
-                  onLongPress={isMemory && p.kind === 'journey' ? () => (selectMode ? toggleSelect(p.id) : enterSelect(p.id)) : undefined}
-                />
-              ))
+              <View style={{ gap: isMemory ? space.sm : space.md, paddingTop: space.xxs }}>
+                {displayPois.map((p) => isMemory && p.kind === 'journey' ? (
+                  <DiscoverJourneyCard
+                    key={p.id}
+                    theme={theme}
+                    poi={p}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(p.id)}
+                    onPress={() => {
+                      if (selectMode) toggleSelect(p.id);
+                      else {
+                        setFocusReturnToList(true);
+                        nav.openPoint(p);
+                      }
+                    }}
+                    onLongPress={() => (selectMode ? toggleSelect(p.id) : enterSelect(p.id))}
+                  />
+                ) : (
+                  <DiscoverRouteCard key={p.id} theme={theme} poi={p} onPress={() => {
+                    setFocusReturnToList(true);
+                    nav.openPoint(p);
+                  }} />
+                ))}
+              </View>
             )
           ) : (
             <View style={{ gap: 14, paddingTop: 8 }}>
@@ -437,20 +418,34 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         )}
       </TrailSheet>
       )}
+      {nav.pointInfo?.kind === 'route' ? (
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: space.md,
+            right: space.md,
+            bottom: Math.max(insets.bottom, space.md),
+            zIndex: 180,
+          }}
+        >
+          <RoutePreviewActions theme={theme} poi={nav.pointInfo} />
+        </View>
+      ) : null}
       {selectMode ? (
-        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 6, backgroundColor: theme.bg, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: Math.max(insets.bottom, space.md) + 6, backgroundColor: theme.surfaceTop, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Press onPress={exitSelect} style={{ height: 44, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{t('common.cancel')}</Text>
+            <Press onPress={exitSelect} style={{ height: 44, paddingHorizontal: space.md, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+              <Text style={[type.body, { fontWeight: '600', color: theme.text }]}>{t('common.cancel')}</Text>
             </Press>
-            <Press onPress={toggleAll} style={{ minWidth: 80, height: 44, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+            <Press onPress={toggleAll} style={{ minWidth: 80, height: 44, paddingHorizontal: space.md, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: theme.accent }}>
                 {allSelected ? t('discover.selectDeselectAll') : t('discover.selectAll')}
               </Text>
             </Press>
             <Press
               onPress={selectedIds.size ? deleteSelected : undefined}
-              style={{ flex: 1, height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)') }}
+              style={{ flex: 1, height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : theme.fieldSurface }}
             >
               <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size ? '#fff' : theme.text3 }}>
                 {selectedIds.size ? t('discover.selectDelete', { count: selectedIds.size }) : t('discover.selectDeletePrompt')}

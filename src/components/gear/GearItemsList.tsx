@@ -30,6 +30,7 @@ type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
 type GearPickerConfig = {
   selectedNames: Set<string>;
   onDone: (selectedNames: Set<string>) => void;
+  onAdd?: () => void;
 };
 
 const formatItemValue = (value: number) => {
@@ -87,6 +88,10 @@ function GearItemsListView({
   const pickerMode = !!picker;
   const effectiveSelectMode = pickerMode || selectMode;
   const [pickerSelectedNames, setPickerSelectedNames] = useState<Set<string>>(() => new Set(picker?.selectedNames || []));
+
+  React.useEffect(() => {
+    if (picker) setPickerSelectedNames(new Set(picker.selectedNames));
+  }, [picker?.selectedNames]);
 
   const moreMenuStyle = useAnimatedStyle(() => ({
     height: interpolate(displayProgress.value, [0, 1], [373, 543]),
@@ -245,6 +250,7 @@ function GearItemsListView({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
+              {picker?.onAdd ? <AppIconButton theme={theme} name="plus" onPress={picker.onAdd} noShadow /> : null}
               <AppIconButton theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
               <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
               <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />

@@ -5,7 +5,7 @@ import { View, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
-import { Poi, STATUS_LABEL, STATUS_COLOR } from '../data/pois';
+import { Poi } from '../data/pois';
 import { Avatar, AvatarStack } from './Avatar';
 import { Icon } from './Icon';
 import { Press } from './Press';
@@ -52,22 +52,6 @@ export function PoiRow({
         )}
         <View style={{ flex: 1, gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {isJourney && poi.status && (
-              <View
-                style={{
-                  paddingHorizontal: 6,
-                  height: 17,
-                  borderRadius: 5,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: STATUS_COLOR(poi.status, theme.accent, theme.dark) + '26',
-                }}
-              >
-                <Text style={{ fontSize: 10, fontWeight: '700', color: STATUS_COLOR(poi.status, theme.accent, theme.dark) }}>
-                  {STATUS_LABEL[poi.status]}
-                </Text>
-              </View>
-            )}
             <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '700', color: theme.text, flexShrink: 1 }}>
               {poi.name}
             </Text>

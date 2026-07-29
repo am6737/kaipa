@@ -4,6 +4,9 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, Animated } from 'react-native';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { File, Paths } from 'expo-file-system';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
@@ -15,6 +18,7 @@ import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, W
 import { GearItemImage, ShareBar, yuan, fmtKg } from './parts';
 import { AppIconButton, AppSectionHeader, DetailPage, radius, space } from '../../design-system';
 import { GearDeleteDialog } from './GearDeleteDialog';
+import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
 
 const softBg = (t: Theme) => t.fieldSurface;
@@ -182,32 +186,120 @@ function GearGallery({ theme, item, onOpenPhoto }: { theme: Theme; item: GearIte
   );
 }
 
-function GearPhotoViewer({ theme, item, index, onClose }: {
+function GearPhotoViewer({ theme, item, index, onClose, onPhotosChange }: {
   theme: Theme;
   item: GearItem;
   index: number;
   onClose: () => void;
+  onPhotosChange: (photos: string[]) => void;
 }) {
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const photos = (item.photos || []).filter(Boolean);
   const pages = photos.length ? photos : [null];
   const initialIndex = Math.min(index, pages.length - 1);
+  const listRef = React.useRef<FlatList<string | null>>(null);
   const [page, setPage] = React.useState(initialIndex);
+  const [notice, setNotice] = React.useState<{ text: string; danger?: boolean } | null>(null);
+  const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const fade = React.useRef(new Animated.Value(0)).current;
+  const controlsBottom = Math.max(insets.bottom, 14) + 4;
   const imageTop = insets.top + 52;
-  const imageBottom = Math.max(insets.bottom, 14) + 18;
+  const imageBottom = controlsBottom + 58;
   const imageHeight = Math.max(1, height - imageTop - imageBottom);
+  const currentUri = photos[page];
 
   React.useEffect(() => {
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
   }, [fade]);
 
+  React.useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  const showNotice = (text: string, danger = false) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setNotice({ text, danger });
+    noticeTimer.current = setTimeout(() => setNotice(null), 1800);
+  };
+
+  const syncPage = (nextPage: number) => {
+    setPage(nextPage);
+    requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: nextPage, animated: false }));
+  };
+
+  const saveCurrent = async () => {
+    if (!currentUri) return;
+    const { status } = await requestMediaLibraryPermissions(true);
+    if (status !== 'granted') {
+      showNotice(t('gear.editor.libraryPermission'), true);
+      return;
+    }
+    try {
+      await createMediaLibraryAsset(currentUri);
+      showNotice(t('gear.itemDetail.photoSaved'));
+    } catch (directError) {
+      try {
+        if (!/^https?:\/\//i.test(currentUri)) throw directError;
+        const downloaded = await File.downloadFileAsync(currentUri, new File(Paths.cache, `kaipa-gear-${Date.now()}.jpg`), { idempotent: true });
+        await createMediaLibraryAsset(downloaded.uri);
+        showNotice(t('gear.itemDetail.photoSaved'));
+      } catch (fallbackError) {
+        console.warn('[GearPhotoViewer] save photo failed:', directError, fallbackError);
+        showNotice(t('gear.itemDetail.photoSaveFailed'), true);
+      }
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      showNotice(t('gear.editor.libraryPermission'), true);
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: !currentUri,
+      selectionLimit: currentUri ? 1 : Math.max(1, 9 - photos.length),
+      quality: 0.85,
+    });
+    if (result.canceled) return;
+    const picked = result.assets.map((asset) => asset.uri);
+    const nextPhotos = currentUri
+      ? photos.map((uri, photoIndex) => (photoIndex === page ? picked[0] : uri))
+      : [...photos, ...picked].slice(0, 9);
+    onPhotosChange(nextPhotos);
+    showNotice(currentUri ? t('gear.itemDetail.photoReplaced') : t('gear.itemDetail.photoAdded'));
+  };
+
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      showNotice(t('gear.editor.cameraPermission'), true);
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+    if (result.canceled) return;
+    const uri = result.assets[0].uri;
+    const nextPhotos = currentUri ? photos.map((photo, photoIndex) => (photoIndex === page ? uri : photo)) : [...photos, uri].slice(0, 9);
+    onPhotosChange(nextPhotos);
+    showNotice(currentUri ? t('gear.itemDetail.photoReplaced') : t('gear.itemDetail.photoAdded'));
+  };
+
+  const removeCurrent = () => {
+    if (!currentUri) return;
+    const nextPhotos = photos.filter((_, photoIndex) => photoIndex !== page);
+    const nextPage = Math.min(page, Math.max(0, nextPhotos.length - 1));
+    onPhotosChange(nextPhotos);
+    syncPage(nextPage);
+  };
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.94)', opacity: fade }]}>
         <FlatList
+          ref={listRef}
           data={pages}
           horizontal
           pagingEnabled
@@ -249,8 +341,70 @@ function GearPhotoViewer({ theme, item, index, onClose }: {
             <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{`${page + 1}/${pages.length}`}</Text>
           </View>
         </View>
+        {notice ? <PhotoNotice theme={theme} text={notice.text} danger={notice.danger} bottom={controlsBottom + 62} /> : null}
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: 24,
+            paddingBottom: controlsBottom,
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            gap: 10,
+          }}
+        >
+          {currentUri ? <PhotoPillButton label={t('gear.itemDetail.savePhoto')} onPress={saveCurrent} /> : null}
+          <PhotoPillButton label={currentUri ? t('gear.itemDetail.replacePhoto') : t('gear.editor.pickFromLibrary')} onPress={pickFromLibrary} />
+          <PhotoPillButton label={t('gear.editor.takePhoto')} onPress={takePhoto} />
+          {currentUri ? <PhotoPillButton label={t('gear.itemDetail.deletePhoto')} danger theme={theme} onPress={removeCurrent} /> : null}
+        </View>
       </Animated.View>
     </Modal>
+  );
+}
+
+function PhotoNotice({ theme, text, danger, bottom }: { theme: Theme; text: string; danger?: boolean; bottom: number }) {
+  const op = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.spring(op, { toValue: 1, useNativeDriver: true, bounciness: 6, speed: 18 }).start();
+  }, [op, text]);
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center', zIndex: 20 }}>
+      <Animated.View
+        style={{
+          opacity: op,
+          transform: [{ translateY: op.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+          borderRadius: 22,
+          overflow: 'hidden',
+        }}
+      >
+        <BlurView intensity={60} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingHorizontal: 18,
+            paddingVertical: 11,
+            backgroundColor: theme.dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)',
+          }}
+        >
+          <Icon name={danger ? 'close' : 'check'} color={danger ? theme.danger : (theme.dark ? '#fff' : '#000')} size={16} strokeWidth={2.2} />
+          <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.dark ? '#fff' : '#000' }}>{text}</Text>
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+function PhotoPillButton({ label, onPress, danger, theme }: { label: string; onPress: () => void; danger?: boolean; theme?: Theme }) {
+  return (
+    <Press onPress={onPress} style={{ height: 48, borderRadius: 24, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8FB' }}>
+      <Text style={{ fontSize: 16, fontWeight: '800', color: danger ? (theme?.danger ?? '#FF5A7A') : '#202124' }}>{label}</Text>
+    </Press>
   );
 }
 
@@ -364,6 +518,14 @@ function GearItemDetailView({
     setActiveField(null);
     setIsEditing(false);
   };
+  const savePhotos = (photos: string[]) => {
+    const next = { ...currentItem, photos: photos.length ? photos : undefined };
+    if (isEditing) {
+      setDraft(next);
+    } else {
+      onSave(next);
+    }
+  };
 
   // ── real library context ──────────────────────────────────────────────────
   const libraryContext = React.useMemo(() => {
@@ -421,6 +583,7 @@ function GearItemDetailView({
               item={currentItem}
               index={photoViewerIndex}
               onClose={() => setPhotoViewerIndex(null)}
+              onPhotosChange={savePhotos}
             />
           ) : null}
           {titlePreviewOpen ? <GearTitlePreview theme={theme} title={item.name} onClose={() => setTitlePreviewOpen(false)} /> : null}

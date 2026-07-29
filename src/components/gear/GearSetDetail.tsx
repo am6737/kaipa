@@ -242,7 +242,7 @@ function GearSetDetailView({
   const exportingRef = useRef(false);
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [194, 420]),
+    height: interpolate(displayProgress.value, [0, 1], [256, 482]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
@@ -483,6 +483,7 @@ function GearSetDetailView({
               </View>
             </ReAnimated.View>
             <ReAnimated.View style={displayActionsStyle}>
+              <ExportMenuRow theme={theme} icon="edit" label={t('gear.setDetail.editSet')} onPress={() => runFromMoreMenu(onEdit)} />
               <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
               <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
             </ReAnimated.View>

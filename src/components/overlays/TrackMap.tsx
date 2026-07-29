@@ -90,6 +90,10 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   }), [showWaypoints, waypoints]);
   useImperativeHandle(ref, () => ({
     fitRoute: () => {
+      if (coords.length === 1) {
+        cameraRef.current?.setCamera({ centerCoordinate: coords[0], zoomLevel: 11, animationDuration: 600 });
+        return;
+      }
       if (coords.length < 2) return;
       const b = trackBounds(coords);
       cameraRef.current?.fitBounds(b.ne, b.sw, 36, 600);
@@ -129,10 +133,13 @@ export const TrackMap = forwardRef<TrackMapHandle, {
 
   const hasWaypoints = waypointGeoJSON.features.length > 0;
 
-  const bounds = trackBounds(coords);
+  const bounds = coords.length >= 2 ? trackBounds(coords) : null;
   const styleURL = MAP_STYLES[mapStyle] || STANDARD_STYLE;
   const supportsStyleImport = mapStyle === 'standard' || mapStyle === 'satellite';
   const s = coords[0], e = coords[coords.length - 1];
+  const cameraDefaults = bounds
+    ? { bounds: { ...bounds, paddingLeft: 28, paddingRight: 28, paddingTop: 28, paddingBottom: 28 } }
+    : { centerCoordinate: s, zoomLevel: 11 };
   const routeColor = accent;
   const routeOuter = theme.dark ? '#FFFFFF' : 'rgba(255,255,255,0.9)';
   const routeHalo = theme.dark ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.16)';
@@ -163,7 +170,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         {/* defaultSettings frames the route once on mount, then user gestures own
             the camera (it never snaps back on re-render / resize). The layer /
             recenter buttons drive it imperatively through cameraRef instead. */}
-        <Camera ref={cameraRef} defaultSettings={{ bounds: { ...bounds, paddingLeft: 28, paddingRight: 28, paddingTop: 28, paddingBottom: 28 } }} />
+        <Camera ref={cameraRef} defaultSettings={cameraDefaults} />
         {supportsStyleImport && (
           <StyleImport
             id="basemap"
@@ -186,17 +193,25 @@ export const TrackMap = forwardRef<TrackMapHandle, {
             starIntensity: 0.55,
           }}
         />
-        <ShapeSource id="elev-route" shape={routeGeoJSON}>
-          <LineLayer slot="top" id="elev-route-shadow" style={{ lineColor: routeHalo, lineWidth: theme.dark ? 7 : 8, lineBlur: theme.dark ? 1 : 2.5, lineCap: 'round', lineJoin: 'round' } as any} />
-          <LineLayer slot="top" id="elev-route-outer" style={{ lineColor: routeOuter, lineOpacity: 1, lineEmissiveStrength: 1.2, lineWidth: theme.dark ? 5.2 : 5.5, lineBlur: 0, lineCap: 'round', lineJoin: 'round' } as any} />
-          <LineLayer slot="top" id="elev-route-line" style={{ lineColor: routeColor, lineOpacity: 1, lineEmissiveStrength: 1.6, lineWidth: theme.dark ? 3.5 : 3.5, lineCap: 'round', lineJoin: 'round' } as any} />
-        </ShapeSource>
-        <MarkerView coordinate={s} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#fff' }} />
-        </MarkerView>
-        <MarkerView coordinate={e} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: theme.danger, borderWidth: 2.5, borderColor: '#fff' }} />
-        </MarkerView>
+        {coords.length >= 2 ? (
+          <>
+            <ShapeSource id="elev-route" shape={routeGeoJSON}>
+              <LineLayer slot="top" id="elev-route-shadow" style={{ lineColor: routeHalo, lineWidth: theme.dark ? 7 : 8, lineBlur: theme.dark ? 1 : 2.5, lineCap: 'round', lineJoin: 'round' } as any} />
+              <LineLayer slot="top" id="elev-route-outer" style={{ lineColor: routeOuter, lineOpacity: 1, lineEmissiveStrength: 1.2, lineWidth: theme.dark ? 5.2 : 5.5, lineBlur: 0, lineCap: 'round', lineJoin: 'round' } as any} />
+              <LineLayer slot="top" id="elev-route-line" style={{ lineColor: routeColor, lineOpacity: 1, lineEmissiveStrength: 1.6, lineWidth: theme.dark ? 3.5 : 3.5, lineCap: 'round', lineJoin: 'round' } as any} />
+            </ShapeSource>
+            <MarkerView coordinate={s} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#fff' }} />
+            </MarkerView>
+            <MarkerView coordinate={e} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: theme.danger, borderWidth: 2.5, borderColor: '#fff' }} />
+            </MarkerView>
+          </>
+        ) : (
+          <MarkerView coordinate={s} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+            <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: routeColor, borderWidth: 3, borderColor: '#fff', boxShadow: '0px 2px 6px rgba(0,0,0,0.28)' }} />
+          </MarkerView>
+        )}
         {/* named waypoints — native clustered source so hundreds stay smooth:
             dense areas merge into a count bubble and split apart (revealing more
             pins + labels) as you zoom in. Labels collide natively (textOptional),

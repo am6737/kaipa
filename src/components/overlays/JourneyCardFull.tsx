@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { Poi, JourneyStatus } from '../../data/pois';
+import { Poi } from '../../data/pois';
 import { SERIF } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -83,34 +83,26 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
   const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [height, 0] });
 
   const isJourney = poi.kind === 'journey';
-  const status = (poi.status || 'completed') as JourneyStatus;
 
   const inspo = useInspo(poi.id, userId);
   const wallPhotos = useMemo(
-    () => isJourney ? genPhotos(poi, status) : [],
-    [isJourney, poi.name, poi.photoUris, poi.tone, status],
+    () => isJourney ? genPhotos(poi) : [],
+    [isJourney, poi.name, poi.photoUris, poi.tone],
   );
   const inspoAsWall = useMemo(
     () => inspo.media.map(m => ({ id: m.id, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, tone: poi.tone || 'ridge', ratio: 1 })),
     [inspo.media, poi.tone],
   );
-  const allPhotos = status === 'planning' ? inspoAsWall : [...wallPhotos, ...inspoAsWall];
+  const allPhotos = [...wallPhotos, ...inspoAsWall];
 
   const momentCount = allPhotos.length;
   const peopleCount = poi.companions ?? 0;
-
-  const statusLabel = status === 'completed'
-    ? t('journey.stat.ended')
-    : status === 'ongoing'
-      ? t('journey.stat.ongoing')
-      : t('journey.stat.planning');
 
   const dateDisplay = poi.date || '—';
 
   // Passive content views become segments — actions (share) and light info
   // (companions) stay in the head. All three always show; empty ones get a hint.
-  // Status only picks the default segment (planning lands on the itinerary).
-  const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
+    const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
   const segOptions = useMemo<{ id: SegId; label: string }[]>(() => {
     const moments = { id: 'moments' as SegId, label: t('journey.tab.moments') };
     if (!isJourney) return [moments];
@@ -120,7 +112,7 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
       { id: 'plan' as SegId, label: t('journey.tab.plan') },
     ];
   }, [isJourney, t]);
-  const [seg, setSeg] = useState<SegId>(isJourney && status === 'planning' ? 'plan' : 'moments');
+  const [seg, setSeg] = useState<SegId>('moments');
 
   const heroH = height * 0.48;
   const colW = (width - 16 * 2 - 6 * 2) / 3;
@@ -166,7 +158,7 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
         {/* stats strip */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 20, paddingHorizontal: 16 }}>
           <StatBlock value={String(momentCount)} label={t('journey.stat.moments')} />
-          <StatBlock value={dateDisplay} label={statusLabel} />
+          <StatBlock value={dateDisplay} label={t('journey.stat.date')} />
           <StatBlock
             value={String(peopleCount)}
             label={t('journey.stat.people')}
@@ -191,7 +183,7 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
           <PillButton
             icon={<Icon name="download" color="#fff" size={18} />}
             label={t('journey.action.save')}
-            onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}
+            onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine' })}
           />
         </View>
 
@@ -211,7 +203,7 @@ export function JourneyCardFull({ theme, poi, onClose }: { theme: Theme; poi: Po
                 return (
                   <Press
                     key={(p as any).id || `p-${i}`}
-                    onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine', status })}
+                    onPress={() => nav.openPhotoWall({ info: poi, mode: 'mine' })}
                     style={{ width: colW }}
                   >
                     <View style={{ aspectRatio: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1a1a1a' }}>
