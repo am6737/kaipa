@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
+import { JapaneseYen, Package, PanelsTopLeft, Tag, Weight } from 'lucide-react-native';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
 import { Press } from '../components/Press';
@@ -20,10 +20,11 @@ import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { GearOverviewDetail } from '../components/gear/GearOverviewDetail';
+import { GearWallPrototype } from '../components/gear/GearWallPrototype';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import { radius, space, type } from '../design-system';
 
-type GearPage = { type: 'item'; item: GearItem } | { type: 'set'; set: GearSet } | { type: 'overview' } | { type: 'setsList' } | { type: 'itemsList' };
+type GearPage = { type: 'item'; item: GearItem } | { type: 'set'; set: GearSet } | { type: 'overview' } | { type: 'wall' } | { type: 'setsList' } | { type: 'itemsList' };
 
 // ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
 const fieldBg = (t: Theme) => t.fieldSurface;
@@ -211,6 +212,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
           catMap={catMap}
           weightUnit={weightUnit}
           onOpenOverview={() => pushPage({ type: 'overview' })}
+          onOpenWall={() => pushPage({ type: 'wall' })}
           onOpenSets={() => pushPage({ type: 'setsList' })}
           onOpenItems={() => pushPage({ type: 'itemsList' })}
           onOpenSet={(set) => pushPage({ type: 'set', set })}
@@ -221,7 +223,14 @@ export function GearScreen({ theme }: { theme: Theme }) {
       {/* ── Pushed detail and list pages ── */}
       {pageStack.map((pg, i) => (
         <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
-          {pg.type === 'overview' ? (
+          {pg.type === 'wall' ? (
+            <GearWallPrototype
+              theme={theme}
+              items={allItems}
+              onBack={popPage}
+              onDone={() => nav.showToast(t('gear.wall.prototypeSaved'), 'top')}
+            />
+          ) : pg.type === 'overview' ? (
             <GearOverviewDetail
               theme={theme}
               items={allItems}
@@ -354,7 +363,7 @@ export function GearScreen({ theme }: { theme: Theme }) {
   );
 }
 
-function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenSets, onOpenItems, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenSets: () => void; onOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
+function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenWall, onOpenSets, onOpenItems, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenWall: () => void; onOpenSets: () => void; onOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
@@ -367,6 +376,22 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, 
       <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
       <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
       <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuanWithGap(totalValue)} />
+    </Press>
+    <Press onPress={onOpenWall} accessibilityRole="button" accessibilityLabel={t('gear.wall.open')} style={[styles.wallEntry, { backgroundColor: theme.dark ? '#242528' : '#F0F0ED' }]}>
+      <View style={styles.wallEntryCopy}>
+        <View style={[styles.wallEntryIcon, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.88)' }]}>
+          <PanelsTopLeft color={theme.dark ? '#ECEEEF' : '#3F4244'} size={22} strokeWidth={1.7} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: theme.dark ? '#F4F5F5' : '#252627' }}>{t('gear.wall.entryTitle')}</Text>
+          <Text style={{ marginTop: 5, fontSize: 12.5, lineHeight: 18, color: theme.dark ? 'rgba(244,245,245,0.62)' : 'rgba(37,38,39,0.58)' }}>{t('gear.wall.entryBody')}</Text>
+        </View>
+      </View>
+      <View style={styles.wallEntryPreview}>
+        {Array.from({ length: 30 }).map((_, index) => <View key={index} style={styles.wallEntryHole} />)}
+        <View style={styles.wallEntryShelf} />
+        <View style={styles.wallEntryGear}><Package color="#FFFFFF" size={18} strokeWidth={1.6} /></View>
+      </View>
     </Press>
     <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
     {sets.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={256} decelerationRate="fast" contentContainerStyle={{ gap: 12, paddingRight: 24 }}>{sets.map((set) => { const setItems = items.filter((item) => set.items.includes(item.name)); const setWeight = setItems.reduce((sum, item) => sum + itemWeight(item), 0); const weightParts = splitWeight(setWeight, weightUnit, true); return <Press key={set.id} onPress={() => onOpenSet(set)} style={{ width: 244, height: 142, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 17, backgroundColor: homeCardBg(theme), justifyContent: 'space-between' }}><Text numberOfLines={2} style={{ fontSize: 15.5, lineHeight: 21, fontWeight: '700', color: theme.text }}>{set.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}><View accessible accessibilityLabel={`${t('gear.stat.totalWeight')} ${weightParts.value} ${weightParts.unit}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Weight color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{weightParts.value}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{weightParts.unit}</Text></View></View><View accessible accessibilityLabel={`${t('gear.stat.itemCount')} ${set.items.length}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Package color={theme.text2} size={18} strokeWidth={1.8} /><View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}><Text style={{ fontFamily: MONO, fontSize: 16, fontWeight: '800', color: theme.text }}>{set.items.length}</Text><Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2 }}>{t('gear.unit.items')}</Text></View></View></View></Press>; })}</ScrollView> : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
@@ -416,6 +441,16 @@ const GearHome = React.memo(GearHomeView, (previous, next) => (
 ));
 function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
 function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : space.xxl, marginBottom: first ? 18 : space.sm }}><Text style={[first ? type.pageTitle : type.sectionTitle, { color: theme.text }]}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={[type.eyebrow, { color: theme.text2 }]}>{action} ›</Text></Press> : null}</View>; }
+
+const styles = StyleSheet.create({
+  wallEntry: { marginTop: space.sm, minHeight: 132, borderRadius: radius.feature, padding: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md, overflow: 'hidden' },
+  wallEntryCopy: { flex: 1, minWidth: 0, gap: space.sm },
+  wallEntryIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  wallEntryPreview: { width: 104, height: 102, padding: 10, borderRadius: 18, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'flex-start', gap: 7, backgroundColor: '#E2E2DE', borderWidth: 1, borderColor: 'rgba(0,0,0,0.055)', transform: [{ rotate: '2deg' }] },
+  wallEntryHole: { width: 3, height: 3, borderRadius: 2, backgroundColor: 'rgba(66,68,70,0.56)' },
+  wallEntryShelf: { position: 'absolute', left: 14, right: 14, bottom: 22, height: 6, borderRadius: 2, backgroundColor: '#D0D1CE' },
+  wallEntryGear: { position: 'absolute', right: 17, bottom: 29, width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#3D4445', shadowColor: '#000000', shadowOpacity: 0.22, shadowRadius: 4, shadowOffset: { width: 2, height: 4 } },
+});
 
 function EmptyText({ theme, text }: { theme: Theme; text: string }) {
   return <Text style={{ paddingVertical: 40, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{text}</Text>;

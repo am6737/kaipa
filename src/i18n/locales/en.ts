@@ -213,6 +213,21 @@ export const en: SameShape<typeof zh> = {
 
   gear: {
     home: { overview: 'Gear overview', more: 'See more', mySets: 'My sets', myGear: 'My gear', viewAll: 'View all', ready: 'View set', libraryWeight: 'Library weight', setCount: 'Set count' },
+    wall: {
+      title: 'Weekend Camping Gear',
+      open: 'Open the modular gear space prototype',
+      entryTitle: 'Gear Space',
+      entryBody: 'Expand pegboards, install hooks and shelves, and arrange your gear.',
+      boardCount: '{count} pegboards',
+      gear: 'Gear',
+      hook: 'Hook',
+      shelf: 'Shelf',
+      divider: 'Side',
+      fit: 'Fit',
+      hookHint: 'Tap any hole to add or remove a hook',
+      hole: 'Column {column}, row {row}',
+      prototypeSaved: 'The prototype scene remains on this page',
+    },
     overview: { title: 'Gear stats', open: 'Open gear statistics', averageWeight: 'Avg. item', distribution: 'Category distribution', setWeightRanking: 'Set weight ranking', categoryRanking: 'Category ranking', topGear: 'Notable gear', selectedCategory: '{name} · {value}', empty: 'Add gear to generate your overview.' },
     setList: { gallery: 'All sets', add: 'Add', manage: 'Set management', newSet: 'New set', display: 'View', grid: 'Grid view', list: 'List view', sort: 'Sort by', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name' },
     itemList: { manage: 'Gear management', newItem: 'Add gear', browse: 'Browse', category: 'Category', sort: 'Sort by', all: 'All', created: 'Created', weight: 'By weight', value: 'By value', name: 'By name', batchManage: 'Batch manage' },

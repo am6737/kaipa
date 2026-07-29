@@ -217,6 +217,21 @@ export const zh = {
 
   gear: {
     home: { overview: '装备概览', more: '查看更多', mySets: '我的装备清单', myGear: '我的装备', viewAll: '查看全部', ready: '查看清单', libraryWeight: '库内总重量', setCount: '清单数量' },
+    wall: {
+      title: '周末露营装备',
+      open: '打开模块化装备空间原型',
+      entryTitle: '装备空间',
+      entryBody: '扩建洞洞板，安装挂钩和隔板，自由整理你的装备。',
+      boardCount: '{count} 块洞洞板',
+      gear: '装备',
+      hook: '挂钩',
+      shelf: '隔板',
+      divider: '侧板',
+      fit: '全景',
+      hookHint: '点击任意孔位添加或移除挂钩',
+      hole: '第 {column} 列，第 {row} 行孔位',
+      prototypeSaved: '原型场景已保留在当前页面',
+    },
     overview: { title: '装备统计', open: '打开装备统计', averageWeight: '平均单件', distribution: '分类分布', setWeightRanking: '清单重量排行', categoryRanking: '分类排行', topGear: '重点装备', selectedCategory: '{name} · {value}', empty: '添加装备后，这里会生成统计概览。' },
     setList: { gallery: '全部清单', add: '添加', manage: '清单管理', newSet: '新建清单', display: '显示方式', grid: '网格视图', list: '列表视图', sort: '排序方式', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序' },
     itemList: { manage: '装备管理', newItem: '添加装备', browse: '浏览方式', category: '装备分类', sort: '排序方式', all: '全部', created: '创建时间', weight: '重量排序', value: '价值排序', name: '名称排序', batchManage: '批量管理' },
