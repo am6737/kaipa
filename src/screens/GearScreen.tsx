@@ -20,7 +20,7 @@ import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { GearOverviewDetail } from '../components/gear/GearOverviewDetail';
-import { GearWallPrototype } from '../components/gear/GearWallPrototype';
+import { GearWallDesigner } from '../components/gear/GearWallDesigner';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import { radius, space, type } from '../design-system';
 
@@ -224,11 +224,10 @@ export function GearScreen({ theme }: { theme: Theme }) {
       {pageStack.map((pg, i) => (
         <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
           {pg.type === 'wall' ? (
-            <GearWallPrototype
+            <GearWallDesigner
               theme={theme}
               items={allItems}
               onBack={popPage}
-              onDone={() => nav.showToast(t('gear.wall.prototypeSaved'), 'top')}
             />
           ) : pg.type === 'overview' ? (
             <GearOverviewDetail
