@@ -131,10 +131,18 @@ export default function MapGlobe({ theme, pois, activePoiId, onPoiPress, onBackg
         />
 
         {focusShape ? (
-          <ShapeSource id="discover-focus-route" shape={focusShape}>
-            <LineLayer slot="top" id="discover-focus-route-halo" style={{ lineColor: '#fff', lineWidth: 7, lineOpacity: 0.92, lineCap: 'round', lineJoin: 'round' } as any} />
-            <LineLayer slot="top" id="discover-focus-route-line" style={{ lineColor: theme.accent, lineWidth: 4, lineEmissiveStrength: 1.3, lineCap: 'round', lineJoin: 'round' } as any} />
-          </ShapeSource>
+          <>
+            <ShapeSource id="discover-focus-route" shape={focusShape}>
+              <LineLayer slot="top" id="discover-focus-route-halo" style={{ lineColor: '#fff', lineWidth: 7, lineOpacity: 0.92, lineCap: 'round', lineJoin: 'round' } as any} />
+              <LineLayer slot="top" id="discover-focus-route-line" style={{ lineColor: theme.accent, lineWidth: 4, lineEmissiveStrength: 1.3, lineCap: 'round', lineJoin: 'round' } as any} />
+            </ShapeSource>
+            <MarkerView coordinate={focusCoords![0]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' }} />
+            </MarkerView>
+            <MarkerView coordinate={focusCoords![focusCoords!.length - 1]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
+              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: theme.danger, borderWidth: 2.5, borderColor: '#FFFFFF' }} />
+            </MarkerView>
+          </>
         ) : null}
 
         {/* Circular photo markers — the default point style. allowOverlap keeps

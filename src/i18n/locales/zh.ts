@@ -935,6 +935,7 @@ export const zh = {
       locationSearchPlaceholder: '搜索城市、地区或地址',
       locationUseCurrent: '使用当前位置',
       locationUseTrackStart: '使用轨迹起点',
+      locationUseTrackEnd: '使用轨迹终点',
       locationConfirm: '确认地点',
       locationResolving: '正在获取地点…',
       locationUnnamed: '未命名地点',

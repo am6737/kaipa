@@ -31,8 +31,19 @@ function num(s: string) {
   return m ? parseFloat(m[0]) : 0;
 }
 
+// Map avatars represent a trailhead. Once a journey has real track data, the
+// track start is more trustworthy than an older manually entered place point.
+function poiMapCoordinate(p: Poi): [number, number] {
+  const start = p.trackCoords?.[0];
+  if (start && Number.isFinite(start[0]) && Number.isFinite(start[1])) return start;
+  return [p.lng ?? 0, p.lat ?? 0];
+}
+
 // One pin per place: journeys sharing a trailhead are grouped under one marker.
-const placeKey = (p: Poi) => `${(p.lng ?? 0).toFixed(4)},${(p.lat ?? 0).toFixed(4)}`;
+const placeKey = (p: Poi) => {
+  const [lng, lat] = poiMapCoordinate(p);
+  return `${lng.toFixed(4)},${lat.toFixed(4)}`;
+};
 
 function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
   const byPlace = new Map<string, Poi[]>();
@@ -69,6 +80,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
+  const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
   const [availableJourneyDays, setAvailableJourneyDays] = useState<string[]>([]);
@@ -86,6 +98,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
   React.useEffect(() => {
     setPlanEditorOpen(false);
+    setJourneySheetIndex(1);
     setSelectedPlanDays(new Set());
     setSelectedJourneyDay(undefined);
     setAvailableJourneyDays([]);
@@ -322,10 +335,16 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         <Globe
           theme={theme}
           size={globeSize}
-          pois={nav.pointInfo ? [] : placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
+          pois={nav.pointInfo ? [] : placeGroups.map(({ rep, group }) => {
+            const [lng, lat] = poiMapCoordinate(rep);
+            return { id: rep.id, lng, lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] };
+          })}
           activePoiId={activeRepId}
           focusCoords={focusCoords}
-          center={nav.pointInfo ? { lon: nav.pointInfo.lng, lat: nav.pointInfo.lat } : undefined}
+          center={nav.pointInfo ? (() => {
+            const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
+            return { lon, lat };
+          })() : undefined}
           onPoiPress={(id) => {
             const group = repIdToGroup.get(id);
             if (!group) return;
@@ -446,6 +465,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             : [collapsed, full]}
         initialIndex={nav.pointInfo?.kind === 'journey' ? 1 : 0}
         dismissOnDrag={nav.pointInfo?.kind !== 'journey'}
+        onIndexChange={nav.pointInfo?.kind === 'journey' ? setJourneySheetIndex : undefined}
         header={nav.pointInfo ? <View /> : header}
         compact={false}
         backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
@@ -543,7 +563,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         )}
       </TrailSheet>
       )}
-      {nav.pointInfo?.kind === 'journey' && !nav.timelineAdd ? (
+      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.timelineAdd ? (
         <View
           pointerEvents="box-none"
           style={{

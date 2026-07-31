@@ -25,19 +25,23 @@ import {
 } from '../../lib/mapboxGeocoding';
 import { JourneyLocationMapHost } from './JourneyLocationMapHost';
 
+const COORDINATE_EPSILON = 0.000001;
+
+function coordinatesClose(a: [number, number], b: [number, number]) {
+  return Math.abs(a[0] - b[0]) < COORDINATE_EPSILON && Math.abs(a[1] - b[1]) < COORDINATE_EPSILON;
+}
+
 function sameCoordinate(a: JourneyLocationValue, b: JourneyLocationValue) {
-  return Math.abs(a.lng - b.lng) < 0.000001 && Math.abs(a.lat - b.lat) < 0.000001;
+  return coordinatesClose([a.lng, a.lat], [b.lng, b.lat]);
 }
 
 function ActionChip({
   theme,
-  icon,
   label,
   loading,
   onPress,
 }: {
   theme: Theme;
-  icon: 'locate' | 'route';
   label: string;
   loading?: boolean;
   onPress: () => void;
@@ -58,7 +62,7 @@ function ActionChip({
         borderColor: theme.hairline,
       }}
     >
-      {loading ? <ActivityIndicator size="small" color={theme.accent} /> : <Icon name={icon} size={17} color={theme.accent} />}
+      {loading ? <ActivityIndicator size="small" color={theme.accent} /> : null}
       <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{label}</Text>
     </Press>
   );
@@ -91,6 +95,8 @@ export function JourneyLocationPicker({
   theme,
   initialLocation,
   trackStart,
+  trackEnd,
+  trackCoords,
   onCancel,
   onConfirm,
   onToast,
@@ -98,6 +104,8 @@ export function JourneyLocationPicker({
   theme: Theme;
   initialLocation: JourneyLocationValue;
   trackStart?: [number, number];
+  trackEnd?: [number, number];
+  trackCoords?: [number, number][];
   onCancel: () => void;
   onConfirm: (location: JourneyLocationValue) => void;
   onToast: (message: string) => void;
@@ -114,8 +122,7 @@ export function JourneyLocationPicker({
   const [searchError, setSearchError] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [locating, setLocating] = useState(false);
-  const reverseController = useRef<AbortController | null>(null);
-  const firstIdle = useRef(true);
+  const coordinateController = useRef<AbortController | null>(null);
 
   const geocodingReady = hasMapboxGeocoding();
   const hasQuery = query.trim().length > 0;
@@ -149,55 +156,48 @@ export function JourneyLocationPicker({
     };
   }, [geocodingReady, hasQuery, language, query]);
 
-  useEffect(() => () => reverseController.current?.abort(), []);
-
-  const resolveCenter = async ([lng, lat]: [number, number]) => {
-    setMapCenter([lng, lat]);
-    if (firstIdle.current) {
-      firstIdle.current = false;
-      return;
-    }
-    reverseController.current?.abort();
-    if (!geocodingReady) {
-      setSelected(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
-      return;
-    }
-    const controller = new AbortController();
-    reverseController.current = controller;
-    setResolving(true);
-    try {
-      const location = await reverseJourneyLocation(lng, lat, language, controller.signal);
-      setSelected(location);
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      setSelected(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
-    } finally {
-      if (!controller.signal.aborted) setResolving(false);
-    }
-  };
+  useEffect(() => () => coordinateController.current?.abort(), []);
 
   const moveTo = (location: JourneyLocationValue) => {
+    coordinateController.current?.abort();
     Keyboard.dismiss();
     setQuery('');
     setResults([]);
     setSelected(location);
     setMapCenter([location.lng, location.lat]);
     setCenterRevision((value) => value + 1);
+    setResolving(false);
   };
 
-  const useCoordinate = async (coordinate: [number, number]) => {
+  const useCoordinate = async (coordinate: [number, number], moveCamera = true) => {
+    coordinateController.current?.abort();
+    const controller = new AbortController();
+    coordinateController.current = controller;
     const [lng, lat] = coordinate;
+
+    Keyboard.dismiss();
+    setQuery('');
+    setResults([]);
+    setMapCenter(coordinate);
+    if (moveCamera) setCenterRevision((value) => value + 1);
+    setResolving(true);
+
     if (!geocodingReady) {
-      moveTo(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
+      setSelected(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
+      setResolving(false);
       return;
     }
-    setResolving(true);
+
     try {
-      moveTo(await reverseJourneyLocation(lng, lat, language));
-    } catch {
-      moveTo(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
+      const location = await reverseJourneyLocation(lng, lat, language, controller.signal);
+      if (!controller.signal.aborted) setSelected(location);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      if (!controller.signal.aborted) {
+        setSelected(locationFromPoi(t('journey.settings.locationUnnamed'), lng, lat));
+      }
     } finally {
-      setResolving(false);
+      if (!controller.signal.aborted) setResolving(false);
     }
   };
 
@@ -241,7 +241,7 @@ export function JourneyLocationPicker({
             <View
               style={{
                 height: 48,
-                borderRadius: radius.control,
+                borderRadius: radius.pill,
                 backgroundColor: theme.surfaceTop,
                 borderWidth: StyleSheet.hairlineWidth,
                 borderColor: theme.fieldBorder,
@@ -307,9 +307,16 @@ export function JourneyLocationPicker({
             ) : null}
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingVertical: space.sm }} keyboardShouldPersistTaps="handled">
-            <ActionChip theme={theme} icon="locate" label={t('journey.settings.locationUseCurrent')} loading={locating} onPress={() => void useCurrentLocation()} />
-            {trackStart ? <ActionChip theme={theme} icon="route" label={t('journey.settings.locationUseTrackStart')} onPress={() => void useCoordinate(trackStart)} /> : null}
+          <ScrollView
+            horizontal
+            style={{ flexGrow: 0 }}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: space.xs, paddingTop: space.sm, paddingBottom: space.xs }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <ActionChip theme={theme} label={t('journey.settings.locationUseCurrent')} loading={locating} onPress={() => void useCurrentLocation()} />
+            {trackStart ? <ActionChip theme={theme} label={t('journey.settings.locationUseTrackStart')} onPress={() => void useCoordinate(trackStart)} /> : null}
+            {trackEnd ? <ActionChip theme={theme} label={t('journey.settings.locationUseTrackEnd')} onPress={() => void useCoordinate(trackEnd)} /> : null}
           </ScrollView>
 
           <Pressable onPress={Keyboard.dismiss} style={{ flex: 1, minHeight: 240 }}>
@@ -327,12 +334,9 @@ export function JourneyLocationPicker({
                 theme={theme}
                 center={mapCenter}
                 centerRevision={centerRevision}
-                onCenterChange={(center) => void resolveCenter(center)}
-                onGestureStart={() => {
-                  firstIdle.current = false;
-                  Keyboard.dismiss();
-                  setResolving(true);
-                }}
+                selectedCoordinate={mapCenter}
+                trackCoords={trackCoords}
+                onSelectCoordinate={(coordinate) => void useCoordinate(coordinate, false)}
                 fallbackTitle={t('journey.settings.locationMapUnavailable')}
                 fallbackBody={t('journey.settings.locationMapUnavailableSub')}
               />
@@ -370,7 +374,7 @@ export function JourneyLocationPicker({
               style={{
                 minWidth: 88,
                 height: 44,
-                borderRadius: radius.control,
+                borderRadius: radius.pill,
                 alignItems: 'center',
                 justifyContent: 'center',
                 paddingHorizontal: space.md,

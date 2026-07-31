@@ -98,10 +98,7 @@ function LocationCard({
         alignItems: 'center',
       }}
     >
-      <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}>
-        <Icon name="pin" color={theme.accent} size={19} />
-      </View>
-      <View style={{ flex: 1, marginLeft: space.sm }}>
+      <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{location.region}</Text>
         <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: space.xs, fontVariant: ['tabular-nums'] }]}>{location.coord}</Text>
       </View>
@@ -472,6 +469,8 @@ export function JourneySettings({
           theme={theme}
           initialLocation={location}
           trackStart={poi.trackCoords?.[0]}
+          trackEnd={poi.trackCoords?.length ? poi.trackCoords[poi.trackCoords.length - 1] : undefined}
+          trackCoords={poi.trackCoords}
           onCancel={() => setLocationPickerOpen(false)}
           onConfirm={(nextLocation) => {
             setLocation(nextLocation);

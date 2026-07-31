@@ -53,8 +53,8 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
           ))}
           <Polyline points={routePoints} fill="none" stroke={theme.featureSurface} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
           <Polyline points={routePoints} fill="none" stroke={theme.accent} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
-          <Circle cx={startX} cy={startY} r={6} fill={theme.featureSurface} stroke={theme.accent} strokeWidth={3} />
-          <Circle cx={endX} cy={endY} r={6} fill={theme.accent} stroke={theme.featureSurface} strokeWidth={3} />
+          <Circle cx={startX} cy={startY} r={6} fill="#34C759" stroke="#FFFFFF" strokeWidth={2.5} />
+          <Circle cx={endX} cy={endY} r={6} fill={theme.danger} stroke="#FFFFFF" strokeWidth={2.5} />
         </Svg>
       </View>
     );

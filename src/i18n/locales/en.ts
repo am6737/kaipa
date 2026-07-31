@@ -931,6 +931,7 @@ export const en: SameShape<typeof zh> = {
       locationSearchPlaceholder: 'Search cities, regions, or addresses',
       locationUseCurrent: 'Use current location',
       locationUseTrackStart: 'Use track start',
+      locationUseTrackEnd: 'Use track end',
       locationConfirm: 'Confirm location',
       locationResolving: 'Finding this place…',
       locationUnnamed: 'Unnamed location',

@@ -52,11 +52,6 @@ export function JourneyLocationMapHost(
     <MapBoundary fallback={fallback}>
       <View style={StyleSheet.absoluteFill}>
         <Map {...props} />
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-          <View style={{ transform: [{ translateY: -17 }] }}>
-            <Icon name="pin" size={38} color={props.theme.accent} strokeWidth={2.2} />
-          </View>
-        </View>
       </View>
     </MapBoundary>
   );
