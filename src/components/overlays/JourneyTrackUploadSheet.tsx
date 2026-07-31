@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
@@ -10,7 +10,7 @@ import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
 import { uploadMedia } from '../../lib/storage';
 import { Press } from '../Press';
-import { radius, space, type } from '../../design-system';
+import { motion, radius, space, type } from '../../design-system';
 
 type SelectedTrackFile = {
   name: string;
@@ -24,11 +24,49 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
   const nav = useNav();
   const { userId } = useData();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [selectedFile, setSelectedFile] = useState<SelectedTrackFile | null>(null);
   const [loading, setLoading] = useState(false);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(windowHeight)).current;
+  const closingRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  const close = () => {
-    if (!loading) onClose();
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: motion.standard,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        bounciness: 0,
+        speed: 18,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, translateY]);
+
+  const close = (ignoreLoading = false) => {
+    if ((!ignoreLoading && loading) || closingRef.current) return;
+    closingRef.current = true;
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: motion.quick,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: windowHeight,
+        duration: motion.standard,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => onCloseRef.current());
   };
 
   const chooseFile = async () => {
@@ -96,7 +134,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
         trackFileUrl,
         trackFileName: filename,
       });
-      onClose();
+      close(true);
       nav.showToast(t('journey.track.uploadSuccess'));
     } catch (error) {
       console.warn('[JourneyTrackUpload] track parse error:', error);
@@ -107,11 +145,14 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
   };
 
   return (
-    <Modal transparent animationType="slide" visible onRequestClose={close} statusBarTranslucent>
+    <Modal transparent animationType="none" visible onRequestClose={() => close()} statusBarTranslucent>
       <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]}>
-        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.34)' }]} onPress={close} />
-        <View
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.34)', opacity: backdropOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => close()} />
+        </Animated.View>
+        <Animated.View
           style={{
+            transform: [{ translateY }],
             paddingTop: space.sm,
             paddingHorizontal: space.lg,
             paddingBottom: Math.max(insets.bottom, space.md) + space.sm,
@@ -191,7 +232,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
               {loading ? t('journey.track.reading') : replacing ? t('journey.track.replaceAction') : t('journey.track.uploadAction')}
             </Text>
           </Press>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
