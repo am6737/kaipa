@@ -30,6 +30,12 @@ module.exports = ({ config }) => ({
       },
     ],
     [
+      'expo-location',
+      {
+        locationWhenInUsePermission: 'Kaipa 需要访问你的位置，以便将当前位置设为旅程地点。',
+      },
+    ],
+    [
       'expo-image-picker',
       {
         photosPermission: 'Kaipa 需要访问你的相册，以便选择装备图片或把照片和视频加入旅程瞬间。',

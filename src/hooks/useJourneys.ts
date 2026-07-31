@@ -96,6 +96,9 @@ export function useJourneys(userId: string | undefined) {
     const row: any = {};
     if (has(resolvedPatch, 'name')) row.name = resolvedPatch.name;
     if (has(resolvedPatch, 'region')) row.region = resolvedPatch.region;
+    if (has(resolvedPatch, 'coord')) row.coord = resolvedPatch.coord;
+    if (has(resolvedPatch, 'lng')) row.lng = resolvedPatch.lng;
+    if (has(resolvedPatch, 'lat')) row.lat = resolvedPatch.lat;
     if (has(resolvedPatch, 'desc')) row.desc = resolvedPatch.desc;
     if (has(resolvedPatch, 'date')) row.date = resolvedPatch.date;
     if (has(resolvedPatch, 'days')) row.days = resolvedPatch.days;

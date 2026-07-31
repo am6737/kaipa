@@ -11,6 +11,8 @@ import { useNav } from '../../nav/NavContext';
 import { uploadCover } from '../../lib/storage';
 import { DetailPage, radius, space, type } from '../../design-system';
 import { MediaViewer } from './JourneyTimeline';
+import { JourneyLocationPicker } from './JourneyLocationPicker';
+import { JourneyLocationValue, locationFromPoi } from '../../lib/mapboxGeocoding';
 
 function SectionLabel({ theme, children }: { theme: Theme; children: React.ReactNode }) {
   return (
@@ -64,6 +66,47 @@ function FieldCard({
         }}
       />
     </View>
+  );
+}
+
+
+function LocationCard({
+  theme,
+  location,
+  onPress,
+  label,
+}: {
+  theme: Theme;
+  location: JourneyLocationValue;
+  onPress: () => void;
+  label: string;
+}) {
+  return (
+    <Press
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={{
+        minHeight: 82,
+        borderRadius: radius.feature,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.hairline,
+        backgroundColor: theme.surfaceTop,
+        paddingHorizontal: space.lg,
+        paddingVertical: space.md,
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
+      <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}>
+        <Icon name="pin" color={theme.accent} size={19} />
+      </View>
+      <View style={{ flex: 1, marginLeft: space.sm }}>
+        <Text numberOfLines={1} style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{location.region}</Text>
+        <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: space.xs, fontVariant: ['tabular-nums'] }]}>{location.coord}</Text>
+      </View>
+      <Icon name="chevronR" color={theme.text3} size={18} />
+    </Press>
   );
 }
 
@@ -183,19 +226,24 @@ export function JourneySettings({
   const originalPhotos = useMemo(() => poi.photoUris ?? [], [poi.photoUris]);
   const [selectedCover, setSelectedCover] = useState<string | null>(originalPhotos[0] ?? null);
   const [name, setName] = useState(poi.name);
-  const [region, setRegion] = useState(poi.region);
+  const originalLocation = useMemo(() => locationFromPoi(poi.region, poi.lng, poi.lat, poi.coord), [poi.coord, poi.lat, poi.lng, poi.region]);
+  const [location, setLocation] = useState(originalLocation);
   const [desc, setDesc] = useState(poi.desc ?? '');
   const [trackPublic, setTrackPublic] = useState(poi.trackPublic ?? false);
   const [routeShowPhotos, setRouteShowPhotos] = useState(poi.routeShowPhotos ?? true);
   const [routeShowTimeline, setRouteShowTimeline] = useState(poi.routeShowTimeline ?? true);
   const [saving, setSaving] = useState(false);
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const hasTrack = (poi.trackCoords?.length ?? 0) > 0;
   const hasChanges = useMemo(
     () =>
       selectedCover !== (originalPhotos[0] ?? null) ||
       name !== poi.name ||
-      region !== poi.region ||
+      location.region !== originalLocation.region ||
+      location.lng !== originalLocation.lng ||
+      location.lat !== originalLocation.lat ||
+      location.coord !== originalLocation.coord ||
       desc !== (poi.desc ?? '') ||
       trackPublic !== (poi.trackPublic ?? false) ||
       routeShowPhotos !== (poi.routeShowPhotos ?? true) ||
@@ -206,11 +254,11 @@ export function JourneySettings({
       originalPhotos,
       poi.desc,
       poi.name,
-      poi.region,
+      originalLocation,
       poi.routeShowPhotos,
       poi.routeShowTimeline,
       poi.trackPublic,
-      region,
+      location,
       routeShowPhotos,
       routeShowTimeline,
       selectedCover,
@@ -246,7 +294,10 @@ export function JourneySettings({
       const remainingPhotos = originalPhotos.filter((uri) => uri !== selectedCover && uri !== resolvedCover);
       nav.patchCurrent({
         name: trimmedName,
-        region: region.trim(),
+        region: location.region.trim(),
+        lng: location.lng,
+        lat: location.lat,
+        coord: location.coord,
         desc: desc.trim(),
         trackPublic,
         routeShowPhotos,
@@ -340,12 +391,12 @@ export function JourneySettings({
         </View>
 
         <View style={{ marginBottom: space.xxl }}>
-          <SectionLabel theme={theme}>{t('journeyEdit.fieldRegion')}</SectionLabel>
-          <FieldCard
+          <SectionLabel theme={theme}>{t('journey.settings.locationSection')}</SectionLabel>
+          <LocationCard
             theme={theme}
-            value={region}
-            onChangeText={setRegion}
-            placeholder={t('record.facts.locationPlaceholder')}
+            location={location}
+            label={t('journey.settings.locationOpen')}
+            onPress={() => setLocationPickerOpen(true)}
           />
         </View>
 
@@ -416,6 +467,20 @@ export function JourneySettings({
         </Press>
       </View>
       </DetailPage>
+      {locationPickerOpen ? (
+        <JourneyLocationPicker
+          theme={theme}
+          initialLocation={location}
+          trackStart={poi.trackCoords?.[0]}
+          onCancel={() => setLocationPickerOpen(false)}
+          onConfirm={(nextLocation) => {
+            setLocation(nextLocation);
+            setLocationPickerOpen(false);
+          }}
+          onToast={onToast}
+        />
+      ) : null}
+
       {coverViewerOpen && selectedCover ? (
         <MediaViewer
           theme={theme}

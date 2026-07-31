@@ -33,6 +33,7 @@ export function DetailPage({
   flatChrome,
   onContentTouchStart,
   onEnterComplete,
+  scrollable = true,
   children,
 }: {
   theme: Theme;
@@ -45,6 +46,7 @@ export function DetailPage({
   flatChrome?: boolean;
   onContentTouchStart?: () => void;
   onEnterComplete?: () => void;
+  scrollable?: boolean;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -83,22 +85,28 @@ export function DetailPage({
     >
       <View style={{ flex: 1 }}>
         {hero}
-        <KeyboardAwareScrollView
-          style={{ flex: 1 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          onTouchStart={onContentTouchStart}
-          onScrollBeginDrag={Keyboard.dismiss}
-          bottomOffset={insets.bottom + 24}
-          extraKeyboardSpace={insets.bottom}
-          contentContainerStyle={{
-            paddingTop: hero ? 6 : navHeight + 4,
-            paddingBottom: insets.bottom + 120,
-          }}
-        >
-          {children}
-        </KeyboardAwareScrollView>
+        {scrollable ? (
+          <KeyboardAwareScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            onTouchStart={onContentTouchStart}
+            onScrollBeginDrag={Keyboard.dismiss}
+            bottomOffset={insets.bottom + 24}
+            extraKeyboardSpace={insets.bottom}
+            contentContainerStyle={{
+              paddingTop: hero ? 6 : navHeight + 4,
+              paddingBottom: insets.bottom + 120,
+            }}
+          >
+            {children}
+          </KeyboardAwareScrollView>
+        ) : (
+          <View style={{ flex: 1, paddingTop: hero ? 0 : navHeight }}>
+            {children}
+          </View>
+        )}
       </View>
 
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navHeight }} pointerEvents="box-none">
