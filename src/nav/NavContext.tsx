@@ -45,11 +45,6 @@ export interface NavValue {
   openPoint: (p: Poi, source?: Poi | null) => void;
   closePoint: () => void;
 
-  // full-screen journey card
-  detail: Poi | null;
-  openDetail: (p: Poi) => void;
-  closeDetail: () => void;
-
   // live edits
   journeyPatch: Record<string, JourneyPatch>;
   removedIds: string[];
@@ -164,7 +159,6 @@ export function NavProvider({
   const [pointInfo, setPointInfo] = useState<Poi | null>(null);
   const [pointSource, setPointSource] = useState<Poi | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [detail, setDetail] = useState<Poi | null>(null);
   const [journeyPatch, setJourneyPatch] = useState<Record<string, JourneyPatch>>({});
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [actionSheet, setActionSheet] = useState<ActionSheetConfig | null>(null);
@@ -218,7 +212,6 @@ export function NavProvider({
       return;
     }
     setMainTabRaw(t);
-    setDetail(null);
     setSheetOpen(false);
     setPointInfo(null);
     setPointSource(null);
@@ -226,7 +219,6 @@ export function NavProvider({
   };
   const setSubTab = (t: SubTab) => {
     setSubTabRaw(t);
-    setDetail(null);
     setSheetOpen(false);
     setPointInfo(null);
     setPointSource(null);
@@ -234,7 +226,7 @@ export function NavProvider({
   };
 
   const patchCurrent = (patch: JourneyPatch) => {
-    const cur = pointInfo || detail;
+    const cur = pointInfo;
     const id = cur?.id;
     if (id) {
       setJourneyPatch((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
@@ -242,19 +234,19 @@ export function NavProvider({
       else db?.updateJourney?.(id, patch);
     }
     setPointInfo((p) => (p ? { ...p, ...patch } : p));
-    setDetail((d) => (d ? { ...d, ...patch } : d));
     setJourneySettings((s) => (s ? { ...s, ...patch } : s));
   };
   const removeCurrent = () => {
-    const cur = pointInfo || detail;
+    const cur = pointInfo;
     const id = cur?.id;
     if (id) {
       setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
       db?.deleteJourney?.(id);
     }
     setActionSheet(null);
+    setEditJourney(null);
+    setJourneySettings(null);
     setPointInfo(null);
-    setDetail(null);
     setSheetOpen(false);
   };
   const removeBatch = (ids: string[]) => {
@@ -289,16 +281,13 @@ export function NavProvider({
         setPointInfo(null);
         setPointSource(null);
       },
-      detail,
-      openDetail: (p) => setDetail(merged(p)),
-      closeDetail: () => setDetail(null),
       journeyPatch,
       removedIds,
       patchCurrent,
       removeJourney: removeCurrent,
       removeJourneys: removeBatch,
       toggleFav: () => {
-        const cur = pointInfo || detail;
+        const cur = pointInfo;
         const newFav = !(cur && cur.fav);
         patchCurrent({ fav: newFav });
         if (cur?.id) db?.toggleFav?.(cur.id, cur.fav ?? false);
@@ -370,7 +359,6 @@ export function NavProvider({
       pointInfo,
       pointSource,
       sheetOpen,
-      detail,
       journeyPatch,
       removedIds,
       actionSheet,

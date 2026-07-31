@@ -1,5 +1,5 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
-// shown inside the discover sheet and (full-bleed) in the JourneyCardFull overlay.
+// shown inside the discover sheet's in-place journey detail panel.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, View, Text, TextInput, StyleSheet, ScrollView, Modal } from 'react-native';
 import { Image } from 'expo-image';
@@ -972,7 +972,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     if (select) selectSegment(`day:${label}`);
   };
   const openGearLists = () => {
-    nav.closeDetail();
     nav.setMainTab('gear');
   };
   const closePlanEditor = () => {
@@ -991,38 +990,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     setSelectedPlanDays(next);
   };
 
-  const removeLabel = t('common.delete');
-  const confirmTitle = t('common.delete');
-  const confirmRemove = () =>
-    nav.openActionSheet({
-      title: confirmTitle,
-      message: t('journey.remove.confirmMessage'),
-      items: [
-        {
-          label: removeLabel,
-          destructive: true,
-          onPress: () => nav.removeJourney(),
-        },
-      ],
-    });
-
-  // text-only items — the action sheet matches the rest of the app's icon-less,
-  // iOS-standard style
-  const moreItems = isJourney
-    ? [
-        {
-          label: t('journey.more.settings'),
-          onPress: () => nav.openJourneySettings(poi),
-        },
-        { label: removeLabel, destructive: true, onPress: confirmRemove },
-      ]
-    : [
-        {
-          label: t('journey.more.report'),
-          destructive: true,
-          onPress: () => nav.showToast(t('journey.toast.reported')),
-        },
-      ];
+  const moreItems = [
+    {
+      label: t('journey.more.report'),
+      destructive: true,
+      onPress: () => nav.showToast(t('journey.toast.reported')),
+    },
+  ];
 
   const onShare = () => nav.openSharePanel(poi);
 
@@ -1030,7 +1004,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       <FloatingIconButton name={poi.fav ? 'heartFill' : 'heart'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />
       <FloatingIconButton name="share" onPress={onShare} />
-      <FloatingIconButton name="more" onPress={() => nav.openActionSheet({ items: moreItems as any })} />
+      <FloatingIconButton
+        name={isJourney ? 'gearSettings' : 'more'}
+        onPress={() => {
+          if (isJourney) nav.openJourneySettings(poi);
+          else nav.openActionSheet({ items: moreItems });
+        }}
+      />
     </View>
   );
 

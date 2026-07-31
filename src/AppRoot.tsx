@@ -22,7 +22,6 @@ import { NewJourneySheet } from './components/overlays/NewJourneySheet';
 import { ElevationFull } from './components/overlays/ElevationFull';
 import { PhotoWall } from './components/overlays/PhotoWall';
 import { JourneyEntryEditor } from './components/overlays/JourneyTimeline';
-import { JourneyDetailSplit } from './components/overlays/JourneyDetailSplit';
 import { EditJourneySheet } from './components/overlays/EditJourneySheet';
 import { JourneySettings } from './components/overlays/JourneySettings';
 import { HostShareSheet } from './components/overlays/HostShareSheet';
@@ -136,7 +135,6 @@ function AppShell() {
           }}
         />
       )}
-      {nav.detail && <JourneyDetailSplit theme={theme} poi={nav.detail} onClose={() => nav.closeDetail()} />}
       {nav.elevFull && <ElevationFull theme={theme} info={nav.elevFull.info} isMine={nav.elevFull.isMine} onClose={() => nav.closeElevation()} />}
       {nav.photoWall && <PhotoWall theme={theme} info={nav.photoWall.info} onClose={() => nav.closePhotoWall()} />}
       {nav.timelineAdd && <JourneyEntryEditor theme={theme} info={nav.timelineAdd.poi} initialDay={nav.timelineAdd.day} availableGroups={nav.timelineAdd.groups} editRow={nav.timelineAdd.editRow} onClose={() => nav.closeTimelineAdd()} />}
@@ -157,8 +155,7 @@ function AppShell() {
           theme={theme}
           poi={nav.journeySettings}
           onClose={() => nav.closeJourneySettings()}
-          onToast={(m) => nav.showToast(m)}
-          onEdit={() => nav.openEditJourney(nav.journeySettings!)}
+          onToast={(message) => nav.showToast(message)}
         />
       )}
       {nav.liveShare && (

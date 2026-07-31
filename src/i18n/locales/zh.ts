@@ -927,6 +927,10 @@ export const zh = {
       previewGuest: '预览访客看到的页面',
       previewGuestSub: '以同行的视角打开链接',
       previewToast: '预览访客视角',
+      customCover: '自定义封面',
+      exploreSection: '探索展示',
+      deleteJourney: '删除旅程',
+      deleteConfirmTitle: '确定删除这段旅程？',
     },
     liveShare: {
       entry: '现场分享（离线）',

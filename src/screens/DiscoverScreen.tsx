@@ -268,6 +268,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const globeSize = Math.min(width * 0.86, 360);
   const tabSpace = insets.bottom + 76;
   const collapsed = Math.round(height * 0.4);
+  const journeyMinimum = Math.round(height * 0.15);
   const full = Math.round(height * 0.95);
   const focusPanel = Math.round(height * 0.56);
 
@@ -393,15 +394,36 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       </View>
       ) : nav.pointInfo.kind === 'journey' ? (
         <>
-          <View style={{ position: 'absolute', top: insets.top + 8, left: 16 }}>
-            <GlassIconBtn theme={chromeTheme} onPress={() => sheetRef.current?.dismiss()}>
-              <Icon name="arrowL" color={chromeTheme.text} size={20} />
-            </GlassIconBtn>
+          <View style={{ position: 'absolute', top: insets.top + 5, left: 13 }}>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={t('common.back')}
+              hitSlop={6}
+              onPress={() => sheetRef.current?.dismiss()}
+              style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="chevronL" color={theme.text} size={27} />
+            </Press>
           </View>
-          <View style={{ position: 'absolute', top: insets.top + 8, right: 16 }}>
-            <GlassIconBtn theme={chromeTheme} onPress={() => nav.pointInfo && nav.openSharePanel(nav.pointInfo)}>
-              <Icon name="share" color={chromeTheme.text} size={19} />
-            </GlassIconBtn>
+          <View style={{ position: 'absolute', top: insets.top + 5, right: 13, flexDirection: 'row' }}>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={t('common.share')}
+              hitSlop={6}
+              onPress={() => nav.pointInfo && nav.openSharePanel(nav.pointInfo)}
+              style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="share" color={theme.text} size={25} />
+            </Press>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.more.settings')}
+              hitSlop={6}
+              onPress={() => nav.pointInfo && nav.openJourneySettings(nav.pointInfo)}
+              style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="gearSettings" color={theme.text} size={25} />
+            </Press>
           </View>
         </>
       ) : null}
@@ -417,8 +439,13 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         ref={sheetRef}
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        snapHeights={nav.pointInfo ? [focusPanel, full] : [collapsed, full]}
-        initialIndex={0}
+        snapHeights={nav.pointInfo?.kind === 'journey'
+          ? [journeyMinimum, focusPanel, full]
+          : nav.pointInfo
+            ? [focusPanel, full]
+            : [collapsed, full]}
+        initialIndex={nav.pointInfo?.kind === 'journey' ? 1 : 0}
+        dismissOnDrag={nav.pointInfo?.kind !== 'journey'}
         header={nav.pointInfo ? <View /> : header}
         compact={false}
         backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}

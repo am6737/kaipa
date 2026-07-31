@@ -923,6 +923,10 @@ export const en: SameShape<typeof zh> = {
       previewGuest: 'Preview the page guests see',
       previewGuestSub: 'Open the link as a companion',
       previewToast: 'Preview guest view',
+      customCover: 'Custom cover',
+      exploreSection: 'Explore display',
+      deleteJourney: 'Delete trip',
+      deleteConfirmTitle: 'Delete this trip?',
     },
     liveShare: {
       entry: 'Live share (offline)',

@@ -27,8 +27,10 @@ interface Props {
   containerStyle?: StyleProp<ViewStyle>;
   /** lift the whole sheet up by this many px (e.g. to clear a floating tab bar) */
   bottomOffset?: number;
-  /** dragging/flicking below the lowest detent dismisses the sheet via this */
+  /** Called after the sheet is dismissed programmatically or by an enabled drag gesture. */
   onDismiss?: () => void;
+  /** Allow dragging/flicking below the lowest detent to dismiss the sheet. */
+  dismissOnDrag?: boolean;
   /** compact (POI-card) mode: hide the header, let the body bleed to the top,
       and reduce the drag affordance to a floating grab handle over the hero */
   compact?: boolean;
@@ -59,6 +61,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     containerStyle,
     bottomOffset = 0,
     onDismiss,
+    dismissOnDrag = true,
     compact = false,
     backgroundColor,
     borderless = false,
@@ -157,15 +160,17 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
       },
       onPanResponderMove: (_e, g) => {
         let next = startY.current + g.dy;
-        // allow dragging down past the lowest detent toward the dismissed state
-        next = Math.max(-30, Math.min(onDismiss ? hiddenY : maxH, next));
+        // Only sheets that opt into gesture dismissal may move below their
+        // lowest detent; otherwise keep the minimum-height card visible.
+        const lowestY = yFor(snapHeights[0]);
+        next = Math.max(-30, Math.min(onDismiss && dismissOnDrag ? hiddenY : lowestY, next));
         translateY.setValue(next);
       },
       onPanResponderRelease: (_e, g) => {
         const projected = currentY.current + g.vy * 90;
         const lowestY = yFor(snapHeights[0]);
         // dismiss when dragged/flicked below the lowest detent
-        if (onDismiss && (projected > lowestY + 80 || (g.vy > 0.6 && nearestIndex(currentY.current) === 0))) {
+        if (onDismiss && dismissOnDrag && (projected > lowestY + 80 || (g.vy > 0.6 && nearestIndex(currentY.current) === 0))) {
           dismiss();
           return;
         }
@@ -197,7 +202,8 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
       dragOffset.current = translationY; // so motion starts from the finger, no jump
     }
     let next = dragBase.current + (translationY - dragOffset.current);
-    next = Math.max(-30, Math.min(onDismiss ? hiddenY : maxH, next));
+    const lowestY = yFor(snapHeights[0]);
+    next = Math.max(-30, Math.min(onDismiss && dismissOnDrag ? hiddenY : lowestY, next));
     translateY.setValue(next);
   };
   const onDragEnd = (vy: number) => {
@@ -205,7 +211,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     dragging.current = false;
     const projected = currentY.current + vy * 90;
     const lowestY = yFor(snapHeights[0]);
-    if (onDismiss && (projected > lowestY + 80 || (vy > 0.6 && nearestIndex(currentY.current) === 0))) {
+    if (onDismiss && dismissOnDrag && (projected > lowestY + 80 || (vy > 0.6 && nearestIndex(currentY.current) === 0))) {
       dismiss();
       return;
     }

@@ -1,5 +1,5 @@
 // TrackMap.tsx — shared route-line map used by the elevation overlay (rounded
-// card) and the split journey detail (full-bleed hero). Renders the track as a
+// card) and journey detail surfaces (full-bleed hero). Renders the track as a
 // Mapbox line with start/end markers and an optional synced scrub point.
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';

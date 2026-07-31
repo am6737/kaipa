@@ -100,7 +100,7 @@ src/
     globe/                  Mapbox globe + SVG fallback (orthographic projection), auto-selected
     Glass, PhotoTile, Avatar, Icon, Chip, ListRow, Sheet (draggable detents),
     Donut, ElevationStrip, State, Toast, BottomTabs
-    overlays/               ActionSheet, AddRouteSheet, ElevationFull, PhotoWall, JourneyCardFull
+    overlays/               ActionSheet, AddRouteSheet, ElevationFull, PhotoWall
   screens/                  DiscoverScreen, JourneyCard, GearScreen, MeScreen, AuthFlow
 ```
 

@@ -4,7 +4,7 @@
 // assets' local URIs (from expo-image-picker), not placeholders. Module-level
 // store + subscribe/bump, keyed by journey id, so the inline card and the full-
 // bleed overlay stay in sync and the picks survive closing / reopening the card
-// (resets on reload). Mirrors the journeyStore pattern.
+// (resets on reload). Uses a small module-local store + subscription pattern.
 import { useEffect, useState } from 'react';
 
 export interface InspoMedia {

@@ -372,18 +372,20 @@ function ViewerVideo({ uri, width, height }: { uri: string; width: number; heigh
 
 // Fullscreen media viewer — swipe to page, video plays inline. Rendered through a
 // Modal so it covers the whole screen even when launched from a nested card.
-function MediaViewer({
+export function MediaViewer({
   theme,
   media,
   index,
   onClose,
   onDelete,
+  showTypeBadge = true,
 }: {
   theme: Theme;
   media: TLMedia[];
   index: number;
   onClose: () => void;
   onDelete?: (index: number) => void;
+  showTypeBadge?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
@@ -446,9 +448,11 @@ function MediaViewer({
           <Press onPress={onClose} hitSlop={12} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: '#fff', fontSize: 34, lineHeight: 34, fontWeight: '200' }}>×</Text>
           </Press>
-          <View style={{ minWidth: 44, height: 28, borderRadius: 14, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' }}>
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{media.length > 1 ? `${i + 1}/${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}</Text>
-          </View>
+          {showTypeBadge ? (
+            <View style={{ minWidth: 44, height: 28, borderRadius: 14, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' }}>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{media.length > 1 ? `${i + 1}/${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}</Text>
+            </View>
+          ) : null}
         </View>
         <ScrollView
           ref={scrollRef}

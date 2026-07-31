@@ -1,6 +1,6 @@
 // Segmented.tsx — shared segmented control.
 // `fill` variant = theme-aware light pill (settings/sheets); `glass` variant =
-// white-on-dark for full-bleed photo overlays (e.g. JourneyCardFull hero).
+// white-on-dark for full-bleed photo overlays.
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, View, Text, StyleSheet } from 'react-native';
 import { Press } from './Press';
@@ -45,8 +45,8 @@ export function Segmented<T extends string>({
     }
     Animated.timing(underlineX, {
       toValue: nextX,
-      duration: motion.quick,
-      easing: Easing.out(Easing.cubic),
+      duration: motion.emphasized,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
       useNativeDriver: true,
     }).start();
   };

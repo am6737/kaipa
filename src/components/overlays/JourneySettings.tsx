@@ -1,73 +1,169 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, Switch, StyleSheet, Alert, Linking } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { PhotoTile } from '../PhotoTile';
-import { FullOverlay } from './FullOverlay';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
-import type { JourneyPatch } from '../../nav/NavContext';
 import { uploadCover } from '../../lib/storage';
-import { supabase } from '../../lib/supabase';
+import { DetailPage, radius, space, type } from '../../design-system';
+import { MediaViewer } from './JourneyTimeline';
 
-function Section({ theme, title, footer, children }: { theme: Theme; title?: string; footer?: string; children: React.ReactNode }) {
+function SectionLabel({ theme, children }: { theme: Theme; children: React.ReactNode }) {
   return (
-    <View style={{ marginBottom: 24 }}>
-      {title ? (
-        <Text style={{ fontSize: 13, fontWeight: '500', color: theme.text3, marginBottom: 8, marginLeft: 16 }}>{title}</Text>
-      ) : null}
-      <View
+    <Text style={{ fontSize: 16, lineHeight: 22, fontWeight: '700', color: theme.text3, marginBottom: space.sm }}>
+      {children}
+    </Text>
+  );
+}
+
+function FieldCard({
+  theme,
+  value,
+  onChangeText,
+  placeholder,
+  multiline,
+}: {
+  theme: Theme;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  multiline?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        minHeight: multiline ? 116 : 78,
+        borderRadius: radius.feature,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.hairline,
+        backgroundColor: theme.surfaceTop,
+        justifyContent: multiline ? 'flex-start' : 'center',
+        paddingHorizontal: space.lg,
+        paddingVertical: multiline ? space.md : 0,
+      }}
+    >
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.text3}
+        multiline={multiline}
+        textAlignVertical={multiline ? 'top' : 'center'}
+        maxLength={multiline ? 280 : 48}
         style={{
-          borderRadius: 12,
-          overflow: 'hidden',
-          backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
+          minHeight: multiline ? 82 : undefined,
+          fontSize: multiline ? 16 : 18,
+          lineHeight: multiline ? 23 : undefined,
+          fontWeight: multiline ? '400' : '700',
+          color: theme.text,
+          paddingVertical: 0,
         }}
-      >
-        {children}
-      </View>
-      {footer ? <Text style={{ fontSize: 13, color: theme.text3, lineHeight: 18, marginTop: 8, marginLeft: 16, marginRight: 16 }}>{footer}</Text> : null}
+      />
     </View>
   );
 }
 
-function Row({
+function ToggleCard({
   theme,
   label,
+  sub,
   value,
-  trailing,
-  onPress,
-  last,
-  indent,
-  danger,
+  onChange,
 }: {
   theme: Theme;
   label: string;
-  value?: string;
-  trailing?: React.ReactNode;
-  onPress?: () => void;
-  last?: boolean;
-  indent?: boolean;
-  danger?: boolean;
+  sub?: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
 }) {
-  const body = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: indent ? 32 : 16, paddingRight: 16, paddingVertical: 12, minHeight: 48 }}>
-      <Text style={{ fontSize: 16, color: danger ? theme.danger : theme.text, flex: value ? undefined : 1 }}>{label}</Text>
-      {value ? (
-        <Text style={{ flex: 1, fontSize: 16, color: theme.text2, textAlign: 'right', marginLeft: 12 }} numberOfLines={1}>{value}</Text>
-      ) : null}
-      {trailing ? <View style={{ marginLeft: 12, flexShrink: 0 }}>{trailing}</View> : null}
+  return (
+    <View
+      style={{
+        minHeight: 78,
+        borderRadius: radius.feature,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.hairline,
+        backgroundColor: theme.surfaceTop,
+        paddingHorizontal: space.lg,
+        paddingVertical: space.md,
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
+      <Press onPress={() => onChange(!value)} scaleTo={1} opacityTo={1} style={{ flex: 1, paddingRight: space.md }}>
+        <Text style={{ fontSize: 17, fontWeight: '600', color: theme.text }}>{label}</Text>
+        {sub ? <Text style={[type.caption, { color: theme.text3, lineHeight: 18, marginTop: space.xxs }]}>{sub}</Text> : null}
+      </Press>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: theme.progressTrack, true: theme.accent }}
+        thumbColor="#FFFFFF"
+        ios_backgroundColor={theme.progressTrack}
+      />
     </View>
   );
+}
+
+function CoverTile({
+  theme,
+  uri,
+  onPreview,
+  onReplace,
+}: {
+  theme: Theme;
+  uri: string | null;
+  onPreview: () => void;
+  onReplace: () => void;
+}) {
   return (
-    <>
-      {onPress ? <Press onPress={onPress}>{body}</Press> : body}
-      {!last ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: indent ? 32 : 16 }} /> : null}
-    </>
+    <View style={{ width: 112, height: 112 }}>
+      <Press onPress={uri ? onPreview : onReplace} style={StyleSheet.absoluteFill}>
+        <View
+          style={{
+            flex: 1,
+            borderRadius: 22,
+            overflow: 'hidden',
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: theme.hairline,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: theme.fieldSurface,
+          }}
+        >
+          {uri ? (
+            <>
+              <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+            </>
+          ) : (
+            <Icon name="plus" color={theme.text3} size={32} strokeWidth={1.5} />
+          )}
+        </View>
+      </Press>
+      {uri ? (
+        <Press
+          accessibilityRole="button"
+          onPress={onReplace}
+          style={{
+            position: 'absolute',
+            right: space.xs,
+            bottom: space.xs,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.52)',
+          }}
+        >
+          <Icon name="camera" color="#FFFFFF" size={16} />
+        </Press>
+      ) : null}
+    </View>
   );
 }
 
@@ -76,215 +172,263 @@ export function JourneySettings({
   poi,
   onClose,
   onToast,
-  onEdit,
 }: {
   theme: Theme;
   poi: Poi;
   onClose: () => void;
-  onToast: (msg: string) => void;
-  onEdit: () => void;
+  onToast: (message: string) => void;
 }) {
   const { t } = useI18n();
   const nav = useNav();
-  const [coverUri, setCoverUri] = useState<string | null>(poi.photoUris?.[0] ?? null);
-  const [linkOn, setLinkOn] = useState(true);
-  const [allowUpload, setAllowUpload] = useState(true);
-  const [moderate, setModerate] = useState(false);
-  const [inviteVisible, setInviteVisible] = useState(true);
+  const originalPhotos = useMemo(() => poi.photoUris ?? [], [poi.photoUris]);
+  const [selectedCover, setSelectedCover] = useState<string | null>(originalPhotos[0] ?? null);
+  const [name, setName] = useState(poi.name);
+  const [region, setRegion] = useState(poi.region);
+  const [desc, setDesc] = useState(poi.desc ?? '');
   const [trackPublic, setTrackPublic] = useState(poi.trackPublic ?? false);
   const [routeShowPhotos, setRouteShowPhotos] = useState(poi.routeShowPhotos ?? true);
   const [routeShowTimeline, setRouteShowTimeline] = useState(poi.routeShowTimeline ?? true);
-
-  const hasTrack = !!poi.trackCoords && poi.trackCoords.length > 0;
-  const showTrackOptions = hasTrack;
-
-  const shareInfo = useMemo(() => {
-    const slug = (poi.name || 'kaipa').replace(/\s+/g, '').slice(0, 8);
-    let h = 0;
-    for (let i = 0; i < poi.name.length; i++) h = (h << 5) - h + poi.name.charCodeAt(i);
-    h = h | 0;
-    const code = String(1000 + (Math.abs(h) % 9000));
-    const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
-    return { slug, code, fullUrl: `${base}/j/${slug}-${code}` };
-  }, [poi.name]);
-
-  const previewGuest = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from('journey_shares').upsert(
-          { journey_id: poi.id, user_id: user.id, slug: shareInfo.slug, code: shareInfo.code, active: true },
-          { onConflict: 'slug,code' },
-        );
-      }
-    } catch {}
-    Linking.openURL(shareInfo.fullUrl);
-  };
-
-  const handleTrackPublic = (v: boolean) => {
-    setTrackPublic(v);
-    const patch: JourneyPatch = { trackPublic: v, routeShowPhotos, routeShowTimeline };
-    if (poi.trackCoords) patch.trackCoords = poi.trackCoords;
-    if (poi.trackElevation) patch.trackElevation = poi.trackElevation;
-    if (poi.trackDurationMs) patch.trackDurationMs = poi.trackDurationMs;
-    if (poi.photoUris) patch.photoUris = poi.photoUris;
-    nav.patchCurrent(patch);
-  };
-  const handleRouteShowPhotos = (v: boolean) => { setRouteShowPhotos(v); nav.patchCurrent({ routeShowPhotos: v }); };
-  const handleRouteShowTimeline = (v: boolean) => { setRouteShowTimeline(v); nav.patchCurrent({ routeShowTimeline: v }); };
+  const [saving, setSaving] = useState(false);
+  const [coverViewerOpen, setCoverViewerOpen] = useState(false);
+  const hasTrack = (poi.trackCoords?.length ?? 0) > 0;
+  const hasChanges = useMemo(
+    () =>
+      selectedCover !== (originalPhotos[0] ?? null) ||
+      name !== poi.name ||
+      region !== poi.region ||
+      desc !== (poi.desc ?? '') ||
+      trackPublic !== (poi.trackPublic ?? false) ||
+      routeShowPhotos !== (poi.routeShowPhotos ?? true) ||
+      routeShowTimeline !== (poi.routeShowTimeline ?? true),
+    [
+      desc,
+      name,
+      originalPhotos,
+      poi.desc,
+      poi.name,
+      poi.region,
+      poi.routeShowPhotos,
+      poi.routeShowTimeline,
+      poi.trackPublic,
+      region,
+      routeShowPhotos,
+      routeShowTimeline,
+      selectedCover,
+      trackPublic,
+    ],
+  );
 
   const pickCover = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Alert.alert(t('journey.photoWall.needLibraryPerm')); return; }
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (!res.canceled && res.assets?.[0]) {
-      const localUri = res.assets[0].uri;
-      setCoverUri(localUri);
-      try {
-        const publicUrl = await uploadCover(localUri, poi.id);
-        const rest = poi.photoUris?.slice(1) ?? [];
-        nav.patchCurrent({ photoUris: [publicUrl, ...rest] });
-      } catch (error) {
-        console.warn('[JourneySettings] cover upload failed:', error);
-        setCoverUri(poi.photoUris?.[0] ?? null);
-        onToast(t('journey.timeline.uploadFailedMessage'));
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t('journey.photoWall.needLibraryPerm'));
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.82 });
+    const uri = !result.canceled ? result.assets?.[0]?.uri : undefined;
+    if (!uri) return;
+    setSelectedCover(uri);
+  };
+
+  const save = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      onToast(t('record.hero.nameRequired'));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let resolvedCover = selectedCover;
+      if (resolvedCover && !originalPhotos.includes(resolvedCover)) {
+        resolvedCover = await uploadCover(resolvedCover, poi.id);
       }
+      const remainingPhotos = originalPhotos.filter((uri) => uri !== selectedCover && uri !== resolvedCover);
+      nav.patchCurrent({
+        name: trimmedName,
+        region: region.trim(),
+        desc: desc.trim(),
+        trackPublic,
+        routeShowPhotos,
+        routeShowTimeline,
+        photoUris: resolvedCover ? [resolvedCover, ...remainingPhotos] : originalPhotos.slice(1),
+      });
+      onToast(t('appShell.toastJourneyUpdated'));
+      onClose();
+    } catch (error) {
+      console.warn('[JourneySettings] save failed:', error);
+      onToast(t('journey.timeline.uploadFailedMessage'));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const removeCover = () => {
-    setCoverUri(null);
-    const rest = poi.photoUris?.slice(1) ?? [];
-    nav.patchCurrent({ photoUris: rest.length ? rest : [] });
+  const confirmDelete = () => {
+    nav.openActionSheet({
+      title: t('journey.settings.deleteConfirmTitle'),
+      message: t('journey.remove.confirmMessage'),
+      items: [
+        {
+          label: t('journey.settings.deleteJourney'),
+          destructive: true,
+          onPress: () => nav.removeJourney(),
+        },
+      ],
+    });
   };
 
-  const handleCoverPress = () => {
-    if (coverUri) {
-      Alert.alert(t('journey.settings.coverSection'), undefined, [
-        { text: t('journey.settings.changeCover'), onPress: pickCover },
-        { text: t('journey.settings.removeCover'), style: 'destructive', onPress: removeCover },
-        { text: t('common.cancel'), style: 'cancel' },
-      ]);
-    } else {
-      pickCover();
-    }
-  };
-
+  const saveButton = (
+    <Press
+      accessibilityRole="button"
+      accessibilityLabel={t('common.save')}
+      accessibilityState={{ disabled: !hasChanges || saving }}
+      onPress={() => void save()}
+      disabled={!hasChanges || saving}
+      style={{
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.fieldBorder,
+        backgroundColor: theme.controlSurface,
+      }}
+    >
+      {saving ? (
+        <ActivityIndicator size="small" color={theme.text} />
+      ) : (
+        <Icon
+          name="check"
+          color={hasChanges ? theme.text : theme.text3}
+          size={20}
+          strokeWidth={2.2}
+        />
+      )}
+    </Press>
+  );
 
   return (
-    <FullOverlay theme={theme} title={t('journey.settings.title')} onClose={onClose} zIndex={150}>
-      <View style={{ paddingBottom: 16 }}>
-
-        {/* Banner cover */}
-        <Press onPress={handleCoverPress} style={{ marginHorizontal: 16, marginTop: 8, marginBottom: 24 }}>
-          <View style={{ height: 200, borderRadius: 14, overflow: 'hidden' }}>
-            {coverUri ? (
-              <Image source={{ uri: coverUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            ) : (
-              <PhotoTile tone={poi.tone} seed={poi.name + 'cover'} style={StyleSheet.absoluteFill} />
-            )}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.5)']}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={{ position: 'absolute', left: 16, right: 16, bottom: 12 }}>
-              <Text style={{ fontSize: 20, fontWeight: '700', color: '#fff', letterSpacing: -0.3 }} numberOfLines={1}>
-                {poi.name}
-              </Text>
-              {poi.region ? (
-                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 3 }} numberOfLines={1}>
-                  {poi.region}
-                </Text>
-              ) : null}
-            </View>
-            <View style={{
-              position: 'absolute', right: 10, bottom: 10,
-              width: 30, height: 30, borderRadius: 15,
-              backgroundColor: 'rgba(0,0,0,0.35)',
-              alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Icon name="camera" color="#fff" size={15} />
-            </View>
-          </View>
-        </Press>
-
-        {/* Journey info */}
-        <Section theme={theme} title={t('journey.settings.infoSection')}>
-          <Row theme={theme} label={t('journeyEdit.fieldName')} value={poi.name} onPress={onEdit} trailing={<Icon name="chevronR" color={theme.text3} size={14} />} />
-          <Row
+    <View style={[StyleSheet.absoluteFill, { zIndex: 190, backgroundColor: theme.groupedBg }]}>
+      <DetailPage
+        theme={theme}
+        title={t('journey.settings.title')}
+        onBack={onClose}
+        right={saveButton}
+        backgroundColor={theme.groupedBg}
+        flatChrome
+      >
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg }}>
+        <View style={{ marginBottom: space.xxl }}>
+          <SectionLabel theme={theme}>{t('journey.settings.customCover')}</SectionLabel>
+          <CoverTile
             theme={theme}
-            label={t('journeyEdit.fieldRegion')}
-            value={poi.region || '—'}
-            onPress={onEdit}
-            trailing={<Icon name="chevronR" color={theme.text3} size={14} />}
-            last={!(poi.date || poi.days)}
+            uri={selectedCover}
+            onPreview={() => setCoverViewerOpen(true)}
+            onReplace={() => void pickCover()}
           />
-          {poi.date || poi.days ? (
-            <Row
-              theme={theme}
-              label={t('journeyEdit.fieldDate')}
-              value={[poi.date, poi.days].filter(Boolean).join(' · ') || '—'}
-              onPress={onEdit}
-              trailing={<Icon name="chevronR" color={theme.text3} size={14} />}
-              last
-            />
-          ) : null}
-        </Section>
+        </View>
 
-        {/* Permissions */}
-        <Section theme={theme} title={t('journey.settings.permSection')} footer={t('journey.settings.shareFooter')}>
-          <Row theme={theme} label={t('journey.settings.enableLink')} trailing={<Switch value={linkOn} onValueChange={setLinkOn} />} last={!linkOn} />
-          {linkOn ? (
-            <>
-              <Row theme={theme} label={t('journey.settings.allowUpload')} trailing={<Switch value={allowUpload} onValueChange={setAllowUpload} />} />
-              <Row theme={theme} label={t('journey.settings.moderate')} trailing={<Switch value={moderate} onValueChange={setModerate} />} last />
-            </>
-          ) : null}
-        </Section>
+        <View style={{ marginBottom: space.xxl }}>
+          <SectionLabel theme={theme}>{t('journeyEdit.fieldName')}</SectionLabel>
+          <FieldCard
+            theme={theme}
+            value={name}
+            onChangeText={setName}
+            placeholder={t('record.hero.namePlaceholder')}
+          />
+        </View>
 
-        {/* Visibility */}
-        <Section theme={theme} title={t('journey.settings.visibilitySection')} footer={t('journey.settings.visibilityFooter')}>
-          <Row theme={theme} label={t('journey.settings.inviteOnly')} trailing={<Switch value={inviteVisible} onValueChange={setInviteVisible} />} last={!showTrackOptions} />
-          {showTrackOptions ? (
-            <>
-              <Row
+        <View style={{ marginBottom: space.xxl }}>
+          <SectionLabel theme={theme}>{t('journeyEdit.fieldRegion')}</SectionLabel>
+          <FieldCard
+            theme={theme}
+            value={region}
+            onChangeText={setRegion}
+            placeholder={t('record.facts.locationPlaceholder')}
+          />
+        </View>
+
+        <View style={{ marginBottom: space.xxl }}>
+          <SectionLabel theme={theme}>{t('journeyEdit.sectionDesc')}</SectionLabel>
+          <FieldCard
+            theme={theme}
+            value={desc}
+            onChangeText={setDesc}
+            placeholder={t('journeyEdit.descFooter')}
+            multiline
+          />
+        </View>
+
+        {hasTrack ? (
+          <View style={{ marginBottom: space.xxl }}>
+            <SectionLabel theme={theme}>{t('journey.settings.exploreSection')}</SectionLabel>
+            <View style={{ gap: space.sm }}>
+              <ToggleCard
                 theme={theme}
                 label={t('journey.settings.trackPublic')}
-                trailing={<Switch value={trackPublic} onValueChange={handleTrackPublic} />}
-                last={!trackPublic}
+                sub={t('journey.settings.trackPublicSub')}
+                value={trackPublic}
+                onChange={setTrackPublic}
               />
               {trackPublic ? (
                 <>
-                  <Row
+                  <ToggleCard
                     theme={theme}
                     label={t('journey.settings.routeShowPhotos')}
-                    trailing={<Switch value={routeShowPhotos} onValueChange={handleRouteShowPhotos} />}
-                    indent
+                    sub={t('journey.settings.routeShowPhotosSub')}
+                    value={routeShowPhotos}
+                    onChange={setRouteShowPhotos}
                   />
-                  <Row
+                  <ToggleCard
                     theme={theme}
                     label={t('journey.settings.routeShowTimeline')}
-                    trailing={<Switch value={routeShowTimeline} onValueChange={handleRouteShowTimeline} />}
-                    indent
-                    last
+                    sub={t('journey.settings.routeShowTimelineSub')}
+                    value={routeShowTimeline}
+                    onChange={setRouteShowTimeline}
                   />
                 </>
               ) : null}
-            </>
-          ) : null}
-        </Section>
+            </View>
+          </View>
+        ) : null}
 
-        {/* Actions */}
-        <Section theme={theme}>
-          <Row
-            theme={theme}
-            label={t('journey.settings.previewGuest')}
-            onPress={previewGuest}
-            trailing={<Icon name="chevronR" color={theme.text3} size={14} />}
-            last
-          />
-        </Section>
+        <Press
+          onPress={confirmDelete}
+          style={{
+            alignSelf: 'stretch',
+            height: 72,
+            marginTop: space.xs,
+            marginBottom: space.xxxl,
+            paddingHorizontal: space.lg,
+            borderRadius: radius.feature,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: theme.hairline,
+            backgroundColor: theme.surfaceTop,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: space.sm,
+          }}
+        >
+          <Icon name="trash" color={theme.danger} size={20} />
+          <Text style={{ fontSize: 16, fontWeight: '700', color: theme.danger }}>{t('journey.settings.deleteJourney')}</Text>
+        </Press>
       </View>
-    </FullOverlay>
+      </DetailPage>
+      {coverViewerOpen && selectedCover ? (
+        <MediaViewer
+          theme={theme}
+          media={[{ tone: poi.tone, uri: selectedCover }]}
+          index={0}
+          showTypeBadge={false}
+          onClose={() => setCoverViewerOpen(false)}
+          onDelete={() => {
+            setSelectedCover(null);
+            setCoverViewerOpen(false);
+          }}
+        />
+      ) : null}
+    </View>
   );
 }
