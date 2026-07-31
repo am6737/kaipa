@@ -144,8 +144,10 @@ export function JourneySettings({
         const publicUrl = await uploadCover(localUri, poi.id);
         const rest = poi.photoUris?.slice(1) ?? [];
         nav.patchCurrent({ photoUris: [publicUrl, ...rest] });
-      } catch {
+      } catch (error) {
+        console.warn('[JourneySettings] cover upload failed:', error);
         setCoverUri(poi.photoUris?.[0] ?? null);
+        onToast(t('journey.timeline.uploadFailedMessage'));
       }
     }
   };

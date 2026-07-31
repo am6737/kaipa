@@ -96,9 +96,10 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     setUploadingIds(prev => new Set([...prev, ...entries.map(e => e.tempId)]));
     // Uploads start on the next microtask so React has already flushed the
     // placeholder batch to the UI before any upload work begins.
-    queueMicrotask(() => {
-      let idx = 0;
-      const worker = async () => {
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    let idx = 0;
+    let failed = false;
+    const worker = async () => {
       while (idx < entries.length) {
         const { m, tempId } = entries[idx++];
         await acquire();
@@ -108,13 +109,16 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
           if (m.thumbnail) thumbnail = await uploadMedia(m.thumbnail, userId, journeyId);
           let pairedVideoUri: string | null = null;
           if (m.pairedVideoUri) pairedVideoUri = await uploadMedia(m.pairedVideoUri, userId, journeyId);
-          const { data } = await supabase.from('inspo_media').insert({
+          const { data, error } = await supabase.from('inspo_media').insert({
             journey_id: journeyId, user_id: userId, uri, kind: m.kind,
             thumbnail, duration: m.duration ?? null, paired_video_uri: pairedVideoUri,
             caption: m.caption?.trim() || null,
           }).select().single();
+          if (error) throw error;
           if (data) setMedia(prev => prev.map(item => item.id === tempId ? toInspoMedia(data) : item));
-        } catch {
+        } catch (error) {
+          failed = true;
+          console.warn('[useInspo] media upload failed:', error);
           setMedia(prev => prev.filter(item => item.id !== tempId));
         } finally {
           setUploadingIds(prev => { const n = new Set(prev); n.delete(tempId); return n; });
@@ -122,8 +126,8 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
         }
       }
     };
-    Promise.all(Array.from({ length: 4 }, () => worker()));
-    });
+    await Promise.all(Array.from({ length: Math.min(4, entries.length) }, () => worker()));
+    if (failed) throw new Error('One or more media uploads failed');
   };
 
   const remove = async (id: string) => {

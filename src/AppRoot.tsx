@@ -10,6 +10,7 @@ import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
 import { supabase } from './lib/supabase';
+import { uploadMedia } from './lib/storage';
 import { AuthFlow } from './screens/AuthFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { GearScreen } from './screens/GearScreen';
@@ -35,6 +36,7 @@ function AppShell() {
   const theme = useTheme();
   const { t } = useI18n();
   const nav = useNav();
+  const { userId } = useData();
   const [trackLoading, setTrackLoading] = useState(false);
 
   const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
@@ -94,6 +96,7 @@ function AppShell() {
                   nav.showToast(t('record.track.errParse'));
                   return;
                 }
+                const trackFileUrl = await uploadMedia(result.result.uri, userId, nav.pointInfo?.id || 'route-import');
                 const { trackCoords, trackElevation, trackDurationMs, dist, asc } = buildTrackData(stats);
                 const trackWaypoints = parsed.waypoints ? snapWaypoints(parsed.waypoints, stats) : undefined;
                 nav.patchCurrent({
@@ -103,6 +106,8 @@ function AppShell() {
                   dist,
                   ...(asc ? { asc } : {}),
                   ...(trackWaypoints ? { trackWaypoints } : {}),
+                  trackFileUrl,
+                  trackFileName: filename,
                 });
                 nav.closeAddRoute();
                 nav.showToast(t('appShell.toastUploadTrack'));
@@ -134,7 +139,7 @@ function AppShell() {
       {nav.detail && <JourneyDetailSplit theme={theme} poi={nav.detail} onClose={() => nav.closeDetail()} />}
       {nav.elevFull && <ElevationFull theme={theme} info={nav.elevFull.info} isMine={nav.elevFull.isMine} onClose={() => nav.closeElevation()} />}
       {nav.photoWall && <PhotoWall theme={theme} info={nav.photoWall.info} onClose={() => nav.closePhotoWall()} />}
-      {nav.timelineAdd && <JourneyEntryEditor theme={theme} info={nav.timelineAdd.poi} initialDay={nav.timelineAdd.day} editRow={nav.timelineAdd.editRow} onClose={() => nav.closeTimelineAdd()} />}
+      {nav.timelineAdd && <JourneyEntryEditor theme={theme} info={nav.timelineAdd.poi} initialDay={nav.timelineAdd.day} availableGroups={nav.timelineAdd.groups} editRow={nav.timelineAdd.editRow} onClose={() => nav.closeTimelineAdd()} />}
       {nav.editJourney && (
         <EditJourneySheet
           theme={theme}

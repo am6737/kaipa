@@ -48,6 +48,8 @@ create table if not exists routes (
   track_elevation jsonb,
   track_duration_ms int8,
   track_waypoints jsonb,
+  track_file_url  text,
+  track_file_name text,
   photo_uris      jsonb,
   created_by      uuid references profiles(id),
   created_at      timestamptz default now()
@@ -63,6 +65,12 @@ create policy "routes_update" on routes for update to authenticated using (true)
 do $$ begin
   if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_waypoints') then
     alter table routes add column track_waypoints jsonb;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_file_url') then
+    alter table routes add column track_file_url text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_file_name') then
+    alter table routes add column track_file_name text;
   end if;
 end $$;
 
@@ -92,6 +100,8 @@ create table if not exists journeys (
   track_elevation jsonb,
   track_duration_ms int8,
   track_waypoints jsonb,
+  track_file_url  text,
+  track_file_name text,
   track_public    boolean default false,
   route_show_photos   boolean default true,
   route_show_timeline boolean default true,
@@ -113,6 +123,12 @@ do $$ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='route_show_timeline') then
     alter table journeys add column route_show_timeline boolean default true;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_file_url') then
+    alter table journeys add column track_file_url text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_file_name') then
+    alter table journeys add column track_file_name text;
   end if;
   if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_waypoints') then
     alter table journeys add column track_waypoints jsonb;
@@ -261,6 +277,22 @@ create table if not exists timeline_rows (
 );
 alter table timeline_rows enable row level security;
 create policy "tl_all" on timeline_rows for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ─── timeline_groups ─────────────────────────────────────────────────────────
+create table if not exists timeline_groups (
+  id         text primary key default 'tg_' || gen_random_uuid()::text,
+  journey_id text not null references journeys(id) on delete cascade,
+  user_id    uuid not null references profiles(id) on delete cascade,
+  name       text not null,
+  deleted    boolean not null default false,
+  sort_order int4 not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (journey_id, name)
+);
+alter table timeline_groups enable row level security;
+create policy "timeline_groups_all" on timeline_groups for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ─── inspo_media ─────────────────────────────────────────────────────────────

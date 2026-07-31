@@ -83,9 +83,9 @@ export interface NavValue {
   closePhotoWall: () => void;
 
   // direct 行程 entry editor (journey detail → 行程 → 添加/编辑) — pops the editor straight up
-  timelineAdd: { poi: Poi; day?: string; editRow?: TLRow } | null;
-  openTimelineAdd: (p: Poi, day?: string) => void;
-  openTimelineEdit: (p: Poi, row: TLRow) => void;
+  timelineAdd: { poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null;
+  openTimelineAdd: (p: Poi, day?: string, groups?: string[]) => void;
+  openTimelineEdit: (p: Poi, row: TLRow, groups?: string[]) => void;
   closeTimelineAdd: () => void;
 
   // journey "更多" surfaces (edit info / settings)
@@ -173,7 +173,7 @@ export function NavProvider({
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
-  const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow } | null>(null);
+  const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null>(null);
   const [editJourney, setEditJourney] = useState<Poi | null>(null);
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
   const [liveShare, setLiveShare] = useState<Poi | null>(null);
@@ -327,8 +327,8 @@ export function NavProvider({
       openPhotoWall: (c) => setPhotoWall(c),
       closePhotoWall: () => setPhotoWall(null),
       timelineAdd,
-      openTimelineAdd: (p, day) => setTimelineAdd({ poi: merged(p), day }),
-      openTimelineEdit: (p, row) => setTimelineAdd({ poi: merged(p), editRow: row }),
+      openTimelineAdd: (p, day, groups) => setTimelineAdd({ poi: merged(p), day, groups }),
+      openTimelineEdit: (p, row, groups) => setTimelineAdd({ poi: merged(p), editRow: row, groups }),
       closeTimelineAdd: () => setTimelineAdd(null),
       editJourney,
       openEditJourney: (p) => setEditJourney(merged(p)),

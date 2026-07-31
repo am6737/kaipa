@@ -31,8 +31,8 @@ export interface DataValue {
   addCat: (cat: Omit<GearCat, 'id' | 'builtin'>) => Promise<void>;
   updateCat: (id: string, patch: Partial<GearCat>) => Promise<void>;
   deleteCat: (id: string) => Promise<void>;
-  addItem: (item: Omit<GearItem, 'id'>) => Promise<void>;
-  updateItem: (id: number, patch: Partial<GearItem>) => Promise<void>;
+  addItem: (item: Omit<GearItem, 'id'>) => Promise<GearItem | undefined>;
+  updateItem: (id: number, patch: Partial<GearItem>) => Promise<GearItem | undefined>;
   deleteItem: (id: number) => Promise<void>;
   addSet: (name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
   updateSet: (id: string, name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
@@ -47,7 +47,7 @@ export interface DataValue {
 const DataContext = createContext<DataValue | null>(null);
 
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
-  const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes();
+  const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes(userId);
   const {
     journeys, loading: journeysLoading,
     createJourney, updateJourney, deleteJourney, toggleFav,

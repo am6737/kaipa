@@ -227,29 +227,32 @@ export function JourneyDetailSplit({ theme, poi, onClose }: { theme: Theme; poi:
 
       {/* ── BOTTOM: route / journey details — white panel in light mode ─────── */}
       <View style={{ flex: 1, backgroundColor: panelBg }}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          alwaysBounceVertical={false}
-          overScrollMode="never"
-          contentContainerStyle={{ paddingHorizontal: space.md, paddingBottom: insets.bottom + (planEditorOpen ? 96 : space.xxl) }}
-        >
-          {isJourney ? (
+        {isJourney ? (
+          <View style={{ flex: 1, paddingHorizontal: space.md }}>
             <SelectedPoiCard
               theme={theme}
               poi={poi}
               embedded
+              scrollContent
+              scrollContentBottomPadding={insets.bottom + (planEditorOpen ? 96 : space.xxl)}
               onTrackSelectionChange={(index, coord) => setTrackScrub({ index, coord })}
               planEditorOpen={planEditorOpen}
               onPlanEditorOpenChange={(open) => { setPlanEditorOpen(open); if (!open) setSelectedPlanDays(new Set()); }}
               selectedPlanDays={selectedPlanDays}
               onSelectedPlanDaysChange={setSelectedPlanDays}
             />
-          ) : (
+          </View>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+            contentContainerStyle={{ paddingHorizontal: space.md, paddingBottom: insets.bottom + space.xxl }}
+          >
             <RoutePreviewPanel theme={theme} poi={poi} />
-          )}
-        </ScrollView>
-
+          </ScrollView>
+        )}
       </View>
 
       {planEditorOpen ? (

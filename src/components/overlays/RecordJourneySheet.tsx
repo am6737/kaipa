@@ -29,6 +29,7 @@ interface Track {
   stats: TrackStats;
   fileName: string;
   fileFormat: string;
+  sourceUri?: string;
 }
 interface RJPhoto {
   id: string;
@@ -480,7 +481,7 @@ function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string;
 // ──────────────────────────────────────────────────────────────
 // Track block — real file picker + sample fallback
 // ──────────────────────────────────────────────────────────────
-function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast, onOpenMap }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void; onOpenMap: () => void }) {
+function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast, onOpenMap }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null, sourceUri?: string) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void; onOpenMap: () => void }) {
   const { t } = useI18n();
 
   const pickFile = async () => {
@@ -514,7 +515,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
       }
       if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
       console.log('[Track] read file:', fname, 'size:', text.length, 'first 120:', text.slice(0, 120));
-      onIngest(text, parseName, null, null);
+      onIngest(text, parseName, null, null, file.uri);
     } catch (e) {
       console.warn('[Track] pickFile error:', e);
       setBusy(false);
@@ -1164,7 +1165,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
 
   const nameInit = useRef(false);
 
-  const onIngest = (text: string, fname: string, presetRegion: string | null, presetTone: Tone | null) => {
+  const onIngest = (text: string, fname: string, presetRegion: string | null, presetTone: Tone | null, sourceUri?: string) => {
     setError(null);
     setBusy(true);
     setTimeout(() => {
@@ -1185,7 +1186,7 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         return;
       }
       const tn = presetTone || PHOTO_TONES[Math.floor((st.distM + st.count) % PHOTO_TONES.length)];
-      setTrack({ stats: st, fileName: fname, fileFormat: parsed.format || 'GPX' });
+      setTrack({ stats: st, fileName: fname, fileFormat: parsed.format || 'GPX', sourceUri });
       setTone(tn);
       const base = (parsed.name && parsed.name.trim()) || fname.replace(/\.[^.]+$/, '');
       if (!nameInit.current && !name) {
@@ -1251,21 +1252,27 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
   const { userId } = useData();
 
   const finish = async () => {
-    setStep(1);
     const jTone = photos[0] ? photos[0].tone : tone;
     const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, trackPublic: visibility === 'public', t });
-    if (poi.photoUris?.length && userId) {
-      const uploaded = await Promise.all(
-        poi.photoUris.map((uri) =>
-          uploadMedia(uri, userId, poi.id).catch((e) => {
-            console.warn('[RecordJourney] photo upload failed:', e);
-            return null;
-          }),
-        ),
-      );
-      poi.photoUris = uploaded.filter((u): u is string => u !== null);
+    try {
+      if (userId) {
+        const [uploadedPhotos, trackFileUrl] = await Promise.all([
+          poi.photoUris?.length ? Promise.all(poi.photoUris.map((uri) => uploadMedia(uri, userId, poi.id))) : Promise.resolve(undefined),
+          track?.sourceUri ? uploadMedia(track.sourceUri, userId, poi.id) : Promise.resolve(undefined),
+        ]);
+        if (uploadedPhotos) poi.photoUris = uploadedPhotos;
+        if (trackFileUrl) {
+          poi.trackFileUrl = trackFileUrl;
+          poi.trackFileName = track?.fileName;
+        }
+      }
+      setStep(1);
+      setTimeout(() => onCreate(poi), 1500);
+    } catch (uploadError) {
+      console.warn('[RecordJourney] photo upload failed:', uploadError);
+      setError(t('journey.timeline.uploadFailedMessage'));
+      onToast(t('journey.timeline.uploadFailedTitle'));
     }
-    setTimeout(() => onCreate(poi), 1500);
   };
   const next = () => {
     if (!nameValid) return;

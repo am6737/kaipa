@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toGearCat, toGearItem, toGearSet } from '../lib/mappers';
+import { ensureCloudMedia, removeMedia } from '../lib/storage';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 
 export function useGear(userId: string | undefined) {
@@ -87,7 +88,8 @@ export function useGear(userId: string | undefined) {
   // ── Item CRUD ─────────────────────────────────────────────────────────────
   const addItem = async (item: Omit<GearItem, 'id'>) => {
     if (!userId) return;
-    const { data } = await supabase.from('gear_items')
+    const photos = await ensureCloudMedia(item.photos, userId, `gear-new-${Date.now()}`);
+    const { data, error } = await supabase.from('gear_items')
       .insert({
         user_id: userId,
         name: item.name,
@@ -95,29 +97,48 @@ export function useGear(userId: string | undefined) {
         weight: item.w,
         price: item.p,
         qty: item.qty ?? 1,
-        photo_uris: item.photos ?? null,
+        photo_uris: photos ?? null,
         attrs: item.attrs ?? null,
         note: item.note ?? null,
         status: item.status ?? 'packed',
       })
       .select().single();
-    if (data) setItems(prev => [...prev, toGearItem(data)]);
+    if (error) throw error;
+    if (data) {
+      const saved = toGearItem(data);
+      setItems(prev => [...prev, saved]);
+      return saved;
+    }
   };
 
   const updateItem = async (id: number, patch: Partial<GearItem>) => {
+    if (!userId) return;
+    const previous = items.find((item) => item.id === id);
+    const cloudPhotos = patch.photos !== undefined
+      ? await ensureCloudMedia(patch.photos, userId, `gear-${id}`)
+      : undefined;
+    const resolvedPatch = cloudPhotos !== undefined ? { ...patch, photos: cloudPhotos } : patch;
     const row: any = {};
-    if (patch.name !== undefined) row.name = patch.name;
-    if (patch.cat !== undefined) row.cat_id = patch.cat === 'uncat' ? null : patch.cat;
-    if (patch.w !== undefined) row.weight = patch.w;
-    if (patch.p !== undefined) row.price = patch.p;
-    if (patch.qty !== undefined) row.qty = patch.qty;
-    if (patch.photos !== undefined) row.photo_uris = patch.photos;
-    if (patch.attrs !== undefined) row.attrs = patch.attrs;
-    if (patch.note !== undefined) row.note = patch.note;
-    if (patch.status !== undefined) row.status = patch.status;
+    if (resolvedPatch.name !== undefined) row.name = resolvedPatch.name;
+    if (resolvedPatch.cat !== undefined) row.cat_id = resolvedPatch.cat === 'uncat' ? null : resolvedPatch.cat;
+    if (resolvedPatch.w !== undefined) row.weight = resolvedPatch.w;
+    if (resolvedPatch.p !== undefined) row.price = resolvedPatch.p;
+    if (resolvedPatch.qty !== undefined) row.qty = resolvedPatch.qty;
+    if (resolvedPatch.photos !== undefined) row.photo_uris = resolvedPatch.photos;
+    if (resolvedPatch.attrs !== undefined) row.attrs = resolvedPatch.attrs;
+    if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
+    if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;
     if (Object.keys(row).length) {
-      await supabase.from('gear_items').update(row).eq('id', id);
-      setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
+      const { error } = await supabase.from('gear_items').update(row).eq('id', id);
+      if (error) throw error;
+      const saved = previous ? { ...previous, ...resolvedPatch } : undefined;
+      setItems(prev => prev.map(i => i.id === id ? { ...i, ...resolvedPatch } : i));
+      if (resolvedPatch.photos !== undefined && previous?.photos) {
+        const kept = new Set(resolvedPatch.photos ?? []);
+        const removed = previous.photos.filter((uri) => !kept.has(uri));
+        void removeMedia(removed);
+      }
+      return saved;
     }
   };
 

@@ -48,6 +48,8 @@ export interface Poi {
   trackElevation?: { km: number; ele: number }[];
   trackDurationMs?: number;
   trackWaypoints?: { name: string; km: number }[];
+  trackFileUrl?: string;
+  trackFileName?: string;
   trackPublic?: boolean; // whether this journey's track is shown on the explore page
   routeShowPhotos?: boolean; // show user photos on the published route card
   routeShowTimeline?: boolean; // show itinerary on the published route card

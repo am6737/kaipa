@@ -36,6 +36,20 @@ export async function uploadMedia(
   return data.publicUrl;
 }
 
+
+export function isCloudUri(uri: string): boolean {
+  return /^https?:\/\//i.test(uri);
+}
+
+export async function ensureCloudMedia(
+  uris: string[] | undefined,
+  userId: string,
+  scopeId: string,
+): Promise<string[] | undefined> {
+  if (!uris) return undefined;
+  return Promise.all(uris.map((uri) => isCloudUri(uri) ? uri : uploadMedia(uri, userId, scopeId)));
+}
+
 export async function uploadCover(
   localUri: string,
   journeyId: string,

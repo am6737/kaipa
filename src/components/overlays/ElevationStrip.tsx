@@ -16,13 +16,14 @@ import { Icon } from '../Icon';
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 
 export function ElevationStrip({
-  theme, poi, onScrub, onClose, onExpand,
+  theme, poi, onScrub, onClose, onExpand, bare = false,
 }: {
   theme: Theme;
   poi: Poi;
   onScrub: (index: number | null, coord?: [number, number]) => void;
   onClose?: () => void;
   onExpand?: () => void;
+  bare?: boolean;
 }) {
   const series = useMemo(() => buildElevation(poi), [poi.id, poi.trackElevation]);
   const coords = poi.trackCoords || [];
@@ -97,12 +98,12 @@ export function ElevationStrip({
   return (
     <View
       style={{
-        borderRadius: 16,
-        paddingHorizontal: 12,
-        paddingTop: onExpand || onClose ? 10 : 12,
-        paddingBottom: 10,
-        backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.025)',
-        borderWidth: StyleSheet.hairlineWidth,
+        borderRadius: bare ? 0 : 16,
+        paddingHorizontal: bare ? 0 : 12,
+        paddingTop: bare ? 0 : onExpand || onClose ? 10 : 12,
+        paddingBottom: bare ? 0 : 10,
+        backgroundColor: bare ? 'transparent' : theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.025)',
+        borderWidth: bare ? 0 : StyleSheet.hairlineWidth,
         borderColor: theme.hairline,
       }}
     >

@@ -6,13 +6,14 @@ import type { TLRow } from '../data/timeline';
 interface TLState {
   rows: TLRow[];
   knownGroups: string[];
+  removedGroups: string[];
 }
 
 const cache = new Map<string, TLState>();
 const listeners = new Map<string, Set<() => void>>();
 
 function getState(key: string): TLState {
-  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [] });
+  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [] });
   return cache.get(key)!;
 }
 
@@ -38,17 +39,24 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
 
   const fetchRows = useCallback(async () => {
     if (!journeyId || !userId) return;
-    const { data } = await supabase
-      .from('timeline_rows')
-      .select('*')
-      .eq('journey_id', journeyId)
-      .order('sort_order');
-    if (data) {
-      const mapped = data.map(toTLRow);
+    const [rowsResult, groupsResult] = await Promise.all([
+      supabase.from('timeline_rows').select('*').eq('journey_id', journeyId).order('sort_order'),
+      supabase.from('timeline_groups').select('name, deleted').eq('journey_id', journeyId).order('sort_order'),
+    ]);
+    if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
+    if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
+    if (rowsResult.data) {
+      const mapped = rowsResult.data.map(toTLRow);
       setState(key, (prev) => {
+        const groupRows = groupsResult.data;
+        const activeGroups = groupRows
+          ? groupRows.filter((group) => !group.deleted).map((group) => group.name).filter(Boolean)
+          : prev.knownGroups;
+        const removedGroups = groupRows
+          ? groupRows.filter((group) => group.deleted).map((group) => group.name).filter(Boolean)
+          : prev.removedGroups;
         const fromRows = mapped.map((r) => r.day).filter(Boolean);
-        const merged = [...new Set([...prev.knownGroups, ...fromRows])];
-        return { rows: mapped, knownGroups: merged };
+        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups };
       });
     }
     setLoading(false);
@@ -57,6 +65,17 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
   const state = getState(key);
+
+  const persistGroup = async (name: string, deleted: boolean) => {
+    if (!journeyId || !userId || !name.trim()) return;
+    const { error } = await supabase
+      .from('timeline_groups')
+      .upsert(
+        { journey_id: journeyId, user_id: userId, name: name.trim(), deleted, updated_at: new Date().toISOString() },
+        { onConflict: 'journey_id,name' },
+      );
+    if (error) throw error;
+  };
 
   const isDone = (id: string) => state.rows.find(r => r.id === id)?.checked ?? false;
 
@@ -84,9 +103,12 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       sort_order: state.rows.length,
     };
     await supabase.from('timeline_rows').insert(row);
+    await persistGroup(item.day, false);
     setState(key, (s) => ({
+      ...s,
       rows: [...s.rows, toTLRow(row)],
       knownGroups: item.day && !s.knownGroups.includes(item.day) ? [...s.knownGroups, item.day] : s.knownGroups,
+      removedGroups: item.day ? s.removedGroups.filter((group) => group !== item.day) : s.removedGroups,
     }));
   };
 
@@ -98,10 +120,12 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     if (patch.timeStart !== undefined) dbPatch.time_mins = patch.timeStart ?? null;
     if (patch.timeEnd !== undefined) dbPatch.time_end_mins = patch.timeEnd ?? null;
     await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
+    if (patch.day) await persistGroup(patch.day, false);
     setState(key, (s) => ({
       ...s,
       rows: s.rows.map(r => r.id === id ? { ...r, ...patch } : r),
       knownGroups: patch.day && !s.knownGroups.includes(patch.day) ? [...s.knownGroups, patch.day] : s.knownGroups,
+      removedGroups: patch.day ? s.removedGroups.filter((group) => group !== patch.day) : s.removedGroups,
     }));
   };
 
@@ -115,16 +139,27 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     if (ids.length) {
       await supabase.from('timeline_rows').delete().in('id', ids);
     }
+    await persistGroup(day, true);
     setState(key, (s) => ({
       rows: s.rows.filter(r => r.day !== day),
       knownGroups: s.knownGroups.filter(g => g !== day),
+      removedGroups: s.removedGroups.includes(day) ? s.removedGroups : [...s.removedGroups, day],
     }));
   };
 
-  const addGroup = (day: string) => {
+  const addGroup = async (day: string) => {
     const next = day.trim();
     if (!next) return;
-    setState(key, (s) => s.knownGroups.includes(next) ? s : { ...s, knownGroups: [...s.knownGroups, next] });
+    try {
+      await persistGroup(next, false);
+      setState(key, (s) => ({
+        ...s,
+        knownGroups: s.knownGroups.includes(next) ? s.knownGroups : [...s.knownGroups, next],
+        removedGroups: s.removedGroups.filter((group) => group !== next),
+      }));
+    } catch (error) {
+      console.warn('[useTimeline] group save failed:', error);
+    }
   };
 
   const renameGroup = async (from: string, to: string) => {
@@ -136,14 +171,16 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       .eq('journey_id', journeyId)
       .eq('user_id', userId)
       .eq('day', from);
+    await Promise.all([persistGroup(from, true), persistGroup(next, false)]);
     setState(key, (s) => {
       const known = s.knownGroups.map((g) => (g === from ? next : g)).filter((g, i, arr) => g && arr.indexOf(g) === i);
       return {
         rows: s.rows.map(r => r.day === from ? { ...r, day: next } : r),
         knownGroups: known.includes(next) ? known : [...known, next],
+        removedGroups: [...new Set([...s.removedGroups.filter((group) => group !== next), from])],
       };
     });
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
 }

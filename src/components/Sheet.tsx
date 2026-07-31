@@ -14,6 +14,8 @@ import { GestureDetector, Gesture, ScrollView as GHScrollView } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
 
+const AnimatedGHScrollView = Animated.createAnimatedComponent(GHScrollView);
+
 interface Props {
   theme: Theme;
   /** visible sheet heights (ascending), e.g. [collapsed, mid, full] */
@@ -34,6 +36,8 @@ interface Props {
   backgroundColor?: string;
   /** remove the translucent-looking edge on fully opaque detail sheets */
   borderless?: boolean;
+  /** Optional animated value mirroring the sheet body's vertical scroll offset. */
+  bodyScrollY?: Animated.Value;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -41,6 +45,7 @@ interface Props {
 export interface TrailSheetHandle {
   dismiss: () => void;
   snapTo: (index: number) => void;
+  scrollTo: (y: number, animated?: boolean) => void;
 }
 
 export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailSheet(
@@ -57,6 +62,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     compact = false,
     backgroundColor,
     borderless = false,
+    bodyScrollY,
   },
   ref
 ) {
@@ -74,6 +80,9 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const currentY = useRef(hiddenY);
   // live state read by the (created-once) pan responder callbacks
   const scrollY = useRef(0);
+  const scrollRef = useRef<any>(null);
+  const internalBodyScrollY = useRef(new Animated.Value(0)).current;
+  const animatedBodyScrollY = bodyScrollY ?? internalBodyScrollY;
   const compactRef = useRef(compact);
   const expandedRef = useRef(false);
 
@@ -98,7 +107,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     });
   };
   // let the parent dismiss the sheet imperatively (tap-outside) with the same anim
-  useImperativeHandle(ref, () => ({ dismiss, snapTo }));
+  useImperativeHandle(ref, () => ({ dismiss, snapTo, scrollTo: (y, animated = true) => scrollRef.current?.scrollTo({ y, animated }) }));
 
   const snapTo = (i: number, vy = 0) => {
     const clamped = Math.max(0, Math.min(snapHeights.length - 1, i));
@@ -174,7 +183,6 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   // at scroll position zero belongs to the sheet. Gesture Handler runs the pan
   // simultaneously with the scroll view so that gesture collapses or dismisses
   // the sheet consistently on both iOS and Android.
-  const scrollRef = useRef<any>(null);
   const dragging = useRef(false);
   const dragBase = useRef(0);
   const dragOffset = useRef(0);
@@ -229,6 +237,20 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     []
   );
 
+  const onBodyScroll = useMemo(
+    () =>
+      Animated.event(
+        [{ nativeEvent: { contentOffset: { y: animatedBodyScrollY } } }],
+        {
+          useNativeDriver: true,
+          listener: (event: any) => {
+            scrollY.current = event.nativeEvent.contentOffset.y;
+          },
+        },
+      ),
+    [animatedBodyScrollY],
+  );
+
   const expanded = index >= snapHeights.length - 1;
   const compactCanScroll = compact && snapHeights.length > 1 && expanded;
   // keep the refs the pan responder reads in sync with the latest render
@@ -270,7 +292,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         // on Android too (see sheetBodyGesture above).
         <GestureDetector gesture={sheetBodyGesture}>
           <View style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }]}>
-            <GHScrollView
+            <AnimatedGHScrollView
               ref={scrollRef}
               scrollEnabled={compactCanScroll}
               // the drag-to-dismiss is driven by sheetBodyGesture, so kill the
@@ -279,16 +301,14 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               bounces={false}
               alwaysBounceVertical={false}
               overScrollMode="never"
-              onScroll={(e) => {
-                scrollY.current = e.nativeEvent.contentOffset.y;
-              }}
+              onScroll={onBodyScroll}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
               style={{ flex: 1 }}
             >
               {children}
-            </GHScrollView>
+            </AnimatedGHScrollView>
             {/* visual grab handle only — the whole card handles the drag */}
             <View pointerEvents="none" style={{ position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' }}>
               <View
@@ -323,22 +343,20 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           {/* body */}
           <View style={{ flex: 1 }}>
             <GestureDetector gesture={sheetBodyGesture}>
-              <GHScrollView
+              <AnimatedGHScrollView
                 ref={scrollRef}
                 scrollEnabled={expanded}
                 bounces={false}
                 alwaysBounceVertical={false}
                 overScrollMode="never"
-                onScroll={(e) => {
-                  scrollY.current = e.nativeEvent.contentOffset.y;
-                }}
+                onScroll={onBodyScroll}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: bottomPad }}
                 style={{ flex: 1 }}
               >
                 {children}
-              </GHScrollView>
+              </AnimatedGHScrollView>
             </GestureDetector>
           </View>
         </>

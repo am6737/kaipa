@@ -108,30 +108,42 @@ export function GearScreen({ theme }: { theme: Theme }) {
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
 
-  const updateItem = (oldName: string, ni: GearItem) => {
+  const updateItem = async (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
     if (oldItem && sameGearItem(oldItem, ni)) {
       setItemEditor(null);
       return;
     }
-    if (oldItem?.id) data.updateItem(oldItem.id, ni);
-    setPageStack((stk) =>
-      stk.map((pg) => {
-        if (pg.type === 'item' && pg.item.name === oldName) return { type: 'item', item: ni };
-        if (pg.type === 'set' && ni.name !== oldName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === oldName ? ni.name : n)) } };
-        return pg;
-      })
-    );
-    setItemEditor(null);
-    nav.showToast(t('gear.toast.itemUpdated'), 'top');
+    try {
+      const saved = oldItem?.id ? await data.updateItem(oldItem.id, ni) : undefined;
+      const nextItem = saved ?? ni;
+      setPageStack((stk) =>
+        stk.map((pg) => {
+          if (pg.type === 'item' && pg.item.name === oldName) return { type: 'item', item: nextItem };
+          if (pg.type === 'set' && nextItem.name !== oldName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === oldName ? nextItem.name : n)) } };
+          return pg;
+        })
+      );
+      setItemEditor(null);
+      nav.showToast(t('gear.toast.itemUpdated'), 'top');
+    } catch (error) {
+      console.warn('[Gear] item update failed:', error);
+      nav.showToast(t('gear.toast.saveFailed'), 'top');
+    }
   };
 
   const addItem = async (ni: GearItem) => {
-    await data.addItem(ni);
-    pendingSetItemAdded.current?.(ni);
-    pendingSetItemAdded.current = null;
-    setItemEditor(null);
-    nav.showToast(t('gear.toast.itemAdded'));
+    try {
+      const saved = await data.addItem(ni);
+      if (!saved) return;
+      pendingSetItemAdded.current?.(saved);
+      pendingSetItemAdded.current = null;
+      setItemEditor(null);
+      nav.showToast(t('gear.toast.itemAdded'));
+    } catch (error) {
+      console.warn('[Gear] item add failed:', error);
+      nav.showToast(t('gear.toast.saveFailed'));
+    }
   };
 
   const deleteItem = (name: string) => {

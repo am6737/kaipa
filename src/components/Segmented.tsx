@@ -1,10 +1,11 @@
 // Segmented.tsx — shared segmented control.
 // `fill` variant = theme-aware light pill (settings/sheets); `glass` variant =
 // white-on-dark for full-bleed photo overlays (e.g. JourneyCardFull hero).
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, View, Text, StyleSheet } from 'react-native';
 import { Press } from './Press';
 import { Theme } from '../theme/theme';
+import { motion } from '../design-system';
 
 export type SegOption<T extends string> = { id: T; label: string };
 
@@ -16,6 +17,7 @@ export function Segmented<T extends string>({
   theme,
   size = 'regular',
   stretch = true,
+  trailingAction,
 }: {
   value: T;
   options: SegOption<T>[];
@@ -24,33 +26,92 @@ export function Segmented<T extends string>({
   theme?: Theme;
   size?: 'regular' | 'compact';
   stretch?: boolean;
+  trailingAction?: { content: React.ReactNode; onPress: () => void; accessibilityLabel: string };
 }) {
   const compact = size === 'compact';
+  const underlineLayouts = useRef(new Map<string, { x: number; width: number }>());
+  const underlineX = useRef(new Animated.Value(0)).current;
+  const underlineReady = useRef(false);
+  const indicatorWidth = compact ? 18 : 24;
+
+  const positionUnderline = (id: string, animated: boolean) => {
+    const layout = underlineLayouts.current.get(id);
+    if (!layout) return;
+    const nextX = layout.x + (layout.width - indicatorWidth) / 2;
+    if (!underlineReady.current || !animated) {
+      underlineX.setValue(nextX);
+      underlineReady.current = true;
+      return;
+    }
+    Animated.timing(underlineX, {
+      toValue: nextX,
+      duration: motion.quick,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  useEffect(() => {
+    if (variant === 'underline') positionUnderline(value, true);
+  }, [value, variant, indicatorWidth]);
 
   if (variant === 'underline') {
     return (
-      <View style={{ flexDirection: 'row', justifyContent: stretch ? 'space-between' : 'flex-start', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme?.hairline ?? 'rgba(127,127,127,0.25)' }}>
+      <View
+        style={{
+          position: 'relative',
+          flexDirection: 'row',
+          justifyContent: stretch ? 'space-between' : 'flex-start',
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: theme?.hairline ?? 'rgba(127,127,127,0.25)',
+        }}
+      >
         {options.map((o) => {
           const on = o.id === value;
           return (
-            <Press key={o.id} onPress={() => onChange(o.id)} style={stretch ? { flex: 1 } : { marginRight: 18 }}>
-              <View style={{ alignItems: 'center', paddingTop: compact ? 2 : 4, paddingBottom: compact ? 7 : 10, paddingHorizontal: stretch ? 0 : 2 }}>
+            <Press
+              key={o.id}
+              onPress={() => onChange(o.id)}
+              onLayout={(event) => {
+                const { x, width } = event.nativeEvent.layout;
+                underlineLayouts.current.set(o.id, { x, width });
+                if (o.id === value) positionUnderline(o.id, underlineReady.current);
+              }}
+              style={stretch ? { flex: 1 } : { marginRight: 18 }}
+            >
+              <View style={{ alignItems: 'center', paddingTop: compact ? 2 : 4, paddingBottom: compact ? 9 : 12, paddingHorizontal: stretch ? 0 : 2 }}>
                 <Text style={{ fontSize: compact ? 15 : 15.5, fontWeight: on ? '700' : '500', color: on ? (theme?.text ?? '#000') : (theme?.text2 ?? '#8e8e93') }}>
                   {o.label}
                 </Text>
               </View>
-              <View
-                style={{
-                  alignSelf: 'center',
-                  width: compact ? 18 : 24,
-                  height: compact ? 2 : 2.5,
-                  borderRadius: 2,
-                  backgroundColor: on ? (theme?.accent ?? '#0a84ff') : 'transparent',
-                }}
-              />
             </Press>
           );
         })}
+        {trailingAction ? (
+          <Press
+            onPress={trailingAction.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={trailingAction.accessibilityLabel}
+            style={stretch ? { flex: 1 } : undefined}
+          >
+            <View style={{ alignItems: 'center', justifyContent: 'center', paddingTop: compact ? 2 : 4, paddingBottom: compact ? 9 : 12, paddingHorizontal: stretch ? 0 : 2 }}>
+              {trailingAction.content}
+            </View>
+          </Press>
+        ) : null}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: 0,
+            width: indicatorWidth,
+            height: compact ? 2 : 2.5,
+            borderRadius: 2,
+            backgroundColor: theme?.accent ?? '#0a84ff',
+            transform: [{ translateX: underlineX }],
+          }}
+        />
       </View>
     );
   }

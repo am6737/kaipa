@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toRoutePoi } from '../lib/mappers';
+import { ensureCloudMedia } from '../lib/storage';
 import type { Poi } from '../data/pois';
 
 const has = (obj: object, key: keyof Poi) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -23,11 +24,13 @@ function routePatchToRow(patch: Partial<Poi>) {
   if (has(patch, 'trackElevation')) row.track_elevation = patch.trackElevation ?? null;
   if (has(patch, 'trackDurationMs')) row.track_duration_ms = patch.trackDurationMs ?? null;
   if (has(patch, 'trackWaypoints')) row.track_waypoints = patch.trackWaypoints ?? null;
-  if (has(patch, 'photoUris')) row.photo_uris = patch.photoUris?.filter((u) => !u.startsWith('file://')) ?? null;
+  if (has(patch, 'trackFileUrl')) row.track_file_url = patch.trackFileUrl ?? null;
+  if (has(patch, 'trackFileName')) row.track_file_name = patch.trackFileName ?? null;
+  if (has(patch, 'photoUris')) row.photo_uris = patch.photoUris ?? null;
   return row;
 }
 
-export function useRoutes() {
+export function useRoutes(userId: string | undefined) {
   const [routes, setRoutes] = useState<Poi[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +48,11 @@ export function useRoutes() {
   useEffect(() => { refetch(); }, [refetch]);
 
   const updateRoute = async (id: string, patch: Partial<Poi>) => {
-    const row = routePatchToRow(patch);
+    const photoUris = has(patch, 'photoUris') && userId
+      ? await ensureCloudMedia(patch.photoUris, userId, `route-${id}`)
+      : patch.photoUris;
+    const resolvedPatch = has(patch, 'photoUris') ? { ...patch, photoUris } : patch;
+    const row = routePatchToRow(resolvedPatch);
     if (!Object.keys(row).length) return;
 
     const { error } = await supabase.from('routes').update(row).eq('id', id);
@@ -54,7 +61,7 @@ export function useRoutes() {
       return;
     }
 
-    setRoutes((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setRoutes((prev) => prev.map((p) => (p.id === id ? { ...p, ...resolvedPatch } : p)));
   };
 
   return { routes, loading, updateRoute, refetch };

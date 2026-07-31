@@ -246,6 +246,9 @@ if [[ "$INIT_DB" == 1 ]]; then
   done
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/schema.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/guest-schema.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/kaipa-storage.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/track-source-files.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-timeline-groups.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-photo-uris.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-packing-migration.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-categories-per-user.sql"

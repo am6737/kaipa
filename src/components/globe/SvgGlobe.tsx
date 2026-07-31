@@ -3,12 +3,12 @@
 // geographically. Used when no Mapbox token is configured (e.g. Expo Go).
 import React from 'react';
 import { View, Pressable } from 'react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G } from 'react-native-svg';
-import { GlobeProps, poiColor } from './types';
+import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G, Line, Rect } from 'react-native-svg';
+import { GlobeProps } from './types';
 import { project, graticule } from './projection';
 import { PhotoPin } from './PhotoPin';
 
-export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin }: GlobeProps) {
+export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, focusCoords, pin }: GlobeProps) {
   const t = theme;
   const R = size / 2;
   const cx = R;
@@ -17,7 +17,48 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
   const lat0 = center?.lat ?? 32;
 
   const lines = graticule(lon0, lat0, R - 1, cx, cy);
+  const route = (focusCoords || []).filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
 
+  if (route.length >= 2) {
+    const meanLat = route.reduce((sum, [, lat]) => sum + lat, 0) / route.length;
+    const lonScale = Math.max(0.2, Math.cos((meanLat * Math.PI) / 180));
+    const normalized = route.map(([lon, lat]) => [lon * lonScale, lat] as const);
+    const xs = normalized.map(([x]) => x);
+    const ys = normalized.map(([, y]) => y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const padding = 30;
+    const spanX = Math.max(maxX - minX, 0.0001);
+    const spanY = Math.max(maxY - minY, 0.0001);
+    const scale = Math.min((size - padding * 2) / spanX, (size - padding * 2) / spanY);
+    const drawnWidth = spanX * scale;
+    const drawnHeight = spanY * scale;
+    const offsetX = (size - drawnWidth) / 2;
+    const offsetY = (size - drawnHeight) / 2;
+    const routePoints = normalized.map(([x, y]) => `${offsetX + (x - minX) * scale},${offsetY + (maxY - y) * scale}`).join(' ');
+    const [startX, startY] = routePoints.split(' ')[0].split(',').map(Number);
+    const [endX, endY] = routePoints.split(' ').at(-1)!.split(',').map(Number);
+
+    return (
+      <View style={{ width: size, height: size, borderRadius: 28, overflow: 'hidden', backgroundColor: theme.featureSurface, borderWidth: 1, borderColor: theme.hairline }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Rect x={0} y={0} width={size} height={size} fill={theme.featureSurface} />
+          {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
+            <G key={ratio}>
+              <Line x1={size * ratio} y1={0} x2={size * ratio} y2={size} stroke={theme.globeGrid} strokeWidth={0.7} />
+              <Line x1={0} y1={size * ratio} x2={size} y2={size * ratio} stroke={theme.globeGrid} strokeWidth={0.7} />
+            </G>
+          ))}
+          <Polyline points={routePoints} fill="none" stroke={theme.featureSurface} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
+          <Polyline points={routePoints} fill="none" stroke={theme.accent} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+          <Circle cx={startX} cy={startY} r={6} fill={theme.featureSurface} stroke={theme.accent} strokeWidth={3} />
+          <Circle cx={endX} cy={endY} r={6} fill={theme.accent} stroke={theme.featureSurface} strokeWidth={3} />
+        </Svg>
+      </View>
+    );
+  }
 
   return (
     <View style={{ width: size, height: size }}>
@@ -65,7 +106,6 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
         const pr = project(p.lng, p.lat, lon0, lat0, R - 4, cx, cy);
         if (!pr.visible) return null;
         const active = activePoiId != null && p.id === activePoiId;
-        const { fill } = poiColor(p, t);
         const box = active ? 66 : 44; // big enough to hold the pin + its halo
         return (
           <Pressable

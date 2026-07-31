@@ -24,6 +24,8 @@ export function toRoutePoi(r: any): Poi {
     trackElevation: r.track_elevation,
     trackDurationMs: r.track_duration_ms,
     trackWaypoints: r.track_waypoints,
+    trackFileUrl: r.track_file_url,
+    trackFileName: r.track_file_name,
     photoUris: r.photo_uris,
   };
 }
@@ -68,6 +70,8 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     trackElevation: j.track_elevation,
     trackDurationMs: j.track_duration_ms,
     trackWaypoints: j.track_waypoints,
+    trackFileUrl: j.track_file_url,
+    trackFileName: j.track_file_name,
     trackPublic: j.track_public ?? false,
     routeShowPhotos: j.route_show_photos ?? true,
     routeShowTimeline: j.route_show_timeline ?? true,

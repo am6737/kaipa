@@ -2,7 +2,7 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, useWindowDimensions, StyleSheet } from 'react-native';
+import { Animated, View, Text, useWindowDimensions, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
@@ -18,7 +18,8 @@ import { KPState, KPSkeletonLine } from '../components/State';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
 import { radius, space, type } from '../design-system';
-import { SelectedPoiCard } from './JourneyCard';
+import { nextJourneyDayLabel, SelectedPoiCard } from './JourneyCard';
+import { useTimeline } from '../hooks/useTimeline';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -49,8 +50,8 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
 
 export function DiscoverScreen({ theme }: { theme: Theme }) {
   const nav = useNav();
-  const { t } = useI18n();
-  const { routes, journeys } = useData();
+  const { t, resolved } = useI18n();
+  const { routes, journeys, userId } = useData();
   const chipLabel = (id: string) =>
     t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
@@ -62,10 +63,81 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
   const [focusReturnToList, setFocusReturnToList] = React.useState(false);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
+  const journeyDetailScrollY = React.useRef(new Animated.Value(0)).current;
 
   // ── multi-select (long-press to enter, batch delete) ──
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
+  const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
+  const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
+  const [availableJourneyDays, setAvailableJourneyDays] = useState<string[]>([]);
+  const [timelineSelectionMode, setTimelineSelectionMode] = useState(false);
+  const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
+  const focusedJourneyId = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.id : undefined;
+  const focusedTimeline = useTimeline(focusedJourneyId, userId);
+  const handleSelectedJourneyDayChange = useCallback((day?: string) => {
+    setSelectedJourneyDay(day);
+    if (!day) {
+      setTimelineSelectionMode(false);
+      setSelectedTimelineItemIds(new Set());
+    }
+  }, []);
+
+  React.useEffect(() => {
+    setPlanEditorOpen(false);
+    setSelectedPlanDays(new Set());
+    setSelectedJourneyDay(undefined);
+    setAvailableJourneyDays([]);
+    setTimelineSelectionMode(false);
+    setSelectedTimelineItemIds(new Set());
+    journeyDetailScrollY.setValue(0);
+  }, [focusedJourneyId, journeyDetailScrollY]);
+
+  const deleteSelectedPlanDays = () => {
+    if (!selectedPlanDays.size) return;
+    const selected = [...selectedPlanDays];
+    const itemCount = focusedTimeline.rows.filter((row) => selectedPlanDays.has(row.day)).length;
+    Alert.alert(
+      t('journey.timeline.batchDeleteGroupTitle', { count: selected.length }),
+      t('journey.timeline.batchDeleteGroupMessage', { count: itemCount }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            void Promise.all(selected.map((day) => focusedTimeline.removeGroup(day)));
+            setSelectedPlanDays(new Set());
+          },
+        },
+      ],
+    );
+  };
+
+  const addPlanGroup = () => {
+    const labels = [...new Set([...focusedTimeline.knownGroups, ...focusedTimeline.rows.map((row) => row.day)])];
+    focusedTimeline.addGroup(nextJourneyDayLabel(labels, resolved, t));
+  };
+
+  const deleteSelectedTimelineItems = () => {
+    if (!selectedTimelineItemIds.size) return;
+    Alert.alert(
+      t('journey.timeline.batchDeleteConfirmTitle', { count: selectedTimelineItemIds.size }),
+      t('journey.timeline.deleteConfirmMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            void Promise.all([...selectedTimelineItemIds].map((id) => focusedTimeline.remove(id)));
+            setSelectedTimelineItemIds(new Set());
+          },
+        },
+      ],
+    );
+  };
 
   const enterSelect = useCallback((id: string) => {
     setSelectMode(true);
@@ -204,8 +276,14 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     const point = nav.pointInfo;
     if (!point) return null;
     if ((point.trackCoords?.length ?? 0) >= 2) return point.trackCoords!;
+
+    // Older journeys may only keep the source route id. Their detail map should
+    // still frame that route instead of falling back to the journey avatar pin.
+    const linkedRouteTrack = point.routeId ? routes.find((route) => route.id === point.routeId)?.trackCoords : undefined;
+    if ((linkedRouteTrack?.length ?? 0) >= 2) return linkedRouteTrack!;
+
     return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
-  }, [nav.pointInfo]);
+  }, [nav.pointInfo, routes]);
 
   // sheet stats
   const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
@@ -243,7 +321,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         <Globe
           theme={theme}
           size={globeSize}
-          pois={placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
+          pois={nav.pointInfo ? [] : placeGroups.map(({ rep, group }) => ({ id: rep.id, lng: rep.lng, lat: rep.lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] }))}
           activePoiId={activeRepId}
           focusCoords={focusCoords}
           center={nav.pointInfo ? { lon: nav.pointInfo.lng, lat: nav.pointInfo.lat } : undefined}
@@ -345,6 +423,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         compact={false}
         backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
         borderless={nav.pointInfo?.kind === 'route'}
+        bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
         bottomOffset={0}
         onDismiss={() => {
           setPlaceSel(null);
@@ -358,11 +437,30 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         }}
       >
         {nav.pointInfo ? (
-          <View style={{ paddingHorizontal: space.md }}>
+          <View style={{ paddingHorizontal: space.md, paddingBottom: nav.pointInfo.kind === 'journey' ? 76 : 0 }}>
             {nav.pointInfo.kind === 'route' ? (
               <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={() => sheetRef.current?.dismiss()} showActions={false} />
             ) : (
-              <SelectedPoiCard theme={theme} poi={nav.pointInfo} embedded />
+              <SelectedPoiCard
+                theme={theme}
+                poi={nav.pointInfo}
+                embedded
+                externalPlanEditorControls
+                planEditorOpen={planEditorOpen}
+                onPlanEditorOpenChange={(open) => {
+                  setPlanEditorOpen(open);
+                  if (!open) setSelectedPlanDays(new Set());
+                }}
+                selectedPlanDays={selectedPlanDays}
+                onSelectedPlanDaysChange={setSelectedPlanDays}
+                onSelectedJourneyDayChange={handleSelectedJourneyDayChange}
+                onJourneyDaysChange={setAvailableJourneyDays}
+                timelineSelectionMode={timelineSelectionMode}
+                selectedTimelineItemIds={selectedTimelineItemIds}
+                onSelectedTimelineItemIdsChange={setSelectedTimelineItemIds}
+                detailScrollY={journeyDetailScrollY}
+                onRequestDetailScroll={(y) => sheetRef.current?.scrollTo(y)}
+              />
             )}
           </View>
         ) : (
@@ -418,6 +516,86 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         )}
       </TrailSheet>
       )}
+      {nav.pointInfo?.kind === 'journey' && !nav.timelineAdd ? (
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: space.md,
+            right: space.md,
+            bottom: Math.max(insets.bottom, space.md),
+            zIndex: 180,
+            flexDirection: 'row',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: space.xs,
+          }}
+        >
+          {selectedJourneyDay ? (
+            <>
+              {timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
+                <Press
+                  onPress={deleteSelectedTimelineItems}
+                  accessibilityRole="button"
+                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <Text style={{ color: theme.danger, fontSize: 13, fontWeight: '700' }}>{t('common.delete')}</Text>
+                </Press>
+              ) : null}
+              {!timelineSelectionMode ? (
+                <Press
+                  onPress={() => nav.pointInfo?.kind === 'journey' && nav.openTimelineAdd(nav.pointInfo, selectedJourneyDay, availableJourneyDays)}
+                  accessibilityRole="button"
+                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{t('common.add')}</Text>
+                </Press>
+              ) : null}
+              <Press
+                onPress={() => {
+                  setTimelineSelectionMode((open) => !open);
+                  if (timelineSelectionMode) setSelectedTimelineItemIds(new Set());
+                }}
+                accessibilityRole="button"
+                style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+              >
+                <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{timelineSelectionMode ? t('common.done') : t('common.edit')}</Text>
+              </Press>
+            </>
+          ) : (
+            <>
+              {planEditorOpen && selectedPlanDays.size > 0 ? (
+                <Press
+                  onPress={deleteSelectedPlanDays}
+                  accessibilityRole="button"
+                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <Text style={{ color: theme.danger, fontSize: 13, fontWeight: '700' }}>{t('common.delete')}</Text>
+                </Press>
+              ) : null}
+              {planEditorOpen ? (
+                <Press
+                  onPress={addPlanGroup}
+                  accessibilityRole="button"
+                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{t('common.add')}</Text>
+                </Press>
+              ) : null}
+              <Press
+                onPress={() => {
+                  setPlanEditorOpen((open) => !open);
+                  if (planEditorOpen) setSelectedPlanDays(new Set());
+                }}
+                accessibilityRole="button"
+                style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+              >
+                <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{planEditorOpen ? t('common.done') : t('common.edit')}</Text>
+              </Press>
+            </>
+          )}
+        </View>
+      ) : null}
       {nav.pointInfo?.kind === 'route' ? (
         <View
           pointerEvents="box-none"
