@@ -3985,11 +3985,6 @@ react-native-keyboard-controller@1.21.6:
   dependencies:
     react-native-is-edge-to-edge "^1.2.1"
 
-react-native-pager-view@8.0.1:
-  version "8.0.1"
-  resolved "https://registry.yarnpkg.com/react-native-pager-view/-/react-native-pager-view-8.0.1.tgz#bfaf47861d0cbb5870c790a62b802ef05e6536eb"
-  integrity sha512-pGOne2o0y0HOQLrlTLcGgOE48uJlqSZHRRwdW8nL6JJozMkPGJYi/G9e0EsJoWFpXYONjiDgr8IwxC4F6/r7Lg==
-
 react-native-qrcode-svg@^6.3.21:
   version "6.3.21"
   resolved "https://registry.npmjs.org/react-native-qrcode-svg/-/react-native-qrcode-svg-6.3.21.tgz"

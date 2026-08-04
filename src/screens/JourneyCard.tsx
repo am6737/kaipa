@@ -2,7 +2,8 @@
 // shown inside the discover sheet's in-place journey detail panel.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, Modal, Pressable } from 'react-native';
-import PagerView from 'react-native-pager-view';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ReAnimated, { cancelAnimation, Easing as ReanimatedEasing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -1479,17 +1480,66 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     setSelectedPlanDays(next);
   };
 
-  const pagerRef = useRef<PagerView>(null);
   const [tabPageHeights, setTabPageHeights] = useState<Record<string, number>>({});
+  const [tabPagerWidth, setTabPagerWidth] = useState(0);
+  const [mountedTabIds, setMountedTabIds] = useState<Set<TabId>>(() => new Set<TabId>(['overview']));
+  const tabPagerTranslateX = useSharedValue(0);
+  const tabPagerIndex = useSharedValue(0);
+  const tabPagerCompleting = useSharedValue(false);
+  const activeTabIndex = Math.max(0, tabOptions.findIndex((option) => option.id === seg));
   const activePagerHeight = tabPageHeights[seg] || 600;
+
+  const mountTabsAround = (index: number) => {
+    setMountedTabIds((current) => {
+      const next = new Set(current);
+      for (const candidate of [index - 1, index, index + 1]) {
+        const option = tabOptions[candidate];
+        if (option) next.add(option.id);
+      }
+      return next.size === current.size ? current : next;
+    });
+  };
+
+  useEffect(() => {
+    tabPagerIndex.value = activeTabIndex;
+    mountTabsAround(activeTabIndex);
+    if (tabPagerWidth > 0) {
+      tabPagerTranslateX.value = withTiming(-activeTabIndex * tabPagerWidth, {
+        duration: 180,
+        easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
+      });
+    }
+  }, [activeTabIndex, tabOptions, tabPagerWidth]);
+
+  const updateVisualPagerIndex = (index: number) => {
+    const option = tabOptions[index];
+    if (!option || option.id === visualSegRef.current) return;
+    visualSegRef.current = option.id;
+    setVisualSeg(option.id);
+  };
+
+  const commitPagerIndex = (index: number) => {
+    const option = tabOptions[index];
+    tabPagerCompleting.value = false;
+    if (!option) return;
+    mountTabsAround(index);
+    updateVisualPagerIndex(index);
+    if (option.id !== segRef.current) selectSegment(option.id);
+  };
 
   const selectPagerSegment = (value: TabId) => {
     const index = tabOptions.findIndex((option) => option.id === value);
     if (index < 0) return;
-    visualSegRef.current = value;
-    setVisualSeg(value);
+    mountTabsAround(index);
+    updateVisualPagerIndex(index);
     selectSegment(value);
-    pagerRef.current?.setPage(index);
+    tabPagerIndex.value = index;
+    requestAnimationFrame(() => {
+      tabPagerTranslateX.value = withTiming(-index * Math.max(1, tabPagerWidth), {
+        duration: 200,
+        easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
+      });
+    });
   };
 
   const tabSwipeDisabled = !isJourney
@@ -1503,6 +1553,66 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     || renamingPlanDay != null
     || timePickerOpen
     || trackUploadOpen;
+
+  const tabSwipeGesture = useMemo(() => Gesture.Pan()
+    .enabled(!tabSwipeDisabled && tabPagerWidth > 0)
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-14, 14])
+    .onBegin(() => {
+      cancelAnimation(tabPagerTranslateX);
+      tabPagerCompleting.value = false;
+    })
+    .onUpdate((event) => {
+      const width = Math.max(1, tabPagerWidth);
+      const currentIndex = tabPagerIndex.value;
+      const atFirst = currentIndex <= 0 && event.translationX > 0;
+      const atLast = currentIndex >= tabOptions.length - 1 && event.translationX < 0;
+      const translation = event.translationX * (atFirst || atLast ? 0.18 : 1);
+      tabPagerTranslateX.value = -currentIndex * width + translation;
+
+      const visualIndex = Math.max(
+        0,
+        Math.min(tabOptions.length - 1, Math.round(-tabPagerTranslateX.value / width)),
+      );
+      if (visualIndex !== currentIndex) runOnJS(updateVisualPagerIndex)(visualIndex);
+    })
+    .onEnd((event) => {
+      const width = Math.max(1, tabPagerWidth);
+      const currentIndex = tabPagerIndex.value;
+      const projectedX = event.translationX + event.velocityX * 0.16;
+      const delta = projectedX < -width * 0.22 ? 1 : projectedX > width * 0.22 ? -1 : 0;
+      const targetIndex = Math.max(0, Math.min(tabOptions.length - 1, currentIndex + delta));
+
+      if (targetIndex === currentIndex) {
+        tabPagerTranslateX.value = withTiming(-currentIndex * width, {
+          duration: 170,
+          easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
+        });
+        runOnJS(updateVisualPagerIndex)(currentIndex);
+        return;
+      }
+
+      tabPagerCompleting.value = true;
+      tabPagerIndex.value = targetIndex;
+      tabPagerTranslateX.value = withTiming(-targetIndex * width, {
+        duration: 210,
+        easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
+      }, (finished) => {
+        if (finished) runOnJS(commitPagerIndex)(targetIndex);
+      });
+    })
+    .onFinalize(() => {
+      if (!tabPagerCompleting.value) {
+        tabPagerTranslateX.value = withTiming(-tabPagerIndex.value * Math.max(1, tabPagerWidth), {
+          duration: 170,
+          easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
+        });
+      }
+    }), [tabSwipeDisabled, tabOptions, tabPagerWidth]);
+
+  const tabPagerAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tabPagerTranslateX.value }],
+  }));
 
   const renderTabContent = (activeSeg: TabId) => {
     const activeJourneyDay = activeSeg.startsWith('day:') ? activeSeg.slice(4) : undefined;
@@ -2193,59 +2303,66 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       </Animated.View>
 
       {isJourney && !scrollContent ? (
-        <PagerView
-          ref={pagerRef}
-          style={{ height: activePagerHeight }}
-          initialPage={Math.max(0, tabOptions.findIndex((option) => option.id === seg))}
-          scrollEnabled={!tabSwipeDisabled}
-          offscreenPageLimit={1}
-          overdrag={false}
-          onPageScroll={(event) => {
-            const { position, offset } = event.nativeEvent;
-            const visualIndex = Math.min(tabOptions.length - 1, position + (offset >= 0.5 ? 1 : 0));
-            const visual = tabOptions[visualIndex];
-            if (visual && visual.id !== visualSegRef.current) {
-              visualSegRef.current = visual.id;
-              setVisualSeg(visual.id);
-            }
-          }}
-          onPageSelected={(event) => {
-            const next = tabOptions[event.nativeEvent.position];
-            if (!next) return;
-            visualSegRef.current = next.id;
-            setVisualSeg(next.id);
-            if (next.id !== segRef.current) selectSegment(next.id);
+        <View
+          style={{ height: activePagerHeight, overflow: 'hidden' }}
+          onLayout={(event) => {
+            const width = Math.ceil(event.nativeEvent.layout.width);
+            if (width <= 0 || width === tabPagerWidth) return;
+            setTabPagerWidth(width);
+            tabPagerTranslateX.value = -activeTabIndex * width;
           }}
         >
-          {tabOptions.map((option) => (
-            <View key={option.id} collapsable={false} style={{ width: '100%' }}>
-              <View
-                onLayout={(event) => {
-                  const height = Math.ceil(event.nativeEvent.layout.height);
-                  if (height > 0 && tabPageHeights[option.id] !== height) {
-                    setTabPageHeights((current) => current[option.id] === height
-                      ? current
-                      : { ...current, [option.id]: height });
-                  }
-                }}
-              >
-                <SelectedPoiContent
-                  scrollable={false}
-                  scrollRef={contentScrollRef}
-                  scrollY={contentScrollY}
-                  bottomPadding={scrollContentBottomPadding}
-                  onLayout={(y) => {
-                    if (option.id !== segRef.current) return;
-                    contentTopRef.current = y;
-                    scrollToPendingDay();
-                  }}
-                >
-                  {renderTabContent(option.id)}
-                </SelectedPoiContent>
-              </View>
-            </View>
-          ))}
-        </PagerView>
+          <GestureDetector gesture={tabSwipeGesture}>
+            <ReAnimated.View
+              collapsable={false}
+              style={[
+                {
+                  flexDirection: 'row',
+                  width: Math.max(1, tabPagerWidth) * tabOptions.length,
+                },
+                tabPagerAnimatedStyle,
+              ]}
+            >
+              {tabOptions.map((option) => {
+                const mounted = mountedTabIds.has(option.id) || option.id === seg;
+                return (
+                  <View
+                    key={option.id}
+                    pointerEvents={option.id === seg ? 'auto' : 'none'}
+                    style={{ width: Math.max(1, tabPagerWidth) }}
+                  >
+                    {mounted ? (
+                      <View
+                        onLayout={(event) => {
+                          const height = Math.ceil(event.nativeEvent.layout.height);
+                          if (height > 0 && tabPageHeights[option.id] !== height) {
+                            setTabPageHeights((current) => current[option.id] === height
+                              ? current
+                              : { ...current, [option.id]: height });
+                          }
+                        }}
+                      >
+                        <SelectedPoiContent
+                          scrollable={false}
+                          scrollRef={contentScrollRef}
+                          scrollY={contentScrollY}
+                          bottomPadding={scrollContentBottomPadding}
+                          onLayout={(y) => {
+                            if (option.id !== segRef.current) return;
+                            contentTopRef.current = y;
+                            scrollToPendingDay();
+                          }}
+                        >
+                          {renderTabContent(option.id)}
+                        </SelectedPoiContent>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </ReAnimated.View>
+          </GestureDetector>
+        </View>
       ) : (
         <SelectedPoiContent
           scrollable={scrollContent}
