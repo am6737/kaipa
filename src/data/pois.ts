@@ -4,12 +4,31 @@
 
 import { Tone } from './tones';
 
+export interface JourneyParticipantPermissions {
+  editTimeline: boolean;
+  addMoments: boolean;
+  editChecklist: boolean;
+  checkChecklistItems: boolean;
+  inviteParticipants: boolean;
+}
+
+export const DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS: JourneyParticipantPermissions = {
+  editTimeline: true,
+  addMoments: true,
+  editChecklist: false,
+  checkChecklistItems: true,
+  inviteParticipants: false,
+};
+
 export interface Companion {
+  id?: number;
+  userId?: string;
   ini: string;
   name: string;
   role?: string;
   color: string;
   tone?: Tone;
+  avatarUrl?: string;
   trips?: number;
   host?: boolean;
   self?: boolean;
@@ -36,6 +55,7 @@ export interface Poi {
   days?: string;
   companions?: number;
   companionList?: Companion[];
+  participantPermissions?: JourneyParticipantPermissions;
   fav?: boolean;
   plannedDate?: string;
   countdown?: number;

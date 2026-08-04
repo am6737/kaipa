@@ -5,6 +5,7 @@ import { View, Text } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
+import { Avatar } from '../Avatar';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
@@ -68,8 +69,8 @@ export function AccountPage({
                 <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
                 {profile.username || profile.email ? <Text numberOfLines={1} style={{ fontFamily: profile.username ? MONO : undefined, fontSize: 12, color: theme.text2, marginTop: space.xs }}>{profile.username || profile.email}</Text> : null}
               </View>
-              <View style={{ width: 76, height: 76, borderRadius: radius.pill, backgroundColor: theme.accentSofter, alignItems: 'center', justifyContent: 'center' }}>
-                {profile.nick ? <Text style={{ fontSize: 28, fontWeight: '800', color: theme.accent }}>{profile.nick.slice(0, 1)}</Text> : <Icon name="user" color={theme.accent} size={30} />}
+              <View>
+                <Avatar size={76} />
                 <View style={{ position: 'absolute', right: -1, bottom: -1, width: 28, height: 28, borderRadius: radius.pill, backgroundColor: theme.accent, borderWidth: 2.5, borderColor: theme.featureSurface, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="camera" color="#fff" size={14} />
                 </View>

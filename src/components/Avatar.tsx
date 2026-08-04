@@ -1,11 +1,13 @@
-// Avatar.tsx — initials avatar (colored circle). Mirrors the prototype's Avatar.
+// Avatar.tsx — shared user avatar. Real images are shown when available;
+// otherwise every surface uses the same neutral gray person placeholder.
 import React from 'react';
-import { View, Text, ViewStyle, StyleProp } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { paletteFor } from '../data/tones';
+import { View, ViewStyle, StyleProp, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
+import { Icon } from './Icon';
 
 interface Props {
-  ini: string;
+  ini?: string;
+  uri?: string;
   size?: number;
   color?: string;
   tone?: string;
@@ -14,10 +16,8 @@ interface Props {
   style?: StyleProp<ViewStyle>;
 }
 
-export function Avatar({ ini, size = 32, color, tone, ring, ringColor = '#fff', style }: Props) {
-  const useGradient = !color && tone;
-  const p = paletteFor(tone);
-  const inner = (
+export function Avatar({ uri, size = 32, ring, ringColor = '#fff', style }: Props) {
+  return (
     <View
       style={[
         {
@@ -26,38 +26,20 @@ export function Avatar({ ini, size = 32, color, tone, ring, ringColor = '#fff', 
           borderRadius: size / 2,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: color || p[1],
+          backgroundColor: 'rgba(142,142,147,0.24)',
           overflow: 'hidden',
         },
-        ring
-          ? {
-              borderWidth: 2,
-              borderColor: ringColor,
-            }
-          : null,
+        ring ? { borderWidth: 2, borderColor: ringColor } : null,
         style,
       ]}
     >
-      {useGradient && (
-        <LinearGradient
-          colors={[p[0], p[2]]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{ position: 'absolute', inset: 0 as any, width: '100%', height: '100%' }}
-        />
+      {uri ? (
+        <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+      ) : (
+        <Icon name="user" color="#8E8E93" size={size * 0.5} strokeWidth={1.7} />
       )}
-      <Text
-        style={{
-          color: '#fff',
-          fontWeight: '700',
-          fontSize: size * 0.42,
-        }}
-      >
-        {ini}
-      </Text>
     </View>
   );
-  return inner;
 }
 
 export function AvatarStack({
@@ -66,7 +48,7 @@ export function AvatarStack({
   max = 5,
   ringColor = '#fff',
 }: {
-  people: { ini: string; color?: string; tone?: string }[];
+  people: { ini?: string; color?: string; tone?: string; avatarUrl?: string }[];
   size?: number;
   max?: number;
   ringColor?: string;
@@ -76,7 +58,7 @@ export function AvatarStack({
     <View style={{ flexDirection: 'row' }}>
       {shown.map((c, i) => (
         <View key={i} style={{ marginLeft: i === 0 ? 0 : -size * 0.34 }}>
-          <Avatar ini={c.ini} color={c.color} tone={c.tone} size={size} ring ringColor={ringColor} />
+          <Avatar uri={c.avatarUrl} size={size} ring ringColor={ringColor} />
         </View>
       ))}
     </View>

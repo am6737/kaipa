@@ -56,7 +56,7 @@ export function RoutePreviewActions({ theme, poi, style }: { theme: Theme; poi: 
   const { t } = useI18n();
   const route = nav.merged(poi);
   return (
-    <View style={[{ flexDirection: 'row', gap: space.xs, marginHorizontal: space.xs }, style]}>
+    <View style={[{ flexDirection: 'row', justifyContent: 'flex-start', gap: space.xs, marginHorizontal: space.xs }, style]}>
       <ActionPill
         theme={theme}
         icon={route.fav ? 'heartFill' : 'heart'}
@@ -66,9 +66,10 @@ export function RoutePreviewActions({ theme, poi, style }: { theme: Theme; poi: 
       />
       <ActionPill theme={theme} icon="share" label={t('common.share')} onPress={() => nav.openSharePanel(route)} />
       <Press
+        hitSlop={3}
         onPress={() => nav.openNewJourney(route)}
         accessibilityRole="button"
-        style={{ flexGrow: 1, flexShrink: 1, height: 44, paddingHorizontal: 16, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+        style={{ flexShrink: 1, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
       >
         <Icon name="calendar" color={theme.text} size={16} />
         <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{t('journey.cta.planRoute')}</Text>
@@ -88,7 +89,7 @@ function InfoPill({ theme, icon, text, accent, mono }: { theme: Theme; icon?: Ic
 
 function ActionPill({ theme, icon, label, active, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; onPress: () => void }) {
   return (
-    <Press onPress={onPress} accessibilityRole="button" style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, height: 44, paddingHorizontal: 12, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: active ? theme.accentSoft : theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: active ? theme.accent : theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
+    <Press hitSlop={3} onPress={onPress} accessibilityRole="button" style={{ flexShrink: 1, minWidth: 0, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: active ? theme.accentSoft : theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: active ? theme.accent : theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
       <Icon name={icon} color={active ? theme.accent : theme.text} size={16} />
       <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: active ? theme.accent : theme.text }}>{label}</Text>
     </Press>

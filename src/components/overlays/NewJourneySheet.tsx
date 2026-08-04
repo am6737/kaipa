@@ -26,6 +26,7 @@ import { useData } from '../../data/DataContext';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
+import { Avatar } from '../Avatar';
 import { RecordJourneySheet } from './RecordJourneySheet';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
@@ -552,9 +553,7 @@ function NJStepDetails({
         <NJSection theme={theme} label={t('journeyEdit.details.companionsLabel')} hint={t('journeyEdit.details.companionsHint')}>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>{SELF.ini}</Text>
-              </View>
+              <Avatar size={32} />
               <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>
                 {SELF.name} <Text style={{ color: theme.text3, fontWeight: '500' }}>· {t('journeyEdit.details.self')}</Text>
               </Text>

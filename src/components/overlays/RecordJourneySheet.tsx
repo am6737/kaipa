@@ -696,9 +696,9 @@ function RJMore({ theme, summary, children }: { theme: Theme; summary: string; c
 // Companions roster
 function RJCompanions({ theme, companions, onAdd, onRemove }: { theme: Theme; companions: RJCompanion[]; onAdd: () => void; onRemove: (id: string) => void }) {
   const { t } = useI18n();
-  const Avatar = ({ color, label }: { color: string; label: string }) => (
-    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontWeight: '700', fontSize: 14, color: '#fff' }}>{label}</Text>
+  const Avatar = (_props: { color: string; label: string }) => (
+    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(142,142,147,0.24)', alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name="user" color="#8E8E93" size={20} strokeWidth={1.7} />
     </View>
   );
   const Badge = ({ text, accent }: { text: string; accent?: boolean }) => (
@@ -768,8 +768,8 @@ function RJCompanionSheet({ theme, color, onAdd, onClose }: { theme: Theme; colo
             </Press>
           </View>
           <View style={{ alignItems: 'center', marginBottom: 18 }}>
-            <View style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 30, fontWeight: '700', color: '#fff' }}>{initial}</Text>
+            <View style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(142,142,147,0.24)', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="user" color="#8E8E93" size={38} strokeWidth={1.7} />
             </View>
           </View>
           <TextInput value={name} onChangeText={setName} placeholder={t('record.companions.namePlaceholder')} placeholderTextColor={theme.text3} maxLength={16} textAlign="center" style={{ paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)', borderWidth: 1, borderColor: theme.hairline, fontSize: 16, fontWeight: '600', color: theme.text }} />

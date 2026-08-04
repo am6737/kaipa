@@ -33,8 +33,17 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
             <Pressable
               key={i}
               onPress={() => {
-                onClose();
-                if (item.onPress) setTimeout(item.onPress, 380);
+                if (!item.onPress) {
+                  onClose();
+                  return;
+                }
+                // Keep the current overlay mounted until the destination action
+                // runs so controls from the underlying screen cannot flash between
+                // two overlays during the transition.
+                setTimeout(() => {
+                  item.onPress?.();
+                  onClose();
+                }, 180);
               }}
               style={({ pressed }) => ({
                 height: 56,

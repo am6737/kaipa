@@ -41,7 +41,7 @@ export function MePushPage({ theme, title, onBack, right, children, scroll = tru
       {/* floating, transparent nav bar */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navH }} pointerEvents="box-none">
         <View style={{ position: 'absolute', left: space.md, top: insets.top + 3 }}>
-          <AppIconButton theme={theme} name="arrowL" onPress={onBack} softShadow />
+          <AppIconButton theme={theme} name="chevronL" onPress={onBack} softShadow />
         </View>
         <View
           pointerEvents="none"

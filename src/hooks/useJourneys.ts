@@ -12,16 +12,62 @@ export function useJourneys(userId: string | undefined) {
 
   const fetchJourneys = useCallback(async () => {
     if (!userId) return;
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('journeys')
       .select(`
         *,
-        companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
+
+    // Keep journey/map data available while an older database is still waiting
+    // for supabase/companion-avatar-url.sql. PostgREST rejects the entire nested
+    // query when one selected companion column is missing, which otherwise makes
+    // the journey tab look empty (including every map avatar).
+    if (error && (error.message.includes('avatar_url') || error.message.includes('user_id'))) {
+      const fallback = await supabase
+        .from('journeys')
+        .select(`
+          *,
+          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error) console.warn('[useJourneys] fetch error:', error.message);
-    if (data) setJourneys(data.map((j: any) => toJourneyPoi({ ...j, asc: j.asc_ })));
+    const ownedRows = (data ?? []).map((journey: any) => ({ ...journey, mine: true }));
+    let joinedRows: any[] = [];
+    const membershipRes = await supabase.from('companions').select('journey_id').eq('user_id', userId);
+    if (!membershipRes.error) {
+      const ownedIds = new Set(ownedRows.map((journey: any) => journey.id));
+      const joinedIds = [...new Set((membershipRes.data ?? []).map((row: any) => row.journey_id))].filter((journeyId) => !ownedIds.has(journeyId));
+      if (joinedIds.length) {
+        let joinedRes = await supabase
+          .from('journeys')
+          .select(`
+            *,
+            companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+          `)
+          .in('id', joinedIds)
+          .order('created_at', { ascending: false });
+        if (joinedRes.error && (joinedRes.error.message.includes('avatar_url') || joinedRes.error.message.includes('user_id'))) {
+          joinedRes = await supabase
+            .from('journeys')
+            .select(`
+              *,
+              companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+            `)
+            .in('id', joinedIds)
+            .order('created_at', { ascending: false });
+        }
+        if (!joinedRes.error) joinedRows = (joinedRes.data ?? []).map((journey: any) => ({ ...journey, mine: false }));
+      }
+    }
+    setJourneys([...ownedRows, ...joinedRows].map((j: any) => toJourneyPoi({ ...j, asc: j.asc_ })));
     setLoading(false);
   }, [userId]);
 
@@ -56,6 +102,7 @@ export function useJourneys(userId: string | undefined) {
       route_show_photos: poi.routeShowPhotos ?? true,
       route_show_timeline: poi.routeShowTimeline ?? true,
       photo_uris: photoUris ?? null,
+      participant_permissions: poi.participantPermissions ?? null,
       track_coords: poi.trackCoords || null,
       track_elevation: poi.trackElevation || null,
       track_duration_ms: poi.trackDurationMs || null,
@@ -66,23 +113,30 @@ export function useJourneys(userId: string | undefined) {
     const { data, error } = await supabase.from('journeys').insert(row).select().single();
     if (error) { console.warn('createJourney error:', error.message); return null; }
 
+    let savedCompanions: any[] = poi.companionList || [];
     if (poi.companionList?.length) {
       const companions = poi.companionList.map((c, i) => ({
         journey_id: id,
+        user_id: c.userId || (c.self ? userId : null),
         ini: c.ini,
         name: c.name,
         role: c.role || null,
         color: c.color,
         tone: c.tone || null,
+        avatar_url: c.avatarUrl || null,
         trips: c.trips || null,
         is_host: c.host || false,
         is_self: c.self || false,
         sort_order: i,
       }));
-      await supabase.from('companions').insert(companions);
+      let companionRes = await supabase.from('companions').insert(companions).select('*');
+      if (companionRes.error?.message.includes('user_id')) {
+        companionRes = await supabase.from('companions').insert(companions.map(({ user_id: _userId, ...row }) => row)).select('*');
+      }
+      if (companionRes.data) savedCompanions = companionRes.data;
     }
 
-    const newPoi = toJourneyPoi({ ...data, companions: poi.companionList || [] });
+    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions });
     setJourneys(prev => [newPoi, ...prev]);
     return newPoi;
   };
@@ -120,6 +174,7 @@ export function useJourneys(userId: string | undefined) {
     if (has(resolvedPatch, 'trackPublic')) row.track_public = resolvedPatch.trackPublic;
     if (has(resolvedPatch, 'routeShowPhotos')) row.route_show_photos = resolvedPatch.routeShowPhotos;
     if (has(resolvedPatch, 'routeShowTimeline')) row.route_show_timeline = resolvedPatch.routeShowTimeline;
+    if (has(resolvedPatch, 'participantPermissions')) row.participant_permissions = resolvedPatch.participantPermissions;
     row.updated_at = new Date().toISOString();
 
     if (Object.keys(row).length > 1) {
@@ -128,21 +183,37 @@ export function useJourneys(userId: string | undefined) {
     }
 
     if (resolvedPatch.companionList) {
-      await supabase.from('companions').delete().eq('journey_id', id);
-      if (resolvedPatch.companionList.length) {
-        const companions = resolvedPatch.companionList.map((c, i) => ({
+      const existingIds = resolvedPatch.companionList.map((c) => c.id).filter((companionId): companionId is number => companionId != null && companionId > 0);
+      let deleteQuery = supabase.from('companions').delete().eq('journey_id', id);
+      if (existingIds.length) deleteQuery = deleteQuery.not('id', 'in', `(${existingIds.join(',')})`);
+      await deleteQuery;
+
+      for (let i = 0; i < resolvedPatch.companionList.length; i += 1) {
+        const c = resolvedPatch.companionList[i];
+        const row = {
           journey_id: id,
+          user_id: c.userId || (c.self ? userId : null),
           ini: c.ini,
           name: c.name,
           role: c.role || null,
           color: c.color,
           tone: c.tone || null,
+          avatar_url: c.avatarUrl || null,
           trips: c.trips || null,
           is_host: c.host || false,
           is_self: c.self || false,
           sort_order: i,
-        }));
-        await supabase.from('companions').insert(companions);
+        };
+        let companionRes = c.id && c.id > 0
+          ? await supabase.from('companions').update(row).eq('id', c.id)
+          : await supabase.from('companions').insert(row);
+        if (companionRes.error?.message.includes('user_id')) {
+          const { user_id: _userId, ...legacyRow } = row;
+          companionRes = c.id && c.id > 0
+            ? await supabase.from('companions').update(legacyRow).eq('id', c.id)
+            : await supabase.from('companions').insert(legacyRow);
+        }
+        if (companionRes.error) console.warn('[updateJourney] companion sync error:', companionRes.error.message);
       }
     }
 

@@ -169,7 +169,7 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
 function PageHeader({ theme, top, title, subtitle, onBack, onClose }: { theme: Theme; top: number; title: string; subtitle?: string; onBack?: () => void; onClose?: () => void }) {
   return (
     <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}>
-      <CircleBtn theme={theme} name={onBack ? 'arrowL' : 'close'} onPress={(onBack || onClose)!} noShadow />
+      <CircleBtn theme={theme} name={onBack ? 'chevronL' : 'close'} onPress={(onBack || onClose)!} noShadow />
       <View style={{ paddingHorizontal: 10, paddingTop: 22, paddingBottom: 20 }}>
         <Text style={{ fontSize: 29, lineHeight: 35, fontWeight: '800', letterSpacing: -0.8, color: theme.text }}>{title}</Text>
         {subtitle ? <Text style={{ marginTop: 7, maxWidth: 330, fontSize: 14, lineHeight: 21, color: theme.text2 }}>{subtitle}</Text> : null}

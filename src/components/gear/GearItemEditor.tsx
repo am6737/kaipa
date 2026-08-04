@@ -374,7 +374,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
         </View>
       </KeyboardAvoidingView>
 
-      <View style={{ position: 'absolute', left: 14, top: insets.top + 6 }}><CircleBtn theme={theme} name="arrowL" onPress={onCancel} noShadow /></View>
+      <View style={{ position: 'absolute', left: 14, top: insets.top + 6 }}><CircleBtn theme={theme} name="chevronL" onPress={onCancel} noShadow /></View>
     </Animated.View>
   );
 }

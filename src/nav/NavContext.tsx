@@ -35,6 +35,11 @@ export interface NavValue {
   setMainTab: (t: MainTab) => void;
   setSubTab: (t: SubTab) => void;
 
+  // Cross-feature navigation into the gear detail page.
+  gearItemRequestId: number | null;
+  openGearItem: (itemId: number) => void;
+  clearGearItemRequest: () => void;
+
   // selected POI + bottom sheet
   pointInfo: Poi | null;
   pointSource: Poi | null;
@@ -53,6 +58,10 @@ export interface NavValue {
   removeJourneys: (ids: string[]) => void;
   toggleFav: () => void;
   merged: (p: Poi) => Poi;
+
+  // Any modal or pushed overlay that should suspend controls belonging to the
+  // underlying screen (floating edit bars, bottom tabs, etc.).
+  blockingOverlayOpen: boolean;
 
   // overlays
   actionSheet: ActionSheetConfig | null;
@@ -103,8 +112,8 @@ export interface NavValue {
   closeNearbyJoin: () => void;
 
   // 同行管理 (journey detail → 同行 → 管理)
-  manageCompanions: Poi | null;
-  openManageCompanions: (p: Poi) => void;
+  manageCompanions: { poi: Poi; initialAction?: 'invite' } | null;
+  openManageCompanions: (p: Poi, initialAction?: 'invite') => void;
   closeManageCompanions: () => void;
 
   // saved / joined
@@ -156,6 +165,7 @@ export function NavProvider({
 }) {
   const [mainTab, setMainTabRaw] = useState<MainTab>('discover');
   const [subTab, setSubTabRaw] = useState<SubTab>('explore');
+  const [gearItemRequestId, setGearItemRequestId] = useState<number | null>(null);
   const [pointInfo, setPointInfo] = useState<Poi | null>(null);
   const [pointSource, setPointSource] = useState<Poi | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -172,13 +182,29 @@ export function NavProvider({
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
   const [liveShare, setLiveShare] = useState<Poi | null>(null);
   const [nearbyJoinOpen, setNearbyJoinOpen] = useState(false);
-  const [manageCompanions, setManageCompanions] = useState<Poi | null>(null);
+  const [manageCompanions, setManageCompanions] = useState<{ poi: Poi; initialAction?: 'invite' } | null>(null);
   const [savedRoutes, setSavedRoutes] = useState<Poi[]>([]);
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [sharePanel, setSharePanel] = useState<Poi | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHidden, setTabBarHidden] = useState(false);
+
+  const blockingOverlayOpen = Boolean(
+    actionSheet ||
+    addRouteOpen ||
+    newJourneyOpen ||
+    elevFull ||
+    photoWall ||
+    timelineAdd ||
+    editJourney ||
+    journeySettings ||
+    liveShare ||
+    nearbyJoinOpen ||
+    manageCompanions ||
+    sharePanel ||
+    searchOpen
+  );
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   const showToast = (msg: string, placement: 'top' | 'bottom' = 'bottom') => {
@@ -260,6 +286,12 @@ export function NavProvider({
       subTab,
       setMainTab,
       setSubTab,
+      gearItemRequestId,
+      openGearItem: (itemId) => {
+        setGearItemRequestId(itemId);
+        setMainTab('gear');
+      },
+      clearGearItemRequest: () => setGearItemRequestId(null),
       pointInfo,
       pointSource,
       sheetOpen,
@@ -293,6 +325,7 @@ export function NavProvider({
         if (cur?.id) db?.toggleFav?.(cur.id, cur.fav ?? false);
       },
       merged,
+      blockingOverlayOpen,
       actionSheet,
       openActionSheet: (c) => setActionSheet(c),
       closeActionSheet: () => setActionSheet(null),
@@ -332,7 +365,7 @@ export function NavProvider({
       openNearbyJoin: () => setNearbyJoinOpen(true),
       closeNearbyJoin: () => setNearbyJoinOpen(false),
       manageCompanions,
-      openManageCompanions: (p) => setManageCompanions(merged(p)),
+      openManageCompanions: (p, initialAction) => setManageCompanions({ poi: merged(p), initialAction }),
       closeManageCompanions: () => setManageCompanions(null),
       sharePanel,
       openSharePanel: (p: Poi) => setSharePanel(merged(p)),
@@ -356,6 +389,7 @@ export function NavProvider({
     [
       mainTab,
       subTab,
+      gearItemRequestId,
       pointInfo,
       pointSource,
       sheetOpen,

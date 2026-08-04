@@ -78,7 +78,7 @@ export function ElevationFull({ theme, info, isMine, onClose }: { theme: Theme; 
           <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
             <View style={{ height: 40, justifyContent: 'center' }}>
               <View style={{ position: 'absolute', left: 0, top: 0 }}>
-                <CircleBtn theme={theme} name="arrowL" onPress={onClose} noShadow />
+                <CircleBtn theme={theme} name="chevronL" onPress={onClose} noShadow />
               </View>
               <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>{t('journey.elevation.trackTitle')}</Text>

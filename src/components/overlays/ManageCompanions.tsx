@@ -12,32 +12,23 @@ import {
   View,
   Text,
   TextInput,
-  ScrollView,
-  Animated,
   StyleSheet,
-  Pressable,
-  PanResponder,
-  Platform,
-  KeyboardAvoidingView,
-  Keyboard,
+  Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { MONO } from '../../theme/fonts';
-import { Poi, Companion } from '../../data/pois';
-import { Avatar } from '../Avatar';
+import { DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, Poi, Companion, JourneyParticipantPermissions } from '../../data/pois';
+import { ParticipantAvatar } from './ParticipantAvatar';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
-import { CircleBtn } from '../CircleBtn';
-import { KPState } from '../State';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
 import { useI18n, TKey } from '../../i18n';
+import { AppIconButton, DetailPage, radius, space, type } from '../../design-system';
 
 // New companions cycle through this palette; 分工 quick-fills + the two roles
 // that get the accent-coloured badge mirror the prototype.
 const PALETTE = ['#FF5C3A', '#0A84FF', '#34C759', '#FF9F0A', '#BF5AF2', '#FF375F', '#64D2FF', '#5E5CE6'];
 const PRESET_ROLES = ['领队', '向导', '医疗', '后勤', '摄影'];
-const KEY_ROLES: Record<string, boolean> = { 领队: true, 向导: true };
 
 // 2 letters for a latin name, 1 glyph for CJK; '友' as a last resort.
 function iniOf(name: string): string {
@@ -70,163 +61,154 @@ function CompanionEditor({
   const isDuplicate = name.trim().length > 0 && existingNames.includes(name.trim());
   const valid = name.trim().length > 0 && !isDuplicate;
   const color = draft.color || PALETTE[0];
-
   const nameRef = useRef<TextInput>(null);
 
-  // Scale + fade entrance. The interpolation node is created ONCE (useRef) — a
-  // fresh Animated node on every render would tear down the TextInput's native
-  // view and blur it on each keystroke, dismissing the IME.
-  const anim = useRef(new Animated.Value(0)).current;
-  const scale = useRef(anim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })).current;
   useEffect(() => {
-    Animated.spring(anim, { toValue: 1, useNativeDriver: true, bounciness: 6, speed: 14 }).start(() => {
-      if (isNew) nameRef.current?.focus();
-    });
-  }, [anim]);
+    if (!isNew) return;
+    const timer = setTimeout(() => nameRef.current?.focus(), 320);
+    return () => clearTimeout(timer);
+  }, [isNew]);
 
   const save = () => {
     if (!valid) return;
     onSave({ ...draft, name: name.trim(), role: role.trim(), ini: iniOf(name), color });
   };
 
-  const inputStyle = {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: theme.dark ? '#1c1c1e' : '#fff',
+  const fieldStyle = {
+    height: 52,
+    paddingHorizontal: space.md,
+    paddingVertical: 0,
+    textAlignVertical: 'center' as const,
+    borderRadius: radius.control,
+    backgroundColor: theme.fieldSurface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.hairline,
-    fontSize: 15.5,
+    borderColor: theme.fieldBorder,
+    fontSize: 16,
     color: theme.text,
   } as const;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 80 }]}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} onPress={onClose} />
-      {/* full-bleed centering layer — lifts the dialog to stay centered above the
-          keyboard; box-none lets taps on the empty area fall through to the scrim */}
-      <KeyboardAvoidingView
-        style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 26 }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        pointerEvents="box-none"
-      >
-        <Animated.View
+    <NJBottomSheet theme={theme} onClose={onClose} full keyboardAvoiding fillBehindKeyboard bottomPadding={space.xs} keyboardOverlap={space.xs} backgroundColor={theme.featureSurface}>
+      <View style={{ paddingHorizontal: space.xl, paddingBottom: space.sm }}>
+        <View style={{ paddingTop: space.sm, marginBottom: space.xl }}>
+          <Text style={[type.sectionTitle, { color: theme.text }]}>
+            {isNew ? t('journey.manage.addParticipant') : t('journey.manage.editParticipant')}
+          </Text>
+        </View>
+
+        <Text style={[type.eyebrow, { color: theme.text3, marginBottom: space.xs }]}>{t('journey.manage.nameLabel')}</Text>
+        <TextInput
+          ref={nameRef}
+          value={name}
+          onChangeText={setName}
+          placeholder={t('journey.manage.namePlaceholder')}
+          placeholderTextColor={theme.text3}
+          maxLength={24}
+          returnKeyType="next"
+          style={[fieldStyle, isDuplicate && { borderColor: theme.danger }]}
+        />
+        {isDuplicate ? (
+          <Text style={[type.caption, { color: theme.danger, marginTop: space.xs }]}>{t('journey.manage.nameDuplicate')}</Text>
+        ) : null}
+
+        <Text style={[type.eyebrow, { color: theme.text3, marginTop: space.xl, marginBottom: space.xs }]}>{t('journey.manage.roleLabel')}</Text>
+        <TextInput
+          value={role}
+          onChangeText={setRole}
+          placeholder={t('journey.manage.rolePlaceholder')}
+          placeholderTextColor={theme.text3}
+          maxLength={12}
+          returnKeyType="done"
+          onSubmitEditing={save}
+          style={fieldStyle}
+        />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.sm }}>
+          {PRESET_ROLES.map((preset) => {
+            const selectedRole = preset === role.trim();
+            return (
+              <Press
+                key={preset}
+                onPress={() => setRole(selectedRole ? '' : preset)}
+                style={{
+                  height: 32,
+                  paddingHorizontal: space.sm,
+                  borderRadius: radius.pill,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: selectedRole ? theme.accent : theme.controlSurface,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: selectedRole ? theme.accent : theme.fieldBorder,
+                }}
+              >
+                <Text style={[type.caption, { color: selectedRole ? '#FFFFFF' : theme.text2, fontWeight: '700' }]}>
+                  {t(`journey.roles.${preset}` as TKey)}
+                </Text>
+              </Press>
+            );
+          })}
+        </View>
+
+        <Press
+          onPress={save}
+          disabled={!valid}
+          accessibilityRole="button"
           style={{
-            width: '100%',
-            maxWidth: 360,
-            opacity: anim,
-            transform: [{ scale }],
-            backgroundColor: theme.dark ? '#1c1c1e' : theme.bg,
-            borderRadius: 26,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.border,
-            boxShadow: theme.dark ? '0px 12px 30px rgba(0,0,0,0.5)' : '0px 12px 30px rgba(0,0,0,0.18)',
+            height: 50,
+            marginTop: space.xxl,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: valid ? theme.accent : theme.fieldSurface,
           }}
         >
-          {/* tapping anywhere that isn't a field / button resigns focus */}
-          <Pressable onPress={() => Keyboard.dismiss()} style={{ padding: 18 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <Press onPress={onClose} hitSlop={8} style={{ padding: 4 }}>
-                <Text style={{ fontSize: 14.5, color: theme.text2, fontWeight: '500' }}>{t('common.cancel')}</Text>
-              </Press>
-              <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text }}>{isNew ? t('journey.manage.addCompanion') : t('journey.manage.editCompanion')}</Text>
-              <Press onPress={save} disabled={!valid} hitSlop={8} style={{ padding: 4 }}>
-                <Text style={{ fontSize: 14.5, fontWeight: '700', color: valid ? theme.accent : theme.text3 }}>{t('common.done')}</Text>
-              </Press>
-            </View>
+          <Text style={[type.body, { color: valid ? '#FFFFFF' : theme.text3, fontWeight: '700' }]}>
+            {isNew ? t('journey.manage.addParticipant') : t('common.save')}
+          </Text>
+        </Press>
 
-            {/* Avatar preview — initials track the name live */}
-            <View style={{ alignItems: 'center', marginVertical: 14 }}>
-              <Avatar ini={iniOf(name)} color={color} size={60} />
-            </View>
-
-            <TextInput
-              ref={nameRef}
-              value={name}
-              onChangeText={setName}
-              placeholder={t('journey.manage.namePlaceholder')}
-              placeholderTextColor={theme.text3}
-              maxLength={16}
-              returnKeyType="done"
-              onSubmitEditing={save}
-              style={[inputStyle, { textAlign: 'center', fontWeight: '600', fontSize: 16 }, isDuplicate && { borderColor: theme.danger }]}
-            />
-            {isDuplicate && (
-              <Text style={{ fontSize: 11.5, color: theme.danger, marginTop: 6, textAlign: 'center' }}>{t('journey.manage.nameDuplicate')}</Text>
-            )}
-
-            <Text style={{ fontSize: 12, color: theme.text2, fontWeight: '600', marginTop: 16, marginBottom: 8, marginLeft: 2 }}>{t('journey.manage.roleLabel')}</Text>
-            <TextInput
-              value={role}
-              onChangeText={setRole}
-              placeholder={t('journey.manage.rolePlaceholder')}
-              placeholderTextColor={theme.text3}
-              maxLength={6}
-              returnKeyType="done"
-              onSubmitEditing={save}
-              style={inputStyle}
-            />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-              {PRESET_ROLES.map((r) => {
-                const on = r === role.trim();
-                return (
-                  <Press
-                    key={r}
-                    onPress={() => setRole(on ? '' : r)}
-                    style={{
-                      paddingHorizontal: 13,
-                      paddingVertical: 7,
-                      borderRadius: 999,
-                      backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                      borderWidth: StyleSheet.hairlineWidth,
-                      borderColor: on ? theme.accent : theme.hairline,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : theme.text2 }}>{t(`journey.roles.${r}` as TKey)}</Text>
-                  </Press>
-                );
-              })}
-            </View>
-
-            {!isNew && (
-              <Press onPress={onDelete} style={{ marginTop: 18, paddingVertical: 12, borderRadius: 14, alignItems: 'center', backgroundColor: theme.dangerSoft }}>
-                <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.danger }}>{t('journey.manage.removeCompanion')}</Text>
-              </Press>
-            )}
-          </Pressable>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </View>
+        {!isNew ? (
+          <Press onPress={onDelete} style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: space.lg }}>
+            <Text style={[type.body, { color: theme.danger, fontWeight: '600' }]}>{t('journey.manage.removeParticipant')}</Text>
+          </Press>
+        ) : null}
+      </View>
+    </NJBottomSheet>
   );
 }
 
-// ── Add chooser: 邀请 vs 手动 ────────────────────────────────────
+// ── Add participant: invite or keep a manual record ─────────────
 function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onInvite: () => void; onManual: () => void; onClose: () => void }) {
   const { t } = useI18n();
-  const Row = ({ icon, title, sub, onPress, last }: { icon: React.ReactNode; title: string; sub: string; onPress: () => void; last?: boolean }) => (
-    <>
-      <Press onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, paddingVertical: 14 }}>
-        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center' }}>{icon}</View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{title}</Text>
-          <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2, lineHeight: 16 }}>{sub}</Text>
-        </View>
-        <Icon name="chevronR" color={theme.text3} size={15} />
-      </Press>
-      {!last ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: 67 }} /> : null}
-    </>
-  );
+  const options = [
+    { icon: 'people' as const, title: t('journey.manage.inviteTitle'), sub: t('journey.manage.inviteSub'), onPress: onInvite },
+    { icon: 'user' as const, title: t('journey.manage.manualTitle'), sub: t('journey.manage.manualSub'), onPress: onManual },
+  ];
+
   return (
-    <NJBottomSheet theme={theme} onClose={onClose} full>
-      <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
-        <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '700', color: theme.text, paddingVertical: 8 }}>{t('journey.manage.addCompanion')}</Text>
-        <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: theme.dark ? '#1c1c1e' : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <Row icon={<Icon name="share" color={theme.accent} size={20} />} title={t('journey.manage.inviteTitle')} sub={t('journey.manage.inviteSub')} onPress={onInvite} />
-          <Row icon={<Icon name="user" color={theme.accent} size={20} />} title={t('journey.manage.manualTitle')} sub={t('journey.manage.manualSub')} onPress={onManual} last />
+    <NJBottomSheet theme={theme} onClose={onClose} full backgroundColor={theme.featureSurface}>
+      <View style={{ paddingHorizontal: space.xl, paddingBottom: space.md }}>
+        <View style={{ paddingTop: space.sm, marginBottom: space.md }}>
+          <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.manage.addParticipant')}</Text>
         </View>
-        <Press onPress={onClose} style={{ marginTop: 10, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.text2 }}>{t('common.cancel')}</Text>
-        </Press>
+
+        {options.map((option, index) => (
+          <React.Fragment key={option.title}>
+            {index > 0 ? <View style={{ height: space.xs }} /> : null}
+            <Press
+              onPress={option.onPress}
+              style={{ minHeight: 78, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm }}
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.fieldSurface, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name={option.icon} color={theme.text2} size={18} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+                <Text style={[type.cardTitle, { color: theme.text }]}>{option.title}</Text>
+                <Text style={[type.caption, { color: theme.text3, lineHeight: 17, marginTop: space.xxs }]}>{option.sub}</Text>
+              </View>
+              <Icon name="chevronR" color={theme.text3} size={15} />
+            </Press>
+          </React.Fragment>
+        ))}
       </View>
     </NJBottomSheet>
   );
@@ -236,13 +218,17 @@ function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onIn
 export function ManageCompanions({
   theme,
   poi,
+  initialAction,
   onChange,
+  onPermissionsChange,
   onClose,
   onToast,
 }: {
   theme: Theme;
   poi: Poi;
+  initialAction?: 'invite';
   onChange: (list: Companion[]) => void;
+  onPermissionsChange: (permissions: JourneyParticipantPermissions) => void;
   onClose: () => void;
   onToast: (m: string) => void;
 }) {
@@ -262,41 +248,28 @@ export function ManageCompanions({
 
   const [others, setOthers] = useState<Companion[]>(initialOthers);
   const [editor, setEditor] = useState<{ index: number; isNew: boolean; draft: Companion } | null>(null);
-  const [addMode, setAddMode] = useState<null | 'choose' | 'invite'>(null);
+  const [addMode, setAddMode] = useState<null | 'choose' | 'invite'>(initialAction || null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [permissions, setPermissions] = useState<JourneyParticipantPermissions>(() => ({
+    ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
+    ...(poi.participantPermissions || {}),
+  }));
 
   const total = others.length + (anchor ? 1 : 0);
+
+  const updatePermission = (key: keyof JourneyParticipantPermissions, value: boolean) => {
+    const next = { ...permissions, [key]: value };
+    setPermissions(next);
+    onPermissionsChange(next);
+  };
 
   const persist = (next: Companion[]) => {
     setOthers(next);
     onChange(anchor ? [anchor, ...next] : next);
   };
 
-  // entrance + swipe-down-to-dismiss (mirrors FullOverlay; off in select mode)
-  const translateY = useRef(new Animated.Value(600)).current;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const selectRef = useRef(selectMode);
-  selectRef.current = selectMode;
-  useEffect(() => {
-    Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 2, speed: 14 }).start();
-  }, [translateY]);
-  const pan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => !selectRef.current && g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_e, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_e, g) => {
-        if (g.dy > 110 || g.vy > 0.6) {
-          Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
-        } else {
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
-        }
-      },
-    })
-  ).current;
 
   // CRUD
   const openAdd = () => setEditor({ index: -1, isNew: true, draft: { ini: '友', name: '', role: '', color: PALETTE[others.length % PALETTE.length], trips: 0 } });
@@ -329,159 +302,210 @@ export function ManageCompanions({
       return n;
     });
   const allSelected = others.length > 0 && selected.size === others.length;
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(others.map((_, i) => i)));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(others.map((_, index) => index)));
   const deleteSelected = () => {
     persist(others.filter((_, i) => !selected.has(i)));
     exitSelect();
   };
 
-  const Badge = ({ label, accent }: { label: string; accent?: boolean }) => (
-    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: accent ? theme.accentSoft : theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-      <Text style={{ fontSize: 9.5, fontWeight: '700', letterSpacing: 0.3, color: accent ? theme.accent : theme.text2 }}>{label}</Text>
+
+
+  const MemberBadge = ({ label, accent = false }: { label: string; accent?: boolean }) => (
+    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: accent ? theme.accentSoft : theme.fieldSurface }}>
+      <Text style={{ fontSize: 9.5, lineHeight: 12, fontWeight: '700', color: accent ? theme.accent : theme.text2 }}>{label}</Text>
     </View>
   );
 
-  const dividerInset = 13 + (selectMode ? 34 : 0) + 42 + 12;
-  const anchorSub = anchor
-    ? anchor.self && anchor.host
-      ? t('journey.manage.subSelfHost')
-      : anchor.host
-      ? t('journey.manage.subHost')
-      : anchor.self
-      ? t('journey.manage.subSelf')
-      : anchor.trips
-      ? t('journey.manage.tripsCount', { count: anchor.trips })
-      : t('journey.manage.subCompanion')
-    : '';
+  const participantRow = (c: Companion, i: number) => {
+    const sel = selected.has(i);
+    return (
+      <Press
+        key={`${c.name}-${i}`}
+        onPress={() => (selectMode ? toggle(i) : openEdit(i))}
+        onLongPress={() => {
+          if (!selectMode) enterSelect(i);
+        }}
+        delayLongPress={380}
+        style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm }}
+      >
+        <View style={{ width: 44, height: 44 }}>
+          <ParticipantAvatar
+            theme={theme}
+            uri={c.avatarUrl}
+            size={44}
+            ring={selectMode && sel}
+            ringColor={theme.accent}
+          />
+          {selectMode ? (
+            <View
+              style={{
+                position: 'absolute',
+                right: -2,
+                bottom: -2,
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                borderWidth: 2,
+                borderColor: theme.featureSurface,
+                backgroundColor: sel ? theme.accent : theme.controlSurface,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {sel ? <Icon name="check" color="#FFFFFF" size={10} strokeWidth={3} /> : null}
+            </View>
+          ) : null}
+        </View>
+        <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+          <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{c.name}</Text>
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>
+            {c.role || t('journey.manage.participantRole')}
+          </Text>
+        </View>
+      </Press>
+    );
+  };
+
+  const permissionRows = (
+    <View>
+      {([
+        ['editTimeline', 'journey.manage.permissionEditTimeline', 'journey.manage.permissionEditTimelineSub'],
+        ['addMoments', 'journey.manage.permissionAddMoments', 'journey.manage.permissionAddMomentsSub'],
+        ['editChecklist', 'journey.manage.permissionEditChecklist', 'journey.manage.permissionEditChecklistSub'],
+        ['checkChecklistItems', 'journey.manage.permissionCheckChecklist', 'journey.manage.permissionCheckChecklistSub'],
+        ['inviteParticipants', 'journey.manage.permissionInvite', 'journey.manage.permissionInviteSub'],
+      ] as const).map(([key, titleKey, subKey], index) => (
+        <React.Fragment key={key}>
+          {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: 0, backgroundColor: theme.hairline }} /> : null}
+          <View style={{ minHeight: 76, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t(titleKey)}</Text>
+              <Text style={[type.caption, { color: theme.text3, lineHeight: 17, marginTop: space.xxs }]}>{t(subKey)}</Text>
+            </View>
+            <Switch
+              value={permissions[key]}
+              onValueChange={(value) => updatePermission(key, value)}
+              trackColor={{ false: theme.progressTrack, true: theme.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={theme.progressTrack}
+            />
+          </View>
+        </React.Fragment>
+      ))}
+    </View>
+  );
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 155, transform: [{ translateY }] }]}>
-      <View style={{ flex: 1 }}>
-        {/* Header */}
-        <View {...pan.panHandlers} style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <View style={{ height: 40, justifyContent: 'center' }}>
-            <View style={{ position: 'absolute', left: 0, top: 0 }}>
-              <CircleBtn theme={theme} name="arrowL" onPress={selectMode ? exitSelect : onClose} noShadow />
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface, zIndex: 155 }]}>
+      <DetailPage
+        theme={theme}
+        title={t('journey.manage.pageTitle')}
+        onBack={selectMode ? exitSelect : onClose}
+        backgroundColor={theme.featureSurface}
+        right={
+          selectMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} softShadow size={44} />
+              <AppIconButton theme={theme} name="close" onPress={exitSelect} softShadow size={44} />
             </View>
-            <View pointerEvents="none" style={{ alignItems: 'center', paddingHorizontal: 72 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }} numberOfLines={1}>
-                {selectMode ? t('journey.manage.selectedCount', { count: selected.size }) : t('journey.section.companions')}
-              </Text>
-              {!selectMode ? <Text style={{ fontSize: 12, color: theme.text2, marginTop: 1 }}>{t('journey.manage.totalCount', { count: total })}</Text> : null}
+          ) : (
+            <AppIconButton theme={theme} name="plus" onPress={() => setAddMode('choose')} softShadow size={44} />
+          )
+        }
+        overlay={
+          selectMode && selected.size ? (
+            <View style={{ position: 'absolute', right: space.md, bottom: Math.max(insets.bottom, space.md), zIndex: 20, alignItems: 'flex-end' }}>
+              <Press
+                onPress={deleteSelected}
+                style={{
+                  height: 52,
+                  paddingHorizontal: space.lg,
+                  borderRadius: radius.pill,
+                  backgroundColor: theme.danger,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: space.sm,
+                  boxShadow: theme.dark ? '0px 6px 18px rgba(0,0,0,0.42)' : '0px 6px 18px rgba(0,0,0,0.12)',
+                }}
+              >
+                <Icon name="trash" color="#FFFFFF" size={21} strokeWidth={2} />
+                <Text style={[type.body, { color: '#FFFFFF', fontWeight: '700' }]}>
+                  {t('journey.manage.removeSelected', { count: selected.size })}
+                </Text>
+              </Press>
             </View>
-            <View style={{ position: 'absolute', right: 0, top: 0, height: 40, justifyContent: 'center' }}>
-              {selectMode ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                  <Press onPress={toggleAll}>
-                    <Text style={{ fontSize: 14.5, fontWeight: '600', color: theme.text2 }}>{allSelected ? t('journey.manage.deselectAll') : t('journey.manage.selectAll')}</Text>
-                  </Press>
-                  <Press onPress={exitSelect}>
-                    <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('common.done')}</Text>
-                  </Press>
-                </View>
-              ) : (
-                <CircleBtn theme={theme} name="plus" onPress={() => setAddMode('choose')} noShadow />
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Roster */}
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
-          <View style={{ borderRadius: 16, overflow: 'hidden', backgroundColor: theme.dark ? '#1c1c1e' : '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-            {/* anchor — pinned, non-editable */}
+          ) : undefined
+        }
+      >
+        <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg }}>
+          <View style={{ paddingTop: space.sm }}>
             {anchor ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, paddingVertical: 11 }}>
-                {selectMode ? <View style={{ width: 22 }} /> : null}
-                <Avatar ini={anchor.ini} color={anchor.color} size={42} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text, flexShrink: 1 }} numberOfLines={1}>
-                      {anchor.name}
-                    </Text>
-                    {anchor.self ? <Badge label={t('journey.companions.meBadge')} /> : null}
-                    {anchor.host ? <Badge label={t('journey.companions.host')} accent /> : null}
+              <View style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm, opacity: selectMode ? 0.45 : 1 }}>
+                <ParticipantAvatar theme={theme} uri={anchor.avatarUrl} size={44} />
+                <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs }}>
+                    <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, flexShrink: 1 }]}>{anchor.name}</Text>
+                    {anchor.self ? <MemberBadge label={t('journey.companions.meBadge')} /> : null}
+                    {anchor.host ? <MemberBadge label={t('journey.companions.host')} accent /> : null}
                   </View>
-                  <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>{anchorSub}</Text>
+                  {anchor.role ? (
+                    <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{anchor.role}</Text>
+                  ) : null}
                 </View>
               </View>
             ) : null}
-            {anchor && others.length > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: dividerInset }} /> : null}
-
-            {/* editable companions */}
-            {others.map((c, i) => {
-              const sel = selected.has(i);
-              const key = c.role ? KEY_ROLES[c.role] : false;
-              return (
-                <React.Fragment key={i}>
-                  <Press
-                    onPress={() => (selectMode ? toggle(i) : openEdit(i))}
-                    onLongPress={() => {
-                      if (!selectMode) enterSelect(i);
-                    }}
-                    delayLongPress={380}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 13, paddingVertical: 11, backgroundColor: sel ? theme.accentSofter : 'transparent' }}
-                  >
-                    {selectMode ? (
-                      <View
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: 11,
-                          borderWidth: 2,
-                          borderColor: sel ? theme.accent : theme.text3,
-                          backgroundColor: sel ? theme.accent : 'transparent',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {sel ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
-                      </View>
-                    ) : null}
-                    <Avatar ini={c.ini} color={c.color} size={42} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text, flexShrink: 1 }} numberOfLines={1}>
-                          {c.name}
-                        </Text>
-                        {c.role ? <Badge label={c.role} accent={!!key} /> : null}
-                      </View>
-                      <Text style={{ fontSize: 11.5, color: theme.text2, marginTop: 2 }}>
-                        {c.trips ? (
-                          <Text>
-                            <Text style={{ fontFamily: MONO, fontWeight: '700' }}>{c.trips}</Text> {t('journey.manage.tripsUnit')}
-                          </Text>
-                        ) : (
-                          t('journey.manage.firstTrip')
-                        )}
-                      </Text>
-                    </View>
-                    {!selectMode ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
-                  </Press>
-                  {i < others.length - 1 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.hairline, marginLeft: dividerInset }} /> : null}
-                </React.Fragment>
-              );
-            })}
+            {others.map((c, i) => (
+              <React.Fragment key={`${c.name}-${i}`}>
+                {participantRow(c, i)}
+              </React.Fragment>
+            ))}
           </View>
 
           {others.length === 0 ? (
-            <KPState theme={theme} icon="people" title={t('journey.manage.emptyTitle')} body={t('journey.manage.emptyBody')} style={{ paddingVertical: 32 }} />
+            <View style={{ alignItems: 'flex-start', paddingTop: space.xl, paddingBottom: space.xs }}>
+              <Text style={[type.body, { color: theme.text2 }]}>{t('journey.manage.emptyClean')}</Text>
+              <Press
+                onPress={() => setAddMode('choose')}
+                style={{ marginTop: space.md, height: 38, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.controlSurface }}
+              >
+                <Icon name="plus" color={theme.text} size={15} />
+                <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t('journey.manage.inviteParticipant')}</Text>
+              </Press>
+            </View>
           ) : null}
 
-        </ScrollView>
+          <Press
+            onPress={() => setPermissionsOpen(true)}
+            accessibilityRole="button"
+            style={{ marginTop: space.xxxl }}
+          >
+            <View style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={[type.body, { flex: 1, color: theme.text, fontWeight: '600' }]}>{t('journey.manage.permissionsTitle')}</Text>
+              <Text style={[type.caption, { color: theme.text3, marginRight: space.xs }]}>
+                {t('journey.manage.permissionsEnabled', { count: Object.values(permissions).filter(Boolean).length })}
+              </Text>
+              <Icon name="chevronR" color={theme.text3} size={15} />
+            </View>
+          </Press>
+        </View>
+      </DetailPage>
 
-        {/* Batch delete bar */}
-        {selectMode ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 6, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.bg }}>
-            <Press
-              onPress={selected.size ? deleteSelected : undefined}
-              style={{ paddingVertical: 15, borderRadius: 14, alignItems: 'center', backgroundColor: selected.size ? theme.danger : theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <Text style={{ fontSize: 15, fontWeight: '700', color: selected.size ? '#fff' : theme.text3 }}>{selected.size ? t('journey.manage.removeSelected', { count: selected.size }) : t('journey.manage.removeSelectPrompt')}</Text>
-            </Press>
-          </View>
-        ) : null}
-      </View>
+      {permissionsOpen ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 70, backgroundColor: theme.featureSurface }]}>
+          <DetailPage
+            theme={theme}
+            title={t('journey.manage.permissionsTitle')}
+            onBack={() => setPermissionsOpen(false)}
+            backgroundColor={theme.featureSurface}
+            flatChrome
+          >
+            <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
+              {permissionRows}
+            </View>
+          </DetailPage>
+        </View>
+      ) : null}
 
       {/* Layered sheets */}
       {editor && <CompanionEditor theme={theme} draft={editor.draft} isNew={editor.isNew} existingNames={[...(anchor ? [anchor.name] : []), ...others.filter((_, i) => i !== editor.index).map((c) => c.name)]} onSave={saveFrom} onDelete={deleteFrom} onClose={() => setEditor(null)} />}
@@ -496,7 +520,7 @@ export function ManageCompanions({
           onClose={() => setAddMode(null)}
         />
       )}
-      {addMode === 'invite' && <NJSharePanel theme={theme} tripName={poi.name} journeyId={poi.id} onClose={() => setAddMode(null)} onToast={onToast} />}
-    </Animated.View>
+      {addMode === 'invite' && <NJSharePanel theme={theme} tripName={poi.name} journeyId={poi.id} onClose={() => setAddMode(null)} onToast={onToast} backgroundColor={theme.featureSurface} />}
+    </View>
   );
 }

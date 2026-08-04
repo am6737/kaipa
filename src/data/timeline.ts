@@ -8,6 +8,16 @@ export interface TLMedia {
   uri?: string;
   thumb?: string;
   video?: boolean;
+  livePhoto?: boolean;
+  pairedVideoUri?: string;
+  caption?: string;
+  createdAt?: string;
+  author?: {
+    ini: string;
+    name: string;
+    color: string;
+    avatarUrl?: string;
+  };
 }
 export interface TLRow {
   id: string;

@@ -108,6 +108,17 @@ export function GearScreen({ theme }: { theme: Theme }) {
   useEffect(() => { nav.setTabBarHidden(pageStack.length > 0); }, [pageStack.length, nav]);
   useEffect(() => () => nav.setTabBarHidden(false), [nav]);
 
+  useEffect(() => {
+    if (nav.gearItemRequestId == null) return;
+    const item = allItems.find((candidate) => candidate.id === nav.gearItemRequestId);
+    if (!item) {
+      if (!data.gearLoading) nav.clearGearItemRequest();
+      return;
+    }
+    setPageStack([{ type: 'item', item }]);
+    nav.clearGearItemRequest();
+  }, [allItems, data.gearLoading, nav.gearItemRequestId]);
+
   const updateItem = async (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
     if (oldItem && sameGearItem(oldItem, ni)) {

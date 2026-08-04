@@ -11,7 +11,7 @@ import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
 import { Globe, MAPBOX_ENABLED } from '../components/globe';
 import { Glass, GlassIconBtn } from '../components/Glass';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { KPState, KPSkeletonLine } from '../components/State';
@@ -25,6 +25,28 @@ import { useTimeline } from '../hooks/useTimeline';
 // their display label is resolved per-language at render time.
 const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
 const MEMORY_CHIPS = ['all', 'fav'] as const;
+
+function JourneyFooterActionLabel({
+  theme,
+  icon,
+  label,
+  danger = false,
+  disabled = false,
+}: {
+  theme: Theme;
+  icon: IconName;
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+}) {
+  const color = disabled ? theme.text3 : danger ? theme.danger : theme.text;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+      <Icon name={icon} color={color} size={15} />
+      <Text style={{ color, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+    </View>
+  );
+}
 
 function num(s: string) {
   const m = s.replace(/,/g, '').match(/[\d.]+/);
@@ -83,6 +105,24 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
+  const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
+  const [momentSelectionMode, setMomentSelectionMode] = useState(false);
+  const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(() => new Set());
+  const [visibleMomentIds, setVisibleMomentIds] = useState<string[]>([]);
+  const momentAddActionRef = React.useRef<(() => void) | null>(null);
+  const momentDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
+  const momentFilterActionRef = React.useRef<(() => void) | null>(null);
+  const checklistAddActionRef = React.useRef<(() => void) | null>(null);
+  const checklistDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
+  const checklistFilterActionRef = React.useRef<(() => void) | null>(null);
+  const [checklistSelectionMode, setChecklistSelectionMode] = useState(false);
+  const [selectedChecklistItemIds, setSelectedChecklistItemIds] = useState<Set<string>>(() => new Set());
+  const [visibleChecklistItemIds, setVisibleChecklistItemIds] = useState<string[]>([]);
+  const [checklistCanEdit, setChecklistCanEdit] = useState(true);
+  const [checklistFilterLabel, setChecklistFilterLabel] = useState(t('journey.packing.me'));
+  const [checklistFilterActive, setChecklistFilterActive] = useState(false);
+  const [momentFilterLabel, setMomentFilterLabel] = useState(t('common.all'));
+  const [momentFilterActive, setMomentFilterActive] = useState(false);
   const [availableJourneyDays, setAvailableJourneyDays] = useState<string[]>([]);
   const [timelineSelectionMode, setTimelineSelectionMode] = useState(false);
   const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
@@ -95,17 +135,68 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       setSelectedTimelineItemIds(new Set());
     }
   }, []);
+  const handleSelectedJourneyTabChange = useCallback((tab: string) => {
+    setSelectedJourneyTab(tab);
+    if (tab === 'moments') {
+      setSelectedJourneyDay(undefined);
+      setTimelineSelectionMode(false);
+      setSelectedTimelineItemIds(new Set());
+    }
+    if (tab !== 'moments') {
+      setMomentSelectionMode(false);
+      setSelectedMomentIds(new Set());
+      setVisibleMomentIds([]);
+    }
+    if (tab !== 'checklist') {
+      setChecklistSelectionMode(false);
+      setSelectedChecklistItemIds(new Set());
+      setVisibleChecklistItemIds([]);
+    }
+  }, []);
+  const handleMomentFilterStateChange = useCallback((label: string, active: boolean) => {
+    setMomentFilterLabel(label);
+    setMomentFilterActive(active);
+  }, []);
+  const handleChecklistFilterStateChange = useCallback((label: string, active: boolean) => {
+    setChecklistFilterLabel(label);
+    setChecklistFilterActive(active);
+  }, []);
+  const handleChecklistCanEditChange = useCallback((canEdit: boolean) => {
+    setChecklistCanEdit(canEdit);
+    if (!canEdit) {
+      setChecklistSelectionMode(false);
+      setSelectedChecklistItemIds((current) => current.size ? new Set() : current);
+    }
+  }, []);
 
   React.useEffect(() => {
     setPlanEditorOpen(false);
     setJourneySheetIndex(1);
     setSelectedPlanDays(new Set());
     setSelectedJourneyDay(undefined);
+    setSelectedJourneyTab('overview');
+    setMomentSelectionMode(false);
+    setSelectedMomentIds(new Set());
+    setVisibleMomentIds([]);
+    momentAddActionRef.current = null;
+    momentDeleteActionRef.current = null;
+    momentFilterActionRef.current = null;
+    checklistAddActionRef.current = null;
+    checklistDeleteActionRef.current = null;
+    checklistFilterActionRef.current = null;
+    setChecklistSelectionMode(false);
+    setSelectedChecklistItemIds(new Set());
+    setVisibleChecklistItemIds([]);
+    setChecklistCanEdit(true);
+    setChecklistFilterLabel(t('journey.packing.me'));
+    setChecklistFilterActive(false);
+    setMomentFilterLabel(t('common.all'));
+    setMomentFilterActive(false);
     setAvailableJourneyDays([]);
     setTimelineSelectionMode(false);
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
-  }, [focusedJourneyId, journeyDetailScrollY]);
+  }, [focusedJourneyId, journeyDetailScrollY, t]);
 
   const deleteSelectedPlanDays = () => {
     if (!selectedPlanDays.size) return;
@@ -429,7 +520,17 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               accessibilityRole="button"
               accessibilityLabel={t('common.share')}
               hitSlop={6}
-              onPress={() => nav.pointInfo && nav.openSharePanel(nav.pointInfo)}
+              onPress={() => {
+                const poi = nav.pointInfo;
+                if (!poi) return;
+                nav.openActionSheet({
+                  title: t('journey.manage.shareMenuTitle'),
+                  items: [
+                    { label: t('journey.manage.inviteParticipant'), icon: 'people', onPress: () => nav.openManageCompanions(poi, 'invite') },
+                    { label: t('journey.manage.shareJourney'), icon: 'share', onPress: () => nav.openSharePanel(poi) },
+                  ],
+                });
+              }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
               <Icon name="share" color={theme.text} size={25} />
@@ -501,6 +602,24 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                 selectedPlanDays={selectedPlanDays}
                 onSelectedPlanDaysChange={setSelectedPlanDays}
                 onSelectedJourneyDayChange={handleSelectedJourneyDayChange}
+                onSelectedTabChange={handleSelectedJourneyTabChange}
+                momentAddActionRef={momentAddActionRef}
+                momentDeleteActionRef={momentDeleteActionRef}
+                momentFilterActionRef={momentFilterActionRef}
+                onMomentFilterStateChange={handleMomentFilterStateChange}
+                checklistAddActionRef={checklistAddActionRef}
+                checklistDeleteActionRef={checklistDeleteActionRef}
+                checklistFilterActionRef={checklistFilterActionRef}
+                onChecklistFilterStateChange={handleChecklistFilterStateChange}
+                checklistSelectionMode={checklistSelectionMode}
+                selectedChecklistItemIds={selectedChecklistItemIds}
+                onSelectedChecklistItemIdsChange={setSelectedChecklistItemIds}
+                onVisibleChecklistItemIdsChange={setVisibleChecklistItemIds}
+                onChecklistCanEditChange={handleChecklistCanEditChange}
+                momentSelectionMode={momentSelectionMode}
+                selectedMomentIds={selectedMomentIds}
+                onSelectedMomentIdsChange={setSelectedMomentIds}
+                onVisibleMomentIdsChange={setVisibleMomentIds}
                 onJourneyDaysChange={setAvailableJourneyDays}
                 timelineSelectionMode={timelineSelectionMode}
                 selectedTimelineItemIds={selectedTimelineItemIds}
@@ -563,7 +682,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         )}
       </TrailSheet>
       )}
-      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.timelineAdd ? (
+      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.blockingOverlayOpen ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -578,67 +697,258 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             gap: space.xs,
           }}
         >
-          {selectedJourneyDay ? (
+          {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
             <>
-              {timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
-                <Press
-                  onPress={deleteSelectedTimelineItems}
-                  accessibilityRole="button"
-                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
-                >
-                  <Text style={{ color: theme.danger, fontSize: 13, fontWeight: '700' }}>{t('common.delete')}</Text>
-                </Press>
-              ) : null}
               {!timelineSelectionMode ? (
                 <Press
+                  hitSlop={3}
                   onPress={() => nav.pointInfo?.kind === 'journey' && nav.openTimelineAdd(nav.pointInfo, selectedJourneyDay, availableJourneyDays)}
                   accessibilityRole="button"
-                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
                 >
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{t('common.add')}</Text>
+                  <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
                 </Press>
               ) : null}
               <Press
+                hitSlop={3}
                 onPress={() => {
                   setTimelineSelectionMode((open) => !open);
                   if (timelineSelectionMode) setSelectedTimelineItemIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
-                <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{timelineSelectionMode ? t('common.done') : t('common.edit')}</Text>
+                <JourneyFooterActionLabel theme={theme} icon={timelineSelectionMode ? 'check' : 'edit'} label={timelineSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
-            </>
-          ) : (
-            <>
-              {planEditorOpen && selectedPlanDays.size > 0 ? (
-                <Press
-                  onPress={deleteSelectedPlanDays}
-                  accessibilityRole="button"
-                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
-                >
-                  <Text style={{ color: theme.danger, fontSize: 13, fontWeight: '700' }}>{t('common.delete')}</Text>
+              {timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
+                <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
+                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
                 </Press>
               ) : null}
-              {planEditorOpen ? (
+            </>
+          ) : selectedJourneyTab === 'moments' ? (
+            <>
+              {!momentSelectionMode ? (
                 <Press
-                  onPress={addPlanGroup}
+                  hitSlop={3}
+                  onPress={() => momentAddActionRef.current?.()}
                   accessibilityRole="button"
-                  style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  accessibilityLabel={t('common.add')}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
                 >
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{t('common.add')}</Text>
+                  <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
                 </Press>
               ) : null}
               <Press
+                hitSlop={3}
+                onPress={() => {
+                  setMomentSelectionMode((open) => !open);
+                  setSelectedMomentIds(new Set());
+                }}
+                accessibilityRole="button"
+                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+              >
+                <JourneyFooterActionLabel theme={theme} icon={momentSelectionMode ? 'check' : 'edit'} label={momentSelectionMode ? t('common.done') : t('common.edit')} />
+              </Press>
+              {momentSelectionMode && visibleMomentIds.length > 0 ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => {
+                    const allSelected = visibleMomentIds.every((id) => selectedMomentIds.has(id));
+                    setSelectedMomentIds(allSelected ? new Set() : new Set(visibleMomentIds));
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={visibleMomentIds.every((id) => selectedMomentIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="checkAll"
+                    label={visibleMomentIds.every((id) => selectedMomentIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                  />
+                </Press>
+              ) : null}
+              {!momentSelectionMode ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => momentFilterActionRef.current?.()}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('journey.moments.filterTitle')}
+                  style={{
+                    height: 38,
+                    paddingHorizontal: space.sm,
+                    borderRadius: radius.pill,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: space.xs,
+                    backgroundColor: theme.controlSurface,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: theme.fieldBorder,
+                    boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <Icon name="filter" color={theme.text} size={15} />
+                  <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
+                    {momentFilterLabel}
+                  </Text>
+                </Press>
+              ) : null}
+              {momentSelectionMode ? (
+                <Press
+                  hitSlop={3}
+                  disabled={selectedMomentIds.size === 0}
+                  onPress={() => {
+                    if (selectedMomentIds.size === 0) return;
+                    Alert.alert(
+                      t('journey.savePicker.deleteTitle', { count: selectedMomentIds.size }),
+                      t('journey.savePicker.deleteMessage'),
+                      [
+                        { text: t('common.cancel'), style: 'cancel' },
+                        {
+                          text: t('common.delete'),
+                          style: 'destructive',
+                          onPress: () => {
+                            void momentDeleteActionRef.current?.().then(() => setSelectedMomentIds(new Set()));
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: selectedMomentIds.size === 0 }}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedMomentIds.size > 0 ? theme.controlSurface : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: selectedMomentIds.size > 0 ? (theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)') : 'none' }}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="trash"
+                    label={t('common.delete')}
+                    danger={selectedMomentIds.size > 0}
+                    disabled={selectedMomentIds.size === 0}
+                  />
+                </Press>
+              ) : null}
+            </>
+          ) : selectedJourneyTab === 'checklist' ? (
+            <>
+              {checklistCanEdit && !checklistSelectionMode ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => checklistAddActionRef.current?.()}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.add')}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
+                </Press>
+              ) : null}
+              {checklistCanEdit ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => {
+                    setChecklistSelectionMode((open) => !open);
+                    setSelectedChecklistItemIds(new Set());
+                  }}
+                  accessibilityRole="button"
+                  style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'edit'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
+                </Press>
+              ) : null}
+              {checklistSelectionMode && visibleChecklistItemIds.length > 0 ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => {
+                    const allSelected = visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id));
+                    setSelectedChecklistItemIds(allSelected ? new Set() : new Set(visibleChecklistItemIds));
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="checkAll"
+                    label={visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                  />
+                </Press>
+              ) : null}
+              {!checklistSelectionMode ? (
+                <Press
+                  hitSlop={3}
+                  onPress={() => checklistFilterActionRef.current?.()}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('journey.packing.title')}
+                  style={{
+                    height: 38,
+                    paddingHorizontal: space.sm,
+                    borderRadius: radius.pill,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: space.xs,
+                    backgroundColor: theme.controlSurface,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: checklistFilterActive ? theme.accent : theme.fieldBorder,
+                    boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <Icon name="filter" color={checklistFilterActive ? theme.accent : theme.text} size={15} />
+                  <Text numberOfLines={1} style={{ maxWidth: 120, color: checklistFilterActive ? theme.accent : theme.text, fontSize: 13, fontWeight: '700' }}>
+                    {checklistFilterLabel}
+                  </Text>
+                </Press>
+              ) : null}
+              {checklistSelectionMode ? (
+                <Press
+                  hitSlop={3}
+                  disabled={selectedChecklistItemIds.size === 0}
+                  onPress={() => {
+                    if (selectedChecklistItemIds.size === 0) return;
+                    Alert.alert(
+                      t('common.delete'),
+                      undefined,
+                      [
+                        { text: t('common.cancel'), style: 'cancel' },
+                        { text: t('common.delete'), style: 'destructive', onPress: () => void checklistDeleteActionRef.current?.() },
+                      ],
+                    );
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: selectedChecklistItemIds.size === 0 }}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedChecklistItemIds.size > 0 ? theme.controlSurface : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: selectedChecklistItemIds.size > 0 ? (theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)') : 'none' }}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="trash"
+                    label={t('common.delete')}
+                    danger={selectedChecklistItemIds.size > 0}
+                    disabled={selectedChecklistItemIds.size === 0}
+                  />
+                </Press>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Press hitSlop={3} onPress={addPlanGroup} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
+                <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
+              </Press>
+              <Press
+                hitSlop={3}
                 onPress={() => {
                   setPlanEditorOpen((open) => !open);
                   if (planEditorOpen) setSelectedPlanDays(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
-                <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{planEditorOpen ? t('common.done') : t('common.edit')}</Text>
+                <JourneyFooterActionLabel theme={theme} icon={planEditorOpen ? 'check' : 'edit'} label={planEditorOpen ? t('common.done') : t('common.edit')} />
               </Press>
+              {planEditorOpen && selectedPlanDays.size > 0 ? (
+                <Press hitSlop={3} onPress={deleteSelectedPlanDays} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
+                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
+                </Press>
+              ) : null}
             </>
           )}
         </View>

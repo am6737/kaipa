@@ -3,7 +3,8 @@
 // share surfaces so the two sides look consistent. The tone palette mirrors the
 // identity tones used in the web guest flow.
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
+import { Avatar } from './Avatar';
 
 const TONE_COLORS: Record<string, string> = {
   river: '#0EAFB1',
@@ -23,23 +24,8 @@ export function initialsFor(name: string): string {
   return s.slice(0, /[a-zA-Z]/.test(s[0]) ? 2 : 1);
 }
 
-export function ToneAvatar({ name, tone, size = 30, ring }: { name: string; tone?: string; size?: number; ring?: string }) {
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: toneColor(tone),
-        borderWidth: ring ? 2 : 0,
-        borderColor: ring,
-      }}
-    >
-      <Text style={{ fontSize: Math.round(size * 0.42), fontWeight: '700', color: '#fff' }}>{initialsFor(name)}</Text>
-    </View>
-  );
+export function ToneAvatar({ size = 30, ring }: { name: string; tone?: string; size?: number; ring?: string }) {
+  return <Avatar size={size} ring={Boolean(ring)} ringColor={ring} />;
 }
 
 /** Overlapping disc stack (social proof), matching the invite/guest-cover design. */

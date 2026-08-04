@@ -9,6 +9,7 @@ import { Theme, ACCENT_PRESETS } from '../theme/theme';
 import { MONO } from '../theme/fonts';
 import { Icon, IconName } from '../components/Icon';
 import { Press } from '../components/Press';
+import { Avatar } from '../components/Avatar';
 import { Glass } from '../components/Glass';
 import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
@@ -345,9 +346,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
                   {profile.username || profile.email || t('me.unnamed')}
                 </Text>
               </View>
-              <View style={{ width: 68, height: 68, borderRadius: radius.pill, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, alignItems: 'center', justifyContent: 'center' }}>
-                {profile.nick ? <Text style={{ fontSize: 24, fontWeight: '800', color: theme.text }}>{profile.nick.slice(0, 1)}</Text> : <Icon name="user" color={theme.text2} size={26} />}
-              </View>
+              <Avatar size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
             </View>
             {profile.bio ? <Text numberOfLines={2} style={[type.body, { color: theme.text2, lineHeight: 20, marginTop: space.md }]}>{profile.bio}</Text> : null}
           </Press>

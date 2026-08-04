@@ -262,7 +262,7 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
   );
 }
 
-export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, keyboardAvoiding, bottomPadding, keyboardOverlap = 18, fillBehindKeyboard }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean; keyboardAvoiding?: boolean; bottomPadding?: number; keyboardOverlap?: number; fillBehindKeyboard?: boolean }) {
+export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, keyboardAvoiding, bottomPadding, keyboardOverlap = 18, fillBehindKeyboard, backgroundColor }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean; keyboardAvoiding?: boolean; bottomPadding?: number; keyboardOverlap?: number; fillBehindKeyboard?: boolean; backgroundColor?: string }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(600)).current;
   const onCloseRef = useRef(onClose);
@@ -293,7 +293,7 @@ export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, key
       {...sheetHandlers}
       style={{
         transform: [{ translateY }],
-        backgroundColor: theme.bg,
+        backgroundColor: backgroundColor || theme.bg,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         paddingBottom: bottomPadding ?? Math.max(insets.bottom, 16) + 6,
@@ -309,7 +309,7 @@ export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, key
       </View>
       {children}
       {keyboardAvoiding && keyboardFillHeight > 0 ? (
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: -keyboardFillHeight, height: keyboardFillHeight, backgroundColor: theme.bg }} />
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: -keyboardFillHeight, height: keyboardFillHeight, backgroundColor: backgroundColor || theme.bg }} />
       ) : null}
     </Animated.View>
   );
@@ -371,16 +371,16 @@ function njQrPattern(seed: string): boolean[][] {
   return cells;
 }
 
-export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast }: { theme: Theme; tripName: string; journeyId?: string; onClose: () => void; onToast: (m: string) => void }) {
+export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast, backgroundColor }: { theme: Theme; tripName: string; journeyId?: string; onClose: () => void; onToast: (m: string) => void; backgroundColor?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const { slug, code, link, fullUrl } = useMemo(() => {
+  const { slug, code, fullUrl } = useMemo(() => {
     const s = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
     const c = String(1000 + (Math.abs(hashSeed(tripName)) % 9000));
     const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
     const path = `/j/${s}-${c}`;
-    return { slug: s, code: c, link: `kaipa.app${path}`, fullUrl: `${base}${path}` };
+    return { slug: s, code: c, fullUrl: `${base}${path}` };
   }, [tripName]);
 
   useEffect(() => {
@@ -414,33 +414,62 @@ export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast }: {
   };
 
   return (
-    <NJBottomSheet theme={theme} onClose={onClose} full>
-      <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
-        <View style={{ alignItems: 'center', marginBottom: 18 }}>
-          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>{t('journeyEdit.share.title')}</Text>
-          <Text style={{ fontSize: 12.5, color: theme.text2, marginTop: 4, lineHeight: 18, textAlign: 'center' }}>
-            {t('journeyEdit.share.lead')}<Text style={{ color: theme.text, fontWeight: '600' }}>《{tripName || t('journeyEdit.newJourneyName')}》</Text>
+    <NJBottomSheet theme={theme} onClose={onClose} full backgroundColor={backgroundColor}>
+      <View style={{ paddingHorizontal: 24, paddingBottom: 12 }}>
+        <View style={{ paddingTop: 8, marginBottom: 30 }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>
+            {t('journeyEdit.share.title')}
+          </Text>
+          <Text style={{ fontSize: 12.5, color: theme.text3, marginTop: 6, lineHeight: 18 }}>
+            {t('journeyEdit.share.lead')}
           </Text>
         </View>
 
-        <View style={{ alignItems: 'center', marginBottom: 16 }}>
-          <View style={{ padding: 14, borderRadius: 18, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 4 }}>
-            <QRCode value={fullUrl} size={172} backgroundColor="#fff" color="#000" />
+        <View style={{ alignItems: 'center' }}>
+          <View
+            style={{
+              width: 248,
+              paddingHorizontal: 24,
+              paddingTop: 24,
+              paddingBottom: 20,
+              borderRadius: 24,
+              backgroundColor: '#FFFFFF',
+              alignItems: 'center',
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: theme.dark ? 0.26 : 0.07,
+              shadowRadius: 22,
+              elevation: 4,
+            }}
+          >
+            <Text
+              numberOfLines={2}
+              style={{ maxWidth: 200, color: '#171717', fontSize: 15, lineHeight: 20, fontWeight: '700', textAlign: 'center', marginBottom: 20 }}
+            >
+              {tripName || t('journeyEdit.newJourneyName')}
+            </Text>
+            <QRCode value={fullUrl} size={164} backgroundColor="#FFFFFF" color="#000000" />
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, marginBottom: 12 }}>
-          <Icon name="share" color={theme.text2} size={14} />
-          <Text numberOfLines={1} style={{ flex: 1, fontFamily: MONO, fontSize: 12.5, color: theme.text }}>{fullUrl}</Text>
-        </View>
-
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 30 }}>
           <Press
             onPress={doCopy}
-            style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: copied ? '#34C759' : theme.accent, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+            style={{
+              flex: 1,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: copied ? '#34C759' : theme.accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+              gap: 7,
+            }}
           >
-            <Icon name="check" color="#fff" size={13} strokeWidth={3} />
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}</Text>
+            <Icon name={copied ? 'check' : 'share'} color="#FFFFFF" size={14} strokeWidth={copied ? 3 : undefined} />
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>
+              {copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}
+            </Text>
           </Press>
           <Press
             onPress={() => {
@@ -448,14 +477,27 @@ export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast }: {
               onToast(t('journeyEdit.share.toastQrSaved'));
               setTimeout(() => setSaved(false), 1500);
             }}
-            style={{ flex: 1, height: 44, borderRadius: 13, backgroundColor: saved ? '#34C759' : theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', borderWidth: saved ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+            style={{
+              flex: 1,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: saved ? '#34C759' : theme.controlSurface,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+              gap: 7,
+            }}
           >
-            <Text style={{ fontSize: 14, fontWeight: '700', color: saved ? '#fff' : theme.text }}>{saved ? t('common.saved') : t('journeyEdit.share.saveQr')}</Text>
+            {saved ? <Icon name="check" color="#FFFFFF" size={14} strokeWidth={3} /> : null}
+            <Text style={{ fontSize: 14, fontWeight: '700', color: saved ? '#FFFFFF' : theme.text }}>
+              {saved ? t('common.saved') : t('journeyEdit.share.saveQr')}
+            </Text>
           </Press>
         </View>
       </View>
     </NJBottomSheet>
   );
+
 }
 
 function NJQrDisplay({ seed, size = 172 }: { seed: string; size?: number }) {

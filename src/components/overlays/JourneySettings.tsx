@@ -311,6 +311,11 @@ export function JourneySettings({
     }
   };
 
+  const openParticipants = () => {
+    onClose();
+    setTimeout(() => nav.openManageCompanions(poi), 220);
+  };
+
   const confirmDelete = () => {
     nav.openActionSheet({
       title: t('journey.settings.deleteConfirmTitle'),
@@ -408,6 +413,34 @@ export function JourneySettings({
           />
         </View>
 
+        <View style={{ marginBottom: space.xxl }}>
+          <SectionLabel theme={theme}>{t('journey.settings.participantsSection')}</SectionLabel>
+          <Press
+            onPress={openParticipants}
+            accessibilityRole="button"
+            style={{
+              minHeight: 64,
+              paddingHorizontal: space.md,
+              paddingVertical: space.sm,
+              borderRadius: radius.feature,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.hairline,
+              backgroundColor: theme.surfaceTop,
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <Icon name="people" color={theme.text2} size={20} />
+            <Text style={{ flex: 1, marginLeft: space.sm, color: theme.text, fontSize: 16, fontWeight: '600' }}>
+              {t('journey.manage.pageTitle')}
+            </Text>
+            <Text style={[type.caption, { color: theme.text3, marginRight: space.xs }]}>
+              {t('journey.manage.totalCount', { count: poi.companionList?.length || poi.companions || 0 })}
+            </Text>
+            <Icon name="chevronR" color={theme.text3} size={16} />
+          </Press>
+        </View>
+
         {hasTrack ? (
           <View style={{ marginBottom: space.xxl }}>
             <SectionLabel theme={theme}>{t('journey.settings.exploreSection')}</SectionLabel>
@@ -485,7 +518,6 @@ export function JourneySettings({
           theme={theme}
           media={[{ tone: poi.tone, uri: selectedCover }]}
           index={0}
-          showTypeBadge={false}
           onClose={() => setCoverViewerOpen(false)}
           onDelete={() => {
             setSelectedCover(null);

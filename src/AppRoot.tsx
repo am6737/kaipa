@@ -52,7 +52,7 @@ function AppShell() {
       <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'me' && hidden]}>
         <MeScreen theme={theme} />
       </View>
-      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden} />
+      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen} />
 
       {nav.addRouteOpen && (
         <AddRouteSheet
@@ -176,10 +176,12 @@ function AppShell() {
       {nav.manageCompanions && (
         <ManageCompanions
           theme={theme}
-          poi={nav.manageCompanions}
+          poi={nav.manageCompanions.poi}
+          initialAction={nav.manageCompanions.initialAction}
           onClose={() => nav.closeManageCompanions()}
           onToast={(m) => nav.showToast(m)}
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
+          onPermissionsChange={(participantPermissions) => nav.patchCurrent({ participantPermissions })}
         />
       )}
       {nav.sharePanel && (

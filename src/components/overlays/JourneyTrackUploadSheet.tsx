@@ -163,7 +163,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
         >
           <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: radius.pill, backgroundColor: theme.text3, opacity: 0.34 }} />
 
-          <Text style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34, marginTop: space.lg }]}>{replacing ? t('journey.track.reuploadTitle') : t('journey.track.uploadTitle')}</Text>
+          <Text style={[type.pageTitle, { color: theme.text, marginTop: space.lg }]}>{replacing ? t('journey.track.reuploadTitle') : t('journey.track.uploadTitle')}</Text>
 
           <Press
             onPress={chooseFile}
@@ -182,7 +182,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
             }}
           >
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.track.fileLabel')}</Text>
+              <Text style={[type.cardTitle, { color: theme.text }]}>{t('journey.track.fileLabel')}</Text>
               <Text numberOfLines={2} style={[type.body, { color: selectedFile ? theme.text2 : theme.text3, lineHeight: 21, marginTop: space.xs }]}>
                 {selectedFile?.name || t('journey.track.filePlaceholder')}
               </Text>
@@ -205,7 +205,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
             }}
           >
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.track.drawTitle')}</Text>
+              <Text style={[type.cardTitle, { color: theme.text }]}>{t('journey.track.drawTitle')}</Text>
               <Text style={[type.body, { color: theme.text3, lineHeight: 21, marginTop: space.xs }]}>{t('journey.track.drawDescription')}</Text>
             </View>
             <Text style={[type.body, { color: theme.text3, fontWeight: '700' }]}>{t('journey.track.comingSoon')}</Text>
@@ -228,7 +228,7 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
             }}
           >
             {loading ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
-            <Text style={[type.sectionTitle, { color: selectedFile ? '#FFFFFF' : theme.text3 }]}>
+            <Text style={[type.cardTitle, { color: selectedFile ? '#FFFFFF' : theme.text3 }]}>
               {loading ? t('journey.track.reading') : replacing ? t('journey.track.replaceAction') : t('journey.track.uploadAction')}
             </Text>
           </Press>

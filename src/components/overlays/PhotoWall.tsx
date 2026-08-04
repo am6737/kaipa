@@ -30,8 +30,8 @@ import { useNav } from '../../nav/NavContext';
 import { useInspo } from '../../hooks/useInspo';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
-import { formatDuration } from '../../lib/time';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
+import { radius, space, type } from '../../design-system';
 
 
 interface WallPhoto {
@@ -47,6 +47,7 @@ interface WallPhoto {
   thumbnail?: string;
   duration?: number;
   pairedVideoUri?: string;
+  createdAt?: string;
 }
 
 // ── Native-thread seek bar: all animations via scaleX/translateX on UI thread ──
@@ -162,7 +163,7 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
   thumbCache: Record<string, string>;
 }) {
   const t = theme;
-  const { t: tr } = useI18n();
+  const { t: tr, resolved } = useI18n();
   const { width: W } = useWindowDimensions();
   const photo = visible[index];
   const scrollRef = useRef<ScrollView>(null);
@@ -432,29 +433,45 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
         </>
       ) : null}
 
-      {/* bottom info (hidden when menu is open, video is playing, or zoomed in) */}
+      {/* Moment context: author, what they said, and when it was posted. */}
       {!menu && !zoomed && !(isVideo && livePlaying) ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, paddingBottom: insets.bottom + 20 }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.lg, paddingTop: 92, paddingBottom: insets.bottom + space.lg }}>
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', 'rgba(0,0,0,0.78)']}
+            locations={[0, 0.72]}
+            style={StyleSheet.absoluteFill}
+          />
           {isLivePhoto ? (
-            <Press onPress={toggleLive} style={{ alignSelf: 'flex-start', marginBottom: 12 }}>
+            <Press onPress={toggleLive} style={{ alignSelf: 'flex-start', marginBottom: space.sm }}>
               <View style={{
-                flexDirection: 'row', alignItems: 'center', gap: 4,
-                paddingLeft: 6, paddingRight: 9, paddingVertical: 4, borderRadius: 100,
+                flexDirection: 'row', alignItems: 'center', gap: space.xxs,
+                paddingLeft: 6, paddingRight: 9, paddingVertical: space.xxs, borderRadius: radius.pill,
                 backgroundColor: livePlaying ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.25)',
               }}>
                 <Icon name="livePhoto" color={livePlaying ? '#FFD60A' : '#fff'} size={20} strokeWidth={1.5} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: livePlaying ? '#FFD60A' : 'rgba(255,255,255,0.9)', letterSpacing: 0.2 }}>LIVE</Text>
+                <Text style={{ ...type.eyebrow, color: livePlaying ? '#FFD60A' : 'rgba(255,255,255,0.9)', letterSpacing: 0.2 }}>LIVE</Text>
               </View>
             </Press>
           ) : null}
-          {photo.caption ? <Text style={{ fontSize: 16.5, fontWeight: '600', color: '#fff', lineHeight: 22, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>{photo.caption}</Text> : null}
-          {(() => {
-            // Show trip day + the journey's recorded duration ("耗时"), not a calendar date.
-            const dayPart = photo.day ? `Day ${photo.day}` : '';
-            const dur = info.trackDurationMs ? formatDuration(info.trackDurationMs, tr) : '';
-            const line = [dayPart, dur].filter(Boolean).join(' · ');
-            return line ? <Text style={{ fontFamily: MONO, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 7, letterSpacing: 0.4 }}>{line}</Text> : null;
-          })()}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Avatar uri={photo.author.avatarUrl} size={36} />
+            <View style={{ flex: 1 }}>
+              <Text numberOfLines={1} style={{ ...type.cardTitle, color: '#fff', textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 5 }}>
+                {photo.author.name}
+              </Text>
+              <Text style={{ ...type.caption, color: 'rgba(255,255,255,0.68)', marginTop: 2 }}>
+                {photo.createdAt
+                  ? tr('journey.photoWall.postedAt', { time: formatMomentPostedAt(photo.createdAt, resolved) })
+                  : tr('journey.photoWall.postedAtUnknown')}
+              </Text>
+            </View>
+          </View>
+          {photo.caption ? (
+            <Text style={{ fontSize: 16, fontWeight: '500', color: '#fff', lineHeight: 23, marginTop: space.md, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>
+              {photo.caption}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
@@ -513,6 +530,18 @@ function Lightbox({ visible, index, setIndex, onClose, onDelete, info, theme, in
       ) : null}
     </Animated.View>
   );
+}
+
+function formatMomentPostedAt(value: string, locale: 'zh' | 'en'): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: locale === 'zh' ? 'numeric' : 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 export function genPhotos(info: Poi): WallPhoto[] {
@@ -661,8 +690,8 @@ function SavePickerSheet({ theme: t, allPhotos, saveSelectedIds, setSaveSelected
                   <View style={{ aspectRatio: 0.85, borderRadius: 14, overflow: 'hidden', backgroundColor: t.dark ? '#2c2c2e' : '#e8e8e8' }}>
                     <Image source={{ uri: p.kind === 'video' ? (p.thumbnail || p.uri) : p.uri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
                     {author ? (
-                      <View style={{ position: 'absolute', top: 8, left: 8, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.4)' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#fff' }}>{author.ini}</Text>
+                      <View style={{ position: 'absolute', top: 8, left: 8 }}>
+                        <Avatar uri={author.avatarUrl} size={24} ring ringColor="rgba(255,255,255,0.65)" />
                       </View>
                     ) : null}
                     <View style={{ position: 'absolute', top: 8, right: 8, width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: checked ? t.accent : 'rgba(255,255,255,0.6)', backgroundColor: checked ? t.accent : 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' }}>
@@ -843,7 +872,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
       if (kind === 'livePhoto' && (a as any).pairedVideoAsset?.uri) {
         pairedVideoUri = (a as any).pairedVideoAsset.uri;
       }
-      return { uri: a.uri, kind, thumbnail, duration, pairedVideoUri, caption: cap };
+      return { uri: a.uri, kind, thumbnail, duration, pairedVideoUri, caption: cap, createdAt: new Date().toISOString() };
     }));
     // addAll creates ALL placeholders synchronously in one batch before any
     // upload begins, then uploads with 4-at-a-time concurrency.
@@ -910,7 +939,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
   const fakePhotos = useMemo(() => genPhotos(info), [info.name, info.photoUris, info.companionList]);
   const selfAuthor = self || { ini: tr('journey.companions.me'), name: tr('journey.companions.me'), color: '#0A84FF' } as Companion;
   const inspoPhotos = useMemo<WallPhoto[]>(
-    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: m.caption || '', day: 0, author: selfAuthor, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
+    () => inspo.media.map((m) => ({ id: m.id, tone: 'ridge', ratio: 1, caption: m.caption || '', day: 0, author: selfAuthor, createdAt: m.createdAt, uri: m.uri, kind: m.kind, thumbnail: m.thumbnail, duration: m.duration, pairedVideoUri: m.pairedVideoUri })),
     [inspo.media, selfAuthor]
   );
   const allPhotos = [...fakePhotos, ...inspoPhotos];
@@ -1092,8 +1121,8 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
                           <View style={{ width: '100%', height: '100%' }}>
                             <Image source={{ uri: p.uri }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
                             {p.kind === 'livePhoto' ? (
-                              <View style={{ position: 'absolute', left: 5, bottom: 5 }}>
-                                <Icon name="livePhoto" color="#fff" size={14} strokeWidth={1.6} />
+                              <View pointerEvents="none" style={{ position: 'absolute', left: space.sm, bottom: space.sm }}>
+                                <Icon name="livePhoto" color="#FFFFFF" size={26} />
                               </View>
                             ) : null}
                           </View>

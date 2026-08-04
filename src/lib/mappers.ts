@@ -1,4 +1,4 @@
-import type { Poi, Companion } from '../data/pois';
+import { DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, type Poi, type Companion } from '../data/pois';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 import type { Notif } from '../data/notifications';
 import type { TLRow, TLMedia } from '../data/timeline';
@@ -32,11 +32,14 @@ export function toRoutePoi(r: any): Poi {
 
 export function toJourneyPoi(j: any, companions?: any[]): Poi {
   const list: Companion[] = (companions ?? j.companions ?? []).map((c: any) => ({
+    id: c.id ?? undefined,
+    userId: c.user_id ?? undefined,
     ini: c.ini,
     name: c.name,
     role: c.role ?? undefined,
     color: c.color,
     tone: c.tone ?? undefined,
+    avatarUrl: c.avatar_url ?? undefined,
     trips: c.trips ?? undefined,
     host: c.is_host ?? false,
     self: c.is_self ?? false,
@@ -54,7 +57,7 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     asc: j.asc ?? '',
     diff: j.diff,
     tone: j.tone,
-    mine: true,
+    mine: j.mine ?? true,
     desc: j.desc,
     date: j.date,
     days: j.days,
@@ -66,6 +69,7 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     routeId: j.route_id,
     companions: list.length,
     companionList: list,
+    participantPermissions: { ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, ...(j.participant_permissions ?? {}) },
     trackCoords: j.track_coords,
     trackElevation: j.track_elevation,
     trackDurationMs: j.track_duration_ms,
@@ -144,5 +148,6 @@ export function toInspoMedia(r: any): InspoMedia {
     duration: r.duration ?? undefined,
     pairedVideoUri: r.paired_video_uri ?? undefined,
     caption: r.caption ?? undefined,
+    createdAt: r.created_at ?? undefined,
   };
 }

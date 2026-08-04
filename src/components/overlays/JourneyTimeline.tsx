@@ -4,11 +4,15 @@
 // (JourneyTimelineCard) and the bottom-sheet add/edit editor (JourneyEntryEditor):
 // tapping a row opens that sheet in edit mode; "+" opens it in add mode.
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Platform, KeyboardAvoidingView, useWindowDimensions, Dimensions, Modal, Alert, Animated, Keyboard, PanResponder, Easing, LayoutAnimation, UIManager } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, ActivityIndicator, Platform, KeyboardAvoidingView, useWindowDimensions, Dimensions, Modal, Alert, Animated, Keyboard, PanResponder, Easing, LayoutAnimation, UIManager, Share, StatusBar as NativeStatusBar } from 'react-native';
 import { Image } from 'expo-image';
+import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
@@ -16,10 +20,12 @@ import { TLRow, TLMedia, TLGroup } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
+import { Avatar } from '../Avatar';
 import { Press } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { uploadMedia } from '../../lib/storage';
+import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { generateSmartPlan, parseJourneySchedule, SmartPlanItem } from '../../lib/smartPlan';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
@@ -370,6 +376,150 @@ function ViewerVideo({ uri, width, height }: { uri: string; width: number; heigh
   return <VideoView player={player} style={{ width, height }} nativeControls />;
 }
 
+function ZoomableViewerImage({
+  uri,
+  width,
+  height,
+  active,
+  dragY,
+  onSingleTap,
+  onDismiss,
+  onZoomChange,
+  onDismissGestureChange,
+  onLongPress,
+  onPressRelease,
+}: {
+  uri?: string;
+  width: number;
+  height: number;
+  active: boolean;
+  dragY: Animated.Value;
+  onSingleTap: () => void;
+  onDismiss: () => void;
+  onZoomChange: (zoomed: boolean) => void;
+  onDismissGestureChange: (active: boolean) => void;
+  onLongPress?: () => void;
+  onPressRelease?: () => void;
+}) {
+  const zoomRef = useRef<ReactNativeZoomableView>(null);
+  const zoomCenterRef = useRef({ x: 0, y: 0 });
+  const dismissGestureActive = useRef(false);
+  const longPressTriggered = useRef(false);
+
+  const finishDismissGesture = (dy: number, vy: number, zoomLevel: number) => {
+    const wasDismissing = dismissGestureActive.current;
+    dismissGestureActive.current = false;
+    if (!wasDismissing || !active || zoomLevel > 1.01) return;
+    if (dy > 110 || (dy > 48 && vy > 1.1)) {
+      Animated.timing(dragY, {
+        toValue: height,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => {
+        onDismissGestureChange(false);
+        onDismiss();
+      });
+      return;
+    }
+    Animated.spring(dragY, {
+      toValue: 0,
+      damping: 22,
+      stiffness: 240,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start(() => onDismissGestureChange(false));
+  };
+
+  return (
+    <ReactNativeZoomableView
+      ref={zoomRef}
+      style={{ width, height }}
+      initialZoom={1}
+      minZoom={1}
+      maxZoom={4}
+      zoomStep={null as any}
+      bindToBorders
+      disablePanOnInitialZoom
+      doubleTapDelay={280}
+      animatePin={false}
+      visualTouchFeedbackEnabled={false}
+      longPressDuration={360}
+      onLongPress={() => {
+        longPressTriggered.current = true;
+        onLongPress?.();
+      }}
+      onSingleTap={() => {
+        if (longPressTriggered.current) {
+          longPressTriggered.current = false;
+          return;
+        }
+        onSingleTap();
+      }}
+      onDoubleTapBefore={(event, info) => {
+        if (info.zoomLevel > 1.05) {
+          zoomRef.current?.zoomTo(1, zoomCenterRef.current);
+          if (active) onZoomChange(false);
+          return;
+        }
+        const center = {
+          x: event.nativeEvent.pageX - info.originalPageX,
+          y: event.nativeEvent.pageY - info.originalPageY,
+        };
+        zoomCenterRef.current = center;
+        zoomRef.current?.zoomTo(2, center);
+        if (active) onZoomChange(true);
+      }}
+      onZoomAfter={(_, __, { zoomLevel }) => {
+        if (active) onZoomChange(zoomLevel > 1.05);
+      }}
+      onPanResponderMove={(_, gestureState, { zoomLevel }) => {
+        if (longPressTriggered.current) return true;
+        if (!active || zoomLevel > 1.01 || gestureState.numberActiveTouches !== 1) return false;
+        const isDownwardDismiss = gestureState.dy > 0 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.15;
+        if (!isDownwardDismiss) return false;
+        if (!dismissGestureActive.current) {
+          dismissGestureActive.current = true;
+          onDismissGestureChange(true);
+        }
+        dragY.setValue(gestureState.dy);
+        return true;
+      }}
+      onPanResponderEnd={(_, gestureState, { zoomLevel }) => {
+        finishDismissGesture(gestureState.dy, gestureState.vy, zoomLevel);
+        onPressRelease?.();
+      }}
+      onShouldBlockNativeResponder={(_, gestureState, { zoomLevel }) =>
+        zoomLevel > 1.05
+        || gestureState.numberActiveTouches >= 2
+        || dismissGestureActive.current
+        || (gestureState.dy > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.05)
+      }
+      onPanResponderTerminationRequest={(_, gestureState, { zoomLevel }) =>
+        !dismissGestureActive.current && zoomLevel <= 1.05 && gestureState.numberActiveTouches < 2
+      }
+    >
+      {uri ? (
+        <Image source={{ uri }} contentFit="contain" transition={200} style={{ width, height }} />
+      ) : (
+        <View style={{ width, height, backgroundColor: 'rgba(255,255,255,0.06)' }} />
+      )}
+    </ReactNativeZoomableView>
+  );
+}
+
+function formatMediaPostedAt(value: string, locale: 'zh' | 'en'): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: locale === 'zh' ? 'numeric' : 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 // Fullscreen media viewer — swipe to page, video plays inline. Rendered through a
 // Modal so it covers the whole screen even when launched from a nested card.
 export function MediaViewer({
@@ -388,21 +538,170 @@ export function MediaViewer({
   showTypeBadge?: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const { width, height } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
   const [i, setI] = useState(index || 0);
+  const [backdropIndex, setBackdropIndex] = useState(index || 0);
+  const backdropIndexRef = useRef(index || 0);
   const m = media[i] || media[0];
-  const viewH = height;
+  const backdropMedia = media[backdropIndex] || m;
+  const backdropUri = backdropMedia?.video ? backdropMedia.thumb : backdropMedia?.uri;
+  const liveVideoUri = m?.livePhoto ? m.pairedVideoUri ?? null : null;
+  const livePlayer = useVideoPlayer(liveVideoUri, (player) => { player.loop = false; });
+  const livePressActive = useRef(false);
+  const [livePlaying, setLivePlaying] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const chromeAnim = useRef(new Animated.Value(1)).current;
+  const dragY = useRef(new Animated.Value(0)).current;
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [imageZoomed, setImageZoomed] = useState(false);
+  const [multiTouch, setMultiTouch] = useState(false);
+  const [verticalDismissing, setVerticalDismissing] = useState(false);
+  const multiTouchRef = useRef(false);
+  const [activeAction, setActiveAction] = useState<'save' | 'share' | null>(null);
+  const [actionNotice, setActionNotice] = useState<{ text: string; danger?: boolean } | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
   }, [fadeAnim]);
 
   useEffect(() => {
+    const entry = NativeStatusBar.pushStackEntry({
+      animated: true,
+      hidden: !chromeVisible,
+      barStyle: 'light-content',
+      showHideTransition: 'slide',
+    });
+    return () => NativeStatusBar.popStackEntry(entry);
+  }, [chromeVisible]);
+
+  useEffect(() => {
+    backdropIndexRef.current = index;
+    setBackdropIndex(index);
     if (index > 0) setTimeout(() => scrollRef.current?.scrollTo({ x: index * width, animated: false }), 10);
   }, [index, width]);
+
+  useEffect(() => {
+    livePressActive.current = false;
+    setLivePlaying(false);
+    try { livePlayer?.pause(); } catch {}
+  }, [i, livePlayer]);
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    try { livePlayer?.pause(); } catch {}
+  }, [livePlayer]);
+
+  const showActionNotice = (text: string, danger = false) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setActionNotice({ text, danger });
+    noticeTimer.current = setTimeout(() => setActionNotice(null), 1800);
+  };
+
+  const localMediaUri = async (uri: string) => {
+    if (!/^https?:\/\//i.test(uri)) return uri;
+    const downloaded = await File.downloadFileAsync(uri, Paths.cache);
+    return downloaded.uri;
+  };
+
+  const saveCurrent = async () => {
+    if (!m?.uri || activeAction) return;
+    setActiveAction('save');
+    try {
+      const { status } = await requestMediaLibraryPermissions(true);
+      if (status !== 'granted') {
+        showActionNotice(t('journey.photoWall.needLibraryPerm'), true);
+        return;
+      }
+      await createMediaLibraryAsset(await localMediaUri(m.uri));
+      showActionNotice(t('journey.photoWall.savedToAlbum'));
+    } catch (error) {
+      console.warn('[MediaViewer] save failed:', error);
+      showActionNotice(t('journey.savePicker.saveFailed'), true);
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const shareCurrent = async () => {
+    if (!m?.uri || activeAction) return;
+    setActiveAction('share');
+    try {
+      const uri = await localMediaUri(m.uri);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: m.video ? 'video/mp4' : 'image/jpeg' });
+      } else {
+        await Share.share({ url: uri });
+      }
+    } catch (error: any) {
+      if (error?.message !== 'User did not share') {
+        console.warn('[MediaViewer] share failed:', error);
+        showActionNotice(t('journey.photoWall.errorTitle'), true);
+      }
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const startLivePlayback = () => {
+    if (!m?.livePhoto || !m.pairedVideoUri || !livePlayer) return;
+    livePressActive.current = true;
+    try {
+      livePlayer.currentTime = 0;
+      livePlayer.play();
+      setLivePlaying(true);
+    } catch (error) {
+      console.warn('[MediaViewer] live photo playback failed:', error);
+      livePressActive.current = false;
+      setLivePlaying(false);
+    }
+  };
+
+  const stopLivePlayback = () => {
+    if (!livePressActive.current && !livePlaying) return;
+    livePressActive.current = false;
+    try {
+      livePlayer?.pause();
+      if (livePlayer) livePlayer.currentTime = 0;
+    } catch {}
+    setLivePlaying(false);
+  };
+
+  const setChrome = (visible: boolean) => {
+    setChromeVisible(visible);
+    Animated.timing(chromeAnim, {
+      toValue: visible ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const toggleChrome = () => setChrome(!chromeVisible);
+  const viewerOpacity = Animated.multiply(
+    fadeAnim,
+    dragY.interpolate({
+      inputRange: [0, 72, height * 0.42],
+      outputRange: [1, 0.58, 0],
+      extrapolate: 'clamp',
+    }),
+  );
+  const dragChromeOpacity = Animated.multiply(
+    chromeAnim,
+    dragY.interpolate({
+      inputRange: [0, 96],
+      outputRange: [1, 0],
+      extrapolate: 'clamp',
+    }),
+  );
+
+  const syncMultiTouch = (event: { nativeEvent: { touches?: unknown[] } }) => {
+    const nextMultiTouch = (event.nativeEvent.touches?.length ?? 0) >= 2;
+    if (nextMultiTouch === multiTouchRef.current) return;
+    multiTouchRef.current = nextMultiTouch;
+    setMultiTouch(nextMultiTouch);
+  };
 
   const renderItem = (mm: TLMedia, idx: number) => {
     const isNear = Math.abs(idx - i) <= 1;
@@ -411,89 +710,272 @@ export function MediaViewer({
     if (mm.video && mm.uri && isActive) {
       return (
         <View key={idx} style={{ width, height, alignItems: 'center', justifyContent: 'center' }}>
-          <ViewerVideo uri={mm.uri} width={width} height={viewH} />
+          <ViewerVideo uri={mm.uri} width={width} height={height} />
         </View>
       );
     }
     const displayUri = mm.video ? mm.thumb : mm.uri;
     return (
-      <Pressable key={idx} onPress={onClose} style={{ width, height, alignItems: 'center', justifyContent: 'center' }}>
-        {displayUri ? (
-          <Image source={{ uri: displayUri }} contentFit="contain" transition={200} style={{ width, height: viewH }} />
-        ) : (
-          <View style={{ width, height: viewH, backgroundColor: 'rgba(255,255,255,0.06)' }} />
-        )}
-      </Pressable>
+      <View key={idx} style={{ width, height, alignItems: 'center', justifyContent: 'center' }}>
+        <ZoomableViewerImage
+          uri={displayUri}
+          width={width}
+          height={height}
+          active={isActive}
+          dragY={dragY}
+          onSingleTap={toggleChrome}
+          onDismiss={onClose}
+          onZoomChange={setImageZoomed}
+          onDismissGestureChange={setVerticalDismissing}
+          onLongPress={isActive && mm.livePhoto ? startLivePlayback : undefined}
+          onPressRelease={isActive && mm.livePhoto ? stopLivePlayback : undefined}
+        />
+        {isActive && mm.livePhoto && livePlaying && liveVideoUri ? (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <VideoView
+              player={livePlayer}
+              nativeControls={false}
+              contentFit="contain"
+              style={{ width, height }}
+            />
+          </View>
+        ) : null}
+      </View>
     );
   };
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.94)', opacity: fadeAnim }]}>
-        <View
-          pointerEvents="box-none"
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#111113', opacity: viewerOpacity }]}>
+        {backdropUri ? (
+          <Image
+            source={{ uri: backdropUri }}
+            contentFit="cover"
+            blurRadius={42}
+            transition={100}
+            style={[StyleSheet.absoluteFill, { transform: [{ scale: 1.16 }], opacity: 0.72 }]}
+          />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,10,12,0.5)' }]} />
+      </Animated.View>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim, transform: [{ translateY: dragY }] }]}>
+        <Animated.View
+          pointerEvents={chromeVisible ? 'box-none' : 'none'}
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
             zIndex: 2,
-            paddingTop: insets.top + 8,
-            paddingHorizontal: 18,
+            paddingTop: insets.top + space.xs,
+            paddingHorizontal: space.md,
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
+            opacity: dragChromeOpacity,
           }}
         >
-          <Press onPress={onClose} hitSlop={12} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#fff', fontSize: 34, lineHeight: 34, fontWeight: '200' }}>×</Text>
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(0,0,0,0.48)', 'transparent']}
+            style={[StyleSheet.absoluteFill, { bottom: -52 }]}
+          />
+          <Press
+            onPress={onClose}
+            hitSlop={10}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(22,22,24,0.46)',
+            }}
+          >
+            <Icon name="close" color="#FFFFFF" size={21} strokeWidth={2} />
           </Press>
-          {showTypeBadge ? (
-            <View style={{ minWidth: 44, height: 28, borderRadius: 14, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' }}>
-              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{media.length > 1 ? `${i + 1}/${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}</Text>
-            </View>
-          ) : null}
-        </View>
+          <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            {showTypeBadge ? (
+              <View
+                style={{
+                  minWidth: 76,
+                  height: 36,
+                  paddingHorizontal: space.sm,
+                  borderRadius: radius.pill,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: space.xxs,
+                  backgroundColor: 'rgba(22,22,24,0.42)',
+                }}
+              >
+                {m.livePhoto && !livePlaying ? <Icon name="livePhoto" color="#FFFFFF" size={15} strokeWidth={1.6} /> : null}
+                <Text style={{ color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '700' }}>
+                  {media.length > 1 ? `${i + 1} / ${media.length}` : m.video ? t('journey.media.video') : t('journey.media.photo')}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {onDelete ? (
+            <Press
+              onPress={() => onDelete(i)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.delete')}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'rgba(22,22,24,0.46)',
+              }}
+            >
+              <Icon name="trash" color="#FFFFFF" size={21} strokeWidth={2} />
+            </Press>
+          ) : (
+            <View style={{ width: 44, height: 44 }} />
+          )}
+        </Animated.View>
         <ScrollView
           ref={scrollRef}
           horizontal
           pagingEnabled
+          directionalLockEnabled
+          scrollEnabled={!imageZoomed && !multiTouch && !verticalDismissing}
+          onTouchStart={syncMultiTouch}
+          onTouchMove={syncMultiTouch}
+          onTouchEnd={syncMultiTouch}
+          onTouchCancel={syncMultiTouch}
           showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={(e) => setI(Math.round(e.nativeEvent.contentOffset.x / width))}
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            const x = e.nativeEvent.contentOffset.x;
+            let next = backdropIndexRef.current;
+            const threshold = width * 0.28;
+            while (next < media.length - 1 && x > next * width + threshold) next += 1;
+            while (next > 0 && x < next * width - threshold) next -= 1;
+            if (next !== backdropIndexRef.current) {
+              backdropIndexRef.current = next;
+              setBackdropIndex(next);
+            }
+          }}
+          onMomentumScrollEnd={(e) => {
+            const page = Math.round(e.nativeEvent.contentOffset.x / width);
+            setI(page);
+            backdropIndexRef.current = page;
+            setBackdropIndex(page);
+            setImageZoomed(false);
+            multiTouchRef.current = false;
+            setMultiTouch(false);
+            setVerticalDismissing(false);
+            dragY.setValue(0);
+          }}
           style={{ flex: 1 }}
           contentContainerStyle={{ alignItems: 'center' }}
         >
           {media.map(renderItem)}
         </ScrollView>
-        {onDelete ? (
-          <View
-            pointerEvents="box-none"
+        {m?.uri ? (
+          <Animated.View
+            pointerEvents={chromeVisible ? 'box-none' : 'none'}
             style={{
               position: 'absolute',
               left: 0,
               right: 0,
               bottom: 0,
               zIndex: 2,
-              paddingHorizontal: 24,
-              paddingBottom: Math.max(insets.bottom, 14) + 4,
-              alignItems: 'flex-end',
+              paddingHorizontal: space.lg,
+              paddingTop: 96,
+              paddingBottom: Math.max(insets.bottom, space.lg),
+              opacity: dragChromeOpacity,
             }}
           >
-            <Press
-              onPress={() => onDelete(i)}
-              style={{
-                height: 48,
-                minWidth: 96,
-                borderRadius: 24,
-                paddingHorizontal: 22,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#FFF8FB',
-              }}
-            >
-              <Text style={{ fontSize: 17, fontWeight: '800', color: theme.danger ?? '#FF5A7A' }}>{t('common.delete')}</Text>
-            </Press>
-          </View>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['transparent', 'rgba(0,0,0,0.74)']}
+              locations={[0, 0.7]}
+              style={StyleSheet.absoluteFill}
+            />
+            {m.caption ? (
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '500', lineHeight: 23, marginBottom: space.md, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 }}>
+                {m.caption}
+              </Text>
+            ) : null}
+            {actionNotice ? (
+              <View
+                style={{
+                  alignSelf: 'flex-end',
+                  marginBottom: space.md,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.xs,
+                  borderRadius: radius.pill,
+                  backgroundColor: actionNotice.danger ? 'rgba(255,90,122,0.92)' : 'rgba(44,44,46,0.94)',
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 12.5, fontWeight: '600' }}>{actionNotice.text}</Text>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm }}>
+              {m.author ? (
+                <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                  <Avatar uri={m.author.avatarUrl} size={38} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={[type.cardTitle, { color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 5 }]}>
+                      {m.author.name}
+                    </Text>
+                    <Text numberOfLines={1} style={[type.caption, { color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>
+                      {m.createdAt
+                        ? t('journey.photoWall.postedAt', { time: formatMediaPostedAt(m.createdAt, resolved) })
+                        : t('journey.photoWall.postedAtUnknown')}
+                    </Text>
+                  </View>
+                </View>
+              ) : m.createdAt ? (
+                <Text numberOfLines={1} style={[type.caption, { flex: 1, color: 'rgba(255,255,255,0.7)' }]}>
+                  {t('journey.photoWall.postedAt', { time: formatMediaPostedAt(m.createdAt, resolved) })}
+                </Text>
+              ) : (
+                <View style={{ flex: 1 }} />
+              )}
+              <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <Pressable
+                  onPress={shareCurrent}
+                  disabled={activeAction != null}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.share')}
+                  style={({ pressed }) => ({
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(255,255,255,0.26)' : 'rgba(22,22,24,0.48)',
+                    opacity: activeAction && activeAction !== 'share' ? 0.45 : 1,
+                  })}
+                >
+                  {activeAction === 'share' ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Icon name="share" color="#FFFFFF" size={21} strokeWidth={2} />}
+                </Pressable>
+                <Pressable
+                  onPress={saveCurrent}
+                  disabled={activeAction != null}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('journey.photoWall.saveToAlbum')}
+                  style={({ pressed }) => ({
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(255,255,255,0.26)' : 'rgba(22,22,24,0.48)',
+                    opacity: activeAction && activeAction !== 'save' ? 0.45 : 1,
+                  })}
+                >
+                  {activeAction === 'save' ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Icon name="download" color="#FFFFFF" size={21} strokeWidth={2} />}
+                </Pressable>
+              </View>
+            </View>
+          </Animated.View>
         ) : null}
       </Animated.View>
     </Modal>

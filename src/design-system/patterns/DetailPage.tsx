@@ -27,6 +27,7 @@ export function DetailPage({
   onBack,
   backgroundColor,
   title,
+  left,
   right,
   overlay,
   hero,
@@ -40,6 +41,7 @@ export function DetailPage({
   onBack: () => void;
   backgroundColor?: string;
   title?: string;
+  left?: React.ReactNode;
   right?: React.ReactNode;
   overlay?: React.ReactNode;
   hero?: React.ReactNode;
@@ -111,7 +113,7 @@ export function DetailPage({
 
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navHeight }} pointerEvents="box-none">
         <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
-          <AppIconButton theme={theme} name="arrowL" onPress={onBack} noShadow={flatChrome} softShadow={!flatChrome} />
+          {left || <AppIconButton theme={theme} name="chevronL" onPress={onBack} noShadow={flatChrome} softShadow={!flatChrome} />}
         </View>
         {title && !hero ? (
           <View pointerEvents="none" style={{ position: 'absolute', left: 64, right: 64, top: insets.top + 12, height: 26, justifyContent: 'center' }}>

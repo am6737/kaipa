@@ -525,7 +525,7 @@ export function TrackDetailContent({
             </MapView>
 
             <View style={{ position: 'absolute', top: insets.top + 8, left: 12 }}>
-              <CircleBtn theme={theme} name="arrowL" onPress={() => setMapFull(false)} />
+              <CircleBtn theme={theme} name="chevronL" onPress={() => setMapFull(false)} />
             </View>
 
             <View style={{ position: 'absolute', bottom: insets.bottom + 12, left: 12, right: 12, flexDirection: 'row', gap: 8 }}>

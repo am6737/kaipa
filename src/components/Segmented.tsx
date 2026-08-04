@@ -18,6 +18,7 @@ export function Segmented<T extends string>({
   size = 'regular',
   stretch = true,
   trailingAction,
+  animationDuration = motion.emphasized,
 }: {
   value: T;
   options: SegOption<T>[];
@@ -27,6 +28,7 @@ export function Segmented<T extends string>({
   size?: 'regular' | 'compact';
   stretch?: boolean;
   trailingAction?: { content: React.ReactNode; onPress: () => void; accessibilityLabel: string };
+  animationDuration?: number;
 }) {
   const compact = size === 'compact';
   const underlineLayouts = useRef(new Map<string, { x: number; width: number }>());
@@ -45,7 +47,7 @@ export function Segmented<T extends string>({
     }
     Animated.timing(underlineX, {
       toValue: nextX,
-      duration: motion.emphasized,
+      duration: animationDuration,
       easing: Easing.bezier(0.22, 1, 0.36, 1),
       useNativeDriver: true,
     }).start();
@@ -53,7 +55,7 @@ export function Segmented<T extends string>({
 
   useEffect(() => {
     if (variant === 'underline') positionUnderline(value, true);
-  }, [value, variant, indicatorWidth]);
+  }, [value, variant, indicatorWidth, animationDuration]);
 
   if (variant === 'underline') {
     return (
