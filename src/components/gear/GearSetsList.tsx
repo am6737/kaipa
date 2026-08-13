@@ -4,7 +4,7 @@
 // reference while keeping Kaipa's floating chrome, quiet surfaces and the
 // weight/value vocabulary used by the redesigned gear detail pages.
 import React, { useMemo, useState } from 'react';
-import { Alert, View, Text, StyleSheet, useWindowDimensions, Modal, Pressable } from 'react-native';
+import { Alert, View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Package, Weight, JapaneseYen } from 'lucide-react-native';
 import { Theme, rgba } from '../../theme/theme';
@@ -17,6 +17,7 @@ import { Press } from '../Press';
 import { Glass } from '../Glass';
 import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
+import { GearMenuTransition } from './GearMenuTransition';
 
 type LayoutMode = 'grid' | 'list';
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
@@ -41,6 +42,8 @@ export function GearSetsList({
   onDeleteSets,
   pinnedSetIds,
   onSetPinned,
+  entryVariant,
+  picker,
 }: {
   theme: Theme;
   sets: GearSet[];
@@ -52,6 +55,12 @@ export function GearSetsList({
   onDeleteSets: (ids: string[]) => void;
   pinnedSetIds: Set<string>;
   onSetPinned: (ids: string[], pinned: boolean) => void;
+  entryVariant?: 'push' | 'continuationX';
+  picker?: {
+    title: string;
+    selectedIds: Set<string>;
+    onDone: (selectedIds: Set<string>) => void;
+  };
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -64,6 +73,12 @@ export function GearSetsList({
   const [sort, setSort] = usePersistedSort(SORT_STORAGE_KEY);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const pickerMode = Boolean(picker);
+  const [pickerSelectedIds, setPickerSelectedIds] = useState<Set<string>>(() => new Set(picker?.selectedIds || []));
+
+  React.useEffect(() => {
+    if (picker) setPickerSelectedIds(new Set(picker.selectedIds));
+  }, [picker?.selectedIds]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
@@ -80,7 +95,7 @@ export function GearSetsList({
           pinned: pinnedSetIds.has(set.id),
         };
       })
-      .filter(({ set }) => !q || set.name.toLocaleLowerCase().includes(q) || set.items.some((name) => name.toLocaleLowerCase().includes(q)));
+      .filter(({ set }) => !q || set.name.toLocaleLowerCase().includes(q) || set.description?.toLocaleLowerCase().includes(q) || set.items.some((name) => name.toLocaleLowerCase().includes(q)));
     next.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (sort === 'weight') return b.weight - a.weight;
@@ -93,7 +108,10 @@ export function GearSetsList({
 
   const columns = [rows.filter((_, i) => i % 2 === 0), rows.filter((_, i) => i % 2 === 1)];
   const cardWidth = (width - 48) / 2;
-  const allSelected = sets.length > 0 && sets.every((set) => selectedIds.has(set.id));
+  const selectableSetIds = rows.map((row) => row.set.id);
+  const allSelected = picker
+    ? selectableSetIds.length > 0 && selectableSetIds.every((id) => pickerSelectedIds.has(id))
+    : sets.length > 0 && sets.every((set) => selectedIds.has(set.id));
   const allSelectedPinned = selectedIds.size > 0 && [...selectedIds].every((id) => pinnedSetIds.has(id));
   const bottomControlBg = theme.controlSurface;
   const sortLabel = sort === 'created'
@@ -123,7 +141,26 @@ export function GearSetsList({
       return next;
     });
   };
-  const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(sets.map((set) => set.id)));
+  const toggleAll = () => {
+    if (picker) {
+      setPickerSelectedIds((current) => {
+        const next = new Set(current);
+        selectableSetIds.forEach((id) => allSelected ? next.delete(id) : next.add(id));
+        return next;
+      });
+      return;
+    }
+    setSelectedIds(allSelected ? new Set() : new Set(sets.map((set) => set.id)));
+  };
+  const togglePickerSet = (id: string) => {
+    setPickerSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const finishPicker = () => picker?.onDone(new Set(pickerSelectedIds));
   const closeSearch = () => {
     setQuery('');
     setSearchOpen(false);
@@ -148,7 +185,8 @@ export function GearSetsList({
   return (
     <DetailPage
       theme={theme}
-      onBack={selectMode ? exitSelect : onBack}
+      entryVariant={entryVariant}
+      onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
       backgroundColor={theme.groupedBg}
       flatChrome
       onContentTouchStart={searchOpen ? closeSearch : undefined}
@@ -157,6 +195,21 @@ export function GearSetsList({
           <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
           <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
         </View>
+      ) : pickerMode ? (
+        <AppHeaderSearch
+          theme={theme}
+          open={searchOpen}
+          value={query}
+          placeholder={t('gear.search.sets')}
+          onChangeText={setQuery}
+          onClose={closeSearch}
+          actions={(
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+            </View>
+          )}
+        />
       ) : (
         <AppHeaderSearch
           theme={theme}
@@ -187,13 +240,24 @@ export function GearSetsList({
                     <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>{selectedIds.size ? t('gear.setSelect.deleteConfirm', { count: selectedIds.size }) : t('gear.setSelect.deletePrompt')}</Text>
                   </Press>
                 </View>
+              ) : pickerMode ? (
+                <View style={{ flex: 1, flexDirection: 'row', gap: 12 }}>
+                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 122, paddingHorizontal: 20, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: bottomControlBg }}>
+                    <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
+                    <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: theme.text }}>{sortLabel}</Text>
+                  </Press>
+                  <Press onPress={finishPicker} style={{ flex: 1, height: 52, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.accent }}>
+                    <Icon name="check" color="#FFFFFF" size={18} strokeWidth={2.4} />
+                    <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.setEditor.pickerDone', { count: pickerSelectedIds.size })}</Text>
+                  </Press>
+                </View>
               ) : (
                 <>
                   <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
                     <Icon name="plus" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{t('gear.setList.add')}</Text>
                   </Press>
-                  <Press onPress={() => setSortOpen(true)} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
+                  <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
                     <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
                     <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{sortLabel}</Text>
                   </Press>
@@ -217,7 +281,7 @@ export function GearSetsList({
     >
       <View style={{ paddingHorizontal: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 5, marginTop: 10, marginBottom: 20 }}>
-            <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.6, color: theme.text }}>{selectMode ? t('gear.setSelect.title', { count: selectedIds.size }) : t('gear.setList.gallery')}</Text>
+            <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.6, color: theme.text }}>{selectMode ? t('gear.setSelect.title', { count: selectedIds.size }) : picker?.title ?? t('gear.setList.gallery')}</Text>
             <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text3 }}>{sets.length} {t('gear.unit.sets')}</Text>
         </View>
 
@@ -233,10 +297,10 @@ export function GearSetsList({
                     tall={(localIndex + columnIndex) % 3 === 1}
                     row={row}
                     weightUnit={weightUnit}
-                    selectMode={selectMode}
-                    selected={selectedIds.has(row.set.id)}
-                    onPress={() => selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)}
-                    onLongPress={() => enterSelect(row.set.id)}
+                    selectMode={pickerMode || selectMode}
+                    selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)}
+                    onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)}
+                    onLongPress={() => { if (!picker) enterSelect(row.set.id); }}
                   />
                 ))}
               </View>
@@ -245,7 +309,7 @@ export function GearSetsList({
         ) : rows.length ? (
           <View style={{ gap: 12 }}>
             {rows.map((row) => (
-              <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={selectMode} selected={selectedIds.has(row.set.id)} onPress={() => selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => enterSelect(row.set.id)} />
+              <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={pickerMode || selectMode} selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)} onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => { if (!picker) enterSelect(row.set.id); }} />
             ))}
           </View>
         ) : (
@@ -300,35 +364,37 @@ function SetsCompactMenuRow({ theme, icon, label, onPress, selected = false }: {
 
 function SetsFloatingMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]} />
-        <View style={{ position: 'absolute', top, right: 14, width, borderRadius: 26, boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }}>
-          <Glass theme={theme} radius={26} intensity={76}>
-            <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>{children}</View>
-          </Glass>
-        </View>
-      </View>
-    </Modal>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      positionStyle={{ position: 'absolute', top, right: 14, width, borderRadius: 26, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
+        <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>{children}</View>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
 function SetsSortMenu({ theme, visible, title, onClose, children }: { theme: Theme; visible: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View style={{ position: 'absolute', right: 22, bottom: Math.max(insets.bottom, 14) + 70, width: 210, borderRadius: 24, boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)' }}>
-          <Glass theme={theme} radius={24} intensity={78}>
-            <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-              <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
-              {children}
-            </View>
-          </Glass>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      placement="bottom"
+      backdropColor="transparent"
+      positionStyle={{ position: 'absolute', right: 22, bottom: Math.max(insets.bottom, 14) + 70, width: 210, borderRadius: 24, boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)' }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
+        <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
+          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          {children}
         </View>
-      </View>
-    </Modal>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
@@ -375,12 +441,12 @@ function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPr
   const secondary = theme.text2;
   return (
     <Press {...handlers} style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: row.pinned && !selectMode ? 'space-between' : 'flex-end' }}>
-        {row.pinned && !selectMode ? <Icon name="pin" color={theme.accent} size={16} strokeWidth={2.1} /> : null}
-        {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ paddingHorizontal: 9, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: '700', color: theme.text }}>{row.items.length} {t('gear.unit.items')}</Text></View>}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}>
+        {row.pinned && !selectMode ? <View style={{ paddingTop: 4 }}><Icon name="pin" color={theme.accent} size={15} strokeWidth={2.1} /></View> : null}
+        <Text numberOfLines={3} style={{ flex: 1, fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: -0.45, color: foreground }}>{row.set.name}</Text>
+        {selectMode ? <SelectionMark theme={theme} selected={selected} /> : <View style={{ paddingHorizontal: 7, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{row.items.length} {t('gear.unit.items')}</Text></View>}
       </View>
       <View>
-        <Text numberOfLines={3} style={{ fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: -0.45, color: foreground }}>{row.set.name}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 }}><Package color={secondary} size={12.5} strokeWidth={1.7} /><Text style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{row.cats} {t('gear.unit.cats')}</Text></View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1, minWidth: 0 }}><Weight color={secondary} size={12.5} strokeWidth={1.7} /><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={{ fontFamily: MONO, fontSize: 10, fontWeight: '700', color: secondary }}>{fmtWeight(row.weight, weightUnit, true)}</Text></View>

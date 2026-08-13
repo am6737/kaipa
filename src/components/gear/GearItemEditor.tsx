@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { JapaneseYen, Package, Weight } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,11 +14,15 @@ import { GearItemImage, CircleBtn } from './parts';
 import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-system';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
 import { useNav } from '../../nav/NavContext';
+import { removeGearImageBackground } from '../../lib/gearBackgroundRemoval';
 
 const numClean = (value: string) => value.replace(/[^0-9.]/g, '');
 const pageBg = (theme: Theme) => (theme.dark ? '#1C1C1E' : '#F4F4F5');
 const cardBg = (theme: Theme) => (theme.dark ? '#000000' : '#FFFFFF');
 const fieldBg = (theme: Theme) => (theme.dark ? '#1C1C1E' : '#F1F1F3');
+
+type PendingPhoto = { uri: string; mimeType?: string | null };
+type PhotoVersion = 'original' | 'cutout';
 
 export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSource, existingNames = [], onCancel, onSave }: {
   theme: Theme;
@@ -46,6 +50,12 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
   const [photos, setPhotos] = useState((item.photos || []).filter(Boolean));
   const [openChoice, setOpenChoice] = useState<'category' | 'status' | null>(null);
   const [photoSourceOpen, setPhotoSourceOpen] = useState(false);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
+  const [pendingPhotoTotal, setPendingPhotoTotal] = useState(0);
+  const [photoEditIndex, setPhotoEditIndex] = useState<number | null>(null);
+  const [photoVersion, setPhotoVersion] = useState<PhotoVersion>('original');
+  const [cutoutUri, setCutoutUri] = useState<string | null>(null);
+  const [removingBackground, setRemovingBackground] = useState(false);
   const [recognitionNoticeVisible, setRecognitionNoticeVisible] = useState(!!recognitionSource);
 
   useEffect(() => {
@@ -57,6 +67,16 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
   const valid = trimmed.length > 0 && !duplicate;
   const currentCategory = cats.find((candidate) => candidate.id === cat);
   const previewItem = { ...item, name, photos: photos.length ? photos : undefined };
+  const reviewPhoto = pendingPhotos[0] ?? (photoEditIndex != null && photos[photoEditIndex] ? { uri: photos[photoEditIndex] } : null);
+  const reviewProgress = pendingPhotos.length > 0 && pendingPhotoTotal > 1
+    ? t('gear.editor.photoProgress', { current: pendingPhotoTotal - pendingPhotos.length + 1, total: pendingPhotoTotal })
+    : undefined;
+
+  useEffect(() => {
+    setPhotoVersion('original');
+    setCutoutUri(null);
+    setRemovingBackground(false);
+  }, [reviewPhoto?.uri]);
 
   const setAttr = (index: number, column: 0 | 1, value: string) => {
     setAttrs((current) => current.map((entry, entryIndex) => entryIndex === index ? (column === 0 ? [value, entry[1]] : [entry[0], value]) : entry));
@@ -91,7 +111,11 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
       selectionLimit: Math.max(1, 9 - photos.length),
       quality: 0.85,
     });
-    if (!result.canceled) setPhotos((current) => [...current, ...result.assets.map((asset) => asset.uri)].slice(0, 9));
+    if (!result.canceled) {
+      const next = result.assets.map((asset) => ({ uri: asset.uri, mimeType: asset.mimeType }));
+      setPendingPhotoTotal(next.length);
+      setPendingPhotos(next);
+    }
   };
 
   const takePhoto = async () => {
@@ -101,10 +125,62 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
-    if (!result.canceled) setPhotos((current) => [...current, result.assets[0].uri].slice(0, 9));
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setPendingPhotoTotal(1);
+      setPendingPhotos([{ uri: asset.uri, mimeType: asset.mimeType }]);
+    }
   };
 
   const openPhotoActions = () => setPhotoSourceOpen(true);
+
+  const editPhotoBackground = (index: number) => {
+    setPhotoEditIndex(index);
+    setPendingPhotoTotal(0);
+    setPendingPhotos([]);
+  };
+
+  const closePhotoReview = () => {
+    if (removingBackground) return;
+    setPendingPhotos([]);
+    setPendingPhotoTotal(0);
+    setPhotoEditIndex(null);
+  };
+
+  const chooseCutout = async () => {
+    if (!reviewPhoto || removingBackground) return;
+    if (cutoutUri) {
+      setPhotoVersion('cutout');
+      return;
+    }
+    setRemovingBackground(true);
+    try {
+      const result = await removeGearImageBackground(reviewPhoto);
+      setCutoutUri(result);
+      setPhotoVersion('cutout');
+    } catch {
+      nav.showToast(t('gear.editor.backgroundRemovalFailed'));
+    } finally {
+      setRemovingBackground(false);
+    }
+  };
+
+  const confirmPhotoReview = () => {
+    if (!reviewPhoto || removingBackground) return;
+    const selectedUri = photoVersion === 'cutout' && cutoutUri ? cutoutUri : reviewPhoto.uri;
+    if (photoEditIndex != null) {
+      setPhotos((current) => current.map((uri, index) => index === photoEditIndex ? selectedUri : uri));
+      setPhotoEditIndex(null);
+      return;
+    }
+
+    setPhotos((current) => [...current, selectedUri].slice(0, 9));
+    setPendingPhotos((current) => {
+      const remaining = current.slice(1);
+      if (remaining.length === 0) setPendingPhotoTotal(0);
+      return remaining;
+    });
+  };
 
   if (mode === 'new') {
     return (
@@ -112,7 +188,7 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
         <DetailPage theme={theme} title={t('gear.add.title')} onBack={onCancel}>
           <View style={{ paddingHorizontal: space.xxl, paddingTop: space.xs }}>
             <View style={{ alignItems: 'center', paddingTop: space.xs, paddingBottom: space.lg }}>
-              <AddGearPhotoGallery theme={theme} item={previewItem} photos={photos} onPress={openPhotoActions} />
+              <AddGearPhotoGallery theme={theme} item={previewItem} photos={photos} onPress={openPhotoActions} onEditPhoto={editPhotoBackground} />
               <TextInput
                 autoFocus={!item.name}
                 value={name}
@@ -243,6 +319,26 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
             onConfirm={(next) => setStatus(next as GearCarryStatus)}
           />
         ) : null}
+        <PhotoReviewSheet
+          visible={!!reviewPhoto}
+          theme={theme}
+          sourceUri={reviewPhoto?.uri}
+          previewUri={photoVersion === 'cutout' && cutoutUri ? cutoutUri : reviewPhoto?.uri}
+          version={photoVersion}
+          progress={reviewProgress}
+          removingBackground={removingBackground}
+          title={t('gear.editor.backgroundReviewTitle')}
+          hint={t('gear.editor.backgroundReviewHint')}
+          originalLabel={t('gear.editor.keepOriginal')}
+          cutoutLabel={t('gear.editor.removeBackground')}
+          processingLabel={t('gear.editor.removingBackground')}
+          confirmLabel={t('gear.editor.usePhoto')}
+          cancelLabel={t('common.cancel')}
+          onClose={closePhotoReview}
+          onChooseOriginal={() => setPhotoVersion('original')}
+          onChooseCutout={chooseCutout}
+          onConfirm={confirmPhotoReview}
+        />
         <PhotoSourceSheet
           visible={photoSourceOpen}
           theme={theme}
@@ -379,7 +475,8 @@ export function GearItemEditor({ theme, item, cats, mode = 'edit', recognitionSo
   );
 }
 
-function AddGearPhotoGallery({ theme, item, photos, onPress }: { theme: Theme; item: GearItem; photos: string[]; onPress: () => void }) {
+function AddGearPhotoGallery({ theme, item, photos, onPress, onEditPhoto }: { theme: Theme; item: GearItem; photos: string[]; onPress: () => void; onEditPhoto: (index: number) => void }) {
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const galleryWidth = Math.min(380, Math.max(220, width - space.xxl * 2));
   const galleryHeight = 250;
@@ -417,6 +514,13 @@ function AddGearPhotoGallery({ theme, item, photos, onPress }: { theme: Theme; i
           </Press>
         )}
       />
+      <Press
+        onPress={() => onEditPhoto(page)}
+        style={{ position: 'absolute', left: space.sm, top: space.sm, minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.controlSurface }}
+      >
+        <Icon name="scan" color={theme.accent} size={15} strokeWidth={1.9} />
+        <Text style={{ fontSize: 12.5, fontWeight: '800', color: theme.text }}>{t('gear.editor.backgroundAction')}</Text>
+      </Press>
       {photos.length > 1 ? (
         <>
           <View pointerEvents="none" style={{ position: 'absolute', top: space.sm, right: space.sm, minWidth: 42, height: 26, paddingHorizontal: space.xs, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}>
@@ -518,6 +622,77 @@ function DetailNoteInput({ theme, label, value, onChangeText, placeholder }: { t
       <Text style={{ fontSize: 15.5, color: theme.text2 }}>{label}</Text>
       <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={theme.text3} multiline style={{ width: '100%', minHeight: 54, marginTop: space.xs, padding: 0, fontSize: 13, lineHeight: 20, fontWeight: '700', color: theme.text, textAlignVertical: 'top' }} />
     </View>
+  );
+}
+
+
+function PhotoReviewSheet({ visible, theme, sourceUri, previewUri, version, progress, removingBackground, title, hint, originalLabel, cutoutLabel, processingLabel, confirmLabel, cancelLabel, onClose, onChooseOriginal, onChooseCutout, onConfirm }: {
+  visible: boolean;
+  theme: Theme;
+  sourceUri?: string;
+  previewUri?: string;
+  version: PhotoVersion;
+  progress?: string;
+  removingBackground: boolean;
+  title: string;
+  hint: string;
+  originalLabel: string;
+  cutoutLabel: string;
+  processingLabel: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onClose: () => void;
+  onChooseOriginal: () => void;
+  onChooseCutout: () => void;
+  onConfirm: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.52)' }]} />
+        <View style={{ paddingTop: space.xs, paddingHorizontal: space.lg, paddingBottom: Math.max(insets.bottom, space.md) + space.sm, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: theme.surfaceTop }}>
+          <View style={{ alignSelf: 'center', width: 38, height: 5, marginBottom: space.lg, borderRadius: radius.pill, backgroundColor: theme.text3, opacity: 0.38 }} />
+          <View style={{ paddingHorizontal: space.xxs, flexDirection: 'row', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Text style={{ fontSize: 22, lineHeight: 28, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{title}</Text>
+                {progress ? <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3 }}>{progress}</Text> : null}
+              </View>
+              <Text style={{ marginTop: space.xxs, fontSize: 13.5, lineHeight: 20, color: theme.text2 }}>{hint}</Text>
+            </View>
+            <Press onPress={onClose} disabled={removingBackground} accessibilityLabel={cancelLabel} style={{ width: 38, height: 38, marginLeft: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, opacity: removingBackground ? 0.45 : 1 }}>
+              <Icon name="close" color={theme.text2} size={17} strokeWidth={2} />
+            </Press>
+          </View>
+
+          <View style={{ height: 286, marginTop: space.lg, borderRadius: radius.feature, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+            {previewUri ? <Image source={{ uri: previewUri }} contentFit="contain" transition={140} style={StyleSheet.absoluteFill} /> : null}
+            {removingBackground ? (
+              <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(0,0,0,0.56)' : 'rgba(255,255,255,0.72)' }]}>
+                <ActivityIndicator color={theme.accent} />
+                <Text style={{ marginTop: space.sm, fontSize: 13, fontWeight: '700', color: theme.text }}>{processingLabel}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
+            <Press onPress={onChooseOriginal} disabled={removingBackground} style={{ flex: 1, height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: version === 'original' ? theme.accentSoft : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: version === 'original' ? theme.accent : theme.fieldBorder }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: version === 'original' ? theme.accent : theme.text }}>{originalLabel}</Text>
+            </Press>
+            <Press onPress={onChooseCutout} disabled={removingBackground || !sourceUri} style={{ flex: 1, height: 48, borderRadius: radius.pill, flexDirection: 'row', gap: space.xs, alignItems: 'center', justifyContent: 'center', backgroundColor: version === 'cutout' ? theme.accentSoft : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: version === 'cutout' ? theme.accent : theme.fieldBorder, opacity: sourceUri ? 1 : 0.45 }}>
+              {removingBackground ? <ActivityIndicator color={theme.accent} size="small" /> : <Icon name="scan" color={version === 'cutout' ? theme.accent : theme.text2} size={16} strokeWidth={1.9} />}
+              <Text style={{ fontSize: 14, fontWeight: '800', color: version === 'cutout' ? theme.accent : theme.text }}>{cutoutLabel}</Text>
+            </Press>
+          </View>
+
+          <Press onPress={onConfirm} disabled={removingBackground || !previewUri} style={{ height: 54, marginTop: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: theme.accent, opacity: removingBackground || !previewUri ? 0.5 : 1 }}>
+            <Icon name="check" color="#FFFFFF" size={18} strokeWidth={2.3} />
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
+          </Press>
+        </View>
+      </View>
+    </Modal>
   );
 }
 

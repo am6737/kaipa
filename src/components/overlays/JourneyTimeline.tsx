@@ -3,7 +3,7 @@
 // — users decide how to organize entries. Exposes the inline digest
 // (JourneyTimelineCard) and the bottom-sheet add/edit editor (JourneyEntryEditor):
 // tapping a row opens that sheet in edit mode; "+" opens it in add mode.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, ActivityIndicator, Platform, KeyboardAvoidingView, useWindowDimensions, Dimensions, Modal, Alert, Animated, Keyboard, PanResponder, Easing, LayoutAnimation, UIManager, Share, StatusBar as NativeStatusBar } from 'react-native';
 import { Image } from 'expo-image';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
@@ -29,7 +29,9 @@ import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../l
 import { generateSmartPlan, parseJourneySchedule, SmartPlanItem } from '../../lib/smartPlan';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
-import { AppCard, radius, space, type } from '../../design-system';
+import { AppCard, motion, radius, space, type } from '../../design-system';
+import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../../lib/routeSegments';
+import { JourneyRouteBoundarySheet } from './JourneyRouteBoundarySheet';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -339,15 +341,20 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
 }
 
 // ── A collapsible day group: bold label + count, chevron when collapsible ─────
-function DaySection({ theme, label, count, collapsible, collapsed, onToggle, children }: {
+function DaySection({ theme, label, count, collapsible, collapsed, onToggle, routeSummary, routeColor, routePending, onRoutePress, children }: {
   theme: Theme;
   label: string;
   count: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
+  routeSummary?: string;
+  routeColor?: string;
+  routePending?: boolean;
+  onRoutePress?: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <View style={{ marginBottom: space.xl }}>
       <Pressable
@@ -358,6 +365,16 @@ function DaySection({ theme, label, count, collapsible, collapsed, onToggle, chi
         <View style={{ flex: 1 }}>
           <Text style={[type.pageTitle, { color: theme.text, fontSize: 23 }]} numberOfLines={1}>{label.toUpperCase()}</Text>
           <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{count}</Text>
+          {onRoutePress ? (
+            <Press
+              onPress={onRoutePress}
+              style={{ alignSelf: 'flex-start', minHeight: 30, marginTop: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
+            >
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: routePending ? 'transparent' : routeColor ?? theme.text3, borderWidth: routePending ? 1.5 : 0, borderColor: routeColor ?? theme.text3 }} />
+              <Text style={[type.caption, { color: routeSummary ? theme.text2 : theme.accent, fontWeight: '700' }]}>{routeSummary || t('journey.timeline.routeSetDayEnd')}</Text>
+              <Icon name="chevronR" color={routeSummary ? theme.text3 : theme.accent} size={13} />
+            </Press>
+          ) : null}
         </View>
         {collapsible ? (
           <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: collapsed ? '0deg' : '180deg' }] }}>
@@ -994,41 +1011,57 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   dayLayout?: boolean;
 }) {
   const media = row.media || [];
+  const selectionProgress = useRef(new Animated.Value(selected ? 1 : 0)).current;
+
+  useEffect(() => {
+    selectionProgress.stopAnimation();
+    Animated.timing(selectionProgress, {
+      toValue: selected ? 1 : 0,
+      duration: motion.quick,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [selected, selectionProgress]);
+
+  const toggleSelection = () => {
+    if (!onToggleSelected) return;
+    selectionProgress.stopAnimation();
+    Animated.timing(selectionProgress, {
+      toValue: selected ? 0 : 1,
+      duration: 110,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    requestAnimationFrame(() => React.startTransition(onToggleSelected));
+  };
+
   const content = dayLayout ? (
     <View style={{ flex: 1, minWidth: 0 }}>
-      <Text style={[type.sectionTitle, { color: theme.text, lineHeight: 24 }]}>{row.title}</Text>
-      {row.timeStart != null || media.length > 0 ? (
-        <View style={{ marginTop: space.sm, paddingTop: space.xs }}>
-          {row.timeStart != null ? (
-            <Text style={[type.metric, { color: theme.text, fontSize: 16 }]}>
-              {fmtRange(row.timeStart, row.timeEnd ?? undefined)}
-            </Text>
-          ) : null}
-          {media.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: row.timeStart != null ? space.md : 0 }}>
-              {media.map((item, index) => {
-                const uri = item.video ? item.thumb : item.uri;
-                return (
-                  <Pressable
-                    key={index}
-                    onPress={onOpenMedia ? () => onOpenMedia(media, index, row) : undefined}
-                    style={{ width: 72, height: 60, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.surfaceTop }}
-                  >
-                    {uri ? <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : null}
-        </View>
+      {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
+      <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
+      {media.length > 0 ? (
+        <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
+          {media.map((item, index) => {
+            const uri = item.video ? item.thumb : item.uri;
+            return (
+              <Pressable
+                key={index}
+                onPress={onOpenMedia ? () => onOpenMedia(media, index, row) : undefined}
+                style={{ width: 72, height: 60, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.surfaceTop }}
+              >
+                {uri ? <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       ) : null}
     </View>
   ) : (
     <View style={{ flex: 1, minWidth: 0 }}>
-      {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.accent }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
-      <Text style={[type.sectionTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 24 }]}>{row.title}</Text>
+      {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
+      <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
       {media.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
+        <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
           {media.map((item, index) => {
             const uri = item.video ? item.thumb : item.uri;
             return (
@@ -1048,13 +1081,17 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
 
   return (
     <Pressable
-      onPress={selectionMode ? onToggleSelected : onPress}
-      style={{
+      onPress={selectionMode ? toggleSelection : onPress}
+      hitSlop={selectionMode ? 6 : undefined}
+      accessibilityRole={selectionMode ? 'checkbox' : 'button'}
+      accessibilityState={selectionMode ? { checked: selected } : undefined}
+      style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: dayLayout ? 'flex-start' : 'center',
         gap: space.md,
         paddingVertical: dayLayout ? 0 : space.sm,
-      }}
+        opacity: pressed ? 0.72 : 1,
+      })}
     >
       {selectionMode ? (
         <View
@@ -1065,12 +1102,28 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
             borderRadius: 12,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: selected ? theme.text : 'transparent',
-            borderWidth: selected ? 0 : 2,
+            borderWidth: 2,
             borderColor: theme.fieldBorder,
+            overflow: 'hidden',
           }}
         >
-          {selected ? <Icon name="check" color={theme.featureSurface} size={13} strokeWidth={2.5} /> : null}
+          <Animated.View
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 12,
+              backgroundColor: theme.text,
+              opacity: selectionProgress,
+              transform: [{ scale: selectionProgress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
+            }}
+          >
+            <Icon name="check" color={theme.featureSurface} size={13} strokeWidth={2.5} />
+          </Animated.View>
         </View>
       ) : null}
       {content}
@@ -1202,7 +1255,7 @@ function SmartPlanSheet({ theme, info, rows, defaultDays, onApply, onClose }: {
   );
 }
 
-export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout }: { theme: Theme; info: Poi; readOnly?: boolean; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void }) {
+export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onRouteBoundaryRequest }: { theme: Theme; info: Poi; readOnly?: boolean; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onRouteBoundaryRequest?: (groupKey: string) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const { userId } = useData();
@@ -1213,6 +1266,8 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
   const [chipsEditing, setChipsEditing] = useState(false);
   const [dismissChipsSignal, setDismissChipsSignal] = useState(0);
   const [smartPlanOpen, setSmartPlanOpen] = useState(false);
+  const [routeGroupKey, setRouteGroupKey] = useState<string | null>(null);
+  const trackMeasure = useMemo(() => measureTrack(info.trackCoords), [info.trackCoords]);
   const selectedIds = selectedItemIds ?? new Set<string>();
   const toggleSelectedItem = (id: string) => {
     if (!onSelectedItemIdsChange) return;
@@ -1323,6 +1378,28 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
     })
     .map((x) => x.r);
 
+  const routePendingFor = (groupKey: string) => {
+    const index = groups.findIndex((group) => group.key === groupKey);
+    return index > 0 && !!tl.groupRoutes[groupKey] && !tl.groupRoutes[groups[index - 1].key];
+  };
+  const routeSummaryFor = (groupKey: string) => {
+    const route = tl.groupRoutes[groupKey];
+    if (!route) return undefined;
+    const index = groups.findIndex((group) => group.key === groupKey);
+    const previousRoute = index > 0 ? tl.groupRoutes[groups[index - 1].key] : undefined;
+    const cumulative = t('journey.timeline.routeCumulative', { distance: `${(route.endDistanceMeters / 1000).toFixed(1)} km` });
+    if (index > 0 && !previousRoute) {
+      return `${cumulative}  ${t('journey.timeline.routeWaitingFor', { day: dayLabel(groups[index - 1]) })}`;
+    }
+    const previousMeters = previousRoute?.endDistanceMeters ?? 0;
+    return `${t('journey.timeline.routeDayDistance', { distance: `${((route.endDistanceMeters - previousMeters) / 1000).toFixed(1)} km` })}  ${cumulative}`;
+  };
+  const openRouteBoundary = (groupKey: string) => {
+    if (!trackMeasure || readOnly) return;
+    if (onRouteBoundaryRequest) onRouteBoundaryRequest(groupKey);
+    else setRouteGroupKey(groupKey);
+  };
+
   // a day's entries as a grouped, hairline-separated card + (editable) an add row
   const renderItems = (g: TLGroup) => {
     // within a day, sort by time-of-day (timed first, ascending); untimed keep order
@@ -1375,16 +1452,25 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
     const rows = sortedRows(g);
     return (
       <View key={g.key} onLayout={(event) => onGroupLayout?.(g.key, event.nativeEvent.layout.y)} style={{ paddingBottom: space.xl }}>
-        <View style={{ marginBottom: space.md, flexDirection: 'row', alignItems: 'flex-end' }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={[type.pageTitle, { color: theme.text }]}>
+        <View style={{ minHeight: 30, marginBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
+            <Text numberOfLines={1} style={[type.sectionTitle, { color: theme.text, lineHeight: 24 }]}>
               {dayLabel(g)}
             </Text>
           </View>
+          {!readOnly && trackMeasure ? (
+            <Press
+              onPress={() => openRouteBoundary(g.key)}
+              style={{ height: 30, marginRight: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
+            >
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: routePendingFor(g.key) ? 'transparent' : JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length], borderWidth: routePendingFor(g.key) ? 1.5 : 0, borderColor: JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length] }} />
+              <Text numberOfLines={1} style={[type.caption, { maxWidth: 180, color: tl.groupRoutes[g.key] ? theme.text2 : theme.accent, fontWeight: '700' }]}>{routeSummaryFor(g.key) || t('journey.timeline.routeSetEnd')}</Text>
+            </Press>
+          ) : null}
           <View
             style={{
               minWidth: 52,
-              height: 32,
+              height: 30,
               paddingHorizontal: space.sm,
               borderRadius: radius.pill,
               alignItems: 'center',
@@ -1482,10 +1568,39 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
               collapsible={currentDay === ALL_DAYS}
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
+              routeSummary={routeSummaryFor(g.key)}
+              routeColor={JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length]}
+              routePending={routePendingFor(g.key)}
+              onRoutePress={!readOnly && trackMeasure ? () => openRouteBoundary(g.key) : undefined}
             >
               {renderItems(g)}
             </DaySection>
           ))}
+      {routeGroupKey && trackMeasure ? (() => {
+        const index = groups.findIndex((group) => group.key === routeGroupKey);
+        let previousMeters = 0;
+        for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+          const route = tl.groupRoutes[groups[previousIndex].key];
+          if (route) { previousMeters = route.endDistanceMeters; break; }
+        }
+        let nextMeters: number | undefined;
+        for (let nextIndex = index + 1; nextIndex < groups.length; nextIndex += 1) {
+          const route = tl.groupRoutes[groups[nextIndex].key];
+          if (route) { nextMeters = route.endDistanceMeters; break; }
+        }
+        return (
+          <JourneyRouteBoundarySheet
+            theme={theme}
+            info={info}
+            groupLabel={index >= 0 ? dayLabel(groups[index]) : routeGroupKey}
+            minimumMeters={previousMeters}
+            maximumMeters={nextMeters}
+            current={tl.groupRoutes[routeGroupKey]}
+            onClose={() => setRouteGroupKey(null)}
+            onSave={(route) => tl.setGroupRoute(routeGroupKey, route)}
+          />
+        );
+      })() : null}
       {viewer ? (
         <MediaViewer
           theme={theme}
@@ -1582,7 +1697,19 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   const mediaPickerOpenRef = useRef(false);
 
   const slide = useRef(new Animated.Value(600)).current;
-  useEffect(() => { Animated.spring(slide, { toValue: 0, useNativeDriver: true, bounciness: 3, speed: 16 }).start(); }, [slide]);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(slide, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+    const focusTimer = setTimeout(() => titleInputRef.current?.focus(), 90);
+    return () => {
+      clearTimeout(focusTimer);
+      slide.stopAnimation();
+      backdropOpacity.stopAnimation();
+    };
+  }, [backdropOpacity, slide]);
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -1598,19 +1725,42 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
     return () => { showSub.remove(); hideSub.remove(); };
   }, [insets.bottom]);
   const closeRef = useRef(onClose);
+  const closingRef = useRef(false);
+  const screenHeightRef = useRef(Dimensions.get('screen').height);
   closeRef.current = onClose;
+  screenHeightRef.current = Dimensions.get('screen').height;
   const animateClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
     Keyboard.dismiss();
-    Animated.timing(slide, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => closeRef.current());
+    Animated.parallel([
+      Animated.timing(slide, { toValue: screenHeightRef.current, duration: motion.standard, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(backdropOpacity, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start(() => closeRef.current());
+  };
+  const restoreSheet = () => {
+    Animated.parallel([
+      Animated.spring(slide, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 20 }),
+      Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start();
   };
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_e, g) => { if (g.dy > 0) slide.setValue(g.dy); },
+      onPanResponderGrant: () => {
+        slide.stopAnimation();
+        backdropOpacity.stopAnimation();
+      },
+      onPanResponderMove: (_e, g) => {
+        if (g.dy <= 0) return;
+        slide.setValue(g.dy);
+        backdropOpacity.setValue(Math.max(0.35, 1 - g.dy / Math.max(1, screenHeightRef.current * 0.7)));
+      },
       onPanResponderRelease: (_e, g) => {
         if (g.dy > 80 || g.vy > 0.6) animateClose();
-        else Animated.spring(slide, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
+        else restoreSheet();
       },
+      onPanResponderTerminate: restoreSheet,
     }),
   ).current;
 
@@ -1672,21 +1822,35 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
 
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex }]}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={animateClose} />
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}>
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={animateClose} />
+      </Animated.View>
       <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end' }]} pointerEvents="box-none">
         <Animated.View
           style={{
             transform: [{ translateY: keyboardTranslateY }],
-            marginHorizontal: space.md,
-            marginBottom: keyboardH > 0 ? space.md : Math.max(insets.bottom, space.md),
+            marginHorizontal: 0,
+            marginBottom: 0,
             backgroundColor: theme.dark ? theme.surfaceTop : '#FFFFFF',
-            borderRadius: radius.feature,
-            paddingBottom: space.sm,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.fieldBorder,
-            overflow: 'hidden',
+            borderTopLeftRadius: radius.feature,
+            borderTopRightRadius: radius.feature,
+            paddingBottom: keyboardH > 0 ? space.sm : Math.max(insets.bottom, space.sm),
+            overflow: 'visible',
           }}
         >
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: windowHeight,
+              borderTopLeftRadius: radius.feature,
+              borderTopRightRadius: radius.feature,
+              backgroundColor: theme.dark ? theme.surfaceTop : '#FFFFFF',
+            }}
+          />
           <View {...pan.panHandlers} style={{ paddingTop: 10, paddingBottom: 4, alignItems: 'center' }}>
             <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
           </View>
@@ -1716,7 +1880,6 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
               value={text}
               onChangeText={setText}
               onFocus={() => { setShowTime(false); setDayOpen(false); }}
-              autoFocus
               multiline
               textAlignVertical="top"
               placeholder={t('journey.timeline.addPlaceholder')}
@@ -1753,7 +1916,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
           </View>
 
           {/* toolbar — quick pills (time · photos) + done */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: compactToolbar ? 6 : 8, paddingHorizontal: compactToolbar ? 12 : 14, paddingTop: 10, marginTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: compactToolbar ? 6 : 8, paddingHorizontal: compactToolbar ? 12 : 14, paddingTop: 10, marginTop: 6 }}>
             <Press
               onPress={toggleTime}
               style={{ flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: compactToolbar ? 5 : 6, height: 36, paddingHorizontal: compactToolbar ? 10 : 14, borderRadius: 18, backgroundColor: showTime ? theme.accent : subtle }}
@@ -1811,7 +1974,8 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
         if (it.media?.length && userId) {
           it = { ...it, media: await uploadTLMedia(it.media, userId, info.id) };
         }
-        if (editRow) { tl.update(editRow.id, it); } else { tl.add(it); }
+        if (editRow) await tl.update(editRow.id, it);
+        else await tl.add(it);
       }}
     />
   );

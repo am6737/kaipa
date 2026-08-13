@@ -4,7 +4,7 @@
 // while sharing the floating chrome and metadata language of the new gear and
 // set detail pages.
 import React, { useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Image } from 'expo-image';
@@ -22,6 +22,7 @@ import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system'
 import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
 import { GearDeleteDialog } from './GearDeleteDialog';
+import { GearMenuTransition } from './GearMenuTransition';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
@@ -52,6 +53,7 @@ function GearItemsListView({
   onEditCategory,
   onDeleteCategory,
   onDeleteItems,
+  entryVariant,
   picker,
 }: {
   theme: Theme;
@@ -65,6 +67,7 @@ function GearItemsListView({
   onEditCategory: (cat: GearCat) => void;
   onDeleteCategory: (cat: GearCat) => void;
   onDeleteItems: (ids: number[]) => void;
+  entryVariant?: 'push' | 'continuationY';
   picker?: GearPickerConfig;
 }) {
   const { t } = useI18n();
@@ -236,6 +239,7 @@ function GearItemsListView({
   return (
     <DetailPage
       theme={theme}
+      entryVariant={entryVariant}
       onBack={picker ? finishPicker : selectMode ? exitSelect : onBack}
       backgroundColor={theme.groupedBg}
       flatChrome
@@ -381,7 +385,7 @@ function GearItemsListView({
       <View style={{ paddingHorizontal: 24 }}>
         <View style={{ marginTop: 10, marginBottom: 22 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>{picker ? t('gear.setEditor.itemsTitle') : selectMode ? t('gear.select.title', { count: selectedIds.size }) : t('gear.home.myGear')}</Text>
+              <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>{picker ? t('gear.setEditor.chooseGear') : selectMode ? t('gear.select.title', { count: selectedIds.size }) : t('gear.home.myGear')}</Text>
               <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text3 }}>{items.length} {t('gear.unit.items')}</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
@@ -639,7 +643,7 @@ function SummaryPill({ theme, icon, label, value }: { theme: Theme; icon: 'weigh
 
 function BottomControl({ theme, icon, label, onPress, minWidth }: { theme: Theme; icon: IconName; label: string; onPress: () => void; minWidth: number }) {
   return (
-    <Press onPress={onPress} style={{ height: 52, minWidth, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
+    <Press onPress={onPress} opacityTo={1} style={{ height: 52, minWidth, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
       <Icon name={icon} color={theme.text} size={19} strokeWidth={2.1} />
       <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{label}</Text>
     </Press>
@@ -693,62 +697,63 @@ function DisplaySettingRow({ theme, label, value, onChange, last }: { theme: The
 
 function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; animatedStyle?: any; onClose: () => void; children: React.ReactNode }) {
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]} />
-        <ReAnimated.View style={[{ position: 'absolute', top, right: 14, width, borderRadius: 26, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }, animatedStyle]}>
-          <Glass theme={theme} radius={26} intensity={76}>
-            <View style={{ paddingVertical: 13, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>{children}</View>
-          </Glass>
-        </ReAnimated.View>
-      </View>
-    </Modal>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      positionStyle={[{ position: 'absolute', top, right: 14, width, borderRadius: 26, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }, animatedStyle]}
+    >
+      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
+        <View style={{ paddingVertical: 13, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>{children}</View>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
 function CompactFilterMenu({ theme, visible, title, onClose, children }: { theme: Theme; visible: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View style={{ position: 'absolute', top: insets.top + 62, right: 68, width: 220, maxHeight: '72%', borderRadius: 24, boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)' }}>
-          <Glass theme={theme} radius={24} intensity={78}>
-            <View style={{ maxHeight: '100%', paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-              <Text style={{ paddingHorizontal: 20, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
-              <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>{children}</ScrollView>
-            </View>
-          </Glass>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      backdropColor="transparent"
+      positionStyle={{ position: 'absolute', top: insets.top + 62, right: 68, width: 220, maxHeight: '72%', borderRadius: 24, boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)' }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
+        <View style={{ maxHeight: '100%', paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
+          <Text style={{ paddingHorizontal: 20, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>{children}</ScrollView>
         </View>
-      </View>
-    </Modal>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
 function CompactChoiceMenu({ theme, visible, title, onClose, children }: { theme: Theme; visible: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View
-          style={{
-            position: 'absolute',
-            right: 22,
-            bottom: Math.max(insets.bottom, 14) + 70,
-            width: 210,
-            borderRadius: 24,
-            boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)',
-          }}
-        >
-          <Glass theme={theme} radius={24} intensity={78}>
-            <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-              <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
-              {children}
-            </View>
-          </Glass>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      placement="bottom"
+      backdropColor="transparent"
+      positionStyle={{
+        position: 'absolute',
+        right: 22,
+        bottom: Math.max(insets.bottom, 14) + 70,
+        width: 210,
+        borderRadius: 24,
+        boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)',
+      }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
+        <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
+          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          {children}
         </View>
-      </View>
-    </Modal>
+      </Glass>
+    </GearMenuTransition>
   );
 }

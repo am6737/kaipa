@@ -46,4 +46,4 @@ export function Globe(props: GlobeProps) {
   return <SvgGlobe {...props} />;
 }
 
-export { GlobeProps };
+export type { GlobeCameraAction, GlobeMapStyle, GlobeProps } from './types';

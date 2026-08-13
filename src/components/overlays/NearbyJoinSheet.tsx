@@ -177,7 +177,7 @@ function PreviewView({ theme, t, insets, share, onJoin }: { theme: Theme; t: Ret
       <Text style={{ fontSize: 34, fontWeight: '800', color: '#fff', letterSpacing: -0.6, lineHeight: 38, textShadowColor: 'rgba(0,0,0,0.45)', textShadowRadius: 16, textShadowOffset: { width: 0, height: 2 } }}>{share.journey}</Text>
       <Text style={{ fontFamily: MONO, fontSize: 12.5, color: 'rgba(255,255,255,0.78)', marginTop: 9, letterSpacing: 0.3 }}>{share.region}</Text>
 
-      <Glass theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
+      <Glass solidOnAndroid theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
         <View style={{ flexDirection: 'row' }}>
           {stats.map((s, i) => (
             <React.Fragment key={s.l}>
@@ -205,7 +205,7 @@ function JoiningView({ theme, t, share, step }: { theme: Theme; t: ReturnType<ty
   const steps = [t('journey.nearby.step1'), t('journey.nearby.step2', { host: share.host }), t('journey.nearby.step3')];
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }]}>
-      <Glass theme={theme} radius={22} intensity={50} style={{ width: '100%' }}>
+      <Glass solidOnAndroid theme={theme} radius={22} intensity={50} style={{ width: '100%' }}>
         <View style={{ padding: 24 }}>
           <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text, textAlign: 'center', marginBottom: 22 }}>{t('journey.nearby.joiningTitle')}</Text>
           {steps.map((label, i) => {

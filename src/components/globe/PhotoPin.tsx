@@ -1,7 +1,6 @@
-// PhotoPin.tsx — the circular photo marker shared by both the real Mapbox globe
-// and the SVG fallback. It renders only the circular photo marker and shadow;
-// each globe wraps it in its own positioning
-// (MarkerView coordinate vs. absolute orthographic projection).
+// PhotoPin.tsx — the rounded photo + capsule label marker shared by both the
+// real Mapbox globe and the SVG fallback. Each globe wraps it in its own
+// positioning (MarkerView coordinate vs. absolute orthographic projection).
 //
 // The photo is the real scenery image picked deterministically from the POI's
 // tone + id (same source PhotoTile uses), so a given POI always shows the same
@@ -14,11 +13,15 @@ import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
 import { paletteFor, photoUrlFor } from '../../data/tones';
 
-const BASE = 40;
-const ACTIVE_SCALE = 1.3; // 40 * 1.3 = 52
+const PHOTO_SIZE = 34;
+const ACTIVE_SCALE = 1.08;
+const PHOTO_RADIUS = 8;
+
+export const PHOTO_PIN_WIDTH = 116;
+export const PHOTO_PIN_HEIGHT = 78;
+export const PHOTO_PIN_ANCHOR_Y = 17 / PHOTO_PIN_HEIGHT;
 
 export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; active?: boolean }) {
-  const inner = BASE;
   const palette = paletteFor(poi.tone);
   const count = poi.count && poi.count > 1 ? poi.count : 0;
 
@@ -30,42 +33,93 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
       bounciness: 8,
       speed: 14,
     }).start();
-  }, [active]);
+  }, [active, scale]);
 
   return (
     <Animated.View
       style={{
-        width: BASE,
-        height: BASE,
-        borderRadius: BASE / 2,
-        backgroundColor: palette[1],
-        overflow: 'visible',
-        boxShadow: theme.dark ? '0px 2px 6px rgba(0,0,0,0.45)' : '0px 2px 6px rgba(0,0,0,0.22)',
+        width: PHOTO_PIN_WIDTH,
+        height: PHOTO_PIN_HEIGHT,
+        alignItems: 'center',
         transform: [{ scale }],
       }}
     >
-      <Image
-        source={{ uri: poi.coverUri || photoUrlFor(poi.tone, poi.id, 240) }}
-        style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: palette[1] }}
-      />
-      {count ? (
+      <View
+        style={{
+          width: PHOTO_SIZE,
+          height: PHOTO_SIZE,
+          borderRadius: PHOTO_RADIUS,
+          backgroundColor: palette[1],
+          zIndex: 2,
+          boxShadow: theme.dark ? '0px 2px 5px rgba(0,0,0,0.4)' : '0px 2px 5px rgba(0,0,0,0.16)',
+        }}
+      >
+        <Image
+          source={{ uri: poi.coverUri || photoUrlFor(poi.tone, poi.id, 240) }}
+          style={{
+            width: PHOTO_SIZE,
+            height: PHOTO_SIZE,
+            borderRadius: PHOTO_RADIUS,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.9)',
+            backgroundColor: palette[1],
+          }}
+          contentFit="cover"
+        />
+        {count ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: -4,
+              right: -5,
+              minWidth: 16,
+              height: 16,
+              paddingHorizontal: 4,
+              borderRadius: 8,
+              backgroundColor: theme.accent,
+              borderWidth: 1.5,
+              borderColor: '#fff',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800', lineHeight: 11 }}>{count}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {poi.label ? (
         <View
           style={{
-            position: 'absolute',
-            top: -3,
-            right: -3,
-            minWidth: 17,
-            height: 17,
-            paddingHorizontal: 4,
-            borderRadius: 8.5,
-            backgroundColor: theme.accent,
-            borderWidth: 1.5,
-            borderColor: '#fff',
+            minWidth: 74,
+            maxWidth: PHOTO_PIN_WIDTH,
+            minHeight: 40,
+            marginTop: -10,
+            paddingTop: 12,
+            paddingBottom: 7,
+            paddingHorizontal: 11,
+            borderRadius: 999,
+            borderCurve: 'continuous',
+            backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
+            borderWidth: theme.dark ? 1 : 0,
+            borderColor: theme.hairline,
             alignItems: 'center',
             justifyContent: 'center',
+            boxShadow: theme.dark ? '0px 2px 7px rgba(0,0,0,0.42)' : '0px 2px 7px rgba(0,0,0,0.12)',
           }}
         >
-          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', lineHeight: 13 }}>{count}</Text>
+          <Text
+            numberOfLines={2}
+            style={{
+              color: theme.text,
+              fontSize: 12,
+              lineHeight: 16,
+              fontWeight: '600',
+              textAlign: 'center',
+            }}
+          >
+            {poi.label}
+          </Text>
         </View>
       ) : null}
     </Animated.View>

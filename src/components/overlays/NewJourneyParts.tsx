@@ -9,7 +9,9 @@ import {
   Platform,
   StyleSheet,
   PanResponder,
+  Share,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Svg, { Rect, Circle } from 'react-native-svg';
@@ -21,6 +23,7 @@ import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { supabase } from '../../lib/supabase';
+import { radius, space, type } from '../../design-system';
 
 type TFn = (key: TKey, vars?: TVars) => string;
 
@@ -175,7 +178,7 @@ export function njFormatTime(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-const hapticTick = () => { Haptics.selectionAsync(); };
+export const njHapticTick = () => { void Haptics.selectionAsync(); };
 
 export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value: number; onChange: (v: number) => void }) {
   return (
@@ -183,7 +186,7 @@ export function NJWheelPicker({ theme, value, onChange }: { theme: Theme; value:
       <WheelPicker
         data={NJ_TIME_OPTIONS}
         value={value}
-        onValueChanging={hapticTick}
+        onValueChanging={njHapticTick}
         onValueChanged={({ item }) => onChange(item.value)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
@@ -228,7 +231,7 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={years}
         value={year}
-        onValueChanging={hapticTick}
+        onValueChanging={njHapticTick}
         onValueChanged={({ item }) => onChange(item.value, month, safeDay)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
@@ -239,7 +242,7 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={months}
         value={month}
-        onValueChanging={hapticTick}
+        onValueChanging={njHapticTick}
         onValueChanged={({ item }) => onChange(year, item.value, safeDay)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
@@ -250,7 +253,7 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
       <WheelPicker
         data={days}
         value={safeDay}
-        onValueChanging={hapticTick}
+        onValueChanging={njHapticTick}
         onValueChanged={({ item }) => onChange(year, month, item.value)}
         itemHeight={WHEEL_ITEM_H}
         visibleItemCount={WHEEL_VISIBLE}
@@ -262,33 +265,148 @@ export function NJDateWheelPicker({ theme, year, month, day, onChange }: { theme
   );
 }
 
-export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, keyboardAvoiding, bottomPadding, keyboardOverlap = 18, fillBehindKeyboard, backgroundColor }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean; keyboardAvoiding?: boolean; bottomPadding?: number; keyboardOverlap?: number; fillBehindKeyboard?: boolean; backgroundColor?: string }) {
+export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, dragHeader, pullDownToDismiss, bodyScrollYRef, bodyScrollGestureRef, minimizedOffset, showBackdrop = true, showGrabber = true, keyboardAvoiding, bottomPadding, keyboardOverlap = 18, fillBehindKeyboard, backgroundColor, borderless }: { theme: Theme; onClose: () => void; children: React.ReactNode; full?: boolean; bodyScrolls?: boolean; dragHeader?: React.ReactNode; pullDownToDismiss?: boolean; bodyScrollYRef?: React.MutableRefObject<number>; bodyScrollGestureRef?: React.RefObject<any>; minimizedOffset?: number; showBackdrop?: boolean; showGrabber?: boolean; keyboardAvoiding?: boolean; bottomPadding?: number; keyboardOverlap?: number; fillBehindKeyboard?: boolean; backgroundColor?: string; borderless?: boolean }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(600)).current;
+  const currentTranslateYRef = useRef(600);
   const onCloseRef = useRef(onClose);
+  const handleOwnsTouchRef = useRef(bodyScrolls);
   onCloseRef.current = onClose;
+  handleOwnsTouchRef.current = bodyScrolls;
   useEffect(() => {
+    const listenerId = translateY.addListener(({ value }) => {
+      currentTranslateYRef.current = value;
+    });
     Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 3, speed: 16 }).start();
+    return () => translateY.removeListener(listenerId);
   }, [translateY]);
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onStartShouldSetPanResponder: () => Boolean(handleOwnsTouchRef.current),
+      onStartShouldSetPanResponderCapture: () => Boolean(handleOwnsTouchRef.current),
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 3 && Math.abs(g.dy) > Math.abs(g.dx),
+      onMoveShouldSetPanResponderCapture: (_e, g) => g.dy > 3 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => translateY.stopAnimation(),
       onPanResponderMove: (_e, g) => {
         if (g.dy > 0) translateY.setValue(g.dy);
       },
       onPanResponderRelease: (_e, g) => {
-        if (g.dy > 100 || g.vy > 0.6) {
+        if (g.dy > 80 || g.vy > 0.5) {
           Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
         } else {
           Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
         }
       },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
+      },
+      onPanResponderTerminationRequest: () => false,
     })
   ).current;
-  const grabberHandlers = bodyScrolls ? pan.panHandlers : {};
-  const sheetHandlers = bodyScrolls ? {} : pan.panHandlers;
+  const bodyPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => {
+        if (Math.abs(g.dy) <= 1 || Math.abs(g.dy) <= Math.abs(g.dx)) return false;
+        if (!bodyScrolls) return g.dy > 0;
+        return Boolean(pullDownToDismiss && g.dy > 0 && (bodyScrollYRef?.current ?? 0) <= 4);
+      },
+      onMoveShouldSetPanResponderCapture: (_e, g) => {
+        if (Math.abs(g.dy) <= 1 || Math.abs(g.dy) <= Math.abs(g.dx)) return false;
+        if (!bodyScrolls) return g.dy > 0;
+        return Boolean(pullDownToDismiss && g.dy > 0 && (bodyScrollYRef?.current ?? 0) <= 4);
+      },
+      onPanResponderGrant: () => translateY.stopAnimation(),
+      onPanResponderMove: (_e, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4, speed: 16 }).start();
+      },
+      onPanResponderTerminationRequest: () => false,
+    })
+  ).current;
+  const grabberHandlers = bodyScrolls && !pullDownToDismiss ? pan.panHandlers : {};
+  const sheetHandlers = !bodyScrolls ? bodyPan.panHandlers : {};
   const keyboardFillHeight = fillBehindKeyboard ? Dimensions.get('window').height : keyboardOverlap;
-  const sheet = (
+  const gestureDraggingRef = useRef(false);
+  const gestureOffsetRef = useRef(0);
+  const gestureStartYRef = useRef(0);
+  const gestureCurrentYRef = useRef(0);
+  const pullDownGesture = useMemo(() => {
+    const snapTo = (value: number) => {
+      Animated.spring(translateY, { toValue: value, useNativeDriver: true, bounciness: 3, speed: 18 }).start();
+    };
+    let gesture = Gesture.Pan()
+      .runOnJS(true)
+      .activeOffsetY([-4, 4])
+      .onBegin(() => {
+        gestureDraggingRef.current = false;
+        gestureStartYRef.current = currentTranslateYRef.current;
+        gestureCurrentYRef.current = currentTranslateYRef.current;
+      })
+      .onUpdate((event) => {
+        const hasMinimizedState = minimizedOffset != null && minimizedOffset > 0;
+        const startingMinimized = hasMinimizedState && gestureStartYRef.current >= minimizedOffset - 4;
+        const canExpand = startingMinimized && event.translationY < 0;
+        const canCollapse = event.translationY > 0 && (bodyScrollYRef?.current ?? 0) <= 4;
+        if (!canExpand && !canCollapse) return;
+        if (!gestureDraggingRef.current) {
+          gestureDraggingRef.current = true;
+          gestureOffsetRef.current = event.translationY;
+          gestureStartYRef.current = currentTranslateYRef.current;
+          translateY.stopAnimation();
+        }
+        const next = Math.max(0, gestureStartYRef.current + event.translationY - gestureOffsetRef.current);
+        gestureCurrentYRef.current = next;
+        translateY.setValue(next);
+      })
+      .onEnd((event) => {
+        if (!gestureDraggingRef.current) return;
+        gestureDraggingRef.current = false;
+        const currentY = gestureCurrentYRef.current;
+        if (minimizedOffset != null && minimizedOffset > 0) {
+          const beganMinimized = gestureStartYRef.current >= minimizedOffset - 4;
+          if (beganMinimized && (currentY > minimizedOffset + 72 || event.velocityY > 500)) {
+            Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
+            return;
+          }
+          if (event.velocityY < -350) {
+            snapTo(0);
+            return;
+          }
+          if (event.velocityY > 350 || currentY > minimizedOffset * 0.45) {
+            snapTo(minimizedOffset);
+            return;
+          }
+          snapTo(0);
+          return;
+        }
+        if (currentY > 80 || event.velocityY > 500) {
+          Animated.timing(translateY, { toValue: 700, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
+        } else {
+          snapTo(0);
+        }
+      })
+      .onFinalize(() => {
+        if (!gestureDraggingRef.current) return;
+        gestureDraggingRef.current = false;
+        if (minimizedOffset != null && minimizedOffset > 0) {
+          snapTo(gestureCurrentYRef.current > minimizedOffset * 0.45 ? minimizedOffset : 0);
+        } else {
+          snapTo(0);
+        }
+      });
+    if (bodyScrollGestureRef) gesture = gesture.simultaneousWithExternalGesture(bodyScrollGestureRef);
+    return gesture;
+  }, [bodyScrollGestureRef, bodyScrollYRef, minimizedOffset, pullDownToDismiss, translateY]);
+  const sheetSurface = (
     <Animated.View
       {...sheetHandlers}
       style={{
@@ -299,23 +417,31 @@ export function NJBottomSheet({ theme, onClose, children, full, bodyScrolls, key
         paddingBottom: bottomPadding ?? Math.max(insets.bottom, 16) + 6,
         maxHeight: '92%',
         ...(full ? {} : { marginHorizontal: 0 }),
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.border,
+        borderWidth: borderless ? 0 : StyleSheet.hairlineWidth,
+        borderColor: borderless ? 'transparent' : theme.border,
         ...(keyboardAvoiding ? { borderBottomWidth: 0 } : {}),
       }}
     >
-      <View {...grabberHandlers} style={{ paddingTop: 12, paddingBottom: 6, alignItems: 'center' }}>
-        <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
-      </View>
+      {showGrabber ? (
+        <View {...grabberHandlers} collapsable={false} style={{ paddingTop: 12, paddingBottom: 6, alignItems: 'center' }}>
+          <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
+          {dragHeader}
+        </View>
+      ) : dragHeader ? (
+        <View>{dragHeader}</View>
+      ) : null}
       {children}
       {keyboardAvoiding && keyboardFillHeight > 0 ? (
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: -keyboardFillHeight, height: keyboardFillHeight, backgroundColor: backgroundColor || theme.bg }} />
       ) : null}
     </Animated.View>
   );
+  const sheet = pullDownToDismiss ? (
+    <GestureDetector gesture={pullDownGesture}>{sheetSurface}</GestureDetector>
+  ) : sheetSurface;
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 60 }]}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} />
+    <View pointerEvents={showBackdrop ? 'auto' : 'box-none'} style={[StyleSheet.absoluteFill, { zIndex: 60 }]}>
+      {showBackdrop ? <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.45)' }]} onPress={onClose} /> : null}
       {keyboardAvoiding ? (
         <KeyboardAvoidingView
           pointerEvents="box-none"
@@ -371,10 +497,26 @@ function njQrPattern(seed: string): boolean[][] {
   return cells;
 }
 
-export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast, backgroundColor }: { theme: Theme; tripName: string; journeyId?: string; onClose: () => void; onToast: (m: string) => void; backgroundColor?: string }) {
+export function NJSharePanel({
+  theme,
+  tripName,
+  journeyId,
+  participantCount = 1,
+  metrics = [],
+  onClose,
+  onToast,
+  backgroundColor,
+}: {
+  theme: Theme;
+  tripName: string;
+  journeyId?: string;
+  participantCount?: number;
+  metrics?: { label: string; value: string }[];
+  onClose: () => void;
+  onToast: (m: string) => void;
+  backgroundColor?: string;
+}) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const [saved, setSaved] = useState(false);
   const { slug, code, fullUrl } = useMemo(() => {
     const s = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
     const c = String(1000 + (Math.abs(hashSeed(tripName)) % 9000));
@@ -408,96 +550,147 @@ export function NJSharePanel({ theme, tripName, journeyId, onClose, onToast, bac
         if (Clipboard) await Clipboard.setStringAsync(fullUrl);
       }
     } catch {}
-    setCopied(true);
     onToast(t('journeyEdit.share.toastLinkCopied'));
-    setTimeout(() => setCopied(false), 1500);
+    onClose();
   };
+
+  const doShare = async () => {
+    await Share.share({
+      title: tripName,
+      message: `${t('journeyEdit.share.shareMessage', { tripName })}\n${fullUrl}`,
+      url: fullUrl,
+    });
+  };
+
+  const previewMetrics = metrics.filter((metric) => metric.value).slice(0, 3);
+  const safeParticipantCount = Math.min(10, Math.max(1, participantCount));
 
   return (
     <NJBottomSheet theme={theme} onClose={onClose} full backgroundColor={backgroundColor}>
-      <View style={{ paddingHorizontal: 24, paddingBottom: 12 }}>
-        <View style={{ paddingTop: 8, marginBottom: 30 }}>
-          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.text, letterSpacing: -0.3 }}>
+      <View style={{ paddingHorizontal: space.xl, paddingTop: space.sm, paddingBottom: space.sm }}>
+        <View>
+          <Text style={[type.pageTitle, { color: theme.text, fontSize: 26, lineHeight: 32 }]}>
             {t('journeyEdit.share.title')}
           </Text>
-          <Text style={{ fontSize: 12.5, color: theme.text3, marginTop: 6, lineHeight: 18 }}>
+          <Text style={[type.body, { color: theme.text3, marginTop: space.xs, lineHeight: 21 }]}>
             {t('journeyEdit.share.lead')}
           </Text>
         </View>
 
-        <View style={{ alignItems: 'center' }}>
+        <View style={{ marginTop: space.lg, flexDirection: 'row', alignItems: 'center' }}>
           <View
             style={{
-              width: 248,
-              paddingHorizontal: 24,
-              paddingTop: 24,
-              paddingBottom: 20,
-              borderRadius: 24,
-              backgroundColor: '#FFFFFF',
+              width: 32,
+              height: 32,
+              borderRadius: radius.pill,
               alignItems: 'center',
-              shadowColor: '#000000',
-              shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: theme.dark ? 0.26 : 0.07,
-              shadowRadius: 22,
-              elevation: 4,
+              justifyContent: 'center',
+              backgroundColor: theme.fieldSurface,
             }}
           >
-            <Text
-              numberOfLines={2}
-              style={{ maxWidth: 200, color: '#171717', fontSize: 15, lineHeight: 20, fontWeight: '700', textAlign: 'center', marginBottom: 20 }}
-            >
-              {tripName || t('journeyEdit.newJourneyName')}
-            </Text>
-            <QRCode value={fullUrl} size={164} backgroundColor="#FFFFFF" color="#000000" />
+            <Icon name="user" color={theme.text3} size={17} />
+          </View>
+          <Text style={[type.body, { color: theme.text2, fontWeight: '700', marginLeft: space.xs }]}>
+            {t('journeyEdit.share.capacity', { count: safeParticipantCount })}
+          </Text>
+        </View>
+
+        <View
+          style={{
+            minHeight: 160,
+            marginTop: space.xxl,
+            padding: space.xl,
+            paddingRight: 154,
+            borderRadius: radius.feature,
+            backgroundColor: theme.accentSofter,
+            justifyContent: 'center',
+            overflow: 'hidden',
+            boxShadow: theme.dark ? '0px 12px 30px rgba(0,0,0,0.30)' : '0px 12px 30px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Text numberOfLines={2} style={[type.sectionTitle, { color: theme.text, fontSize: 20, lineHeight: 27 }]}>
+            {tripName || t('journeyEdit.newJourneyName')}
+          </Text>
+          {previewMetrics.length ? (
+            <View style={{ marginTop: space.sm, gap: space.xxs }}>
+              {previewMetrics.map((metric) => (
+                <Text
+                  key={metric.label}
+                  numberOfLines={1}
+                  style={[type.body, { maxWidth: 150, color: theme.text3, fontWeight: '600' }]}
+                >
+                  {metric.value}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          <View
+            accessible
+            accessibilityLabel={t('journeyEdit.share.qrHint')}
+            style={{
+              position: 'absolute',
+              right: space.lg,
+              top: 20,
+              padding: space.xs,
+              borderRadius: radius.card,
+              backgroundColor: '#FFFFFF',
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: 'rgba(0,0,0,0.06)',
+              boxShadow: theme.dark ? '0px 8px 24px rgba(0,0,0,0.32)' : '0px 8px 24px rgba(0,0,0,0.08)',
+            }}
+          >
+            <QRCode value={fullUrl} size={104} backgroundColor="#FFFFFF" color="#000000" />
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 30 }}>
+        <Text style={[type.caption, { color: theme.text3, marginTop: space.md, textAlign: 'center' }]}>
+          {t('journeyEdit.share.qrHint')}
+        </Text>
+
+        <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xxl }}>
           <Press
             onPress={doCopy}
             style={{
               flex: 1,
-              height: 48,
-              borderRadius: 24,
-              backgroundColor: copied ? '#34C759' : theme.accent,
+              height: 54,
+              borderRadius: radius.pill,
+              backgroundColor: theme.controlSurface,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.fieldBorder,
+              boxShadow: theme.dark ? undefined : '0px 6px 18px rgba(0,0,0,0.06)',
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
-              gap: 7,
+              gap: space.xs,
             }}
           >
-            <Icon name={copied ? 'check' : 'share'} color="#FFFFFF" size={14} strokeWidth={copied ? 3 : undefined} />
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>
-              {copied ? t('journeyEdit.share.copied') : t('journeyEdit.share.copyLink')}
+            <Icon name="link" color={theme.text} size={18} strokeWidth={2} />
+            <Text style={[type.body, { fontWeight: '700', color: theme.text }]}>
+              {t('journeyEdit.share.copyLink')}
             </Text>
           </Press>
           <Press
-            onPress={() => {
-              setSaved(true);
-              onToast(t('journeyEdit.share.toastQrSaved'));
-              setTimeout(() => setSaved(false), 1500);
-            }}
+            onPress={doShare}
             style={{
               flex: 1,
-              height: 48,
-              borderRadius: 24,
-              backgroundColor: saved ? '#34C759' : theme.controlSurface,
+              height: 54,
+              borderRadius: radius.pill,
+              backgroundColor: theme.accent,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
-              gap: 7,
+              gap: space.xs,
             }}
           >
-            {saved ? <Icon name="check" color="#FFFFFF" size={14} strokeWidth={3} /> : null}
-            <Text style={{ fontSize: 14, fontWeight: '700', color: saved ? '#FFFFFF' : theme.text }}>
-              {saved ? t('common.saved') : t('journeyEdit.share.saveQr')}
+            <Icon name="share" color="#FFFFFF" size={18} strokeWidth={2} />
+            <Text style={[type.body, { fontWeight: '700', color: '#FFFFFF' }]}>
+              {t('journeyEdit.share.shareFriend')}
             </Text>
           </Press>
         </View>
       </View>
     </NJBottomSheet>
   );
-
 }
 
 function NJQrDisplay({ seed, size = 172 }: { seed: string; size?: number }) {

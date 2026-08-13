@@ -1,4 +1,4 @@
-// AuthFlow.tsx — kaipa 登录 / 注册 流程 (1:1 port of the prototype auth-flow.jsx).
+// AuthFlow.tsx — Kaipa 登录 / 注册流程，遵循当前应用设计系统。
 // MVP 阶段（不含实时 GPS）。支持 手机号 / 邮箱 / 微信 / Apple / Google 五种方式。
 // Auth gate: 未登录显示这里，登录成功 onSuccess()。
 //
@@ -23,15 +23,16 @@ import {
   TextStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
 import { elevAccent, shadow } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
+import { layout, motion, radius, space, type } from '../design-system';
 import { useI18n, TKey } from '../i18n';
 import { signInWithEmail, signUpWithEmail, signInAnonymously } from '../lib/auth';
+import { WeChatIcon } from '../components/WeChatIcon';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -114,30 +115,14 @@ const DotsGlyph = ({ c }: { c: string }) => (
     <Circle cx={18} cy={12} r={1.7} fill={c} />
   </Svg>
 );
-const PhoneGlyph = () => (
+const PhoneGlyph = ({ c = '#fff' }: { c?: string }) => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-    <Rect x={6.5} y={3} width={11} height={18} rx={2.6} stroke="#fff" strokeWidth={1.8} />
-    <Path d="M10.5 18h3" stroke="#fff" strokeWidth={1.8} strokeLinecap="round" />
+    <Rect x={6.5} y={3} width={11} height={18} rx={2.6} stroke={c} strokeWidth={1.8} />
+    <Path d="M10.5 18h3" stroke={c} strokeWidth={1.8} strokeLinecap="round" />
   </Svg>
 );
 
-// ── Social brand glyphs (simple, recognizable — not exact logos) ────────────
-const WeChatGlyph = () => (
-  <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M9.2 4.2C5.3 4.2 2.2 6.8 2.2 10c0 1.8 1 3.4 2.5 4.5L4 16.8l2.6-1.3c.8.2 1.7.4 2.6.4.3 0 .5 0 .8-.05a5.3 5.3 0 0 1-.25-1.6c0-3 2.9-5.4 6.45-5.4.25 0 .5 0 .75.05C16.7 6.3 13.3 4.2 9.2 4.2Z"
-      fill="#fff"
-    />
-    <Path
-      d="M22 14.3c0-2.6-2.6-4.7-5.8-4.7s-5.8 2.1-5.8 4.7 2.6 4.7 5.8 4.7c.7 0 1.4-.1 2-.3l1.9 1-.5-1.7c1.4-.85 2.4-2.2 2.4-3.7Z"
-      fill="#fff"
-    />
-    <Circle cx={6.8} cy={9} r={0.95} fill="#07C160" />
-    <Circle cx={11.4} cy={9} r={0.95} fill="#07C160" />
-    <Circle cx={14.3} cy={13.4} r={0.8} fill="#07C160" />
-    <Circle cx={18} cy={13.4} r={0.8} fill="#07C160" />
-  </Svg>
-);
+// ── Social brand glyphs ──────────────────────────────────────────────────────
 const AppleGlyph = ({ c }: { c: string }) => (
   <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
     <Path
@@ -160,9 +145,39 @@ const GoogleGlyph = () => (
 );
 
 const socialIcon = (t: Theme, kind: SocialId) =>
-  kind === 'wechat' ? <WeChatGlyph /> : kind === 'apple' ? <AppleGlyph c={t.dark ? '#000' : '#fff'} /> : <GoogleGlyph />;
+  kind === 'wechat' ? <WeChatIcon size={26} color="#FFFFFF" /> : kind === 'apple' ? <AppleGlyph c={t.dark ? '#000' : '#fff'} /> : <GoogleGlyph />;
 const socialBg = (t: Theme, kind: SocialId) =>
   kind === 'wechat' ? '#07C160' : kind === 'apple' ? (t.dark ? '#fff' : '#000') : t.dark ? 'rgba(255,255,255,0.10)' : '#fff';
+
+function LandingBrand({ t }: { t: Theme }) {
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Text style={{ color: t.text, fontSize: 34, fontWeight: '800', letterSpacing: 4 }}>开爬</Text>
+      <Text style={{ marginTop: space.xs, color: t.text3, fontSize: 10, fontWeight: '700', letterSpacing: 4.2 }}>KAIPA</Text>
+    </View>
+  );
+}
+
+function LandingButton({ t, label, icon, onPress }: { t: Theme; label: string; icon: React.ReactNode; onPress: () => void }) {
+  return (
+    <Press
+      onPress={onPress}
+      style={{
+        height: 54,
+        borderRadius: radius.pill,
+        borderWidth: 1.5,
+        borderColor: t.text,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: space.sm,
+      }}
+    >
+      <View style={{ width: 24, alignItems: 'center' }}>{icon}</View>
+      <Text style={{ color: t.text, fontSize: 16, fontWeight: '700' }}>{label}</Text>
+    </Press>
+  );
+}
 
 // ── Spinning ring ───────────────────────────────────────────────────────────
 function Spinner({ size = 18, color = '#fff', track = 'rgba(255,255,255,0.4)', width = 2 }: { size?: number; color?: string; track?: string; width?: number }) {
@@ -184,7 +199,7 @@ function Spinner({ size = 18, color = '#fff', track = 'rgba(255,255,255,0.4)', w
 function useSlideIn() {
   const x = useRef(new Animated.Value(SCREEN_W)).current;
   useEffect(() => {
-    Animated.timing(x, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    Animated.timing(x, { toValue: 0, duration: motion.emphasized, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [x]);
   return x;
 }
@@ -196,12 +211,12 @@ function AuthField({ t, leading, children }: { t: Theme; leading?: React.ReactNo
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        height: 52,
-        paddingHorizontal: 14,
-        borderRadius: 14,
-        backgroundColor: t.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
-        borderWidth: StyleSheet.hairlineWidth,
+        gap: space.sm,
+        minHeight: 58,
+        paddingHorizontal: space.lg,
+        borderRadius: radius.pill,
+        backgroundColor: t.featureSurface,
+        borderWidth: 1,
         borderColor: t.hairline,
       }}
     >
@@ -211,7 +226,13 @@ function AuthField({ t, leading, children }: { t: Theme; leading?: React.ReactNo
   );
 }
 
-const inputStyle = (t: Theme): TextStyle => ({ flex: 1, fontSize: 16, color: t.text, padding: 0 });
+const inputStyle = (t: Theme): TextStyle => ({
+  flex: 1,
+  minHeight: 56,
+  fontSize: 16,
+  color: t.text,
+  paddingVertical: 0,
+});
 
 function CountryCode({ t }: { t: Theme }) {
   return (
@@ -219,14 +240,14 @@ function CountryCode({ t }: { t: Theme }) {
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        paddingRight: 10,
+        gap: space.xxs,
+        paddingRight: space.sm,
         borderRightWidth: StyleSheet.hairlineWidth,
         borderColor: t.hairline,
         height: 24,
       }}
     >
-      <Text style={{ fontSize: 16, fontWeight: '600', color: t.text }}>+86</Text>
+      <Text style={{ fontSize: 15, fontWeight: '700', color: t.text }}>+86</Text>
       <ChevDownSmall c={t.text3} />
     </View>
   );
@@ -258,8 +279,8 @@ function PasswordField({
         autoCapitalize="none"
         style={inputStyle(t)}
       />
-      <Press onPress={() => setShow(!show)} style={{ padding: 2 }}>
-        {show ? <EyeOpen c={t.text3} /> : <EyeOff c={t.text3} />}
+      <Press onPress={() => setShow(!show)} hitSlop={10} style={{ padding: space.xxs }}>
+        {show ? <EyeOpen c={t.text2} /> : <EyeOff c={t.text2} />}
       </Press>
     </AuthField>
   );
@@ -268,19 +289,24 @@ function PasswordField({
 // ── Segmented control (手机号 / 邮箱) ──────────────────────────────────────────
 function AuthSeg<T extends string>({ t, value, options, onChange }: { t: Theme; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 4, padding: 4, borderRadius: 13, backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}>
+    <View style={{ flexDirection: 'row', gap: space.xxs, padding: space.xxs, borderRadius: radius.card, backgroundColor: t.fieldSurface }}>
       {options.map((o) => {
         const on = o.id === value;
         return (
-          <Press key={o.id} onPress={() => onChange(o.id)} style={{ flex: 1 }}>
-            <View
-              style={[
-                { height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? t.bg : 'transparent' },
-                on ? shadow(0.1, 4, 1) : null,
-              ]}
-            >
-              <Text style={{ fontSize: 14, fontWeight: '600', color: on ? t.text : t.text2 }}>{o.label}</Text>
-            </View>
+          <Press
+            key={o.id}
+            onPress={() => onChange(o.id)}
+            style={{
+              flex: 1,
+              height: 40,
+              borderRadius: radius.control,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: on ? t.surfaceTop : 'transparent',
+              ...(on && t.dark ? { boxShadow: '0px 4px 12px rgba(0,0,0,0.35)' } : {}),
+            }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: '700', color: on ? t.text : t.text2 }}>{o.label}</Text>
           </Press>
         );
       })}
@@ -302,32 +328,32 @@ function AuthAgree({ t, value, onChange, flash, onOpenDoc }: { t: Theme; value: 
     ]).start();
   }, [flash, shake]);
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
       <Animated.View style={{ transform: [{ translateX: shake }] }}>
-        <Pressable onPress={() => onChange(!value)} hitSlop={8}>
+        <Pressable onPress={() => onChange(!value)} hitSlop={10} accessibilityRole="checkbox" accessibilityState={{ checked: value }}>
           <View
             style={{
-              width: 18,
-              height: 18,
-              borderRadius: 9,
+              width: 20,
+              height: 20,
+              borderRadius: 7,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: value ? t.accent : 'transparent',
+              backgroundColor: value ? t.accent : t.fieldSurface,
               borderWidth: 1.5,
-              borderColor: value ? t.accent : flash ? t.danger : t.text3,
+              borderColor: value ? t.accent : flash ? t.danger : t.fieldBorder,
             }}
           >
             {value && <CheckSmall />}
           </View>
         </Pressable>
       </Animated.View>
-      <Text style={{ flex: 1, fontSize: 11.5, color: t.text2, lineHeight: 17 }}>
+      <Text style={{ flex: 1, fontSize: 12, color: flash ? t.danger : t.text2, lineHeight: 19 }}>
         {tr('auth.agree.prefix')}
-        <Text onPress={() => onOpenDoc('agreement')} style={{ color: t.accent, fontWeight: '600' }}>
+        <Text onPress={() => onOpenDoc('agreement')} style={{ color: t.text, fontWeight: '700' }}>
           {tr('auth.agree.agreement')}
         </Text>
         {tr('auth.agree.and')}
-        <Text onPress={() => onOpenDoc('privacy')} style={{ color: t.accent, fontWeight: '600' }}>
+        <Text onPress={() => onOpenDoc('privacy')} style={{ color: t.text, fontWeight: '700' }}>
           {tr('auth.agree.privacy')}
         </Text>
       </Text>
@@ -336,29 +362,27 @@ function AuthAgree({ t, value, onChange, flash, onOpenDoc }: { t: Theme; value: 
 }
 
 // ── Primary CTA ──────────────────────────────────────────────────────────────
-function AuthCTA({ t, label, enabled, busy, onPress }: { t: Theme; label: string; enabled: boolean; busy?: boolean; onPress: () => void }) {
-  const disabledBg = t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
+function AuthCTA({ t, label, enabled, busy, onPress, topGap = space.lg }: { t: Theme; label: string; enabled: boolean; busy?: boolean; onPress: () => void; topGap?: number }) {
   return (
     <Press
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !enabled || busy }}
       onPress={() => enabled && !busy && onPress()}
-      style={[
-        {
-          height: 52,
-          borderRadius: 16,
-          marginTop: 18,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          backgroundColor: enabled ? t.accent : disabledBg,
-        },
-        enabled ? elevAccent(t.accent) : null,
-      ]}
+      style={{
+        height: 56,
+        borderRadius: radius.pill,
+        marginTop: topGap,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: space.xs,
+        backgroundColor: enabled ? t.accent : t.text3,
+      }}
     >
       {busy ? (
         <Spinner size={18} color="#fff" track="rgba(255,255,255,0.4)" width={2} />
       ) : (
-        <Text style={{ fontSize: 16, fontWeight: '700', letterSpacing: 0.2, color: enabled ? '#fff' : t.text3 }}>{label}</Text>
+        <Text style={{ fontSize: 16, fontWeight: '800', letterSpacing: 0.1, color: enabled ? '#fff' : t.featureSurface }}>{label}</Text>
       )}
     </Press>
   );
@@ -367,15 +391,22 @@ function AuthCTA({ t, label, enabled, busy, onPress }: { t: Theme; label: string
 // ── Back button (shared header chip) ──────────────────────────────────────────
 function AuthBack({ t, top, onPress }: { t: Theme; top: number; onPress: () => void }) {
   return (
-    <Press onPress={onPress} style={{ position: 'absolute', top, left: 16, zIndex: 5 }}>
-      <View
-        style={[
-          { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: t.dark ? '#2C2C2E' : '#FFFFFF' },
-          shadow(t.dark ? 0.5 : 0.14, 10, 2),
-        ]}
-      >
-        <BackArrow c={t.text} />
-      </View>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      hitSlop={8}
+      style={{
+        position: 'absolute',
+        top,
+        left: space.md,
+        zIndex: 5,
+        width: layout.iconButton,
+        height: layout.iconButton,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <BackArrow c={t.text} />
     </Press>
   );
 }
@@ -388,7 +419,7 @@ function OtpInput({ t, code, setCode }: { t: Theme; code: string; setCode: (v: s
     return () => clearTimeout(id);
   }, []);
   return (
-    <Pressable onPress={() => ref.current?.focus()} style={{ marginTop: 30 }}>
+    <Pressable onPress={() => ref.current?.focus()} style={{ marginTop: space.xxl }}>
       <TextInput
         ref={ref}
         value={code}
@@ -397,7 +428,7 @@ function OtpInput({ t, code, setCode }: { t: Theme; code: string; setCode: (v: s
         onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
         style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0 }}
       />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', gap: space.xs }}>
         {[0, 1, 2, 3, 4, 5].map((i) => {
           const active = i === code.length;
           return (
@@ -405,13 +436,13 @@ function OtpInput({ t, code, setCode }: { t: Theme; code: string; setCode: (v: s
               key={i}
               style={{
                 flex: 1,
-                height: 56,
-                borderRadius: 13,
+                height: 58,
+                borderRadius: radius.card,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: t.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
-                borderWidth: 1.5,
-                borderColor: active ? t.accent : t.hairline,
+                backgroundColor: active ? t.accentSofter : t.fieldSurface,
+                borderWidth: 1,
+                borderColor: active ? t.accent : t.fieldBorder,
               }}
             >
               <Text style={{ fontSize: 24, fontWeight: '700', color: t.text }}>{code[i] || ''}</Text>
@@ -442,10 +473,10 @@ function ResendRow({ t, left, onResend }: { t: Theme; left: number; onResend: ()
 
 function StepTitle({ t, title, sub }: { t: Theme; title: string; sub: string }) {
   return (
-    <>
-      <Text style={{ fontSize: 26, fontWeight: '700', color: t.text, letterSpacing: -0.5 }}>{title}</Text>
-      <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, lineHeight: 21 }}>{sub}</Text>
-    </>
+    <View style={{ gap: space.sm }}>
+      <Text style={{ color: t.text, fontSize: 31, fontWeight: '800', letterSpacing: -1, lineHeight: 38 }}>{title}</Text>
+      <Text style={{ ...type.body, color: t.text2, lineHeight: 22 }}>{sub}</Text>
+    </View>
   );
 }
 
@@ -528,60 +559,74 @@ function AuthDocPage({ t, doc, onBack }: { t: Theme; doc: DocId; onBack: () => v
 }
 
 // ── "更多登录方式" bottom sheet ───────────────────────────────────────────────
-function AuthMoreSheet({ t, onPick, onClose }: { t: Theme; onPick: (id: 'phone' | SocialId) => void; onClose: () => void }) {
+function AuthMoreSheet({ t, onPick, onClose }: { t: Theme; onPick: (id: 'email' | SocialId) => void; onClose: () => void }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.spring(slide, { toValue: 1, useNativeDriver: true, bounciness: 2, speed: 16 }).start();
+    Animated.timing(slide, {
+      toValue: 1,
+      duration: motion.emphasized,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   }, [slide]);
-  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [400, 0] });
+  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
 
-  const items: { id: 'phone' | SocialId; label: string; bg: string; icon: React.ReactNode; border?: boolean }[] = [
-    { id: 'phone', label: tr('auth.more.phoneLogin'), bg: t.accent, icon: <PhoneGlyph /> },
-    { id: 'wechat', label: '微信', bg: '#07C160', icon: <WeChatGlyph /> },
-    { id: 'apple', label: 'Apple', bg: t.dark ? '#fff' : '#000', icon: <AppleGlyph c={t.dark ? '#000' : '#fff'} /> },
-    { id: 'google', label: 'Google', bg: t.dark ? 'rgba(255,255,255,0.10)' : '#fff', icon: <GoogleGlyph />, border: !t.dark },
+  const items: { id: 'email' | SocialId; label: string; icon: React.ReactNode }[] = [
+    { id: 'email', label: tr('auth.emailHint'), icon: <Mail c={t.text} /> },
+    {
+      id: 'wechat',
+      label: '微信',
+      icon: (
+        <View style={{ width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#07C160' }}>
+          <WeChatIcon size={26} color="#FFFFFF" />
+        </View>
+      ),
+    },
+    { id: 'apple', label: 'Apple', icon: <AppleGlyph c={t.text} /> },
+    { id: 'google', label: 'Google', icon: <GoogleGlyph /> },
   ];
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 80, justifyContent: 'flex-end' }]}>
-      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.4)' }]} onPress={onClose} />
+    <View style={[StyleSheet.absoluteFill, { zIndex: 80, justifyContent: 'flex-end', alignItems: 'center' }]}>
+      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.22)' }]} onPress={onClose} />
       <Animated.View
-        style={[
-          {
-            transform: [{ translateY }],
-            backgroundColor: t.bg,
-            borderTopLeftRadius: 22,
-            borderTopRightRadius: 22,
-            paddingHorizontal: 16,
-            paddingTop: 10,
-            paddingBottom: insets.bottom + 20,
-          },
-          shadow(0.22, 30, -8),
-        ]}
+        style={{
+          width: '100%',
+          maxWidth: 520,
+          transform: [{ translateY }],
+          backgroundColor: t.featureSurface,
+          borderTopLeftRadius: radius.feature,
+          borderTopRightRadius: radius.feature,
+          paddingTop: space.sm,
+          paddingBottom: insets.bottom + space.sm,
+          ...(t.dark ? { boxShadow: '0px -8px 24px rgba(0,0,0,0.38)' } : {}),
+        }}
       >
-        <View style={{ width: 38, height: 5, borderRadius: 3, backgroundColor: t.hairline, alignSelf: 'center', marginBottom: 6 }} />
-        <Text style={{ fontSize: 15, fontWeight: '700', color: t.text, textAlign: 'center', paddingVertical: 10 }}>{tr('auth.more.title')}</Text>
-        <View style={{ gap: 4 }}>
-          {items.map((it) => (
-            <Press key={it.id} onPress={() => onPick(it.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 11, paddingHorizontal: 6 }}>
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: it.bg,
-                  borderWidth: it.border ? StyleSheet.hairlineWidth : 0,
-                  borderColor: t.hairline,
-                }}
-              >
-                {it.icon}
-              </View>
-              <Text style={{ flex: 1, fontSize: 15.5, fontWeight: '600', color: t.text }}>{it.label}</Text>
-              <ChevRight c={t.text3} />
+        <View style={{ height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: t.text }}>{tr('auth.more.title')}</Text>
+          <Press
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            style={{ position: 'absolute', right: space.md, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
+              <Path d="m6 6 12 12M18 6 6 18" stroke={t.text2} strokeWidth={2} strokeLinecap="round" />
+            </Svg>
+          </Press>
+        </View>
+
+        <View>
+          {items.map((item) => (
+            <Press
+              key={item.id}
+              onPress={() => onPick(item.id)}
+              style={{ height: 60, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xl }}
+            >
+              <View style={{ width: 32, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>
+              <Text style={{ flex: 1, fontSize: 15.5, fontWeight: '600', color: t.text }}>{item.label}</Text>
             </Press>
           ))}
         </View>
@@ -644,9 +689,9 @@ function AuthOtp({ t, phone, busy, onBack, onVerify }: { t: Theme; phone: string
   }, [code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg, transform: [{ translateX: x }] }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg, transform: [{ translateX: x }] }]}>
       <AuthBack t={t} top={insets.top + 12} onPress={onBack} />
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Text style={{ fontSize: 26, fontWeight: '700', color: t.text, letterSpacing: -0.5 }}>{tr('auth.otp.title')}</Text>
         <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, lineHeight: 21 }}>
           {tr('auth.otp.sentTo')} <Text style={{ fontFamily: MONO, color: t.text, fontWeight: '600' }}>+86 {phone}</Text>
@@ -698,11 +743,23 @@ function AuthPhoneStep({
     return () => clearTimeout(id);
   }, []);
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg, transform: [{ translateX: x }] }]}>
-      <AuthBack t={t} top={insets.top + 12} onPress={onBack} />
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.featureSurface, transform: [{ translateX: x }] }]}>
+      <AuthBack t={t} top={insets.top + space.sm} onPress={onBack} />
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          width: '100%',
+          maxWidth: 460,
+          alignSelf: 'center',
+          paddingTop: insets.top + 112,
+          paddingHorizontal: space.xxl,
+          paddingBottom: insets.bottom + space.xxxl,
+        }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <StepTitle t={t} title={tr('auth.phone.title')} sub={tr('auth.phone.sub')} />
-        <View style={{ marginTop: 26 }}>
+        <View style={{ marginTop: 36 }}>
           <AuthField t={t} leading={<CountryCode t={t} />}>
             <TextInput
               ref={ref}
@@ -716,8 +773,20 @@ function AuthPhoneStep({
             />
           </AuthField>
         </View>
-        <AuthCTA t={t} label={tr('auth.phone.getCode')} enabled={valid} onPress={() => { if (!agree) { flashAgree(); return; } onNext(); }} />
-        <View style={{ marginTop: 14 }}>
+        <AuthCTA
+          t={t}
+          label={tr('auth.phone.getCode')}
+          enabled={valid}
+          topGap={52}
+          onPress={() => {
+            if (!agree) {
+              flashAgree();
+              return;
+            }
+            onNext();
+          }}
+        />
+        <View style={{ marginTop: space.lg }}>
           <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={onOpenDoc} />
         </View>
       </ScrollView>
@@ -791,7 +860,7 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
     body = (
       <>
         <AuthBack t={t} top={insets.top + 12} onPress={() => setRstep('otp')} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <StepTitle t={t} title={tr('auth.reset.title')} sub={tr('auth.reset.sub')} />
           <View style={{ gap: 12, marginTop: 26 }}>
             <PasswordField t={t} value={pwd} onChangeText={setPwd} placeholder={tr('auth.reset.newPwd')} show={showPwd} setShow={setShowPwd} />
@@ -809,7 +878,7 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
     body = (
       <>
         <AuthBack t={t} top={insets.top + 12} onPress={() => setRstep('input')} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={{ fontSize: 26, fontWeight: '700', color: t.text, letterSpacing: -0.5 }}>{tr('auth.otp.title')}</Text>
           <Text style={{ fontSize: 14, color: t.text2, marginTop: 8, lineHeight: 21 }}>
             {tr('auth.otp.sentTo')} <Text style={{ fontFamily: MONO, color: t.text, fontWeight: '600' }}>{sentTo}</Text>
@@ -823,7 +892,7 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
     body = (
       <>
         <AuthBack t={t} top={insets.top + 12} onPress={onBack} />
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 76, paddingHorizontal: layout.pagePadding, paddingBottom: insets.bottom + space.xxxl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <StepTitle t={t} title={tr('auth.recover.title')} sub={tr('auth.recover.sub')} />
           <View style={{ marginTop: 24 }}>
             <AuthSeg t={t} value={method} onChange={setMethod} options={[{ id: 'phone', label: tr('auth.recover.tabPhone') }, { id: 'email', label: tr('auth.recover.tabEmail') }]} />
@@ -858,7 +927,7 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
   }
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg }]}>
       <SlideStep t={t} stepKey={rstep}>
         {body}
       </SlideStep>
@@ -872,7 +941,7 @@ function SlideStep({ t, stepKey, children }: { t: Theme; stepKey: string; childr
 }
 function SlideStepInner({ t, children }: { t: Theme; children: React.ReactNode }) {
   const x = useSlideIn();
-  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg, transform: [{ translateX: x }] }]}>{children}</Animated.View>;
+  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.groupedBg, transform: [{ translateX: x }] }]}>{children}</Animated.View>;
 }
 
 // Success checkmark with a pop animation.
@@ -893,37 +962,13 @@ function SuccessPop({ t }: { t: Theme }) {
   );
 }
 
-// ── Round action button (找回账号 / 游客登录 / 更多方式登录) ─────────────────────
-function AuthMoreButton({ t, label, onPress, icon }: { t: Theme; label: string; onPress: () => void; icon: React.ReactNode }) {
-  return (
-    <Press onPress={onPress} style={{ alignItems: 'center', gap: 8 }}>
-      <View
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: t.hairline,
-        }}
-      >
-        {icon}
-      </View>
-      <Text numberOfLines={1} style={{ fontSize: 11.5, color: t.text2, fontWeight: '500' }}>
-        {label}
-      </Text>
-    </Press>
-  );
-}
-
 // ── Entry screen + orchestrator ───────────────────────────────────────────────
 export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => void }) {
   const t = theme;
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const [intent, setIntent] = useState<'login' | 'register'>('login');
+  const [emailOpen, setEmailOpen] = useState(false);
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [pwd, setPwd] = useState('');
@@ -973,9 +1018,25 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     setTimeout(() => onSuccess(), 1300);
   };
   const onGuest = async () => {
+    if (!agree) { flashAgree(); return; }
+    if (busy) return;
     setBusy(true);
-    await signInAnonymously();
-    setBusy(false);
+    setAuthError('');
+    try {
+      const { error } = await signInAnonymously();
+      if (error) {
+        const message = error.message.toLowerCase();
+        setAuthError(
+          message.includes('anonymous') && (message.includes('disabled') || message.includes('not enabled'))
+            ? tr('auth.error.anonymousDisabled')
+            : friendlyError(error.message),
+        );
+      }
+    } catch (error) {
+      setAuthError(friendlyError(error instanceof Error ? error.message : 'unknown'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (doc) return <AuthDocPage t={t} doc={doc} onBack={() => setDoc(null)} />;
@@ -997,27 +1058,113 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   if (step === 'otp') return <AuthOtp t={t} phone={phone} busy={busy} onBack={() => setStep('phone')} onVerify={onVerify} />;
   if (step === 'recover') return <AuthRecover t={t} onBack={() => setStep('entry')} onDone={() => setStep('entry')} onOpenDoc={setDoc} />;
 
+  if (!emailOpen) {
+    return (
+      <View style={{ flex: 1, backgroundColor: t.featureSurface }}>
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            width: '100%',
+            maxWidth: 460,
+            alignSelf: 'center',
+            paddingTop: insets.top + space.lg,
+            paddingHorizontal: space.xxl,
+            paddingBottom: insets.bottom + space.lg,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ flex: 1, minHeight: 360, alignItems: 'center', justifyContent: 'center', paddingBottom: space.xxxl }}>
+            <LandingBrand t={t} />
+          </View>
+
+          <View style={{ gap: space.sm }}>
+            <LandingButton
+              t={t}
+              label={tr('auth.more.phoneLogin')}
+              icon={<PhoneGlyph c={t.text} />}
+              onPress={() => setStep('phone')}
+            />
+            <Press
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
+              onPress={onGuest}
+              style={{
+                height: 48,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: space.xs,
+              }}
+            >
+              {busy ? (
+                <Spinner size={17} color={t.text2} track={t.hairline} width={2} />
+              ) : (
+                <>
+                  <GuestGlyph c={t.text2} />
+                  <Text style={{ color: t.text2, fontSize: 14, fontWeight: '600' }}>{tr('auth.guestLogin')}</Text>
+                </>
+              )}
+            </Press>
+          </View>
+
+          {authError ? (
+            <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, marginTop: space.sm, textAlign: 'center' }}>
+              {authError}
+            </Text>
+          ) : null}
+
+          <View style={{ marginTop: space.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+            <Press onPress={() => setMoreOpen(true)} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              <DotsGlyph c={t.text3} />
+              <Text style={{ color: t.text3, fontSize: 13, fontWeight: '600' }}>{tr('auth.moreMethods')}</Text>
+            </Press>
+          </View>
+
+          <View style={{ marginTop: space.xl }}>
+            <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />
+          </View>
+        </ScrollView>
+        {moreOpen && (
+          <AuthMoreSheet
+            t={t}
+            onClose={() => setMoreOpen(false)}
+            onPick={(id) => {
+              setMoreOpen(false);
+              if (id === 'email') setEmailOpen(true);
+              else onSocial(id);
+            }}
+          />
+        )}
+        {social && <AuthSocialOverlay t={t} kind={social} />}
+      </View>
+    );
+  }
+
   return (
-    <View style={{ flex: 1, backgroundColor: t.bg }}>
+    <View style={{ flex: 1, backgroundColor: t.featureSurface }}>
+      <AuthBack t={t} top={insets.top + space.sm} onPress={() => setEmailOpen(false)} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 48, paddingHorizontal: 28, paddingBottom: insets.bottom + 40 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            width: '100%',
+            maxWidth: 460,
+            alignSelf: 'center',
+            paddingTop: insets.top + 112,
+            paddingHorizontal: space.xxl,
+            paddingBottom: insets.bottom + space.xxxl,
+          }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* brand */}
-          <View style={{ alignItems: 'center' }}>
-            <LinearGradient
-              colors={[t.accent, t.accent + 'c8']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[{ width: 66, height: 66, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, elevAccent(t.accent)]}
-            >
-              <Text style={{ fontSize: 34, fontWeight: '700', color: '#fff' }}>开</Text>
-            </LinearGradient>
-          </View>
+          <StepTitle
+            t={t}
+            title={intent === 'login' ? tr('auth.emailLoginTitle') : tr('auth.emailRegisterTitle')}
+            sub={intent === 'login' ? tr('auth.emailLoginSub') : tr('auth.emailRegisterSub')}
+          />
 
-          <View style={{ marginTop: 40, gap: 12 }}>
+          <View style={{ marginTop: 36, gap: space.sm }}>
             <AuthField t={t} leading={<Mail c={t.text3} />}>
               <TextInput
                 value={email}
@@ -1025,65 +1172,68 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
                 placeholder={tr('auth.emailPlaceholder')}
                 placeholderTextColor={t.text3}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                returnKeyType="next"
                 style={inputStyle(t)}
               />
             </AuthField>
-            <PasswordField t={t} value={pwd} onChangeText={setPwd} placeholder={intent === 'register' ? tr('auth.setPwdPlaceholder') : tr('auth.pwdPlaceholder')} show={showPwd} setShow={setShowPwd} />
+            <PasswordField
+              t={t}
+              value={pwd}
+              onChangeText={setPwd}
+              placeholder={intent === 'register' ? tr('auth.setPwdPlaceholder') : tr('auth.pwdPlaceholder')}
+              show={showPwd}
+              setShow={setShowPwd}
+            />
           </View>
 
-          <AuthCTA t={t} label={intent === 'register' ? tr('auth.registerCta') : tr('auth.loginCta')} enabled={entryEnabled} busy={busy} onPress={onPrimary} />
-          {authError ? <Text style={{ color: '#FF3B30', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{authError}</Text> : null}
+          {intent === 'login' ? (
+            <View style={{ alignItems: 'flex-end', marginTop: space.xs }}>
+              <Press onPress={() => setStep('recover')} hitSlop={8} style={{ paddingVertical: space.xs }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: t.text2 }}>{tr('auth.forgotPwd')}</Text>
+              </Press>
+            </View>
+          ) : null}
 
-          <View style={{ marginTop: 14 }}>
+          <AuthCTA
+            t={t}
+            label={intent === 'register' ? tr('auth.registerCta') : tr('auth.loginCta')}
+            enabled={entryEnabled}
+            busy={busy}
+            topGap={intent === 'login' ? 36 : 52}
+            onPress={onPrimary}
+          />
+
+          {authError ? (
+            <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, marginTop: space.sm, textAlign: 'center' }}>
+              {authError}
+            </Text>
+          ) : null}
+
+          <View style={{ marginTop: space.lg }}>
             <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />
           </View>
 
-          {/* account-switch + 忘记密码 */}
-          <View style={{ marginTop: 28, minHeight: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <Text style={{ fontSize: 13, color: t.text2 }}>{intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}</Text>
-              <Press onPress={() => setIntent(intent === 'login' ? 'register' : 'login')} style={{ paddingHorizontal: 2, paddingVertical: 2 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: t.accent }}>{intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}</Text>
-              </Press>
-            </View>
-            {intent === 'login' && (
-              <Press onPress={() => setStep('recover')} style={{ paddingHorizontal: 2, paddingVertical: 2 }}>
-                <Text style={{ fontSize: 13, color: t.text2 }}>{tr('auth.forgotPwd')}</Text>
-              </Press>
-            )}
-          </View>
-
-          <View style={{ flex: 1 }} />
-
-          {/* 其他方式登录 — pinned to the bottom */}
-          <View style={{ paddingTop: 40 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-              <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
-              <Text style={{ fontSize: 12, color: t.text3 }}>{tr('auth.otherMethods')}</Text>
-              <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 36 }}>
-              <AuthMoreButton t={t} label={tr('auth.recover.title')} onPress={() => setStep('recover')} icon={<RecoverGlyph c={t.text2} />} />
-              <AuthMoreButton t={t} label={tr('auth.guestLogin')} onPress={onGuest} icon={<GuestGlyph c={t.text2} />} />
-              <AuthMoreButton t={t} label={tr('auth.moreMethods')} onPress={() => setMoreOpen(true)} icon={<DotsGlyph c={t.text2} />} />
-            </View>
+          <View style={{ marginTop: space.xxl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+            <Text style={{ fontSize: 13, color: t.text2 }}>
+              {intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}
+            </Text>
+            <Press
+              onPress={() => {
+                setIntent(intent === 'login' ? 'register' : 'login');
+                setAuthError('');
+              }}
+              hitSlop={8}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
+                {intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}
+              </Text>
+            </Press>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {moreOpen && (
-        <AuthMoreSheet
-          t={t}
-          onClose={() => setMoreOpen(false)}
-          onPick={(id) => {
-            setMoreOpen(false);
-            if (id === 'phone') setStep('phone');
-            else onSocial(id);
-          }}
-        />
-      )}
-      {social && <AuthSocialOverlay t={t} kind={social} />}
     </View>
   );
 }

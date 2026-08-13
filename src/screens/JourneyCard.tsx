@@ -1,14 +1,14 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet's in-place journey detail panel.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, Modal, Pressable } from 'react-native';
+import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, FlatList, Modal, Pressable, Switch, useWindowDimensions } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
-import { Poi, type Companion } from '../data/pois';
+import { MAX_JOURNEY_PARTICIPANTS, Poi, type Companion } from '../data/pois';
 import { TLRow } from '../data/timeline';
 import { JourneyTimelineCard, MediaViewer } from '../components/overlays/JourneyTimeline';
 import { PhotoTile } from '../components/PhotoTile';
@@ -22,14 +22,16 @@ import { useTimeline } from '../hooks/useTimeline';
 import { useData } from '../data/DataContext';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey, ResolvedLang } from '../i18n';
-import { NJBottomSheet, NJMiniCalendar, NJWheelPicker, njFormatTime } from '../components/overlays/NewJourneyParts';
+import { NJBottomSheet, njHapticTick } from '../components/overlays/NewJourneyParts';
 import { ElevationStrip } from '../components/overlays/ElevationStrip';
 import { JourneyTrackUploadSheet } from '../components/overlays/JourneyTrackUploadSheet';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
-import { JourneyChecklistTab } from '../components/journey/JourneyChecklistTab';
-import { AppCard, AppSectionHeader, radius, space, type } from '../design-system';
+import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
+import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { Glass } from '../components/Glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import WheelPicker from '@quidone/react-native-wheel-picker';
+import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -61,55 +63,108 @@ function FloatingIconButton({ name, onPress, color }: { name: IconName; onPress?
 function JourneyParticipantButton({
   theme,
   people,
-  onPress,
-  accessibilityLabel,
+  onOpenParticipants,
+  onInvite,
+  inviteAtCapacity,
+  participantsAccessibilityLabel,
+  inviteAccessibilityLabel,
 }: {
   theme: Theme;
   people: { ini: string; color?: string; tone?: string; avatarUrl?: string }[];
-  onPress: () => void;
-  accessibilityLabel: string;
+  onOpenParticipants: () => void;
+  onInvite: () => void;
+  inviteAtCapacity?: boolean;
+  participantsAccessibilityLabel: string;
+  inviteAccessibilityLabel: string;
 }) {
-  const self = people[0] || { ini: '?' };
-  const hasOtherParticipants = people.length > 1;
+  const visiblePeople = people.slice(0, 2);
+  const hasOverflow = people.length > 2;
+  const avatarSize = 36;
+  const inviteSize = 36;
+  const overlap = -11;
+  const separatorWidth = 2;
+  const avatarSurface = theme.groupedBg;
+  const avatarBorder = theme.progressTrack;
+  const overflowStyle = {
+    width: avatarSize,
+    height: avatarSize,
+    borderRadius: avatarSize / 2,
+    backgroundColor: avatarSurface,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  };
 
   return (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      hitSlop={8}
-      style={{ width: 56, height: 40, alignItems: 'flex-end', justifyContent: 'center' }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 1 }}>
-        <ParticipantAvatar
-          theme={theme}
-          uri={self.avatarUrl}
-          size={34}
-          ring
-          ringColor={theme.featureSurface}
-        />
-        <View
-          style={{
-            width: 30,
-            height: 30,
-            marginLeft: -10,
-            borderRadius: 15,
-            borderWidth: 2,
-            borderColor: theme.featureSurface,
-            backgroundColor: theme.controlSurface,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon
-            name={hasOtherParticipants ? 'more' : 'plus'}
-            color={theme.text2}
-            size={hasOtherParticipants ? 16 : 14}
-            strokeWidth={2.2}
-          />
-        </View>
-      </View>
-    </Press>
+    <View style={{ minHeight: 40, flexDirection: 'row', alignItems: 'center' }}>
+      <Press
+        onPress={onOpenParticipants}
+        accessibilityRole="button"
+        accessibilityLabel={participantsAccessibilityLabel}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+        style={{ flexDirection: 'row', alignItems: 'center' }}
+      >
+        {visiblePeople.map((person, index) => {
+          const showOverflow = hasOverflow && index === 1;
+          return (
+            <View
+              key={`${person.ini}-${index}`}
+              style={{
+                width: avatarSize,
+                height: avatarSize,
+                marginLeft: index === 0 ? 0 : overlap,
+              }}
+            >
+              {index > 0 ? (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: -separatorWidth,
+                    right: -separatorWidth,
+                    bottom: -separatorWidth,
+                    left: -separatorWidth,
+                    borderRadius: (avatarSize + separatorWidth * 2) / 2,
+                    backgroundColor: theme.featureSurface,
+                  }}
+                />
+              ) : null}
+              {showOverflow ? (
+                <View style={overflowStyle}>
+                  <Icon name="more" color={theme.text3} size={16} strokeWidth={2.2} />
+                </View>
+              ) : (
+                <ParticipantAvatar
+                  theme={theme}
+                  uri={person.avatarUrl}
+                  size={avatarSize}
+                  backgroundColor={avatarSurface}
+                />
+              )}
+            </View>
+          );
+        })}
+      </Press>
+      <Press
+        onPress={onInvite}
+        accessibilityRole="button"
+        accessibilityLabel={inviteAccessibilityLabel}
+        hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+        style={{
+          width: inviteSize,
+          height: inviteSize,
+          marginLeft: overlap,
+          borderRadius: inviteSize / 2,
+          borderWidth: 2,
+          borderColor: theme.progressTrack,
+          backgroundColor: theme.controlSurface,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: inviteAtCapacity ? 0.45 : 1,
+        }}
+      >
+        <Icon name="plus" color={theme.text2} size={18} strokeWidth={2.1} />
+      </Press>
+    </View>
   );
 }
 
@@ -205,8 +260,8 @@ function FactItem({ theme, label, value }: { theme: Theme; label: string; value:
 }
 
 type TabId = 'overview' | 'moments' | 'checklist' | 'plan' | `day:${string}`;
-type MomentFilter = 'all' | 'photo' | 'video' | 'livePhoto';
-type MomentAuthorOption = {
+export type JourneyMomentFilter = 'all' | 'photo' | 'video' | 'livePhoto';
+export type JourneyMomentAuthorOption = {
   key: string;
   name: string;
   ini: string;
@@ -218,146 +273,22 @@ type MomentAuthorOption = {
   self?: boolean;
 };
 
-function MomentFilterMenu({
-  theme,
-  visible,
-  typeTitle,
-  participantTitle,
-  allParticipantsLabel,
-  hostLabel,
-  selfLabel,
-  selectedType,
-  selectedAuthor,
-  typeOptions,
-  authors,
-  onSelectType,
-  onSelectAuthor,
-  onClose,
-}: {
-  theme: Theme;
-  visible: boolean;
+export type JourneyMomentFilterMenuController = {
   typeTitle: string;
   participantTitle: string;
   allParticipantsLabel: string;
   hostLabel: string;
   selfLabel: string;
-  selectedType: MomentFilter;
+  selectedType: JourneyMomentFilter;
   selectedAuthor: string | null;
-  typeOptions: { id: MomentFilter; label: string; icon: IconName }[];
-  authors: MomentAuthorOption[];
-  onSelectType: (filter: MomentFilter) => void;
-  onSelectAuthor: (author: string | null) => void;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
+  typeOptions: { id: JourneyMomentFilter; label: string; icon: IconName }[];
+  authors: JourneyMomentAuthorOption[];
+  selectType: (filter: JourneyMomentFilter) => void;
+  selectAuthor: (author: string | null) => void;
+};
 
-  return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View
-          style={{
-            position: 'absolute',
-            right: space.lg,
-            bottom: Math.max(insets.bottom, space.md) + 68,
-            width: 240,
-            maxHeight: 380,
-            borderRadius: radius.feature,
-            shadowColor: '#000000',
-            shadowOpacity: theme.dark ? 0.42 : 0.16,
-            shadowRadius: 24,
-            shadowOffset: { width: 0, height: 12 },
-            elevation: 12,
-          }}
-        >
-          <Glass theme={theme} radius={radius.feature} intensity={78}>
-            <View
-              style={{
-                maxHeight: '100%',
-                paddingVertical: space.sm,
-                backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.74)',
-              }}
-            >
-              <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.xxs, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
-                  {typeTitle}
-                </Text>
-                {typeOptions.map((option) => {
-                  const isSelected = selectedType === option.id;
-                  return (
-                    <Press
-                      key={option.id}
-                      onPress={() => onSelectType(option.id)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: isSelected }}
-                      style={{ minHeight: 48, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-                    >
-                      <View style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-                        <Icon name={option.icon} color={theme.text2} size={15} />
-                      </View>
-                      <Text numberOfLines={1} style={[type.body, { flex: 1, color: theme.text, fontWeight: isSelected ? '700' : '500' }]}>{option.label}</Text>
-                      {isSelected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
-                    </Press>
-                  );
-                })}
-
-                <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
-                  {participantTitle}
-                </Text>
-                <Press
-                  onPress={() => onSelectAuthor(null)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: selectedAuthor == null }}
-                  style={{ minHeight: 48, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-                >
-                  <View style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-                    <Icon name="people" color={theme.text2} size={15} />
-                  </View>
-                  <Text numberOfLines={1} style={[type.body, { flex: 1, color: theme.text, fontWeight: selectedAuthor == null ? '700' : '500' }]}>{allParticipantsLabel}</Text>
-                  {selectedAuthor == null ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
-                </Press>
-                {authors.map((author) => {
-                  const isSelected = selectedAuthor === author.key;
-                  return (
-                    <Press
-                      key={author.key}
-                      onPress={author.count > 0 ? () => onSelectAuthor(author.key) : undefined}
-                      disabled={author.count === 0}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: isSelected, disabled: author.count === 0 }}
-                      style={{ minHeight: 58, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm, opacity: author.count > 0 ? 1 : 0.5 }}
-                    >
-                      <Avatar uri={author.avatarUrl} size={32} />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
-                          <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text, fontWeight: isSelected ? '700' : '500' }]}>{author.name}</Text>
-                          {author.host ? (
-                            <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: theme.accentSofter }}>
-                              <Text style={{ fontSize: 9, fontWeight: '700', color: theme.accent }}>{hostLabel}</Text>
-                            </View>
-                          ) : null}
-                          {author.self ? (
-                            <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
-                              <Text style={{ fontSize: 9, fontWeight: '700', color: theme.text2 }}>{selfLabel}</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        {author.countLabel ? (
-                          <Text style={[type.caption, { color: theme.text3, marginTop: 2 }]}>{author.countLabel}</Text>
-                        ) : null}
-                      </View>
-                      {isSelected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
-                    </Press>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </Glass>
-        </View>
-      </View>
-    </Modal>
-  );
-}
+type MomentFilter = JourneyMomentFilter;
+type MomentAuthorOption = JourneyMomentAuthorOption;
 
 type JourneyMomentPreview = {
   id: string;
@@ -370,6 +301,63 @@ type JourneyMomentPreview = {
   createdAt?: string;
   author?: { ini: string; name: string; color: string; avatarUrl?: string };
 };
+
+function MomentsSkeleton({ theme }: { theme: Theme }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  const opacity = pulse.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.52, 1, 0.52],
+  });
+
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ gap: space.sm }}
+    >
+      {Array.from({ length: 3 }, (_, rowIndex) => (
+        <View key={rowIndex} style={{ flexDirection: 'row', gap: space.sm }}>
+          {Array.from({ length: 2 }, (_, columnIndex) => (
+            <Animated.View
+              key={columnIndex}
+              style={{
+                flex: 1,
+                aspectRatio: 1,
+                borderRadius: radius.card,
+                backgroundColor: theme.progressTrack,
+                opacity,
+              }}
+            />
+          ))}
+        </View>
+      ))}
+      <Animated.View
+        style={{
+          alignSelf: 'center',
+          width: 96,
+          height: 12,
+          marginTop: space.xs,
+          borderRadius: radius.pill,
+          backgroundColor: theme.progressTrack,
+          opacity,
+        }}
+      />
+    </View>
+  );
+}
 
 function MomentPreview({
   theme,
@@ -540,7 +528,7 @@ function compactDate(d: Date): string {
 }
 
 function compactPlannedDate(d: Date): string {
-  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${njFormatTime(d)}`;
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 }
 
 function chineseNumber(value: number): string {
@@ -579,211 +567,370 @@ export function nextJourneyDayLabel(labels: string[], resolved: ResolvedLang, t:
   return defaultJourneyDayLabel(index, resolved, t);
 }
 
-function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi: Poi; onApply: (patch: Partial<Poi>) => void; onClose: () => void }) {
-  const { t } = useI18n();
-  const [draftStart, setDraftStart] = useState(() => parseJourneyStart(poi));
-  const [draftEnd, setDraftEnd] = useState(() => addMinutes(parseJourneyStart(poi), parseJourneyDurationMins(poi)));
-  const [active, setActive] = useState<'start' | 'end'>('start');
-  const activeDt = active === 'start' ? draftStart : draftEnd;
-  const durationMins = Math.max(30, Math.round((draftEnd.getTime() - draftStart.getTime()) / 60000));
+const JOURNEY_DAY_MS = 24 * 60 * 60 * 1000;
+const JOURNEY_MONTH_RANGE = 1200;
+const JOURNEY_MONTH_HEIGHT = 344;
 
-  const setActiveDt = (next: Date) => {
-    if (active === 'start') {
-      const oldDur = durationMins;
-      setDraftStart(next);
-      setDraftEnd((end) => (end <= next ? addMinutes(next, oldDur) : end));
-    } else {
-      setDraftEnd(next <= draftStart ? addMinutes(draftStart, 30) : next);
+function journeyDateOnly(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function journeyAddDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function journeyCalendarDayDiff(start: Date, end: Date): number {
+  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.max(1, Math.round((endUtc - startUtc) / JOURNEY_DAY_MS));
+}
+
+function journeySameCalendarDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function JourneyRangeMonth({
+  theme,
+  month,
+  start,
+  end,
+  resolved,
+  onSelect,
+}: {
+  theme: Theme;
+  month: Date;
+  start: Date;
+  end: Date | null;
+  resolved: ResolvedLang;
+  onSelect: (date: Date) => void;
+}) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstWeekday = new Date(year, monthIndex, 1).getDay();
+  const dayCount = new Date(year, monthIndex + 1, 0).getDate();
+  const cells: (Date | null)[] = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= dayCount; day += 1) cells.push(new Date(year, monthIndex, day));
+  while (cells.length < 42) cells.push(null);
+
+  const startDay = journeyDateOnly(start).getTime();
+  const endDay = end ? journeyDateOnly(end).getTime() : null;
+  const today = journeyDateOnly(new Date());
+  const weekdays = resolved === 'zh' ? ['日', '一', '二', '三', '四', '五', '六'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const monthTitle = new Intl.DateTimeFormat(resolved === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: resolved === 'zh' ? 'long' : 'long',
+  }).format(month);
+  const rangeFill = theme.accentSofter;
+
+  return (
+    <View style={{ height: JOURNEY_MONTH_HEIGHT, paddingBottom: space.lg }}>
+      <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: -0.35, color: theme.text, marginBottom: space.sm }}>
+        {monthTitle}
+      </Text>
+      <View style={{ flexDirection: 'row', marginBottom: space.xxs }}>
+        {weekdays.map((weekday, index) => (
+          <Text key={`${weekday}-${index}`} style={{ width: `${100 / 7}%`, textAlign: 'center', fontSize: 12.5, fontWeight: '500', color: theme.text3 }}>
+            {weekday}
+          </Text>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: space.xxs }}>
+        {cells.map((date, index) => {
+          if (!date) return <View key={`empty-${index}`} style={{ width: `${100 / 7}%`, height: 40 }} />;
+          const dayTime = date.getTime();
+          const isStart = dayTime === startDay;
+          const isEnd = endDay !== null && dayTime === endDay;
+          const inRange = endDay !== null && dayTime >= startDay && dayTime <= endDay;
+          const isToday = journeySameCalendarDay(date, today);
+          const weekIndex = index % 7;
+          return (
+            <Press
+              key={`${year}-${monthIndex}-${date.getDate()}`}
+              onPress={() => onSelect(date)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isStart || isEnd }}
+              style={{ width: `${100 / 7}%`, height: 40, justifyContent: 'center' }}
+            >
+              <View style={{ height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                {inRange ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: isStart ? '50%' : 0,
+                      right: isEnd ? '50%' : 0,
+                      borderTopLeftRadius: weekIndex === 0 ? radius.pill : 0,
+                      borderBottomLeftRadius: weekIndex === 0 ? radius.pill : 0,
+                      borderTopRightRadius: weekIndex === 6 ? radius.pill : 0,
+                      borderBottomRightRadius: weekIndex === 6 ? radius.pill : 0,
+                      backgroundColor: rangeFill,
+                    }}
+                  />
+                ) : null}
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: radius.pill,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isStart || isEnd ? theme.accent : 'transparent',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16.5,
+                      fontWeight: isStart || isEnd ? '700' : '600',
+                      color: isStart || isEnd ? '#FFFFFF' : inRange ? theme.accent : theme.text,
+                    }}
+                  >
+                    {date.getDate()}
+                  </Text>
+                  {isToday && !inRange ? (
+                    <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: radius.pill, backgroundColor: theme.accent }} />
+                  ) : null}
+                </View>
+              </View>
+            </Press>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi: Poi; onApply: (patch: Partial<Poi>) => void; onClose: () => void }) {
+  const { t, resolved } = useI18n();
+  const { width, height } = useWindowDimensions();
+  const initialStart = useMemo(() => parseJourneyStart(poi), [poi]);
+  const initialDurationDays = useMemo(() => Math.max(1, Math.round(parseJourneyDurationMins(poi) / (24 * 60))), [poi]);
+  const [draftStart, setDraftStart] = useState(initialStart);
+  const [draftEnd, setDraftEnd] = useState<Date | null>(() => journeyAddDays(initialStart, initialDurationDays));
+  const [flexible, setFlexible] = useState(() => !poi.plannedDate && !poi.date && Boolean(poi.days || poi.totalDays));
+  const [flexibleDays, setFlexibleDays] = useState(initialDurationDays);
+  const visibleMonths = useMemo(() => Array.from(
+    { length: JOURNEY_MONTH_RANGE * 2 + 1 },
+    (_, index) => new Date(initialStart.getFullYear(), initialStart.getMonth() + index - JOURNEY_MONTH_RANGE, 1),
+  ), [initialStart]);
+  const dayOptions = useMemo(() => Array.from({ length: 30 }, (_, index) => ({ value: index + 1, label: String(index + 1) })), []);
+
+  const handleDateSelect = (selectedDate: Date) => {
+    const selected = new Date(selectedDate);
+    selected.setHours(draftStart.getHours(), draftStart.getMinutes(), 0, 0);
+
+    // A completed range always starts over from the next tapped date.
+    if (draftEnd) {
+      setDraftStart(selected);
+      setDraftEnd(null);
+      return;
+    }
+
+    // An end date must be later than the start. Earlier or equal taps become
+    // the new start instead of creating an invalid range.
+    if (selected <= draftStart) {
+      setDraftStart(selected);
+      return;
+    }
+
+    setDraftEnd(selected);
+  };
+
+  const setPickerMode = (nextFlexible: boolean) => {
+    setFlexible(nextFlexible);
+    if (nextFlexible) {
+      setFlexibleDays(draftEnd ? journeyCalendarDayDiff(draftStart, draftEnd) : initialDurationDays);
+    } else if (!draftEnd) {
+      setDraftEnd(journeyAddDays(draftStart, flexibleDays));
     }
   };
-  const selectDate = (date: Date) => {
-    const next = new Date(date);
-    next.setHours(activeDt.getHours(), activeDt.getMinutes(), 0, 0);
-    setActiveDt(next);
-  };
-  const selectTime = (mins: number) => {
-    const next = new Date(activeDt);
-    next.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-    setActiveDt(next);
-  };
-  const setDuration = (mins: number) => setDraftEnd(addMinutes(draftStart, mins));
+
   const apply = () => {
-    const dur = Math.max(30, Math.round((draftEnd.getTime() - draftStart.getTime()) / 60000));
-    const totalDays = Math.max(1, Math.ceil(dur / (24 * 60)));
+    const totalDays = flexible ? flexibleDays : draftEnd ? journeyCalendarDayDiff(draftStart, draftEnd) : 1;
+    const durationMins = totalDays * 24 * 60;
     onApply({
-      date: compactDate(draftStart),
-      plannedDate: compactPlannedDate(draftStart),
-      days: detailDurationLabel(dur),
+      date: flexible ? '' : compactDate(draftStart),
+      plannedDate: flexible ? '' : compactPlannedDate(draftStart),
+      days: detailDurationLabel(durationMins),
       totalDays,
-      trackDurationMs: dur * 60000,
+      trackDurationMs: durationMins * 60000,
     });
     onClose();
   };
-  const Tab = ({ k, label, dt }: { k: 'start' | 'end'; label: string; dt: Date }) => {
-    const on = active === k;
-    return (
-      <Press
-        onPress={() => setActive(k)}
-        style={{
-          flex: 1,
-          paddingVertical: 8,
-          paddingHorizontal: 10,
-          borderRadius: 12,
-          backgroundColor: on ? theme.bg : 'transparent',
-          alignItems: 'center',
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 10.5,
-            fontWeight: '700',
-            color: on ? theme.text2 : theme.text3,
-            letterSpacing: 0.6,
-            textTransform: 'uppercase',
-          }}
-        >
-          {label}
-        </Text>
-        <Text
-          style={{
-            fontSize: 15,
-            fontWeight: '700',
-            color: on ? theme.accent : theme.text2,
-            marginTop: 2,
-            letterSpacing: -0.2,
-          }}
-        >{`${dt.getMonth() + 1}/${dt.getDate()} · ${njFormatTime(dt)}`}</Text>
-      </Press>
-    );
-  };
-  const quick = [6 * 60, 12 * 60, 24 * 60, 2 * 24 * 60, 3 * 24 * 60, 5 * 24 * 60, 7 * 24 * 60];
+
+  const sheetHeight = Math.max(480, Math.min(height * 0.66, 620) - space.xxxl - space.xs);
+  const wheelWidth = Math.min(width - space.xxxl * 2, 420);
+
+
   return (
     <Modal transparent visible animationType="none" onRequestClose={onClose}>
-      <NJBottomSheet theme={theme} onClose={onClose} full bodyScrolls>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+      <NJBottomSheet theme={theme} onClose={onClose} full bodyScrolls backgroundColor={theme.featureSurface} bottomPadding={space.sm}>
+        <View style={{ height: sheetHeight, paddingHorizontal: space.lg }}>
           <View
             style={{
+              zIndex: 2,
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: 12,
-              paddingHorizontal: 2,
+              paddingVertical: space.xs,
+              backgroundColor: theme.featureSurface,
             }}
           >
-          <Press onPress={onClose} style={{ padding: 4 }}>
-              <Text
-                style={{
-                  fontSize: 14.5,
-                  color: theme.text2,
-                  fontWeight: '500',
-                }}
-              >
-                {t('common.cancel')}
+            <View style={{ flex: 1, paddingRight: space.sm }}>
+              <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.55, color: theme.text }}>
+                {t('journeyEdit.time.durationQuestion')}
               </Text>
-          </Press>
-          <View style={{ flex: 1, alignItems: 'center' }}>
+            </View>
+            <View style={{ minHeight: 44, paddingLeft: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              <View style={{ width: 52, height: 32, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+                <Switch
+                  value={flexible}
+                  onValueChange={setPickerMode}
+                  trackColor={{ false: theme.hairline, true: theme.accent }}
+                  thumbColor="#FFFFFF"
+                  ios_backgroundColor={theme.hairline}
+                  style={{ transform: [{ scale: 0.76 }] }}
+                />
+              </View>
               <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: '700',
-                  color: theme.text,
-                  letterSpacing: -0.2,
-                }}
+                pointerEvents="none"
+                style={{ flexShrink: 0, paddingRight: space.xxs, fontSize: 13, fontWeight: '600', color: flexible ? theme.text : theme.text2 }}
               >
-                修改时间
+                {t('journeyEdit.time.flexibleDays')}
               </Text>
-            <Text style={{ fontSize: 11, color: theme.text3, marginTop: 2 }}>{detailDurationLabel(durationMins)}</Text>
+            </View>
           </View>
-          <Press onPress={apply} style={{ padding: 4 }}>
-              <Text
-                style={{
-                  fontSize: 14.5,
-                  color: theme.accent,
-                  fontWeight: '700',
-                }}
-              >
-                {t('common.done')}
-              </Text>
-          </Press>
-        </View>
+
+          {flexible ? (
+            <View style={{ flex: 1, minHeight: 0, zIndex: 0, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+              <WheelPicker
+                data={dayOptions}
+                value={flexibleDays}
+                onValueChanging={njHapticTick}
+                onValueChanged={({ item }) => setFlexibleDays(item.value)}
+                itemHeight={80}
+                visibleItemCount={5}
+                width={wheelWidth}
+                itemTextStyle={{ fontSize: 50, fontWeight: '500', letterSpacing: -1, color: theme.text }}
+                overlayItemStyle={{ backgroundColor: theme.fieldSurface, borderRadius: radius.control }}
+              />
+            </View>
+          ) : (
+            <FlatList
+              data={visibleMonths}
+              initialScrollIndex={JOURNEY_MONTH_RANGE}
+              getItemLayout={(_, index) => ({ length: JOURNEY_MONTH_HEIGHT, offset: JOURNEY_MONTH_HEIGHT * index, index })}
+              keyExtractor={(month) => `${month.getFullYear()}-${month.getMonth()}`}
+              renderItem={({ item: month }) => (
+                <JourneyRangeMonth
+                  theme={theme}
+                  month={month}
+                  start={draftStart}
+                  end={draftEnd}
+                  resolved={resolved}
+                  onSelect={handleDateSelect}
+                />
+              )}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 76 }}
+              initialNumToRender={3}
+              maxToRenderPerBatch={4}
+              windowSize={5}
+            />
+          )}
 
           <View
+            pointerEvents="box-none"
             style={{
-              flexDirection: 'row',
-              gap: 4,
-              padding: 4,
-              marginBottom: 14,
-              borderRadius: 14,
-              backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: space.xs,
+              zIndex: 4,
+              alignItems: 'center',
             }}
           >
-          <Tab k="start" label="开始" dt={draftStart} />
-          <Tab k="end" label="结束" dt={draftEnd} />
-        </View>
-
-        <View style={{ marginBottom: 12 }}>
-          <NJMiniCalendar theme={theme} selectedDate={activeDt} onSelect={selectDate} allowPast />
-        </View>
-        <View style={{ alignItems: 'center', marginBottom: 6 }}>
-            <Text
+            <Press
+              onPress={apply}
+              accessibilityRole="button"
               style={{
-                fontSize: 10.5,
-                fontWeight: '700',
-                color: theme.text2,
-                letterSpacing: 0.6,
-                textTransform: 'uppercase',
+                width: Math.min(width - space.xxxl * 2, 360),
+                height: 56,
+                borderRadius: radius.pill,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.controlSurface,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.fieldBorder,
+                boxShadow: theme.dark
+                  ? '0px 4px 12px rgba(0,0,0,0.38)'
+                  : '0px 4px 12px rgba(0,0,0,0.08)',
               }}
             >
-              {active === 'start' ? '开始时间' : '结束时间'}
-            </Text>
-        </View>
-        <NJWheelPicker theme={theme} value={activeDt.getHours() * 60 + activeDt.getMinutes()} onChange={selectTime} />
-
-        <View style={{ marginTop: 14 }}>
-            <Text
-              style={{
-                fontSize: 10.5,
-                fontWeight: '700',
-                color: theme.text2,
-                letterSpacing: 0.6,
-                textTransform: 'uppercase',
-                marginBottom: 8,
-              }}
-            >
-              快速时长
-            </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {quick.map((mins) => {
-              const on = Math.abs(durationMins - mins) < 1;
-              return (
-                <Press
-                  key={mins}
-                  onPress={() => setDuration(mins)}
-                  style={{
-                    height: 32,
-                    paddingHorizontal: 14,
-                    borderRadius: 16,
-                    backgroundColor: on ? theme.accent : theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: on ? theme.accent : theme.hairline,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                    <Text
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: '600',
-                        color: on ? '#fff' : theme.text,
-                      }}
-                    >
-                      {detailDurationLabel(mins)}
-                    </Text>
-                </Press>
-              );
-            })}
+              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>{t('journeyEdit.time.durationConfirm')}</Text>
+            </Press>
           </View>
         </View>
-      </ScrollView>
+      </NJBottomSheet>
+    </Modal>
+  );
+}
+
+function JourneyDistanceSheet({
+  theme,
+  initialValue,
+  onSave,
+  onClose,
+}: {
+  theme: Theme;
+  initialValue: string;
+  onSave: (distance: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const initialNumber = (initialValue.match(/[\d.]+/) || [''])[0];
+  const [value, setValue] = useState(initialNumber);
+  const normalized = value.trim().replace(',', '.');
+  const numericValue = Number(normalized);
+  const canSave = normalized.length > 0 && Number.isFinite(numericValue) && numericValue > 0;
+
+  const save = () => {
+    if (!canSave) return;
+    onSave(`${numericValue} km`);
+    onClose();
+  };
+
+  return (
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+      <NJBottomSheet theme={theme} onClose={onClose} keyboardAvoiding fillBehindKeyboard borderless backgroundColor={theme.featureSurface}>
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
+            <Press onPress={onClose} style={{ minWidth: 52, paddingVertical: space.xs }}>
+              <Text style={[type.body, { color: theme.text2 }]}>{t('common.cancel')}</Text>
+            </Press>
+            <Text style={[type.sectionTitle, { flex: 1, color: theme.text, textAlign: 'center' }]}>{t('journey.stat.distance')}</Text>
+            <Press onPress={save} disabled={!canSave} style={{ minWidth: 52, paddingVertical: space.xs, alignItems: 'flex-end' }}>
+              <Text style={[type.body, { color: canSave ? theme.accent : theme.text3, fontWeight: '700' }]}>{t('common.save')}</Text>
+            </Press>
+          </View>
+          <View style={{ height: 52, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.fieldSurface }}>
+            <TextInput
+              autoFocus
+              selectTextOnFocus
+              value={value}
+              onChangeText={setValue}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              onSubmitEditing={save}
+              placeholder="0.0"
+              placeholderTextColor={theme.text3}
+              style={{ flex: 1, height: 52, paddingLeft: space.md, color: theme.text, fontSize: 18, fontWeight: '700' }}
+            />
+            <Text style={{ paddingHorizontal: space.md, color: theme.text2, fontSize: 14, fontWeight: '600' }}>km</Text>
+          </View>
+        </View>
       </NJBottomSheet>
     </Modal>
   );
@@ -862,124 +1009,155 @@ function JourneyGroupRenameSheet({ theme, initialName, onSave, onClose }: { them
   );
 }
 
-function JourneyPlanEditContent({ theme, days, rows, selectedDays, onToggleDay, onEditDate, onRenameDay, getDayLabel }: { theme: Theme; days: string[]; rows: TLRow[]; selectedDays: Set<string>; onToggleDay: (day: string) => void; onEditDate: () => void; onRenameDay: (day: string) => void; getDayLabel: (day: string) => string }) {
+function JourneyPlanEditDayCard({ theme, day, dayRows, selected, onToggle, onRename, label }: {
+  theme: Theme;
+  day: string;
+  dayRows: TLRow[];
+  selected: boolean;
+  onToggle: (day: string) => void;
+  onRename: (day: string) => void;
+  label: string;
+}) {
   const { t } = useI18n();
+  const [visualSelected, setVisualSelected] = useState(selected);
+  const selectedProgress = useSharedValue(selected ? 1 : 0);
+  const checkStyle = useAnimatedStyle(() => ({
+    opacity: selectedProgress.value,
+    transform: [{ scale: interpolate(selectedProgress.value, [0, 1], [0.72, 1]) }],
+  }));
+
+  useEffect(() => {
+    setVisualSelected(selected);
+    cancelAnimation(selectedProgress);
+    selectedProgress.value = withTiming(selected ? 1 : 0, {
+      duration: 140,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [selected, selectedProgress]);
+
+  const toggle = () => {
+    const next = !visualSelected;
+    setVisualSelected(next);
+    cancelAnimation(selectedProgress);
+    selectedProgress.value = withTiming(next ? 1 : 0, {
+      duration: 110,
+      easing: Easing.out(Easing.cubic),
+    });
+    requestAnimationFrame(() => React.startTransition(() => onToggle(day)));
+  };
 
   return (
-    <View style={{ paddingHorizontal: space.md, paddingBottom: space.lg }}>
-      <Press
-        onPress={onEditDate}
+    <View
+      style={{
+        minHeight: 96,
+        borderRadius: radius.feature,
+        overflow: 'hidden',
+        backgroundColor: visualSelected ? theme.accentSofter : theme.fieldSurface,
+      }}
+    >
+      <Pressable
+        onPress={toggle}
+        hitSlop={4}
+        accessibilityRole="checkbox"
+        accessibilityLabel={label}
+        accessibilityState={{ checked: visualSelected }}
+        style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
+      />
+      <View
+        pointerEvents="none"
         style={{
-          alignSelf: 'flex-start',
-          height: 44,
-          paddingHorizontal: space.md,
-          borderRadius: radius.pill,
+          zIndex: 3,
+          padding: space.md,
+          paddingRight: 56,
           flexDirection: 'row',
-          alignItems: 'center',
-          gap: space.xs,
-          backgroundColor: theme.fieldSurface,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.fieldBorder,
+          alignItems: 'flex-start',
+          gap: space.sm,
         }}
       >
-        <Icon name="calendar" color={theme.text2} size={16} />
-        <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{t('journey.timeline.changeDate')}</Text>
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            marginTop: space.xxs,
+            borderRadius: radius.pill,
+            borderWidth: 2,
+            borderColor: theme.fieldBorder,
+            backgroundColor: 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          <ReAnimated.View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: radius.pill,
+                backgroundColor: theme.accent,
+              },
+              checkStyle,
+            ]}
+          >
+            <Icon name="check" color="#FFFFFF" size={13} strokeWidth={3} />
+          </ReAnimated.View>
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ height: 32, justifyContent: 'center' }}>
+            <Text style={[type.sectionTitle, { color: theme.text }]}>{label}</Text>
+          </View>
+          {dayRows.length ? (
+            <Text
+              numberOfLines={3}
+              style={[type.body, { color: theme.text2, marginTop: space.xxs, lineHeight: 21 }]}
+            >
+              {dayRows.slice(0, 3).map((row) => row.title).join(' → ')}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      <Press
+        onPress={() => onRename(day)}
+        hitSlop={6}
+        scaleTo={0.92}
+        accessibilityRole="button"
+        accessibilityLabel={t('journey.timeline.renameGroup')}
+        style={{
+          position: 'absolute',
+          top: space.md,
+          right: space.md,
+          zIndex: 4,
+          width: 36,
+          height: 36,
+          borderRadius: radius.control,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="edit" color={theme.text3} size={16} />
       </Press>
+    </View>
+  );
+}
 
-      <View style={{ marginTop: space.md, gap: space.sm }}>
+function JourneyPlanEditContent({ theme, days, rows, selectedDays, onToggleDay, onRenameDay, getDayLabel }: { theme: Theme; days: string[]; rows: TLRow[]; selectedDays: Set<string>; onToggleDay: (day: string) => void; onRenameDay: (day: string) => void; getDayLabel: (day: string) => string }) {
+  return (
+    <View style={{ paddingHorizontal: space.md, paddingBottom: space.lg }}>
+      <View style={{ gap: space.sm }}>
         {days.map((day) => {
           const dayRows = rows.filter((row) => row.day === day);
-          const selected = selectedDays.has(day);
           return (
-            <View
+            <JourneyPlanEditDayCard
               key={day}
-              style={{
-                minHeight: 96,
-                padding: space.md,
-                borderRadius: radius.feature,
-                backgroundColor: selected ? theme.accentSofter : theme.fieldSurface,
-                borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth,
-                borderColor: selected ? theme.accent : theme.fieldBorder,
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'flex-start',
-                  gap: space.xs,
-                }}
-              >
-                <Press
-              onPress={() => onToggleDay(day)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected }}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    gap: space.sm,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 24,
-                      height: 24,
-                      marginTop: space.xxs,
-                      borderRadius: radius.pill,
-                      borderWidth: 2,
-                      borderColor: selected ? theme.accent : theme.fieldBorder,
-                      backgroundColor: selected ? theme.accent : 'transparent',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-            >
-                  {selected ? <Icon name="check" color="#FFFFFF" size={13} strokeWidth={3} /> : null}
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                    <View style={{ height: 32, justifyContent: 'center' }}>
-                      <Text style={[type.sectionTitle, { color: theme.text }]}>{getDayLabel(day)}</Text>
-                    </View>
-                    {dayRows.length ? (
-                      <Text
-                        numberOfLines={3}
-                        style={[
-                          type.body,
-                          {
-                            color: theme.text2,
-                            marginTop: space.xxs,
-                            lineHeight: 21,
-                          },
-                        ]}
-                      >
-                        {dayRows
-                          .slice(0, 3)
-                          .map((row) => row.title)
-                          .join(' → ')}
-                  </Text>
-                    ) : null}
-                </View>
-                </Press>
-                <Press
-                  onPress={() => onRenameDay(day)}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('journey.timeline.renameGroup')}
-                  style={{
-                    width: 42,
-                    height: 32,
-                    borderRadius: radius.pill,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: theme.controlSurface,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: theme.fieldBorder,
-                    boxShadow: theme.dark ? '0px 3px 10px rgba(0,0,0,0.34)' : '0px 3px 10px rgba(0,0,0,0.07)',
-                  }}
-                >
-                  <Icon name="edit" color={theme.text2} size={14} />
-                </Press>
-                </View>
-              </View>
+              theme={theme}
+              day={day}
+              dayRows={dayRows}
+              selected={selectedDays.has(day)}
+              onToggle={onToggleDay}
+              onRename={onRenameDay}
+              label={getDayLabel(day)}
+            />
           );
         })}
       </View>
@@ -1021,7 +1199,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, onMomentFilterStateChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, onChecklistFilterStateChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18 }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18 }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories } = useData();
@@ -1045,7 +1223,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [momentViewerIndex, setMomentViewerIndex] = useState<number | null>(null);
   const [momentFilter, setMomentFilter] = useState<MomentFilter>('all');
   const [momentAuthorFilter, setMomentAuthorFilter] = useState<string | null>(null);
-  const [momentFilterOpen, setMomentFilterOpen] = useState(false);
   const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
 
   const addMomentAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
@@ -1233,7 +1410,31 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const momentFilterLabel = activeMomentFilterCount > 1
     ? t('journey.moments.filterCount', { count: activeMomentFilterCount })
     : selectedAuthorLabel || selectedTypeLabel;
-  if (momentFilterActionRef) momentFilterActionRef.current = () => setMomentFilterOpen(true);
+  if (momentFilterMenuRef) {
+    momentFilterMenuRef.current = {
+      typeTitle: t('journey.moments.filterType'),
+      participantTitle: t('journey.moments.filterParticipant'),
+      allParticipantsLabel: t('journey.moments.filterAllParticipants'),
+      hostLabel: t('journey.companions.host'),
+      selfLabel: t('journey.companions.you'),
+      selectedType: momentFilter,
+      selectedAuthor: momentAuthorFilter,
+      typeOptions: momentFilterOptions,
+      authors: momentAuthorOptions,
+      selectType: (filter) => {
+        setMomentViewerIndex(null);
+        setMomentFilter(filter);
+      },
+      selectAuthor: (author) => {
+        setMomentViewerIndex(null);
+        setMomentAuthorFilter(author);
+      },
+    };
+  }
+  if (momentFilterActionRef) momentFilterActionRef.current = () => onMomentFilterMenuOpenChange?.(true);
+  useEffect(() => () => {
+    if (momentFilterMenuRef) momentFilterMenuRef.current = null;
+  }, [momentFilterMenuRef]);
   useEffect(() => {
     onMomentFilterStateChange?.(momentFilterLabel, activeMomentFilterCount > 0);
   }, [activeMomentFilterCount, momentFilterLabel, onMomentFilterStateChange]);
@@ -1276,12 +1477,34 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const programmaticScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [internalPlanEditorOpen, setInternalPlanEditorOpen] = useState(false);
   const [planOverviewOpen, setPlanOverviewOpen] = useState(false);
+  const planOverviewOpenRef = useRef(false);
+  const planOverviewAnimatingRef = useRef(false);
+  const planOverviewCollapsedPagerHeightRef = useRef<number | null>(null);
+  const planOverviewProgress = useSharedValue(0);
+  const planOverviewExtraHeight = useSharedValue(0);
+  const pagerHeight = useSharedValue(600);
+  const planOverviewExtraStyle = useAnimatedStyle(() => ({
+    height: planOverviewExtraHeight.value * planOverviewProgress.value,
+    opacity: interpolate(planOverviewProgress.value, [0, 0.2, 1], [0, 0, 1]),
+    transform: [{ translateY: interpolate(planOverviewProgress.value, [0, 1], [-space.xs, 0]) }],
+  }));
+  const planOverviewCollapsedLabelStyle = useAnimatedStyle(() => ({
+    opacity: 1 - planOverviewProgress.value,
+  }));
+  const planOverviewExpandedLabelStyle = useAnimatedStyle(() => ({
+    opacity: planOverviewProgress.value,
+  }));
+  const planOverviewChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(planOverviewProgress.value, [0, 1], [0, 180])}deg` }],
+  }));
+  const pagerHeightStyle = useAnimatedStyle(() => ({ height: pagerHeight.value }));
   const [internalSelectedPlanDays, setInternalSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const planEditorOpen = controlledPlanEditorOpen ?? internalPlanEditorOpen;
   const selectedPlanDays = controlledSelectedPlanDays ?? internalSelectedPlanDays;
   const setPlanEditorOpen = (open: boolean) => (onPlanEditorOpenChange ? onPlanEditorOpenChange(open) : setInternalPlanEditorOpen(open));
   const setSelectedPlanDays = (days: Set<string>) => (onSelectedPlanDaysChange ? onSelectedPlanDaysChange(days) : setInternalSelectedPlanDays(days));
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [distanceEditorOpen, setDistanceEditorOpen] = useState(false);
   const [trackUploadOpen, setTrackUploadOpen] = useState(false);
   const [renamingPlanDay, setRenamingPlanDay] = useState<string | null>(null);
   // Reuse the same identity for the journey header and moments uploaded here.
@@ -1298,6 +1521,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const minEle = elevations.length ? Math.min(...elevations) : undefined;
     return { maxEle, minEle };
   }, [poi.trackElevation]);
+
+  const hasSpecificJourneyDate = Boolean(poi.plannedDate || poi.date);
+  const journeyTimingLabel = hasSpecificJourneyDate ? t('journey.stat.date') : t('journey.stat.days');
+  const journeyTimingValue = poi.plannedDate
+    || poi.date
+    || poi.days
+    || (poi.totalDays ? t('journeyEdit.duration.days', { count: poi.totalDays }) : '—');
 
   // Distance + ascent stay as the headline numbers; journeys use highest elevation
   // as the third headline because it is more meaningful here than elapsed time.
@@ -1330,10 +1560,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const stats: { label: string; value: string }[] = [];
     if (isJourney) {
       stats.push(
-        {
-          label: t('journey.stat.date'),
-          value: poi.plannedDate || poi.date || '—',
-        },
         {
           label: t('journey.stat.companions'),
           value: t('journey.companions.companionCount', {
@@ -1370,7 +1596,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const intensity = fmtIntensity(poi.dist, poi.asc);
     if (intensity !== '—') stats.push({ label: t('journey.stat.intensity'), value: intensity });
     return stats;
-  }, [isJourney, elevationSummary, poi.plannedDate, poi.date, poi.companionList, poi.companions, poi.rating, poi.reviews, poi.dist, poi.asc, poi.trackDurationMs, allPhotos.length, t]);
+  }, [isJourney, elevationSummary, poi.companionList, poi.companions, poi.rating, poi.reviews, poi.dist, poi.asc, poi.trackDurationMs, allPhotos.length, t]);
   const selectedJourneyDay = seg.startsWith('day:') ? seg.slice(4) : undefined;
   React.useEffect(() => {
     segRef.current = seg;
@@ -1480,17 +1706,65 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   };
 
   const pagerRef = useRef<PagerView>(null);
+  const pendingPagerSegmentRef = useRef<TabId | null>(null);
   const [tabPageHeights, setTabPageHeights] = useState<Record<string, number>>({});
   const activePagerHeight = tabPageHeights[seg] || 600;
+
+  useEffect(() => {
+    if (!planOverviewAnimatingRef.current) pagerHeight.value = activePagerHeight;
+  }, [activePagerHeight, pagerHeight, seg]);
+
+  const finishPlanOverviewAnimation = (open: boolean, targetPagerHeight: number) => {
+    if (planOverviewOpenRef.current !== open) return;
+    planOverviewAnimatingRef.current = false;
+    setPlanOverviewOpen(open);
+    setTabPageHeights((current) => current.overview === targetPagerHeight
+      ? current
+      : { ...current, overview: targetPagerHeight });
+  };
+
+  const togglePlanOverview = () => {
+    const next = !planOverviewOpenRef.current;
+    planOverviewOpenRef.current = next;
+    planOverviewAnimatingRef.current = true;
+
+    const currentOverviewHeight = tabPageHeights.overview || pagerHeight.value;
+    if (planOverviewCollapsedPagerHeightRef.current == null) {
+      planOverviewCollapsedPagerHeightRef.current = next
+        ? currentOverviewHeight
+        : Math.max(1, currentOverviewHeight - planOverviewExtraHeight.value);
+    }
+    const collapsedPagerHeight = planOverviewCollapsedPagerHeightRef.current;
+    const targetPagerHeight = collapsedPagerHeight + (next ? planOverviewExtraHeight.value : 0);
+    const animation = {
+      duration: next ? 460 : 380,
+      easing: next ? Easing.bezier(0.16, 1, 0.3, 1) : Easing.bezier(0.4, 0, 0.2, 1),
+    };
+
+    cancelAnimation(planOverviewProgress);
+    cancelAnimation(pagerHeight);
+    planOverviewProgress.value = withTiming(next ? 1 : 0, animation);
+    pagerHeight.value = withTiming(targetPagerHeight, animation, (finished) => {
+      if (finished) runOnJS(finishPlanOverviewAnimation)(next, targetPagerHeight);
+    });
+  };
 
   const selectPagerSegment = (value: TabId) => {
     const index = tabOptions.findIndex((option) => option.id === value);
     if (index < 0) return;
+    pendingPagerSegmentRef.current = value;
     visualSegRef.current = value;
     setVisualSeg(value);
     selectSegment(value);
-    pagerRef.current?.setPage(index);
+    pagerRef.current?.setPageWithoutAnimation(index);
   };
+
+  useEffect(() => {
+    if (!journeyDaySelectionRequest || !journeyDays.includes(journeyDaySelectionRequest.day)) return;
+    // Use the exact same path as a direct tab press so both the selected state
+    // and PagerView's rendered page move to the requested itinerary group.
+    selectPagerSegment(`day:${journeyDaySelectionRequest.day}` as TabId);
+  }, [journeyDaySelectionRequest?.revision]);
 
   const tabSwipeDisabled = !isJourney
     || tabOptions.length < 2
@@ -1499,9 +1773,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     || momentSelectionMode
     || timelineSelectionMode
     || momentViewerIndex != null
-    || momentFilterOpen
     || renamingPlanDay != null
     || timePickerOpen
+    || distanceEditorOpen
     || trackUploadOpen;
 
   const renderTabContent = (activeSeg: TabId) => {
@@ -1563,7 +1837,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   </Press>
                     ) : null}
                   </View>
-                  <JourneyPlanEditContent theme={theme} days={journeyDays} rows={timeline.rows} selectedDays={selectedPlanDays} onToggleDay={toggleSelectedPlanDay} onEditDate={() => setTimePickerOpen(true)} onRenameDay={setRenamingPlanDay} getDayLabel={(day) => journeyDayDisplayLabel(day, resolved, t)} />
+                  <JourneyPlanEditContent theme={theme} days={journeyDays} rows={timeline.rows} selectedDays={selectedPlanDays} onToggleDay={toggleSelectedPlanDay} onRenameDay={setRenamingPlanDay} getDayLabel={(day) => journeyDayDisplayLabel(day, resolved, t)} />
                   {!externalPlanEditorControls ? (
                     <View
                       style={{
@@ -1601,16 +1875,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 </View>
               ) : (
                 <>
-                  <Press
-                    onPress={() => setTimePickerOpen(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${t('journey.stat.date')} ${poi.plannedDate || poi.date || '—'}`}
-                    style={{ alignSelf: 'flex-start', marginTop: space.sm, paddingVertical: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
-                  >
-                    <Icon name="calendar" color={theme.text3} size={15} />
-                    <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{poi.plannedDate || poi.date || '—'}</Text>
-                  </Press>
-
                   <AppCard theme={theme} radius={radius.feature} style={{ marginTop: space.xxl, backgroundColor: theme.surface }}>
                     <View style={{ padding: space.md }}>
                       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
@@ -1671,7 +1935,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                         <Text style={[type.sectionTitle, { flex: 1, color: theme.text }]}>{t('journey.section.planOverview')}</Text>
                         {journeyDays.length > 1 ? (
                           <Press
-                            onPress={() => setPlanOverviewOpen((open) => !open)}
+                            onPress={togglePlanOverview}
                             accessibilityRole="button"
                             accessibilityState={{ expanded: planOverviewOpen }}
                             style={{
@@ -1685,26 +1949,37 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                               backgroundColor: theme.controlSurface,
                             }}
                           >
-                            <Text
-                              style={{
-                                color: theme.text2,
-                                fontSize: 12,
-                                fontWeight: '700',
-                              }}
-                            >
-                              {planOverviewOpen ? t('journey.timeline.collapseGroups') : t('journey.timeline.expandAllGroups')}
-                            </Text>
-                            <View
-                              style={{
-                                transform: [
-                                  {
-                                    rotate: planOverviewOpen ? '180deg' : '0deg',
-                                  },
-                                ],
-                              }}
-                            >
+                            <View style={{ height: 18, alignItems: 'center', justifyContent: 'center' }}>
+                              <Text
+                                numberOfLines={1}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                style={{ opacity: 0, color: theme.text2, fontSize: 12, fontWeight: '700' }}
+                              >
+                                {t('journey.timeline.expandAllGroups')}
+                              </Text>
+                              <ReAnimated.Text
+                                numberOfLines={1}
+                                style={[
+                                  { position: 'absolute', color: theme.text2, fontSize: 12, fontWeight: '700' },
+                                  planOverviewCollapsedLabelStyle,
+                                ]}
+                              >
+                                {t('journey.timeline.expandAllGroups')}
+                              </ReAnimated.Text>
+                              <ReAnimated.Text
+                                numberOfLines={1}
+                                style={[
+                                  { position: 'absolute', color: theme.text2, fontSize: 12, fontWeight: '700' },
+                                  planOverviewExpandedLabelStyle,
+                                ]}
+                              >
+                                {t('journey.timeline.collapseGroups')}
+                              </ReAnimated.Text>
+                            </View>
+                            <ReAnimated.View style={planOverviewChevronStyle}>
                               <Icon name="chevronDown" color={theme.text2} size={14} />
-                    </View>
+                            </ReAnimated.View>
                           </Press>
                         ) : null}
                         {!externalPlanEditorControls ? (
@@ -1735,69 +2010,82 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   </Press>
                 ) : null}
               </View>
-                      <View
-                        style={{
-                          marginTop: planOverviewOpen ? space.sm : space.xxs,
-                        }}
-                      >
-                        {(planOverviewOpen ? journeyDays : journeyDays.slice(0, 1)).map((day, index) => {
-                    const rows = timeline.rows.filter((row) => row.day === day);
-                    return (
-                        <Press
+                      <View style={{ marginTop: space.xxs }}>
+                        {journeyDays.slice(0, 1).map((day) => {
+                          const rows = timeline.rows.filter((row) => row.day === day);
+                          return (
+                            <Press
                               key={day}
-                          onPress={() => setSeg(`day:${day}`)}
+                              onPress={() => selectPagerSegment(`day:${day}`)}
                               style={{
-                                minHeight: planOverviewOpen ? (rows.length ? 86 : 68) : rows.length ? 58 : 48,
-                                paddingVertical: planOverviewOpen ? space.md : space.xs,
+                                minHeight: rows.length ? 58 : 48,
+                                paddingVertical: space.xs,
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                                borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
-                                borderTopColor: theme.hairline,
                               }}
-                        >
-                              <View
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  paddingRight: space.sm,
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    type.cardTitle,
-                                    {
-                                      color: theme.text,
-                                      fontSize: 18,
-                                      lineHeight: 24,
-                                    },
-                                  ]}
-                                >
+                            >
+                              <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
+                                <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
                                   {journeyDayDisplayLabel(day, resolved, t)}
                                 </Text>
                                 {rows.length ? (
                                   <Text
-                                    numberOfLines={planOverviewOpen ? 2 : 1}
-                                    style={[
-                                      type.body,
-                                      {
-                                        color: theme.text2,
-                                        marginTop: planOverviewOpen ? space.xs : space.xxs,
-                                        lineHeight: 21,
-                                      },
-                                    ]}
+                                    numberOfLines={1}
+                                    style={[type.body, { color: theme.text2, marginTop: space.xxs, lineHeight: 21 }]}
                                   >
-                                    {rows
-                                      .slice(0, planOverviewOpen ? 3 : 2)
-                                      .map((row) => row.title)
-                                      .join(' → ')}
-                            </Text>
+                                    {rows.slice(0, 2).map((row) => row.title).join(' → ')}
+                                  </Text>
                                 ) : null}
-                          </View>
+                              </View>
                               <Icon name="chevronR" color={theme.text3} size={17} />
-                        </Press>
-                    );
-                  })}
-                </View>
+                            </Press>
+                          );
+                        })}
+                      </View>
+                      <ReAnimated.View
+                        pointerEvents="auto"
+                        style={[{ overflow: 'hidden' }, planOverviewExtraStyle]}
+                      >
+                        <View
+                          onLayout={(event) => {
+                            planOverviewExtraHeight.value = event.nativeEvent.layout.height;
+                          }}
+                          style={{ position: 'absolute', top: 0, left: 0, right: 0 }}
+                        >
+                          {journeyDays.slice(1).map((day) => {
+                            const rows = timeline.rows.filter((row) => row.day === day);
+                            return (
+                              <Press
+                                key={day}
+                                onPress={() => selectPagerSegment(`day:${day}`)}
+                                style={{
+                                  minHeight: rows.length ? 86 : 68,
+                                  paddingVertical: space.md,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  borderTopWidth: StyleSheet.hairlineWidth,
+                                  borderTopColor: theme.hairline,
+                                }}
+                              >
+                                <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
+                                  <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
+                                    {journeyDayDisplayLabel(day, resolved, t)}
+                                  </Text>
+                                  {rows.length ? (
+                                    <Text
+                                      numberOfLines={2}
+                                      style={[type.body, { color: theme.text2, marginTop: space.xs, lineHeight: 21 }]}
+                                    >
+                                      {rows.slice(0, 3).map((row) => row.title).join(' → ')}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <Icon name="chevronR" color={theme.text3} size={17} />
+                              </Press>
+                            );
+                          })}
+                        </View>
+                      </ReAnimated.View>
                     </View>
             </AppCard>
                 </>
@@ -1857,7 +2145,10 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             addActionRef={checklistAddActionRef}
             deleteActionRef={checklistDeleteActionRef}
             filterActionRef={checklistFilterActionRef}
+            filterMenuRef={checklistFilterMenuRef}
+            toggleAllActionRef={checklistToggleAllActionRef}
             onFilterStateChange={onChecklistFilterStateChange}
+            onFilterMenuOpenChange={onChecklistFilterMenuOpenChange}
             selectionMode={checklistSelectionMode}
             selectedItemIds={selectedChecklistItemIds ?? new Set<string>()}
             onSelectedItemIdsChange={onSelectedChecklistItemIdsChange ?? (() => {})}
@@ -1867,7 +2158,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         ) : null}
 
         {/* 行程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney} availableDays={journeyDays} /> : null}
+        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney} availableDays={journeyDays} onRouteBoundaryRequest={onRouteBoundaryRequest} /> : null}
         {activeJourneyDay ? (
           <View
             onLayout={(event) => {
@@ -1884,6 +2175,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               selectionMode={timelineSelectionMode}
               selectedItemIds={selectedTimelineItemIds}
               onSelectedItemIdsChange={onSelectedTimelineItemIdsChange}
+              onRouteBoundaryRequest={onRouteBoundaryRequest}
               onGroupLayout={(day, y) => {
                 groupOffsetsRef.current.set(day, y);
                 scrollToPendingDay();
@@ -1895,7 +2187,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         {/* 瞬间 moments — a consistent two-column photo wall. */}
         {activeSeg === 'moments' ? (
           <View>
-            {allPhotos.length > 0 ? (
+            {inspo.loading ? (
+              <MomentsSkeleton theme={theme} />
+            ) : allPhotos.length > 0 ? (
               <View style={{ gap: space.sm }}>
                 {filteredPhotos.length > 0 ? (
                   Array.from({ length: Math.ceil(filteredPhotos.length / 2) }, (_, rowIndex) => {
@@ -2007,17 +2301,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   ];
 
   const onShare = () => {
-    if (!isJourney) {
-      nav.openSharePanel(poi);
-      return;
-    }
-    nav.openActionSheet({
-      title: t('journey.manage.shareMenuTitle'),
-      items: [
-        { label: t('journey.manage.inviteParticipant'), icon: 'people', onPress: () => nav.openManageCompanions(poi, 'invite') },
-        { label: t('journey.manage.shareJourney'), icon: 'share', onPress: () => nav.openSharePanel(poi) },
-      ],
-    });
+    nav.openSharePanel(poi);
   };
 
   const quickActions = (
@@ -2054,16 +2338,46 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       {/* identity header — lives in the sheet so the map remains focused on the route */}
       {embedded ? (
         isJourney ? (
-        <View style={{ paddingTop: space.xxs, paddingBottom: space.lg, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
-          <Text numberOfLines={2} style={[type.pageTitle, { flex: 1, minWidth: 0, color: theme.text, fontSize: 28, lineHeight: 34 }]}>
+        <View style={{ paddingTop: space.xxs, paddingBottom: space.lg }}>
+          <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34 }]}>
             {poi.name}
           </Text>
-          <JourneyParticipantButton
-            theme={theme}
-            people={participantPeople}
-            onPress={() => nav.openManageCompanions(poi)}
-            accessibilityLabel={t('journey.manage.pageTitle')}
-          />
+          <View style={{ marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Press
+              onPress={() => setTimePickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`${journeyTimingLabel} ${journeyTimingValue}`}
+              style={{ minWidth: 0, maxWidth: '50%', minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+            >
+              <Icon name={hasSpecificJourneyDate ? 'calendar' : 'clock'} color={theme.text3} size={15} />
+              <Text numberOfLines={1} style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{journeyTimingValue}</Text>
+            </Press>
+            <Press
+              onPress={() => setDistanceEditorOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('journey.stat.distance')} ${poi.dist || '—'}`}
+              style={{ minHeight: 40, maxWidth: 108, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+            >
+              <Icon name="distance" color={theme.text3} size={15} />
+              <Text numberOfLines={1} style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{poi.dist || '—'}</Text>
+            </Press>
+            <View style={{ flex: 1 }} />
+            <JourneyParticipantButton
+              theme={theme}
+              people={participantPeople}
+              onOpenParticipants={() => nav.openManageCompanions(poi)}
+              onInvite={() => {
+                if (participantPeople.length >= MAX_JOURNEY_PARTICIPANTS) {
+                  nav.showToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
+                  return;
+                }
+                nav.openManageCompanions(poi, 'invite');
+              }}
+              inviteAtCapacity={participantPeople.length >= MAX_JOURNEY_PARTICIPANTS}
+              participantsAccessibilityLabel={t('journey.manage.pageTitle')}
+              inviteAccessibilityLabel={t('journey.manage.inviteParticipant')}
+            />
+          </View>
         </View>
       ) : (
         <View style={{ paddingTop: space.xxs, paddingBottom: space.md }}>
@@ -2150,7 +2464,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 }}
               >
               {poi.region}
-              {isJourney && poi.date ? ' · ' + poi.date : ''}
+              {isJourney && journeyTimingValue !== '—' ? ' · ' + journeyTimingValue : ''}
             </Text>
           </View>
         </View>
@@ -2193,14 +2507,16 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       </Animated.View>
 
       {isJourney && !scrollContent ? (
+        <ReAnimated.View style={[{ overflow: 'hidden' }, pagerHeightStyle]}>
         <PagerView
           ref={pagerRef}
-          style={{ height: activePagerHeight }}
+          style={{ flex: 1 }}
           initialPage={Math.max(0, tabOptions.findIndex((option) => option.id === seg))}
           scrollEnabled={!tabSwipeDisabled}
           offscreenPageLimit={1}
           overdrag={false}
           onPageScroll={(event) => {
+            if (pendingPagerSegmentRef.current) return;
             const { position, offset } = event.nativeEvent;
             const visualIndex = Math.min(tabOptions.length - 1, position + (offset >= 0.5 ? 1 : 0));
             const visual = tabOptions[visualIndex];
@@ -2212,6 +2528,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           onPageSelected={(event) => {
             const next = tabOptions[event.nativeEvent.position];
             if (!next) return;
+            const pendingSegment = pendingPagerSegmentRef.current;
+            if (pendingSegment && next.id !== pendingSegment) return;
+            pendingPagerSegmentRef.current = null;
             visualSegRef.current = next.id;
             setVisualSeg(next.id);
             if (next.id !== segRef.current) selectSegment(next.id);
@@ -2222,11 +2541,15 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               <View
                 onLayout={(event) => {
                   const height = Math.ceil(event.nativeEvent.layout.height);
-                  if (height > 0 && tabPageHeights[option.id] !== height) {
-                    setTabPageHeights((current) => current[option.id] === height
-                      ? current
-                      : { ...current, [option.id]: height });
+                  if (height <= 0 || (option.id === 'overview' && planOverviewAnimatingRef.current)) return;
+                  if (option.id === 'overview') {
+                    planOverviewCollapsedPagerHeightRef.current = planOverviewOpenRef.current
+                      ? Math.max(1, height - planOverviewExtraHeight.value)
+                      : height;
                   }
+                  setTabPageHeights((current) => current[option.id] === height
+                    ? current
+                    : { ...current, [option.id]: height });
                 }}
               >
                 <SelectedPoiContent
@@ -2246,6 +2569,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             </View>
           ))}
         </PagerView>
+        </ReAnimated.View>
       ) : (
         <SelectedPoiContent
           scrollable={scrollContent}
@@ -2298,28 +2622,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           }}
         />
       ) : null}
-      <MomentFilterMenu
-        theme={theme}
-        visible={momentFilterOpen}
-        typeTitle={t('journey.moments.filterType')}
-        participantTitle={t('journey.moments.filterParticipant')}
-        allParticipantsLabel={t('journey.moments.filterAllParticipants')}
-        hostLabel={t('journey.companions.host')}
-        selfLabel={t('journey.companions.you')}
-        selectedType={momentFilter}
-        selectedAuthor={momentAuthorFilter}
-        typeOptions={momentFilterOptions}
-        authors={momentAuthorOptions}
-        onClose={() => setMomentFilterOpen(false)}
-        onSelectType={(filter) => {
-          setMomentViewerIndex(null);
-          setMomentFilter(filter);
-        }}
-        onSelectAuthor={(author) => {
-          setMomentViewerIndex(null);
-          setMomentAuthorFilter(author);
-        }}
-      />
       {renamingPlanDay ? (
         <JourneyGroupRenameSheet
           theme={theme}
@@ -2341,6 +2643,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         />
       ) : null}
       {timePickerOpen ? <JourneyTimePicker theme={theme} poi={poi} onApply={(patch) => nav.patchCurrent(patch)} onClose={() => setTimePickerOpen(false)} /> : null}
+      {distanceEditorOpen ? (
+        <JourneyDistanceSheet
+          theme={theme}
+          initialValue={poi.dist}
+          onSave={(dist) => nav.patchCurrent({ dist })}
+          onClose={() => setDistanceEditorOpen(false)}
+        />
+      ) : null}
       {trackUploadOpen ? <JourneyTrackUploadSheet theme={theme} journeyId={poi.id} replacing={hasTrack} onClose={() => setTrackUploadOpen(false)} /> : null}
     </View>
   );

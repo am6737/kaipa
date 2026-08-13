@@ -1,20 +1,24 @@
-import { DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, type Poi, type Companion } from '../data/pois';
-import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
-import type { Notif } from '../data/notifications';
-import type { TLRow, TLMedia } from '../data/timeline';
-import type { InspoMedia } from '../data/inspoStore';
+import {
+  DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
+  type Poi,
+  type Companion,
+} from "../data/pois";
+import type { GearCat, GearItem, GearSet, GearSetOverride } from "../data/gear";
+import type { Notif } from "../data/notifications";
+import type { TLRow, TLMedia } from "../data/timeline";
+import type { InspoMedia } from "../data/inspoStore";
 
 export function toRoutePoi(r: any): Poi {
   return {
     id: r.id,
-    kind: 'route',
+    kind: "route",
     name: r.name,
     region: r.region,
-    coord: r.coord ?? '',
+    coord: r.coord ?? "",
     lng: r.lng,
     lat: r.lat,
-    dist: r.dist ?? '',
-    asc: r.asc ?? '',
+    dist: r.dist ?? "",
+    asc: r.asc ?? "",
     diff: r.diff,
     rating: r.rating,
     reviews: r.reviews,
@@ -31,30 +35,32 @@ export function toRoutePoi(r: any): Poi {
 }
 
 export function toJourneyPoi(j: any, companions?: any[]): Poi {
-  const list: Companion[] = (companions ?? j.companions ?? []).map((c: any) => ({
-    id: c.id ?? undefined,
-    userId: c.user_id ?? undefined,
-    ini: c.ini,
-    name: c.name,
-    role: c.role ?? undefined,
-    color: c.color,
-    tone: c.tone ?? undefined,
-    avatarUrl: c.avatar_url ?? undefined,
-    trips: c.trips ?? undefined,
-    host: c.is_host ?? false,
-    self: c.is_self ?? false,
-  }));
+  const list: Companion[] = (companions ?? j.companions ?? []).map(
+    (c: any) => ({
+      id: c.id ?? undefined,
+      userId: c.user_id ?? undefined,
+      ini: c.ini,
+      name: c.name,
+      role: c.role ?? undefined,
+      color: c.color,
+      tone: c.tone ?? undefined,
+      avatarUrl: c.avatar_url ?? undefined,
+      trips: c.trips ?? undefined,
+      host: c.is_host ?? false,
+      self: c.is_self ?? false,
+    }),
+  );
 
   return {
     id: j.id,
-    kind: 'journey',
+    kind: "journey",
     name: j.name,
     region: j.region,
-    coord: j.coord ?? '',
+    coord: j.coord ?? "",
     lng: j.lng,
     lat: j.lat,
-    dist: j.dist ?? '',
-    asc: j.asc ?? '',
+    dist: j.dist ?? "",
+    asc: j.asc ?? "",
     diff: j.diff,
     tone: j.tone,
     mine: j.mine ?? true,
@@ -69,13 +75,22 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
     routeId: j.route_id,
     companions: list.length,
     companionList: list,
-    participantPermissions: { ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, ...(j.participant_permissions ?? {}) },
+    participantPermissions: {
+      ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
+      ...(j.participant_permissions ?? {}),
+    },
     trackCoords: j.track_coords,
     trackElevation: j.track_elevation,
     trackDurationMs: j.track_duration_ms,
     trackWaypoints: j.track_waypoints,
     trackFileUrl: j.track_file_url,
     trackFileName: j.track_file_name,
+    heroMode:
+      j.hero_mode === "cover"
+        ? "cover"
+        : j.hero_mode === "track"
+          ? "track"
+          : undefined,
     trackPublic: j.track_public ?? false,
     routeShowPhotos: j.route_show_photos ?? true,
     routeShowTimeline: j.route_show_timeline ?? true,
@@ -84,26 +99,42 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
 }
 
 export function toGearCat(r: any): GearCat {
-  return { id: r.id, name: r.name, color: r.color, builtin: r.builtin ?? false };
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    builtin: r.builtin ?? false,
+  };
 }
 
 export function toGearItem(r: any): GearItem {
   return {
     id: r.id,
     name: r.name,
-    cat: r.cat_id ?? 'uncat',
+    cat: r.cat_id ?? "uncat",
     w: r.weight,
     p: r.price,
     qty: r.qty ?? 1,
-    status: r.status ?? 'packed',
+    status: r.status ?? "packed",
     photos: Array.isArray(r.photo_uris) ? r.photo_uris : undefined,
     attrs: r.attrs,
     note: r.note,
   };
 }
 
-export function toGearSet(r: any, itemNames: string[], overrides?: Record<string, GearSetOverride>): GearSet {
-  return { id: r.id, name: r.name, items: itemNames, overrides: overrides && Object.keys(overrides).length ? overrides : undefined };
+export function toGearSet(
+  r: any,
+  itemNames: string[],
+  overrides?: Record<string, GearSetOverride>,
+): GearSet {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? undefined,
+    items: itemNames,
+    overrides:
+      overrides && Object.keys(overrides).length ? overrides : undefined,
+  };
 }
 
 export function toNotif(r: any): Notif {

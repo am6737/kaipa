@@ -1,7 +1,7 @@
 import React from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Theme } from '../../theme/theme';
-import { motion, radius, space, type } from '../../design-system';
+import { radius, space, type } from '../../design-system';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 
@@ -30,25 +30,25 @@ export function GearDeleteDialog({
   const [mounted, setMounted] = React.useState(visible);
   const progress = React.useRef(new Animated.Value(0)).current;
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
+    progress.stopAnimation();
     if (visible) {
       setMounted(true);
       progress.setValue(0);
-      requestAnimationFrame(() => {
-        Animated.spring(progress, {
-          toValue: 1,
-          useNativeDriver: true,
-          bounciness: 3,
-          speed: 18,
-        }).start();
-      });
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 140,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+        useNativeDriver: true,
+      }).start();
       return;
     }
 
     if (mounted) {
       Animated.timing(progress, {
         toValue: 0,
-        duration: motion.quick,
+        duration: 90,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (finished) setMounted(false);
@@ -100,6 +100,7 @@ export function GearDeleteDialog({
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
               onPress={onConfirm}
+              opacityTo={1}
               style={{ height: 52, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: theme.danger }}
             >
               <Icon name="trash" color="#FFFFFF" size={18} strokeWidth={2.1} />
@@ -109,6 +110,7 @@ export function GearDeleteDialog({
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
               onPress={onCancel}
+              opacityTo={1}
               style={{ height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
             >
               <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{cancelLabel}</Text>

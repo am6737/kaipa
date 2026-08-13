@@ -1,6 +1,6 @@
 // Toast.tsx — transient confirmation pill (auto-dismissed by NavContext).
 import React, { useEffect, useRef } from 'react';
-import { Animated, Text, View, StyleSheet } from 'react-native';
+import { Animated, Platform, Text, View, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from './Icon';
@@ -24,7 +24,7 @@ export function Toast({ message, dark, placement = 'bottom' }: { message: string
           overflow: 'hidden',
         }}
       >
-        <BlurView intensity={60} tint={dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        {Platform.OS === 'ios' ? <BlurView intensity={60} tint={dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} /> : null}
         <View
           style={{
             flexDirection: 'row',
@@ -32,7 +32,7 @@ export function Toast({ message, dark, placement = 'bottom' }: { message: string
             gap: 8,
             paddingHorizontal: 18,
             paddingVertical: 11,
-            backgroundColor: dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)',
+            backgroundColor: Platform.OS === 'android' ? (dark ? '#202024' : '#FFFFFF') : dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)',
           }}
         >
           <Icon name="check" color={dark ? '#fff' : '#000'} size={16} />

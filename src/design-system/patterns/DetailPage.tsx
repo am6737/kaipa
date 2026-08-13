@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   Dimensions,
+  Easing,
   Keyboard,
   Platform,
   StyleSheet,
@@ -34,6 +35,7 @@ export function DetailPage({
   flatChrome,
   onContentTouchStart,
   onEnterComplete,
+  entryVariant = 'push',
   scrollable = true,
   children,
 }: {
@@ -48,12 +50,15 @@ export function DetailPage({
   flatChrome?: boolean;
   onContentTouchStart?: () => void;
   onEnterComplete?: () => void;
+  entryVariant?: 'push' | 'continuationX' | 'continuationY';
   scrollable?: boolean;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const width = Dimensions.get('window').width;
-  const translateX = useRef(new Animated.Value(width)).current;
+  const translateX = useRef(new Animated.Value(entryVariant === 'push' ? width : entryVariant === 'continuationX' ? 52 : 0)).current;
+  const translateY = useRef(new Animated.Value(entryVariant === 'continuationY' ? 44 : 0)).current;
+  const opacity = useRef(new Animated.Value(entryVariant === 'push' ? 1 : 0.92)).current;
   const onEnterCompleteRef = useRef(onEnterComplete);
 
   useEffect(() => {
@@ -61,16 +66,37 @@ export function DetailPage({
   }, [onEnterComplete]);
 
   useEffect(() => {
-    const animation = Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: true,
-      ...motion.pageSpring,
-    });
+    const animation = entryVariant === 'push'
+      ? Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          ...motion.pageSpring,
+        })
+      : Animated.parallel([
+          Animated.timing(translateX, {
+            toValue: 0,
+            duration: motion.standard,
+            easing: Easing.bezier(0.16, 1, 0.3, 1),
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: motion.standard,
+            easing: Easing.bezier(0.16, 1, 0.3, 1),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: motion.quick,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]);
     animation.start(({ finished }) => {
       if (finished) onEnterCompleteRef.current?.();
     });
     return () => animation.stop();
-  }, [translateX]);
+  }, [entryVariant, opacity, translateX, translateY]);
 
 
   const navHeight = insets.top + layout.topBarHeight;
@@ -81,7 +107,8 @@ export function DetailPage({
         StyleSheet.absoluteFill,
         {
           backgroundColor: backgroundColor || theme.featureSurface,
-          transform: [{ translateX }],
+          opacity,
+          transform: [{ translateX }, { translateY }],
         },
       ]}
     >

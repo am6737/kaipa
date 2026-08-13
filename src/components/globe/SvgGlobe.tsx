@@ -3,12 +3,12 @@
 // geographically. Used when no Mapbox token is configured (e.g. Expo Go).
 import React from 'react';
 import { View, Pressable } from 'react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G, Line, Rect } from 'react-native-svg';
+import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { GlobeProps } from './types';
 import { project, graticule } from './projection';
-import { PhotoPin } from './PhotoPin';
+import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH } from './PhotoPin';
 
-export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, focusCoords, pin }: GlobeProps) {
+export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, focusCoords, focusSegments, focusBoundaries, selectionPin, focusConnector, onRouteBoundaryPress, onMapCoordinatePress, pin }: GlobeProps) {
   const t = theme;
   const R = size / 2;
   const cx = R;
@@ -44,15 +44,66 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
     return (
       <View style={{ width: size, height: size, borderRadius: 28, overflow: 'hidden', backgroundColor: theme.featureSurface, borderWidth: 1, borderColor: theme.hairline }}>
         <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <Rect x={0} y={0} width={size} height={size} fill={theme.featureSurface} />
+          <Rect
+            x={0}
+            y={0}
+            width={size}
+            height={size}
+            fill={theme.featureSurface}
+            onPress={(event) => {
+              if (!onMapCoordinatePress) return;
+              const locationX = Number(event.nativeEvent.locationX);
+              const locationY = Number(event.nativeEvent.locationY);
+              if (!Number.isFinite(locationX) || !Number.isFinite(locationY)) return;
+              const normalizedX = minX + (locationX - offsetX) / scale;
+              const latitude = maxY - (locationY - offsetY) / scale;
+              onMapCoordinatePress([normalizedX / lonScale, latitude]);
+            }}
+          />
           {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
             <G key={ratio}>
               <Line x1={size * ratio} y1={0} x2={size * ratio} y2={size} stroke={theme.globeGrid} strokeWidth={0.7} />
               <Line x1={0} y1={size * ratio} x2={size} y2={size * ratio} stroke={theme.globeGrid} strokeWidth={0.7} />
             </G>
           ))}
-          <Polyline points={routePoints} fill="none" stroke={theme.featureSurface} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" />
-          <Polyline points={routePoints} fill="none" stroke={theme.accent} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+          <Polyline points={routePoints} fill="none" stroke={focusSegments?.length ? theme.trailFaint : theme.accent} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+          {focusSegments?.map((segment) => {
+            const points = segment.coordinates.map(([lon, lat]) => {
+              const x = lon * lonScale;
+              return `${offsetX + (x - minX) * scale},${offsetY + (maxY - lat) * scale}`;
+            }).join(' ');
+            return <Polyline key={segment.id} points={points} fill="none" stroke={segment.color} strokeOpacity={segment.active ? 1 : 0.26} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />;
+          })}
+          {focusConnector ? (() => {
+            const points = focusConnector.coordinates.map(([lon, lat]) => {
+              const x = lon * lonScale;
+              return `${offsetX + (x - minX) * scale},${offsetY + (maxY - lat) * scale}`;
+            }).join(' ');
+            return <Polyline points={points} fill="none" stroke={focusConnector.color} strokeOpacity={0.72} strokeWidth={2.2} strokeDasharray="4 4" />;
+          })() : null}
+          {focusBoundaries?.map((boundary) => {
+            const x = boundary.coordinate[0] * lonScale;
+            const px = offsetX + (x - minX) * scale;
+            const py = offsetY + (maxY - boundary.coordinate[1]) * scale;
+            return (
+              <G key={boundary.id} opacity={boundary.active ? 1 : 0.4} onPress={() => onRouteBoundaryPress?.(boundary.groupKey)}>
+                <Circle cx={px} cy={py} r={boundary.pending ? 6 : 5} fill={boundary.pending ? theme.featureSurface : boundary.color} stroke={boundary.color} strokeWidth={2.5} />
+                <SvgText x={px} y={py - 10} textAnchor="middle" fontSize={9} fontWeight="700" fill={boundary.color}>{`${boundary.title} ${boundary.distance}`}</SvgText>
+              </G>
+            );
+          })}
+          {selectionPin ? (() => {
+            const pinX = selectionPin.coordinate[0] * lonScale;
+            const px = offsetX + (pinX - minX) * scale;
+            const py = offsetY + (maxY - selectionPin.coordinate[1]) * scale;
+            return (
+              <G>
+                <Circle cx={px} cy={py - 7} r={9} fill="#FFFFFF" stroke="rgba(0,0,0,0.12)" strokeWidth={1} />
+                <Circle cx={px} cy={py - 7} r={3.2} fill={theme.text2} />
+                <Circle cx={px} cy={py} r={4} fill={selectionPin.color} stroke="#FFFFFF" strokeWidth={1.8} />
+              </G>
+            );
+          })() : null}
           <Circle cx={startX} cy={startY} r={6} fill="#34C759" stroke="#FFFFFF" strokeWidth={2.5} />
           <Circle cx={endX} cy={endY} r={6} fill={theme.danger} stroke="#FFFFFF" strokeWidth={2.5} />
         </Svg>
@@ -101,25 +152,27 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
         <Circle cx={cx} cy={cy} r={R} fill="none" stroke={t.globeRim} strokeWidth={1} />
       </Svg>
 
-      {/* projected, tappable POIs — circular photo markers (the default style) */}
+      {/* projected, tappable POIs — rounded photos with capsule labels */}
       {pois.map((p) => {
         const pr = project(p.lng, p.lat, lon0, lat0, R - 4, cx, cy);
         if (!pr.visible) return null;
         const active = activePoiId != null && p.id === activePoiId;
-        const box = active ? 66 : 44; // big enough to hold the pin + its halo
+        const pinTop = pr.y - PHOTO_PIN_HEIGHT * PHOTO_PIN_ANCHOR_Y;
         return (
           <Pressable
             key={p.id}
             onPress={() => onPoiPress && onPoiPress(p.id)}
             style={{
               position: 'absolute',
-              left: pr.x - box / 2,
-              top: pr.y - box / 2,
-              width: box,
-              height: box,
+              left: pr.x - PHOTO_PIN_WIDTH / 2,
+              top: pinTop,
+              width: PHOTO_PIN_WIDTH,
+              height: PHOTO_PIN_HEIGHT,
               alignItems: 'center',
               justifyContent: 'center',
             }}
+            accessibilityRole="button"
+            accessibilityLabel={p.label}
             hitSlop={6}
           >
             <PhotoPin theme={t} poi={p} active={active} />

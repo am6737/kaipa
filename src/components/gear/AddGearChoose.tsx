@@ -184,18 +184,18 @@ function ChooseStage({ theme, top, onCancel, onPaste, onCamera, onManual }: { th
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
       <PageHeader theme={theme} top={top} title={t('gear.add.title')} onBack={onCancel} />
       <View style={{ paddingHorizontal: 24, gap: 12 }}>
-        <Press onPress={onPaste} scaleTo={0.985} style={{ minHeight: 178, padding: 21, borderRadius: 28, justifyContent: 'space-between', backgroundColor: theme.accent }}>
+        <Press onPress={onPaste} scaleTo={0.985} style={{ minHeight: 178, padding: 21, borderRadius: 28, justifyContent: 'space-between', backgroundColor: cardBg(theme) }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <View style={{ width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' }}>
-              <Icon name="link" color="#FFFFFF" size={24} strokeWidth={2} />
+            <View style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="link" color={theme.text2} size={24} strokeWidth={2} />
             </View>
-            <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.16)' }}>
+            <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: theme.accent }}>
               <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.recommended')}</Text>
             </View>
           </View>
           <View>
-            <Text style={{ fontSize: 21, fontWeight: '800', letterSpacing: -0.45, color: '#FFFFFF' }}>{t('gear.add.pasteLink')}</Text>
-            <Text style={{ marginTop: 5, fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.75)' }}>{t('gear.add.pasteLinkSub')}</Text>
+            <Text style={{ fontSize: 21, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{t('gear.add.pasteLink')}</Text>
+            <Text style={{ marginTop: 5, fontSize: 13, lineHeight: 19, color: theme.text3 }}>{t('gear.add.pasteLinkSub')}</Text>
           </View>
         </Press>
 
@@ -211,8 +211,8 @@ function ChooseStage({ theme, top, onCancel, onPaste, onCamera, onManual }: { th
 function MethodCard({ theme, icon, title, subtitle, onPress }: { theme: Theme; icon: IconName; title: string; subtitle: string; onPress: () => void }) {
   return (
     <Press onPress={onPress} scaleTo={0.98} style={{ flex: 1, minHeight: 154, padding: 17, borderRadius: 24, justifyContent: 'space-between', backgroundColor: cardBg(theme) }}>
-      <View style={{ width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}>
-        <Icon name={icon} color={theme.accent} size={21} strokeWidth={1.9} />
+      <View style={{ width: 43, height: 43, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={icon} color={theme.text2} size={21} strokeWidth={1.9} />
       </View>
       <View>
         <Text style={{ fontSize: 15.5, fontWeight: '800', color: theme.text }}>{title}</Text>

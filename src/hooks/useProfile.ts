@@ -32,16 +32,17 @@ export function useProfile(userId: string | undefined) {
     if (!userId) return;
 
     const [{ data: row }, { data: { user } }] = await Promise.all([
-      supabase.from('profiles').select('nick, username, bio, created_at, gear_weight_unit').eq('id', userId).single(),
+      supabase.from('profiles').select('display_name, nick, username, bio, created_at, gear_weight_unit').eq('id', userId).single(),
       supabase.auth.getUser(),
     ]);
 
+    const metadata = user?.user_metadata as { guest_email?: string; nickname?: string } | undefined;
     setProfile({
-      nick: row?.nick || '',
+      nick: row?.nick || row?.display_name || metadata?.nickname || '',
       username: row?.username || '',
       bio: row?.bio || '',
       phone: user?.phone || '',
-      email: user?.email || '',
+      email: user?.email || metadata?.guest_email || '',
       uid: userId,
       createdAt: row?.created_at || '',
       gearWeightUnit: (row?.gear_weight_unit || 'kg') as WeightUnit,
@@ -70,7 +71,9 @@ export function useProfile(userId: string | undefined) {
       if (error) throw error;
     } else {
       const dbField = field === 'gearWeightUnit' ? 'gear_weight_unit' : field;
-      await supabase.from('profiles').update({ [dbField]: value }).eq('id', userId);
+      const patch = field === 'nick' ? { nick: value, display_name: value } : { [dbField]: value };
+      const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+      if (error) throw error;
     }
 
     setProfile((p) => ({ ...p, [field]: value }));

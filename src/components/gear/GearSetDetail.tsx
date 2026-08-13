@@ -2,7 +2,7 @@
 // redesigned 装备详情: floating chrome, a strong typographic header, generous
 // whitespace, soft stat tiles, lightweight metadata and an unboxed item list.
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, useWindowDimensions, Modal, Pressable, Animated, Platform, Share, Switch } from 'react-native';
+import { View, Text, StyleSheet, useWindowDimensions, Animated, Easing as NativeEasing, Platform, Share, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { File, Paths } from 'expo-file-system';
@@ -22,6 +22,7 @@ import { GearItemRow, yuan, yuanWithGap } from './parts';
 import { AppIconButton, DetailPage } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
+import { GearMenuTransition } from './GearMenuTransition';
 
 const fieldBg = (t: Theme) => t.fieldSurface;
 const fieldBorder = (t: Theme) => t.fieldBorder;
@@ -37,14 +38,19 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
   const active = METRICS.find((option) => option.id === metric) || METRICS[0];
   const panelWidth = 136;
 
-  React.useEffect(() => {
+  const animateArrow = (open: boolean) => {
+    arrowRotation.stopAnimation();
     Animated.timing(arrowRotation, {
-      toValue: anchor ? 1 : 0,
-      duration: 180,
+      toValue: open ? 1 : 0,
+      duration: open ? 140 : 90,
+      easing: open ? NativeEasing.bezier(0.16, 1, 0.3, 1) : NativeEasing.in(NativeEasing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [anchor, arrowRotation]);
-
+  };
+  const close = () => {
+    animateArrow(false);
+    setAnchor(null);
+  };
   const measureAnchor = (show = false) => {
     anchorRef.current?.measureInWindow((x, y, width, height) => {
       const next = { x, y, width, height };
@@ -53,6 +59,7 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
     });
   };
   const open = () => {
+    animateArrow(true);
     if (anchorCache.current) setAnchor(anchorCache.current);
     measureAnchor(true);
   };
@@ -60,7 +67,7 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
   return (
     <>
       <View ref={anchorRef} collapsable={false} onLayout={() => requestAnimationFrame(() => measureAnchor())}>
-        <Press onPress={open} style={{ width: 94, height: 38, paddingHorizontal: 14, borderRadius: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
+        <Press onPress={open} opacityTo={1} style={{ width: 94, height: 38, paddingHorizontal: 14, borderRadius: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
           <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{active.label}</Text>
           <Animated.View style={{ transform: [{ rotate: arrowRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
             <Icon name="chevronDown" color={theme.text2} size={13} strokeWidth={2.1} />
@@ -68,44 +75,45 @@ function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric
         </Press>
       </View>
 
-      <Modal visible={!!anchor} transparent statusBarTranslucent animationType="none" onRequestClose={() => setAnchor(null)}>
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable onPress={() => setAnchor(null)} style={StyleSheet.absoluteFill} />
-          {anchor ? (
-            <View
-              style={{
-                position: 'absolute',
-                top: anchor.y + Math.max(anchor.height, 38) + 8 + (Platform.OS === 'android' ? Math.max(insets.top, 24) : 0),
-                left: Math.max(16, Math.min(anchor.x + anchor.width / 2 - panelWidth / 2, winW - panelWidth - 16)),
-                width: panelWidth,
-                padding: 9,
-                borderRadius: 24,
-                backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.hairline,
-                boxShadow: theme.dark ? '0px 14px 34px rgba(0,0,0,0.48)' : '0px 14px 34px rgba(0,0,0,0.16)',
+      <GearMenuTransition
+        theme={theme}
+        visible={!!anchor}
+        onClose={close}
+        backdropColor="transparent"
+        positionStyle={{
+          position: 'absolute',
+          top: (anchor ?? anchorCache.current)?.y != null
+            ? (anchor ?? anchorCache.current)!.y + Math.max((anchor ?? anchorCache.current)!.height, 38) + 8 + (Platform.OS === 'android' ? Math.max(insets.top, 24) : 0)
+            : insets.top + 62,
+          left: (anchor ?? anchorCache.current)?.x != null
+            ? Math.max(16, Math.min((anchor ?? anchorCache.current)!.x + (anchor ?? anchorCache.current)!.width / 2 - panelWidth / 2, winW - panelWidth - 16))
+            : 16,
+          width: panelWidth,
+          padding: 9,
+          borderRadius: 24,
+          backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.hairline,
+          boxShadow: theme.dark ? '0px 14px 34px rgba(0,0,0,0.48)' : '0px 14px 34px rgba(0,0,0,0.16)',
+        }}
+      >
+        {METRICS.map((option) => {
+          const selected = option.id === metric;
+          return (
+            <Press
+              key={option.id}
+              onPress={() => {
+                close();
+                setMetric(option.id);
               }}
+              style={{ height: 52, paddingHorizontal: 16, borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: selected ? fieldBg(theme) : 'transparent' }}
             >
-              {METRICS.map((option) => {
-                const selected = option.id === metric;
-                return (
-                  <Press
-                    key={option.id}
-                    onPress={() => {
-                      setAnchor(null);
-                      setMetric(option.id);
-                    }}
-                    style={{ height: 52, paddingHorizontal: 16, borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: selected ? fieldBg(theme) : 'transparent' }}
-                  >
-                    <Text style={{ fontSize: 15, fontWeight: '400', color: theme.text }}>{option.label}</Text>
-                    {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.text2} size={17} strokeWidth={2.4} /></View> : null}
-                  </Press>
-                );
-              })}
-            </View>
-          ) : null}
-        </View>
-      </Modal>
+              <Text style={{ fontSize: 15, fontWeight: '400', color: theme.text }}>{option.label}</Text>
+              {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.text2} size={17} strokeWidth={2.4} /></View> : null}
+            </Press>
+          );
+        })}
+      </GearMenuTransition>
     </>
   );
 }
@@ -150,31 +158,26 @@ function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trail
 
 function FloatingMenu({ theme, visible, top, width, animatedStyle, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; animatedStyle?: any; onClose: () => void; children: React.ReactNode }) {
   return (
-    <Modal visible={visible} transparent statusBarTranslucent animationType="fade" onRequestClose={onClose}>
-      <View style={StyleSheet.absoluteFill}>
-        <Pressable
-          onPress={onClose}
-          style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]}
-        />
-        <ReAnimated.View
-          style={[{
-            position: 'absolute',
-            top,
-            right: 14,
-            width,
-            borderRadius: 26,
-            overflow: 'hidden',
-            boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
-          }, animatedStyle]}
-        >
-          <Glass theme={theme} radius={26} intensity={76}>
-            <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>
-              {children}
-            </View>
-          </Glass>
-        </ReAnimated.View>
-      </View>
-    </Modal>
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      positionStyle={[{
+        position: 'absolute',
+        top,
+        right: 14,
+        width,
+        borderRadius: 26,
+        overflow: 'hidden',
+        boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
+      }, animatedStyle]}
+    >
+      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
+        <View style={{ backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)', paddingVertical: 13 }}>
+          {children}
+        </View>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
@@ -213,6 +216,7 @@ function GearSetDetailView({
   onDelete,
   onEdit,
   onDuplicate,
+  applicationAction,
 }: {
   theme: Theme;
   set: GearSet;
@@ -224,6 +228,7 @@ function GearSetDetailView({
   onDelete: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
+  applicationAction?: { label: string; onPress: () => void; disabled?: boolean; pending?: boolean };
 }) {
   const nav = useNav();
   const { t } = useI18n();
@@ -328,6 +333,7 @@ function GearSetDetailView({
   const focusedWeight = focusedItems.reduce((sum, item) => sum + itemWeight(item), 0);
   const focusedValue = focusedItems.reduce((sum, item) => sum + itemPrice(item), 0);
   const focusedCatCount = new Set(focusedItems.map((item) => item.cat)).size;
+  const description = set.description?.trim();
   const weightMain = splitWeight(focusedWeight, weightUnit);
   const exportData: GearSetExportData = {
     name: set.name,
@@ -437,7 +443,7 @@ function GearSetDetailView({
     <DetailPage
       theme={theme}
       onBack={onBack}
-      right={(
+      right={applicationAction ? undefined : (
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <AppIconButton theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
           <AppIconButton theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} softShadow size={44} />
@@ -445,12 +451,12 @@ function GearSetDetailView({
       )}
       overlay={(
         <>
-          {posterMounted ? (
+          {!applicationAction && posterMounted ? (
             <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, opacity: 0 }}>
               <GearSetPoster ref={posterRef} data={exportData} theme={theme} width={winW} metric={metric} agg={agg} total={total} items={setItems} selected={sel} displaySettings={displaySettings} />
             </View>
           ) : null}
-          <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => setExportOpen(false)}>
+          {!applicationAction ? <FloatingMenu theme={theme} visible={exportOpen} top={insets.top + 66} width={Math.min(204, winW - 28)} onClose={() => setExportOpen(false)}>
             <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>
               {t('gear.setDetail.exportSection')}
             </Text>
@@ -461,8 +467,8 @@ function GearSetDetailView({
               {t('gear.setDetail.shareSection')}
             </Text>
             <ExportMenuRow theme={theme} icon="share" label={t('gear.setDetail.systemShare')} onPress={() => runFromExportMenu(systemShare)} />
-          </FloatingMenu>
-          <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
+          </FloatingMenu> : null}
+          {!applicationAction ? <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
             <ExportMenuRow
               theme={theme}
               icon="gearSettings"
@@ -487,7 +493,21 @@ function GearSetDetailView({
               <ExportMenuRow theme={theme} icon="copy" label={t('gear.setDetail.copySet')} onPress={() => runFromMoreMenu(onDuplicate)} />
               <ExportMenuRow theme={theme} icon="trash" label={t('gear.setDetail.deleteSet')} destructive onPress={() => runFromMoreMenu(confirmDelete)} />
             </ReAnimated.View>
-          </FloatingMenu>
+          </FloatingMenu> : null}
+          {applicationAction ? (
+            <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', justifyContent: 'center' }}>
+              <Press
+                disabled={applicationAction.disabled || applicationAction.pending}
+                accessibilityRole="button"
+                accessibilityLabel={applicationAction.label}
+                accessibilityState={{ disabled: Boolean(applicationAction.disabled || applicationAction.pending) }}
+                onPress={applicationAction.onPress}
+                style={{ flex: 1, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: applicationAction.disabled ? theme.controlSurface : theme.accent }}
+              >
+                <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: applicationAction.disabled ? theme.text3 : '#FFFFFF' }}>{applicationAction.pending ? '…' : applicationAction.label}</Text>
+              </Press>
+            </View>
+          ) : null}
         </>
       )}
     >
@@ -495,6 +515,13 @@ function GearSetDetailView({
         <View style={{ paddingTop: 10, paddingBottom: 18 }}>
           <Text style={{ fontSize: 28, lineHeight: 35, fontWeight: '800', letterSpacing: -0.8, color: theme.text }} numberOfLines={3}>{set.name}</Text>
         </View>
+
+        {description ? (
+          <View style={{ paddingBottom: 18 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>{t('gear.setDetail.description')}</Text>
+            <Text style={{ marginTop: 8, fontSize: 14, lineHeight: 21, color: theme.text2 }}>{description}</Text>
+          </View>
+        ) : null}
 
         {totN === 0 ? (
           <View style={{ marginTop: 22, paddingVertical: 34, paddingHorizontal: 24, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme), alignItems: 'center' }}>
@@ -510,7 +537,7 @@ function GearSetDetailView({
         ) : (
           <>
             <View style={{ alignItems: 'center', marginTop: 2, zIndex: 2 }}>
-              <MetricMenu theme={theme} metric={metric} setMetric={(next) => { setMetric(next); setSel(null); }} />
+              {applicationAction ? null : <MetricMenu theme={theme} metric={metric} setMetric={(next) => { setMetric(next); setSel(null); }} />}
             </View>
             <View style={{ alignItems: 'center', marginHorizontal: -4, marginTop: 30 }}>
               <LabeledDonut theme={theme} agg={agg} total={total} metric={metric} items={setItems} width={Math.min(420, winW - 56)} sel={sel} onSel={setSel} weightUnit={weightUnit} showStats={false} />
@@ -518,7 +545,9 @@ function GearSetDetailView({
 
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 26 }}>
               <StatTile theme={theme} label={t(sel ? 'gear.stat.weight' : 'gear.stat.totalWeight')} value={weightMain.value} unit={weightMain.unit} />
-              <StatTile theme={theme} label={t(sel ? 'gear.stat.value' : 'gear.stat.totalValue')} value={compactYuan(focusedValue)} />
+              {applicationAction
+                ? <StatTile theme={theme} label={t('gear.stat.itemCount')} value={String(focusedPack.count)} unit={t('gear.unit.items')} />
+                : <StatTile theme={theme} label={t(sel ? 'gear.stat.value' : 'gear.stat.totalValue')} value={compactYuan(focusedValue)} />}
             </View>
 
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 28 }}>
@@ -538,7 +567,7 @@ function GearSetDetailView({
                 </View>
                 <View style={{ marginTop: 10, paddingHorizontal: 14, borderRadius: 24, backgroundColor: fieldBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: fieldBorder(theme) }}>
                   {g.its.map((it, i) => (
-                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={() => onOpenItem(it)} weightUnit={weightUnit} flush showImage={displaySettings.images} showWeight={displaySettings.weight} showValue={displaySettings.value} imageSize={64} card borderlessImage />
+                    <GearItemRow key={it.name} theme={theme} item={it} last={i === g.its.length - 1} onPress={applicationAction ? undefined : () => onOpenItem(it)} weightUnit={weightUnit} flush showImage={applicationAction ? false : displaySettings.images} showWeight={applicationAction ? true : displaySettings.weight} showValue={applicationAction ? false : displaySettings.value} imageSize={64} card borderlessImage />
                   ))}
                 </View>
               </View>
@@ -556,4 +585,5 @@ export const GearSetDetail = React.memo(GearSetDetailView, (previous, next) => (
   && previous.allItems === next.allItems
   && previous.catMap === next.catMap
   && previous.weightUnit === next.weightUnit
+  && previous.applicationAction === next.applicationAction
 ));

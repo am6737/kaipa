@@ -14,10 +14,11 @@ import {
   TextInput,
   StyleSheet,
   Switch,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, Poi, Companion, JourneyParticipantPermissions } from '../../data/pois';
+import { DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS, MAX_JOURNEY_PARTICIPANTS, Poi, Companion, JourneyParticipantPermissions } from '../../data/pois';
 import { ParticipantAvatar } from './ParticipantAvatar';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -176,44 +177,6 @@ function CompanionEditor({
   );
 }
 
-// ── Add participant: invite or keep a manual record ─────────────
-function AddChooser({ theme, onInvite, onManual, onClose }: { theme: Theme; onInvite: () => void; onManual: () => void; onClose: () => void }) {
-  const { t } = useI18n();
-  const options = [
-    { icon: 'people' as const, title: t('journey.manage.inviteTitle'), sub: t('journey.manage.inviteSub'), onPress: onInvite },
-    { icon: 'user' as const, title: t('journey.manage.manualTitle'), sub: t('journey.manage.manualSub'), onPress: onManual },
-  ];
-
-  return (
-    <NJBottomSheet theme={theme} onClose={onClose} full backgroundColor={theme.featureSurface}>
-      <View style={{ paddingHorizontal: space.xl, paddingBottom: space.md }}>
-        <View style={{ paddingTop: space.sm, marginBottom: space.md }}>
-          <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.manage.addParticipant')}</Text>
-        </View>
-
-        {options.map((option, index) => (
-          <React.Fragment key={option.title}>
-            {index > 0 ? <View style={{ height: space.xs }} /> : null}
-            <Press
-              onPress={option.onPress}
-              style={{ minHeight: 78, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm }}
-            >
-              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.fieldSurface, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name={option.icon} color={theme.text2} size={18} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
-                <Text style={[type.cardTitle, { color: theme.text }]}>{option.title}</Text>
-                <Text style={[type.caption, { color: theme.text3, lineHeight: 17, marginTop: space.xxs }]}>{option.sub}</Text>
-              </View>
-              <Icon name="chevronR" color={theme.text3} size={15} />
-            </Press>
-          </React.Fragment>
-        ))}
-      </View>
-    </NJBottomSheet>
-  );
-}
-
 // ── Main full-screen roster ──────────────────────────────────────
 export function ManageCompanions({
   theme,
@@ -246,9 +209,12 @@ export function ManageCompanions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poi.id]);
 
+  const initialTotal = initialOthers.length + (anchor ? 1 : 0);
   const [others, setOthers] = useState<Companion[]>(initialOthers);
   const [editor, setEditor] = useState<{ index: number; isNew: boolean; draft: Companion } | null>(null);
-  const [addMode, setAddMode] = useState<null | 'choose' | 'invite'>(initialAction || null);
+  const [addMode, setAddMode] = useState<null | 'invite'>(
+    initialAction && initialTotal < MAX_JOURNEY_PARTICIPANTS ? initialAction : null,
+  );
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -258,6 +224,39 @@ export function ManageCompanions({
   }));
 
   const total = others.length + (anchor ? 1 : 0);
+  const atCapacity = total >= MAX_JOURNEY_PARTICIPANTS;
+  const highestElevation = useMemo(() => {
+    const elevations = (poi.trackElevation || []).map((point) => point.ele).filter(Number.isFinite);
+    return elevations.length ? Math.max(...elevations) : undefined;
+  }, [poi.trackElevation]);
+  const inviteMetrics = [
+    poi.days || poi.totalDays
+      ? { label: t('journey.stat.days'), value: poi.days || t('journeyEdit.meta.days', { count: poi.totalDays || 1 }) }
+      : null,
+    poi.dist ? { label: t('journey.stat.distance'), value: poi.dist } : null,
+    highestElevation != null
+      ? {
+          label: t('journey.stat.highest'),
+          value: `${t('journey.stat.elevation')} ${Math.round(highestElevation)} m`,
+        }
+      : null,
+  ].filter((metric): metric is { label: string; value: string } => Boolean(metric));
+
+  const openInvite = () => {
+    if (atCapacity) {
+      onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
+      return;
+    }
+    setAddMode('invite');
+  };
+
+  useEffect(() => {
+    if (initialAction && initialTotal >= MAX_JOURNEY_PARTICIPANTS) {
+      onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
+    }
+    // Only report a full roster when this screen is first opened from an invite action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updatePermission = (key: keyof JourneyParticipantPermissions, value: boolean) => {
     const next = { ...permissions, [key]: value };
@@ -272,17 +271,59 @@ export function ManageCompanions({
 
 
   // CRUD
-  const openAdd = () => setEditor({ index: -1, isNew: true, draft: { ini: '友', name: '', role: '', color: PALETTE[others.length % PALETTE.length], trips: 0 } });
+  const openAdd = () => {
+    if (atCapacity) {
+      onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
+      return;
+    }
+    setEditor({ index: -1, isNew: true, draft: { ini: '友', name: '', role: '', color: PALETTE[others.length % PALETTE.length], trips: 0 } });
+  };
   const openEdit = (i: number) => setEditor({ index: i, isNew: false, draft: { ...others[i] } });
   const saveFrom = (next: Companion) => {
     if (!editor) return;
+    if (editor.isNew && atCapacity) {
+      onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
+      setEditor(null);
+      return;
+    }
     persist(editor.isNew ? [...others, next] : others.map((c, i) => (i === editor.index ? next : c)));
     setEditor(null);
   };
+  const removeAt = (index: number) => {
+    persist(others.filter((_, itemIndex) => itemIndex !== index));
+  };
+  const confirmRemoveAt = (index: number) => {
+    const companion = others[index];
+    if (!companion) return;
+    Alert.alert(
+      t('journey.manage.removeConfirmTitle', { name: companion.name }),
+      t('journey.manage.removeConfirmBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => removeAt(index) },
+      ],
+    );
+  };
   const deleteFrom = () => {
     if (!editor) return;
-    persist(others.filter((_, i) => i !== editor.index));
-    setEditor(null);
+    const index = editor.index;
+    const companion = others[index];
+    if (!companion) return;
+    Alert.alert(
+      t('journey.manage.removeConfirmTitle', { name: companion.name }),
+      t('journey.manage.removeConfirmBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            removeAt(index);
+            setEditor(null);
+          },
+        },
+      ],
+    );
   };
 
   // multi-select (entered via long-press)
@@ -304,8 +345,22 @@ export function ManageCompanions({
   const allSelected = others.length > 0 && selected.size === others.length;
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(others.map((_, index) => index)));
   const deleteSelected = () => {
-    persist(others.filter((_, i) => !selected.has(i)));
-    exitSelect();
+    if (!selected.size) return;
+    Alert.alert(
+      t('journey.manage.removeSelectedConfirmTitle', { count: selected.size }),
+      t('journey.manage.removeSelectedConfirmBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: () => {
+            persist(others.filter((_, i) => !selected.has(i)));
+            exitSelect();
+          },
+        },
+      ],
+    );
   };
 
 
@@ -362,6 +417,27 @@ export function ManageCompanions({
             {c.role || t('journey.manage.participantRole')}
           </Text>
         </View>
+        {!selectMode ? (
+          <Press
+            onPress={(event) => {
+              event.stopPropagation();
+              confirmRemoveAt(i);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('journey.manage.removeCompanion')} ${c.name}`}
+            hitSlop={6}
+            style={{
+              width: 36,
+              height: 36,
+              marginLeft: space.sm,
+              borderRadius: radius.pill,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="trash" color={theme.text3} size={19} strokeWidth={1.9} />
+          </Press>
+        ) : null}
       </Press>
     );
   };
@@ -396,7 +472,7 @@ export function ManageCompanions({
   );
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface, zIndex: 155 }]}>
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface, zIndex: 200 }]}>
       <DetailPage
         theme={theme}
         title={t('journey.manage.pageTitle')}
@@ -409,36 +485,69 @@ export function ManageCompanions({
               <AppIconButton theme={theme} name="close" onPress={exitSelect} softShadow size={44} />
             </View>
           ) : (
-            <AppIconButton theme={theme} name="plus" onPress={() => setAddMode('choose')} softShadow size={44} />
+            <View style={{ opacity: atCapacity ? 0.45 : 1 }}>
+              <AppIconButton theme={theme} name="plus" onPress={openAdd} softShadow size={44} />
+            </View>
           )
         }
         overlay={
-          selectMode && selected.size ? (
-            <View style={{ position: 'absolute', right: space.md, bottom: Math.max(insets.bottom, space.md), zIndex: 20, alignItems: 'flex-end' }}>
+          selectMode ? (
+            selected.size ? (
+              <View style={{ position: 'absolute', right: space.md, bottom: Math.max(insets.bottom, space.md), zIndex: 20, alignItems: 'flex-end' }}>
+                <Press
+                  onPress={deleteSelected}
+                  style={{
+                    height: 52,
+                    paddingHorizontal: space.lg,
+                    borderRadius: radius.pill,
+                    backgroundColor: theme.danger,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: space.sm,
+                    boxShadow: theme.dark ? '0px 6px 18px rgba(0,0,0,0.42)' : '0px 6px 18px rgba(0,0,0,0.12)',
+                  }}
+                >
+                  <Icon name="trash" color="#FFFFFF" size={21} strokeWidth={2} />
+                  <Text style={[type.body, { color: '#FFFFFF', fontWeight: '700' }]}>
+                    {t('journey.manage.removeSelected', { count: selected.size })}
+                  </Text>
+                </Press>
+              </View>
+            ) : undefined
+          ) : (
+            <View
+              style={{
+                position: 'absolute',
+                left: space.xl,
+                right: space.xl,
+                bottom: Math.max(insets.bottom, space.md),
+                zIndex: 20,
+              }}
+            >
               <Press
-                onPress={deleteSelected}
+                onPress={openInvite}
+                accessibilityRole="button"
                 style={{
-                  height: 52,
-                  paddingHorizontal: space.lg,
+                  height: 54,
                   borderRadius: radius.pill,
-                  backgroundColor: theme.danger,
+                  backgroundColor: atCapacity ? theme.fieldSurface : theme.accent,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: space.sm,
-                  boxShadow: theme.dark ? '0px 6px 18px rgba(0,0,0,0.42)' : '0px 6px 18px rgba(0,0,0,0.12)',
+                  gap: space.xs,
                 }}
               >
-                <Icon name="trash" color="#FFFFFF" size={21} strokeWidth={2} />
-                <Text style={[type.body, { color: '#FFFFFF', fontWeight: '700' }]}>
-                  {t('journey.manage.removeSelected', { count: selected.size })}
+                <Icon name="people" color={atCapacity ? theme.text3 : '#FFFFFF'} size={18} strokeWidth={2} />
+                <Text style={[type.body, { color: atCapacity ? theme.text3 : '#FFFFFF', fontWeight: '700' }]}>
+                  {t('journey.manage.inviteWithCapacity', { count: total, max: MAX_JOURNEY_PARTICIPANTS })}
                 </Text>
               </Press>
             </View>
-          ) : undefined
+          )
         }
       >
-        <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg }}>
+        <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: 96 }}>
           <View style={{ paddingTop: space.sm }}>
             {anchor ? (
               <View style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm, opacity: selectMode ? 0.45 : 1 }}>
@@ -465,13 +574,6 @@ export function ManageCompanions({
           {others.length === 0 ? (
             <View style={{ alignItems: 'flex-start', paddingTop: space.xl, paddingBottom: space.xs }}>
               <Text style={[type.body, { color: theme.text2 }]}>{t('journey.manage.emptyClean')}</Text>
-              <Press
-                onPress={() => setAddMode('choose')}
-                style={{ marginTop: space.md, height: 38, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.controlSurface }}
-              >
-                <Icon name="plus" color={theme.text} size={15} />
-                <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t('journey.manage.inviteParticipant')}</Text>
-              </Press>
             </View>
           ) : null}
 
@@ -509,18 +611,18 @@ export function ManageCompanions({
 
       {/* Layered sheets */}
       {editor && <CompanionEditor theme={theme} draft={editor.draft} isNew={editor.isNew} existingNames={[...(anchor ? [anchor.name] : []), ...others.filter((_, i) => i !== editor.index).map((c) => c.name)]} onSave={saveFrom} onDelete={deleteFrom} onClose={() => setEditor(null)} />}
-      {addMode === 'choose' && (
-        <AddChooser
+      {addMode === 'invite' && (
+        <NJSharePanel
           theme={theme}
-          onInvite={() => setAddMode('invite')}
-          onManual={() => {
-            setAddMode(null);
-            openAdd();
-          }}
+          tripName={poi.name}
+          journeyId={poi.id}
+          participantCount={total}
+          metrics={inviteMetrics}
           onClose={() => setAddMode(null)}
+          onToast={onToast}
+          backgroundColor={theme.featureSurface}
         />
       )}
-      {addMode === 'invite' && <NJSharePanel theme={theme} tripName={poi.name} journeyId={poi.id} onClose={() => setAddMode(null)} onToast={onToast} backgroundColor={theme.featureSurface} />}
     </View>
   );
 }

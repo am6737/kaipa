@@ -34,8 +34,8 @@ export interface DataValue {
   addItem: (item: Omit<GearItem, 'id'>) => Promise<GearItem | undefined>;
   updateItem: (id: number, patch: Partial<GearItem>) => Promise<GearItem | undefined>;
   deleteItem: (id: number) => Promise<void>;
-  addSet: (name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
-  updateSet: (id: string, name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>) => Promise<void>;
+  addSet: (name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>, description?: string) => Promise<void>;
+  updateSet: (id: string, name: string, itemIds: number[], overrides?: Record<string, GearSetOverride>, description?: string) => Promise<void>;
   deleteSet: (id: string) => Promise<void>;
   refetchGear: () => Promise<void>;
   notifList: Notif[];

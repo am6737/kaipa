@@ -15,6 +15,8 @@ interface GlassProps {
   intensity?: number;
   tintOverride?: BlurTint;
   bordered?: boolean;
+  solidOnAndroid?: boolean;
+  androidSolidColor?: string;
 }
 
 export function Glass({
@@ -25,21 +27,25 @@ export function Glass({
   intensity = 40,
   tintOverride,
   bordered = true,
+  solidOnAndroid = false,
+  androidSolidColor,
 }: GlassProps) {
   const tint: BlurTint = tintOverride
     || (IS_IOS
       ? (theme.dark ? 'systemMaterialDark' : 'systemMaterialLight')
       : (theme.dark ? 'dark' : 'light'));
+  const useAndroidSolid = !IS_IOS && solidOnAndroid;
+  const solidColor = androidSolidColor ?? (theme.dark ? theme.surfaceStrong : '#FFFFFF');
   return (
-    <View style={[{ borderRadius: radius, overflow: 'hidden' }, style]}>
-      <BlurView intensity={intensity} tint={tint} style={StyleSheet.absoluteFill} />
+    <View style={[{ borderRadius: radius, overflow: 'hidden', backgroundColor: useAndroidSolid ? solidColor : undefined }, style]}>
+      {!useAndroidSolid ? <BlurView intensity={intensity} tint={tint} style={StyleSheet.absoluteFill} /> : null}
       {!IS_IOS && (
         <View
           style={[
             StyleSheet.absoluteFill,
             {
               borderRadius: radius,
-              backgroundColor: theme.dark ? 'rgba(40,40,44,0.55)' : 'rgba(255,255,255,0.5)',
+              backgroundColor: useAndroidSolid ? solidColor : theme.dark ? 'rgba(40,40,44,0.55)' : 'rgba(255,255,255,0.5)',
               borderWidth: bordered ? StyleSheet.hairlineWidth : 0,
               borderColor: theme.border,
             },
@@ -58,11 +64,17 @@ interface IconBtnProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   strong?: boolean;
+  accessibilityLabel?: string;
 }
 
-export function GlassIconBtn({ theme, size = 38, onPress, children, style, strong }: IconBtnProps) {
+export function GlassIconBtn({ theme, size = 38, onPress, children, style, strong, accessibilityLabel }: IconBtnProps) {
   return (
-    <Press onPress={onPress} style={style as StyleProp<ViewStyle>}>
+    <Press
+      onPress={onPress}
+      style={style as StyleProp<ViewStyle>}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+    >
       <Glass theme={theme} radius={size / 2} intensity={strong ? 70 : 50}>
         <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
           {children}

@@ -39,6 +39,18 @@ const mapItem = (row: any): JourneyPackingItem => ({
   sortOrder: row.sort_order ?? 0,
 });
 
+const itemFingerprint = (item: Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>) => JSON.stringify([
+  item.sourceType,
+  item.sourceGearItemId ?? null,
+  item.name.trim(),
+  item.categoryName ?? null,
+  item.quantity,
+  item.weightKg ?? null,
+  item.note ?? null,
+  item.packed,
+  item.carrierCompanionId ?? null,
+]);
+
 function resolvedCompanions(journey: Poi): Companion[] {
   const companions = journey.companionList ?? [];
   return companions.length ? companions : [{ id: -1, ini: '我', name: '我', color: '#8E8E93', self: true, host: true }];
@@ -68,29 +80,132 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     await AsyncStorage.setItem(keyFor(journey.id), JSON.stringify(next));
   }, [journey.id]);
 
+  const migrateLocalToRemote = useCallback(async (
+    local: JourneyPackingSnapshot,
+    initialLists: JourneyPackingList[],
+    initialItems: JourneyPackingItem[],
+  ): Promise<JourneyPackingSnapshot> => {
+    if (!local.lists.length && !local.items.length) return { lists: initialLists, items: initialItems };
+
+    const lists = [...initialLists];
+    const items = [...initialItems];
+    const remoteListByLocalId = new Map<string, JourneyPackingList>();
+
+    for (const localList of local.lists) {
+      const ownerCompanionId = localList.kind === 'personal'
+        ? (localList.ownerCompanionId && localList.ownerCompanionId > 0
+          ? localList.ownerCompanionId
+          : currentCompanionId > 0 ? currentCompanionId : undefined)
+        : undefined;
+      if (localList.kind === 'personal' && ownerCompanionId == null) {
+        throw new Error('Cannot sync a local personal checklist without a server participant');
+      }
+
+      let remoteList = lists.find((candidate) => candidate.kind === localList.kind
+        && (localList.kind === 'shared' || candidate.ownerCompanionId === ownerCompanionId));
+      if (!remoteList) {
+        const inserted = await supabase.from('journey_packing_lists').insert({
+          journey_id: journey.id,
+          kind: localList.kind,
+          owner_companion_id: localList.kind === 'personal' ? ownerCompanionId : null,
+          created_by: userId,
+        }).select('*').single();
+        if (inserted.error) {
+          let retryQuery = supabase.from('journey_packing_lists').select('*').eq('journey_id', journey.id).eq('kind', localList.kind);
+          if (localList.kind === 'personal') retryQuery = retryQuery.eq('owner_companion_id', ownerCompanionId as number);
+          const retry = await retryQuery.maybeSingle();
+          if (!retry.data) throw inserted.error;
+          remoteList = mapList(retry.data);
+        } else {
+          remoteList = mapList(inserted.data);
+        }
+        lists.push(remoteList);
+      }
+      remoteListByLocalId.set(localList.id, remoteList);
+    }
+
+    for (const localList of local.lists) {
+      const remoteList = remoteListByLocalId.get(localList.id);
+      if (!remoteList) continue;
+      const remoteItems = items.filter((item) => item.listId === remoteList.id);
+      const availableCounts = new Map<string, number>();
+      for (const item of remoteItems) {
+        const fingerprint = itemFingerprint(item);
+        availableCounts.set(fingerprint, (availableCounts.get(fingerprint) ?? 0) + 1);
+      }
+
+      const missing = local.items.filter((item) => item.listId === localList.id).filter((item) => {
+        const fingerprint = itemFingerprint(item);
+        const available = availableCounts.get(fingerprint) ?? 0;
+        if (available > 0) {
+          availableCounts.set(fingerprint, available - 1);
+          return false;
+        }
+        return true;
+      });
+      if (!missing.length) continue;
+
+      const rows = missing.map((item, index) => ({
+        list_id: remoteList.id,
+        source_type: item.sourceType,
+        source_gear_item_id: item.sourceGearItemId ?? null,
+        name: item.name,
+        category_name: item.categoryName ?? null,
+        category_color: item.categoryColor ?? null,
+        quantity: item.quantity,
+        weight_kg: item.weightKg ?? null,
+        note: item.note ?? null,
+        packed: item.packed,
+        carrier_companion_id: item.carrierCompanionId && item.carrierCompanionId > 0 ? item.carrierCompanionId : null,
+        sort_order: remoteItems.length + index,
+      }));
+      let inserted = await supabase.from('journey_packing_items').insert(rows).select('*');
+      if (inserted.error && rows.some((row) => row.source_gear_item_id != null)) {
+        inserted = await supabase.from('journey_packing_items').insert(rows.map((row) => ({ ...row, source_gear_item_id: null }))).select('*');
+      }
+      if (inserted.error) throw inserted.error;
+      items.push(...(inserted.data ?? []).map(mapItem));
+    }
+
+    await AsyncStorage.removeItem(keyFor(journey.id));
+    return { lists, items };
+  }, [currentCompanionId, journey.id, userId]);
+
   const fetchPacking = useCallback(async () => {
     setLoading(true);
     setError(undefined);
+    const local = await readLocal();
     const listRes = await supabase.from('journey_packing_lists').select('*').eq('journey_id', journey.id).order('created_at');
     if (listRes.error) {
       setLocalMode(true);
-      setSnapshot(await readLocal());
+      setError(new Error(listRes.error.message));
+      setSnapshot(local);
       setLoading(false);
       return;
     }
-    setLocalMode(false);
     const lists = (listRes.data ?? []).map(mapList);
     const itemRes = lists.length
       ? await supabase.from('journey_packing_items').select('*').in('list_id', lists.map((list) => list.id)).order('sort_order')
       : { data: [], error: null };
     if (itemRes.error) {
+      setLocalMode(true);
       setError(new Error(itemRes.error.message));
+      setSnapshot(local);
       setLoading(false);
       return;
     }
-    setSnapshot({ lists, items: (itemRes.data ?? []).map(mapItem) });
+
+    try {
+      const next = await migrateLocalToRemote(local, lists, (itemRes.data ?? []).map(mapItem));
+      setLocalMode(false);
+      setSnapshot(next);
+    } catch (migrationError) {
+      setLocalMode(true);
+      setError(migrationError instanceof Error ? migrationError : new Error(String(migrationError)));
+      setSnapshot(local);
+    }
     setLoading(false);
-  }, [journey.id, readLocal]);
+  }, [journey.id, migrateLocalToRemote, readLocal]);
 
   useEffect(() => { void fetchPacking(); }, [fetchPacking]);
 
@@ -166,13 +281,17 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     } finally { setSaving(false); }
   }, [ensureList, fetchPacking, localMode, snapshot, writeLocal]);
 
-  const updateItem = useCallback(async (itemId: string, patch: Partial<Pick<JourneyPackingItem, 'name' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>>) => {
+  const updateItem = useCallback(async (itemId: string, patch: Partial<Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>>) => {
     if (localMode) {
       await writeLocal({ ...snapshot, items: snapshot.items.map((item) => item.id === itemId ? { ...item, ...patch } : item) });
       return;
     }
     const row: Record<string, unknown> = {};
+    if (patch.sourceType != null) row.source_type = patch.sourceType;
+    if (Object.prototype.hasOwnProperty.call(patch, 'sourceGearItemId')) row.source_gear_item_id = patch.sourceGearItemId ?? null;
     if (patch.name != null) row.name = patch.name;
+    if (Object.prototype.hasOwnProperty.call(patch, 'categoryName')) row.category_name = patch.categoryName ?? null;
+    if (Object.prototype.hasOwnProperty.call(patch, 'categoryColor')) row.category_color = patch.categoryColor ?? null;
     if (patch.quantity != null) row.quantity = patch.quantity;
     if (patch.weightKg !== undefined) row.weight_kg = patch.weightKg ?? null;
     if (patch.note !== undefined) row.note = patch.note ?? null;
@@ -181,6 +300,21 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     const result = await supabase.from('journey_packing_items').update(row).eq('id', itemId);
     if (result.error) throw result.error;
     setSnapshot((current) => ({ ...current, items: current.items.map((item) => item.id === itemId ? { ...item, ...patch } : item) }));
+  }, [localMode, snapshot, writeLocal]);
+
+  const setItemsPacked = useCallback(async (itemIds: string[], packed: boolean) => {
+    const ids = [...new Set(itemIds)];
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+
+    if (localMode) {
+      await writeLocal({ ...snapshot, items: snapshot.items.map((item) => idSet.has(item.id) ? { ...item, packed } : item) });
+      return;
+    }
+
+    const result = await supabase.from('journey_packing_items').update({ packed }).in('id', ids);
+    if (result.error) throw result.error;
+    setSnapshot((current) => ({ ...current, items: current.items.map((item) => idSet.has(item.id) ? { ...item, packed } : item) }));
   }, [localMode, snapshot, writeLocal]);
 
   const remindCompanion = useCallback(async (targetCompanionId: number, remainingCount: number) => {
@@ -192,15 +326,24 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     return !result.error;
   }, [localMode]);
 
-  const deleteItem = useCallback(async (itemId: string) => {
+  const deleteItems = useCallback(async (itemIds: string[]) => {
+    const ids = [...new Set(itemIds)];
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+
     if (localMode) {
-      await writeLocal({ ...snapshot, items: snapshot.items.filter((item) => item.id !== itemId) });
+      await writeLocal({ ...snapshot, items: snapshot.items.filter((item) => !idSet.has(item.id)) });
       return;
     }
-    const result = await supabase.from('journey_packing_items').delete().eq('id', itemId);
+
+    const result = await supabase.from('journey_packing_items').delete().in('id', ids);
     if (result.error) throw result.error;
-    setSnapshot((current) => ({ ...current, items: current.items.filter((item) => item.id !== itemId) }));
+    setSnapshot((current) => ({ ...current, items: current.items.filter((item) => !idSet.has(item.id)) }));
   }, [localMode, snapshot, writeLocal]);
+
+  const deleteItem = useCallback(async (itemId: string) => {
+    await deleteItems([itemId]);
+  }, [deleteItems]);
 
   return {
     companions,
@@ -215,7 +358,9 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     error,
     addItems,
     updateItem,
+    setItemsPacked,
     deleteItem,
+    deleteItems,
     remindCompanion,
     refetch: fetchPacking,
   };

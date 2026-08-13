@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toTLRow } from '../lib/mappers';
-import type { TLRow } from '../data/timeline';
+import type { TLRow, TimelineGroupRoute } from '../data/timeline';
 
 interface TLState {
   rows: TLRow[];
   knownGroups: string[];
   removedGroups: string[];
+  groupRoutes: Record<string, TimelineGroupRoute | undefined>;
 }
 
 const cache = new Map<string, TLState>();
 const listeners = new Map<string, Set<() => void>>();
 
 function getState(key: string): TLState {
-  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [] });
+  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [], groupRoutes: {} });
   return cache.get(key)!;
 }
 
@@ -41,7 +42,7 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     if (!journeyId || !userId) return;
     const [rowsResult, groupsResult] = await Promise.all([
       supabase.from('timeline_rows').select('*').eq('journey_id', journeyId).order('sort_order'),
-      supabase.from('timeline_groups').select('name, deleted').eq('journey_id', journeyId).order('sort_order'),
+      supabase.from('timeline_groups').select('*').eq('journey_id', journeyId).order('sort_order'),
     ]);
     if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
     if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
@@ -56,7 +57,20 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
           ? groupRows.filter((group) => group.deleted).map((group) => group.name).filter(Boolean)
           : prev.removedGroups;
         const fromRows = mapped.map((r) => r.day).filter(Boolean);
-        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups };
+        const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
+        groupRows?.forEach((group) => {
+          if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
+          groupRoutes[group.name] = {
+            endDistanceMeters: Number(group.route_end_meters),
+            longitude: Number(group.route_end_lng),
+            latitude: Number(group.route_end_lat),
+            trackPointIndex: Number(group.route_end_track_index ?? 0),
+            trackPointFraction: Number(group.route_end_track_fraction ?? 0),
+            source: group.route_end_source === 'waypoint' || group.route_end_source === 'distance' ? group.route_end_source : 'map',
+            locationName: group.route_location_name ?? undefined,
+          };
+        });
+        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
       });
     }
     setLoading(false);
@@ -66,14 +80,27 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
 
   const state = getState(key);
 
-  const persistGroup = async (name: string, deleted: boolean) => {
+  const persistGroup = async (name: string, deleted: boolean, route?: TimelineGroupRoute | null) => {
     if (!journeyId || !userId || !name.trim()) return;
+    const row: Record<string, unknown> = {
+      journey_id: journeyId,
+      user_id: userId,
+      name: name.trim(),
+      deleted,
+      updated_at: new Date().toISOString(),
+    };
+    if (route !== undefined) {
+      row.route_end_meters = route?.endDistanceMeters ?? null;
+      row.route_end_lng = route?.longitude ?? null;
+      row.route_end_lat = route?.latitude ?? null;
+      row.route_end_track_index = route?.trackPointIndex ?? null;
+      row.route_end_track_fraction = route?.trackPointFraction ?? null;
+      row.route_end_source = route?.source ?? null;
+      row.route_location_name = route?.locationName ?? null;
+    }
     const { error } = await supabase
       .from('timeline_groups')
-      .upsert(
-        { journey_id: journeyId, user_id: userId, name: name.trim(), deleted, updated_at: new Date().toISOString() },
-        { onConflict: 'journey_id,name' },
-      );
+      .upsert(row, { onConflict: 'journey_id,name' });
     if (error) throw error;
   };
 
@@ -117,8 +144,8 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     if (patch.title !== undefined) dbPatch.title = patch.title;
     if (patch.day !== undefined) dbPatch.day = patch.day;
     if (patch.media !== undefined) dbPatch.media = patch.media ?? null;
-    if (patch.timeStart !== undefined) dbPatch.time_mins = patch.timeStart ?? null;
-    if (patch.timeEnd !== undefined) dbPatch.time_end_mins = patch.timeEnd ?? null;
+    if ('timeStart' in patch) dbPatch.time_mins = patch.timeStart ?? null;
+    if ('timeEnd' in patch) dbPatch.time_end_mins = patch.timeEnd ?? null;
     await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
     if (patch.day) await persistGroup(patch.day, false);
     setState(key, (s) => ({
@@ -144,6 +171,7 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       rows: s.rows.filter(r => r.day !== day),
       knownGroups: s.knownGroups.filter(g => g !== day),
       removedGroups: s.removedGroups.includes(day) ? s.removedGroups : [...s.removedGroups, day],
+      groupRoutes: Object.fromEntries(Object.entries(s.groupRoutes).filter(([name]) => name !== day)),
     }));
   };
 
@@ -171,16 +199,31 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       .eq('journey_id', journeyId)
       .eq('user_id', userId)
       .eq('day', from);
-    await Promise.all([persistGroup(from, true), persistGroup(next, false)]);
+    const route = state.groupRoutes[from];
+    await Promise.all([persistGroup(from, true), persistGroup(next, false, route)]);
     setState(key, (s) => {
       const known = s.knownGroups.map((g) => (g === from ? next : g)).filter((g, i, arr) => g && arr.indexOf(g) === i);
+      const groupRoutes = { ...s.groupRoutes };
+      delete groupRoutes[from];
+      if (route) groupRoutes[next] = route;
       return {
         rows: s.rows.map(r => r.day === from ? { ...r, day: next } : r),
         knownGroups: known.includes(next) ? known : [...known, next],
         removedGroups: [...new Set([...s.removedGroups.filter((group) => group !== next), from])],
+        groupRoutes,
       };
     });
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
+  const setGroupRoute = async (day: string, route: TimelineGroupRoute | null) => {
+    if (!day.trim()) return;
+    await persistGroup(day, false, route);
+    setState(key, (s) => ({
+      ...s,
+      knownGroups: s.knownGroups.includes(day) ? s.knownGroups : [...s.knownGroups, day],
+      groupRoutes: { ...s.groupRoutes, [day]: route ?? undefined },
+    }));
+  };
+
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, groupRoutes: state.groupRoutes, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, setGroupRoute };
 }

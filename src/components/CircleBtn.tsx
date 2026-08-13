@@ -18,6 +18,7 @@ export function CircleBtn({ theme, name, onPress, noShadow, softShadow, active, 
   return (
     <Press
       onPress={onPress}
+      opacityTo={1}
       style={{
         width: size,
         height: size,

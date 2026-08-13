@@ -3,6 +3,15 @@
 
 alter table companions add column if not exists user_id uuid references profiles(id) on delete set null;
 
+-- Older journeys were created before companions.user_id existed. Link the host/self
+-- companion to the journey owner so personal packing lists can sync under RLS.
+update companions c
+set user_id = j.user_id
+from journeys j
+where c.journey_id = j.id
+  and c.user_id is null
+  and (c.is_self = true or c.is_host = true);
+
 create table if not exists journey_packing_lists (
   id uuid primary key default gen_random_uuid(),
   journey_id text not null references journeys(id) on delete cascade,
@@ -178,7 +187,7 @@ create policy "journey_packing_items_insert" on journey_packing_items for insert
     join journeys j on j.id = l.journey_id
     left join companions owner on owner.id = l.owner_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (j.user_id = auth.uid() or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)))
     )
   )
@@ -192,7 +201,7 @@ create policy "journey_packing_items_update" on journey_packing_items for update
     left join companions owner on owner.id = l.owner_companion_id
     left join companions carrier on carrier.id = carrier_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (
         j.user_id = auth.uid()
         or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)
@@ -212,7 +221,7 @@ create policy "journey_packing_items_delete" on journey_packing_items for delete
     join journeys j on j.id = l.journey_id
     left join companions owner on owner.id = l.owner_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (j.user_id = auth.uid() or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)))
     )
   )

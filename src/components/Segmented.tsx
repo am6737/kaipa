@@ -2,7 +2,7 @@
 // `fill` variant = theme-aware light pill (settings/sheets); `glass` variant =
 // white-on-dark for full-bleed photo overlays.
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, View, Text, StyleSheet } from 'react-native';
+import { Animated, Easing, View, Text } from 'react-native';
 import { Press } from './Press';
 import { Theme } from '../theme/theme';
 import { motion } from '../design-system';
@@ -64,8 +64,6 @@ export function Segmented<T extends string>({
           position: 'relative',
           flexDirection: 'row',
           justifyContent: stretch ? 'space-between' : 'flex-start',
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: theme?.hairline ?? 'rgba(127,127,127,0.25)',
         }}
       >
         {options.map((o) => {

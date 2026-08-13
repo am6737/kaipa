@@ -30,6 +30,8 @@ export type TrackMapWaypoint = { name: string; coord: [number, number]; km?: num
 export interface TrackMapHandle {
   /** re-frame the camera to fit the whole track */
   fitRoute: () => void;
+  /** restore a north-up, top-down camera without changing the current center */
+  resetNorth: () => void;
 }
 
 function trackBounds(coords: [number, number][]) {
@@ -64,9 +66,16 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   showWaypoints?: boolean;
   /** which base map to render (defaults to the Mapbox Standard style) */
   mapStyle?: MapStyleId;
+  /** coarse visibility control for Mapbox's own labels */
+  showMapLabels?: boolean;
+  /** reports camera orientation so full-screen chrome can reveal a compass */
+  onCameraOrientationChange?: (heading: number, pitch: number) => void;
+  /** camera padding used when framing the full route: [top, right, bottom, left] */
+  routePadding?: [number, number, number, number];
 }>(function TrackMap({
   coords, theme, height, fill, rounded = true, showLegend = true, scrubPt, accent, interactive = false,
-  waypoints, showWaypoints = false, mapStyle = 'standard',
+  waypoints, showWaypoints = false, mapStyle = 'standard', showMapLabels = true, onCameraOrientationChange,
+  routePadding = [28, 28, 28, 28],
 }, ref) {
   const { t } = useI18n();
   ensureMapboxToken();
@@ -96,9 +105,12 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       }
       if (coords.length < 2) return;
       const b = trackBounds(coords);
-      cameraRef.current?.fitBounds(b.ne, b.sw, 36, 600);
+      cameraRef.current?.fitBounds(b.ne, b.sw, routePadding, 600);
     },
-  }), [coords]);
+    resetNorth: () => {
+      cameraRef.current?.setCamera({ heading: 0, pitch: 0, animationDuration: 360 });
+    },
+  }), [coords, routePadding]);
 
   // Tap a cluster → zoom in until it splits; tap a single waypoint → open its
   // name callout. lastWpTapAt lets the map's own onPress tell an empty-map tap
@@ -138,7 +150,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   const supportsStyleImport = mapStyle === 'standard' || mapStyle === 'satellite';
   const s = coords[0], e = coords[coords.length - 1];
   const cameraDefaults = bounds
-    ? { bounds: { ...bounds, paddingLeft: 28, paddingRight: 28, paddingTop: 28, paddingBottom: 28 } }
+    ? { bounds: { ...bounds, paddingTop: routePadding[0], paddingRight: routePadding[1], paddingBottom: routePadding[2], paddingLeft: routePadding[3] } }
     : { centerCoordinate: s, zoomLevel: 11 };
   const routeColor = accent;
   const routeOuter = theme.dark ? '#FFFFFF' : 'rgba(255,255,255,0.9)';
@@ -163,6 +175,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         styleURL={styleURL}
         projection="globe"
         onPress={interactive ? handleMapPress : undefined}
+        onCameraChanged={onCameraOrientationChange ? (state) => {
+          onCameraOrientationChange(state.properties.heading, state.properties.pitch);
+        } : undefined}
         scrollEnabled={interactive} zoomEnabled={interactive} rotateEnabled={interactive}
         pitchEnabled={interactive} scaleBarEnabled={false} logoEnabled={false}
         attributionEnabled={false} compassEnabled={false}
@@ -177,10 +192,10 @@ export const TrackMap = forwardRef<TrackMapHandle, {
             existing
             config={{
               lightPreset: theme.mapLightPreset,
-              showPlaceLabels: true,
-              showRoadLabels: true,
-              showPointOfInterestLabels: true,
-              showTransitLabels: true,
+              showPlaceLabels: showMapLabels,
+              showRoadLabels: showMapLabels,
+              showPointOfInterestLabels: showMapLabels,
+              showTransitLabels: showMapLabels,
             } as any}
           />
         )}

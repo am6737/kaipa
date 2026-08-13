@@ -148,10 +148,10 @@ export function useGear(userId: string | undefined) {
   };
 
   // ── Set CRUD ──────────────────────────────────────────────────────────────
-  const addSet = async (name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}) => {
+  const addSet = async (name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}, description?: string) => {
     if (!userId) return;
     const { data } = await supabase.from('gear_sets')
-      .insert({ user_id: userId, name })
+      .insert({ user_id: userId, name, description: description ?? null })
       .select().single();
     if (!data) return;
     if (itemIds.length) {
@@ -163,8 +163,8 @@ export function useGear(userId: string | undefined) {
     setSets(prev => [...prev, toGearSet(data, itemNames, overrides)]);
   };
 
-  const updateSet = async (id: string, name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}) => {
-    await supabase.from('gear_sets').update({ name }).eq('id', id);
+  const updateSet = async (id: string, name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}, description?: string) => {
+    await supabase.from('gear_sets').update({ name, description: description ?? null }).eq('id', id);
     await supabase.from('gear_set_items').delete().eq('set_id', id);
     if (itemIds.length) {
       await supabase.from('gear_set_items')
@@ -172,7 +172,7 @@ export function useGear(userId: string | undefined) {
     }
     const itemMap = new Map(items.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(iid => itemMap.get(iid)).filter(Boolean) as string[];
-    setSets(prev => prev.map(s => s.id === id ? { ...s, name, items: itemNames, overrides } : s));
+    setSets(prev => prev.map(s => s.id === id ? { ...s, name, description, items: itemNames, overrides } : s));
   };
 
   const deleteSet = async (id: string) => {

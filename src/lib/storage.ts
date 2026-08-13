@@ -10,8 +10,17 @@ const MIME: Record<string, string> = {
 };
 
 function extFromUri(uri: string): string {
+  const dataType = uri.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i)?.[1]?.toLowerCase();
+  if (dataType) return dataType === 'jpeg' ? 'jpg' : dataType;
   const match = uri.match(/\.(\w+)(?:\?.*)?$/);
   return match ? match[1].toLowerCase() : 'jpg';
+}
+
+function dataUriBytes(uri: string): Uint8Array | null {
+  const match = uri.match(/^data:[^;]+;base64,(.+)$/s);
+  if (!match) return null;
+  const binary = atob(match[1]);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
 export async function uploadMedia(
@@ -24,8 +33,8 @@ export async function uploadMedia(
   const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
   const storagePath = `moments/${userId}/${journeyId}/${filename}`;
 
-  const file = new FSFile(localUri);
-  const buffer = await file.arrayBuffer();
+  const inlineBytes = dataUriBytes(localUri);
+  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
 
   const { error } = await supabase.storage
     .from(BUCKET)

@@ -34,6 +34,7 @@ export interface GearSetOverride {
 export interface GearSet {
   id: string;
   name: string;
+  description?: string;
   items: string[]; // item names
   // Per-set overrides keyed by item id (with item name fallback for local/demo data).
   overrides?: Record<string, GearSetOverride>;

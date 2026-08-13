@@ -2,7 +2,7 @@
 // gear-library apps: floating chrome, centered product photo, generous whitespace,
 // soft stat tiles, icon-led metadata, then secondary library context.
 import React from 'react';
-import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, Animated } from 'react-native';
+import { View, Text, TextInput, StyleSheet, FlatList, useWindowDimensions, Modal, Pressable, Animated, Easing, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
@@ -381,7 +381,7 @@ function PhotoNotice({ theme, text, danger, bottom }: { theme: Theme; text: stri
           overflow: 'hidden',
         }}
       >
-        <BlurView intensity={60} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        {Platform.OS === 'ios' ? <BlurView intensity={60} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} /> : null}
         <View
           style={{
             flexDirection: 'row',
@@ -389,7 +389,7 @@ function PhotoNotice({ theme, text, danger, bottom }: { theme: Theme; text: stri
             gap: 8,
             paddingHorizontal: 18,
             paddingVertical: 11,
-            backgroundColor: theme.dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)',
+            backgroundColor: Platform.OS === 'android' ? (theme.dark ? theme.surfaceStrong : '#FFFFFF') : theme.dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)',
           }}
         >
           <Icon name={danger ? 'close' : 'check'} color={danger ? theme.danger : (theme.dark ? '#fff' : '#000')} size={16} strokeWidth={2.2} />
@@ -410,29 +410,49 @@ function PhotoPillButton({ label, onPress, danger, theme }: { label: string; onP
 
 function GearTitlePreview({ theme, title, onClose }: { theme: Theme; title: string; onClose: () => void }) {
   const { width } = useWindowDimensions();
+  const progress = React.useRef(new Animated.Value(0)).current;
+
+  React.useLayoutEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 140,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: true,
+    }).start();
+    return () => progress.stopAnimation();
+  }, [progress]);
+
   return (
     <Modal visible transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={[StyleSheet.absoluteFill, { paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(0,0,0,0.52)' : 'rgba(0,0,0,0.18)' }]}
-      >
-        <View
-          style={{
-            width: Math.min(width - 48, 420),
-            paddingHorizontal: 22,
-            paddingVertical: 20,
-            borderRadius: 22,
-            backgroundColor: theme.surfaceStrong,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.border,
-            boxShadow: theme.dark ? '0px 12px 32px rgba(0,0,0,0.46)' : '0px 12px 32px rgba(0,0,0,0.18)',
-          }}
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress }]}>
+        <Pressable
+          onPress={onClose}
+          style={[StyleSheet.absoluteFill, { paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(0,0,0,0.52)' : 'rgba(0,0,0,0.18)' }]}
         >
-          <Text selectable style={{ fontSize: 20, lineHeight: 29, fontWeight: '700', color: theme.text, letterSpacing: -0.35 }}>
-            {title}
-          </Text>
-        </View>
-      </Pressable>
+          <Animated.View
+            renderToHardwareTextureAndroid
+            shouldRasterizeIOS
+            style={{
+              width: Math.min(width - 48, 420),
+              paddingHorizontal: 22,
+              paddingVertical: 20,
+              borderRadius: 22,
+              backgroundColor: theme.surfaceStrong,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.border,
+              boxShadow: theme.dark ? '0px 12px 32px rgba(0,0,0,0.46)' : '0px 12px 32px rgba(0,0,0,0.18)',
+              transform: [
+                { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
+                { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] }) },
+              ],
+            }}
+          >
+            <Text selectable style={{ fontSize: 20, lineHeight: 29, fontWeight: '700', color: theme.text, letterSpacing: -0.35 }}>
+              {title}
+            </Text>
+          </Animated.View>
+        </Pressable>
+      </Animated.View>
     </Modal>
   );
 }

@@ -130,7 +130,7 @@ export function HostShareSheet({ theme, poi, onClose, onToast }: { theme: Theme;
           </View>
 
           {/* manual connect (glass) — hotspot name + password are editable */}
-          <Glass theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
+          <Glass solidOnAndroid theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
             <View>
               <GlassEditRow label={t('journey.liveShare.hotspotLabel')} value={ssid} onChange={setSsid} maxLength={32} copyLabel={t('journey.liveShare.copy')} onCopy={() => copy(ssid)} />
               <RowDivider />
@@ -142,7 +142,7 @@ export function HostShareSheet({ theme, poi, onClose, onToast }: { theme: Theme;
 
           {/* roster — who's here + how many they shared */}
           {peers.length > 0 ? (
-            <Glass theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
+            <Glass solidOnAndroid theme={theme} radius={16} intensity={30} style={{ marginTop: 18 }}>
               <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
                 <Text style={{ fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.6)', paddingTop: 14, paddingBottom: 4 }}>
                   {t('journey.liveShare.joinedCount', { n: peers.length })}

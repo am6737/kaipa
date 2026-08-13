@@ -6,7 +6,6 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Modal, useWindowDimensio
 import ReAnimated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, ACCENT_PRESETS } from '../theme/theme';
-import { MONO } from '../theme/fonts';
 import { Icon, IconName } from '../components/Icon';
 import { Press } from '../components/Press';
 import { Avatar } from '../components/Avatar';
@@ -38,6 +37,7 @@ type MePage =
 type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
 type PopupAnchor = { x: number; y: number; width: number; height: number };
 const SETTINGS_ROW_HEIGHT = 78;
+const flatMeCardStyle = { boxShadow: 'none' as const };
 
 function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
   const progress = useSharedValue(open ? 1 : 0);
@@ -232,13 +232,6 @@ export function MeScreen({ theme }: { theme: Theme }) {
     showToast(t('me.gearWeightUnitSaved', { unit }));
   };
 
-  const confirmSignOut = () =>
-    nav.openActionSheet({
-      title: t('me.signOut'),
-      message: t('me.signOutMessage'),
-      items: [{ label: t('me.signOut'), destructive: true, onPress: () => nav.auth.signOut() }],
-    });
-
   const renderPage = (pg: MePage) => {
     switch (pg.type) {
       case 'account':
@@ -291,7 +284,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
     <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: insets.top + space.md, paddingBottom: 140 }}
+        contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + 3, paddingBottom: 140 }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg }}>
           <Press
@@ -335,15 +328,12 @@ export function MeScreen({ theme }: { theme: Theme }) {
           </Press>
         </View>
 
-        <AppCard theme={theme} radius={radius.feature} style={{ overflow: 'hidden', backgroundColor: theme.featureSurface, borderWidth: 0 }}>
+        <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { overflow: 'hidden', backgroundColor: theme.featureSurface, borderWidth: 0 }]}>
           <Press onPress={() => push({ type: 'account' })} accessibilityRole="button" scaleTo={1} opacityTo={1} style={{ padding: space.lg }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>
                   {profile.nick || t('me.unnamed')}
-                </Text>
-                <Text numberOfLines={1} style={{ fontFamily: profile.username ? MONO : undefined, fontSize: 12, color: theme.text2, marginTop: space.xs }}>
-                  {profile.username || profile.email || t('me.unnamed')}
                 </Text>
               </View>
               <Avatar size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
@@ -353,7 +343,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
         </AppCard>
 
         <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
-        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+        <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
           <AppearanceRow
             ref={themeRowRef}
             theme={theme}
@@ -385,7 +375,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
         </AppCard>
 
         <AppSectionHeader theme={theme} text={t('me.preferences')} marginTop={layout.sectionGap} />
-        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+        <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
           <SettingsRow theme={theme} icon="bell" label={t('me.notifications')} detail={notif.push ? t('common.on') : t('common.off')} onPress={() => push({ type: 'notif' })} />
           <AppearanceRow
             ref={weightRowRef}
@@ -400,21 +390,11 @@ export function MeScreen({ theme }: { theme: Theme }) {
         </AppCard>
 
         <AppSectionHeader theme={theme} text={t('me.support')} marginTop={layout.sectionGap} />
-        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.md, borderWidth: 0 }}>
+        <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
           <SettingsRow theme={theme} icon="send" label={t('me.helpFeedback')} onPress={() => push({ type: 'feedback' })} />
           <SettingsRow theme={theme} icon="compass" label={t('me.about')} detail="v1.0.2" onPress={() => push({ type: 'about' })} last />
         </AppCard>
 
-        <Press
-          onPress={confirmSignOut}
-          accessibilityRole="button"
-          scaleTo={1}
-          opacityTo={1}
-          style={{ height: 52, marginTop: space.xl, borderRadius: radius.feature, backgroundColor: theme.dangerSoft, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.dangerSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}
-        >
-          <Icon name="arrowL" color={theme.danger} size={18} />
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.danger }}>{t('me.signOut')}</Text>
-        </Press>
       </ScrollView>
 
       {appearancePopup && popupAnchor ? (
@@ -438,7 +418,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
                 popupMenuStyle,
               ]}
             >
-              <Glass theme={theme} radius={26} intensity={76}>
+              <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
                 <View style={{ paddingVertical: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>
                   <ReAnimated.View style={popupContentStyle}>
                     {appearancePopup === 'theme'

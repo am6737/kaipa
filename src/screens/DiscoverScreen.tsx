@@ -2,14 +2,16 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
-import { Animated, View, Text, useWindowDimensions, StyleSheet, Alert } from 'react-native';
+import { Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, makeTheme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, MAPBOX_ENABLED } from '../components/globe';
+import { Globe, MAPBOX_ENABLED, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
 import { Glass, GlassIconBtn } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -17,9 +19,15 @@ import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { KPState, KPSkeletonLine } from '../components/State';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
-import { radius, space, type } from '../design-system';
-import { nextJourneyDayLabel, SelectedPoiCard } from './JourneyCard';
+import { AppProgressBar, radius, space, type } from '../design-system';
+import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
+import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
+import { Avatar } from '../components/Avatar';
+import type { JourneyChecklistFilterMenuController, JourneyChecklistFilterMenuOption } from '../components/journey/JourneyChecklistTab';
 import { useTimeline } from '../hooks/useTimeline';
+import { buildJourneyRouteSegments, distanceMeters, JOURNEY_SEGMENT_COLORS, measureTrack, positionAtDistance, type TrackPosition } from '../lib/routeSegments';
+import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBoundarySheet';
+import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -45,6 +53,50 @@ function JourneyFooterActionLabel({
       <Icon name={icon} color={color} size={15} />
       <Text style={{ color, fontSize: 13, fontWeight: '700' }}>{label}</Text>
     </View>
+  );
+}
+
+function JourneyChecklistFilterOptionRow({
+  theme,
+  option,
+  selected,
+  onPress,
+}: {
+  theme: Theme;
+  option: JourneyChecklistFilterMenuOption;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Press
+      scaleTo={1}
+      opacityTo={0.68}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      style={{ minHeight: 66, marginBottom: space.xxs, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+    >
+      {option.kind === 'companion' ? (
+        <ParticipantAvatar theme={theme} uri={option.avatarUrl} size={32} />
+      ) : (
+        <View style={{ width: 32, height: 32, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+          <Icon name={option.kind === 'shared' ? 'people' : 'user'} color={theme.text2} size={16} />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: selected ? '700' : '500' }]}>{option.label}</Text>
+        <Text style={[type.caption, { color: selected ? theme.text2 : theme.text3, marginTop: 2 }]}>
+          {t('journey.packing.progress', { ready: option.ready, total: option.total })}
+        </Text>
+        <View style={{ marginTop: space.xs }}>
+          <AppProgressBar theme={theme} value={option.total ? (option.ready / option.total) * 100 : 0} height={3} color={selected ? theme.accent : theme.text3} />
+        </View>
+      </View>
+      <View style={{ width: 16, alignItems: 'center', justifyContent: 'center' }}>
+        {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
+      </View>
+    </Press>
   );
 }
 
@@ -81,7 +133,7 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
   }));
 }
 
-export function DiscoverScreen({ theme }: { theme: Theme }) {
+export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: Theme; externalOverlayOpen?: boolean }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { routes, journeys, userId } = useData();
@@ -91,6 +143,12 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const { width, height } = useWindowDimensions();
   const isMemory = nav.subTab === 'memory';
   const [chip, setChip] = React.useState(0);
+  const [mapStyle, setMapStyle] = useState<GlobeMapStyle>('standard');
+  const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
+  const [journeyMapDetailsVisible, setJourneyMapDetailsVisible] = useState(true);
+  const [journeyMapAtRouteFrame, setJourneyMapAtRouteFrame] = useState(true);
+  const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
+  const [journeyMapCameraAction, setJourneyMapCameraAction] = useState<GlobeCameraAction>();
   // When a clustered map pin is tapped, the same journey-list sheet is scoped to
   // that trailhead (coordinate key) — only the header copy changes to 这个地点的旅程.
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
@@ -105,6 +163,12 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
+  const [routeEditorGroupKey, setRouteEditorGroupKey] = useState<string | null>(null);
+  const [routeMapSelectionRequest, setRouteMapSelectionRequest] = useState<{ coordinate: [number, number]; revision: number }>();
+  const [routeDraftPosition, setRouteDraftPosition] = useState<TrackPosition | null>(null);
+  const [routeDraftEndpoint, setRouteDraftEndpoint] = useState<[number, number] | null>(null);
+  const routeEditorPreviousSheetIndex = React.useRef(1);
+  const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day: string; revision: number }>();
   const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
   const [momentSelectionMode, setMomentSelectionMode] = useState(false);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(() => new Set());
@@ -112,17 +176,50 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const momentAddActionRef = React.useRef<(() => void) | null>(null);
   const momentDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const momentFilterActionRef = React.useRef<(() => void) | null>(null);
+  const momentFilterMenuRef = React.useRef<JourneyMomentFilterMenuController | null>(null);
   const checklistAddActionRef = React.useRef<(() => void) | null>(null);
   const checklistDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const checklistFilterActionRef = React.useRef<(() => void) | null>(null);
+  const checklistFilterMenuRef = React.useRef<JourneyChecklistFilterMenuController | null>(null);
+  const checklistToggleAllActionRef = React.useRef<(() => void) | null>(null);
   const [checklistSelectionMode, setChecklistSelectionMode] = useState(false);
   const [selectedChecklistItemIds, setSelectedChecklistItemIds] = useState<Set<string>>(() => new Set());
   const [visibleChecklistItemIds, setVisibleChecklistItemIds] = useState<string[]>([]);
   const [checklistCanEdit, setChecklistCanEdit] = useState(true);
   const [checklistFilterLabel, setChecklistFilterLabel] = useState(t('journey.packing.me'));
-  const [checklistFilterActive, setChecklistFilterActive] = useState(false);
+  const [checklistFilterIsMine, setChecklistFilterIsMine] = useState(true);
+  const [checklistFilterMenuOpen, setChecklistFilterMenuOpen] = useState(false);
+  const checklistFilterArrowProgress = React.useRef(new Animated.Value(0)).current;
+  const setChecklistFilterMenuVisible = useCallback((open: boolean) => {
+    // Start the native animation before updating React state. The journey detail
+    // tree is relatively large, so waiting for its render made the menu feel late.
+    checklistFilterArrowProgress.stopAnimation();
+    Animated.timing(checklistFilterArrowProgress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 140 : 90,
+      easing: open
+        ? Easing.bezier(0.16, 1, 0.3, 1)
+        : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    setChecklistFilterMenuOpen(open);
+  }, [checklistFilterArrowProgress]);
   const [momentFilterLabel, setMomentFilterLabel] = useState(t('common.all'));
   const [momentFilterActive, setMomentFilterActive] = useState(false);
+  const [momentFilterMenuOpen, setMomentFilterMenuOpen] = useState(false);
+  const momentFilterMenuProgress = React.useRef(new Animated.Value(0)).current;
+  const setMomentFilterMenuVisible = useCallback((open: boolean) => {
+    momentFilterMenuProgress.stopAnimation();
+    Animated.timing(momentFilterMenuProgress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 140 : 90,
+      easing: open
+        ? Easing.bezier(0.16, 1, 0.3, 1)
+        : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    setMomentFilterMenuOpen(open);
+  }, [momentFilterMenuProgress]);
   const [availableJourneyDays, setAvailableJourneyDays] = useState<string[]>([]);
   const [timelineSelectionMode, setTimelineSelectionMode] = useState(false);
   const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
@@ -143,11 +240,15 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       setSelectedTimelineItemIds(new Set());
     }
     if (tab !== 'moments') {
+      momentFilterMenuProgress.setValue(0);
+      setMomentFilterMenuOpen(false);
       setMomentSelectionMode(false);
       setSelectedMomentIds(new Set());
       setVisibleMomentIds([]);
     }
     if (tab !== 'checklist') {
+      checklistFilterArrowProgress.setValue(0);
+      setChecklistFilterMenuOpen(false);
       setChecklistSelectionMode(false);
       setSelectedChecklistItemIds(new Set());
       setVisibleChecklistItemIds([]);
@@ -159,7 +260,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   }, []);
   const handleChecklistFilterStateChange = useCallback((label: string, active: boolean) => {
     setChecklistFilterLabel(label);
-    setChecklistFilterActive(active);
+    setChecklistFilterIsMine(!active);
   }, []);
   const handleChecklistCanEditChange = useCallback((canEdit: boolean) => {
     setChecklistCanEdit(canEdit);
@@ -172,8 +273,14 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   React.useEffect(() => {
     setPlanEditorOpen(false);
     setJourneySheetIndex(1);
+    setMapStylePickerOpen(false);
+    setJourneyMapDetailsVisible(true);
+    setJourneyMapAtRouteFrame(true);
+    setMapLabelsVisible(true);
+    setJourneyMapCameraAction(undefined);
     setSelectedPlanDays(new Set());
     setSelectedJourneyDay(undefined);
+    setJourneyDaySelectionRequest(undefined);
     setSelectedJourneyTab('overview');
     setMomentSelectionMode(false);
     setSelectedMomentIds(new Set());
@@ -181,22 +288,27 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
     momentAddActionRef.current = null;
     momentDeleteActionRef.current = null;
     momentFilterActionRef.current = null;
+    momentFilterMenuProgress.setValue(0);
+    setMomentFilterMenuOpen(false);
     checklistAddActionRef.current = null;
     checklistDeleteActionRef.current = null;
     checklistFilterActionRef.current = null;
+    checklistToggleAllActionRef.current = null;
     setChecklistSelectionMode(false);
     setSelectedChecklistItemIds(new Set());
     setVisibleChecklistItemIds([]);
     setChecklistCanEdit(true);
     setChecklistFilterLabel(t('journey.packing.me'));
-    setChecklistFilterActive(false);
+    setChecklistFilterIsMine(true);
+    checklistFilterArrowProgress.setValue(0);
+    setChecklistFilterMenuOpen(false);
     setMomentFilterLabel(t('common.all'));
     setMomentFilterActive(false);
     setAvailableJourneyDays([]);
     setTimelineSelectionMode(false);
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
-  }, [focusedJourneyId, journeyDetailScrollY, t]);
+  }, [checklistFilterArrowProgress, focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
 
   const deleteSelectedPlanDays = () => {
     if (!selectedPlanDays.size) return;
@@ -217,11 +329,6 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         },
       ],
     );
-  };
-
-  const addPlanGroup = () => {
-    const labels = [...new Set([...focusedTimeline.knownGroups, ...focusedTimeline.rows.map((row) => row.day)])];
-    focusedTimeline.addGroup(nextJourneyDayLabel(labels, resolved, t));
   };
 
   const deleteSelectedTimelineItems = () => {
@@ -265,7 +372,9 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   // legible. The bottom sheet (a separate surface) keeps the real theme,
   // Apple-Maps style. The no-token SVG fallback renders on the app background,
   // so there we leave the chrome on the real theme.
-  const chromeTheme = MAPBOX_ENABLED && !theme.dark ? makeTheme('dark', theme.accent) : theme;
+  const chromeTheme = MAPBOX_ENABLED && mapStyle === 'standard' && !theme.dark
+    ? makeTheme('dark', theme.accent)
+    : theme;
 
   React.useEffect(() => {
     setChip(0);
@@ -373,7 +482,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
   const tabSpace = insets.bottom + 76;
   const collapsed = Math.round(height * 0.4);
   const journeyMinimum = Math.round(height * 0.15);
-  const full = Math.round(height * 0.95);
+  const full = Math.round(height * 0.88);
   const focusPanel = Math.round(height * 0.56);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
@@ -389,6 +498,141 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
 
     return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
   }, [nav.pointInfo, routes]);
+  const focusMeasure = useMemo(() => measureTrack(focusCoords ?? undefined), [focusCoords]);
+  const focusGroupKeys = availableJourneyDays.length ? availableJourneyDays : focusedTimeline.knownGroups;
+  const displayedGroupRoutes = useMemo(() => {
+    if (!routeEditorGroupKey) return focusedTimeline.groupRoutes;
+    const existing = focusedTimeline.groupRoutes[routeEditorGroupKey];
+    if (!existing && !routeDraftPosition) return focusedTimeline.groupRoutes;
+    return {
+      ...focusedTimeline.groupRoutes,
+      [routeEditorGroupKey]: {
+        ...existing!,
+        ...(routeDraftPosition ? {
+          endDistanceMeters: routeDraftPosition.distanceMeters,
+          longitude: routeDraftEndpoint?.[0] ?? routeDraftPosition.coordinate[0],
+          latitude: routeDraftEndpoint?.[1] ?? routeDraftPosition.coordinate[1],
+          trackPointIndex: routeDraftPosition.trackPointIndex,
+          trackPointFraction: routeDraftPosition.trackPointFraction,
+          source: 'map' as const,
+        } : {}),
+      },
+    };
+  }, [focusedTimeline.groupRoutes, routeDraftEndpoint, routeDraftPosition, routeEditorGroupKey]);
+  const focusSegments = useMemo(() => {
+    if (nav.pointInfo?.kind !== 'journey') return [];
+    return buildJourneyRouteSegments(
+      focusMeasure,
+      focusGroupKeys,
+      displayedGroupRoutes,
+      selectedJourneyDay,
+    ).map((segment) => ({
+      id: segment.id,
+      label: `${segment.groupKey.toUpperCase()} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
+      coordinates: segment.coordinates,
+      color: segment.color,
+      active: segment.active,
+    }));
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay]);
+  const focusBoundaries = useMemo(() => {
+    if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
+    return focusGroupKeys.flatMap((groupKey, index) => {
+      const route = displayedGroupRoutes[groupKey];
+      if (!route) return [];
+      const previousRoute = index > 0 ? displayedGroupRoutes[focusGroupKeys[index - 1]] : undefined;
+      const pending = index > 0 && !previousRoute;
+      const displayMeters = previousRoute ? route.endDistanceMeters - previousRoute.endDistanceMeters : route.endDistanceMeters;
+      return [{
+        id: `journey-boundary-${index}`,
+        groupKey,
+        title: groupKey,
+        distance: `${(displayMeters / 1000).toFixed(1)} km`,
+        coordinate: [route.longitude, route.latitude] as [number, number],
+        color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
+        active: !selectedJourneyDay || selectedJourneyDay === groupKey,
+        pending,
+      }];
+    });
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay]);
+  const routeEditorIndex = routeEditorGroupKey ? focusGroupKeys.indexOf(routeEditorGroupKey) : -1;
+  let routeEditorMinimumMeters = 0;
+  let routeEditorMaximumMeters: number | undefined;
+  if (routeEditorIndex >= 0) {
+    for (let index = routeEditorIndex - 1; index >= 0; index -= 1) {
+      const route = focusedTimeline.groupRoutes[focusGroupKeys[index]];
+      if (route) { routeEditorMinimumMeters = route.endDistanceMeters; break; }
+    }
+    for (let index = routeEditorIndex + 1; index < focusGroupKeys.length; index += 1) {
+      const route = focusedTimeline.groupRoutes[focusGroupKeys[index]];
+      if (route) { routeEditorMaximumMeters = route.endDistanceMeters; break; }
+    }
+  }
+  const displayedFocusBoundaries = useMemo(() => {
+    if (!routeEditorGroupKey || !routeDraftPosition || routeEditorIndex < 0) return focusBoundaries;
+    return focusBoundaries.filter((boundary) => boundary.groupKey !== routeEditorGroupKey);
+  }, [focusBoundaries, routeDraftPosition, routeEditorGroupKey, routeEditorIndex, routeEditorMinimumMeters]);
+  const endpointGroupKey = routeEditorGroupKey ?? selectedJourneyDay;
+  const endpointGroupIndex = endpointGroupKey ? focusGroupKeys.indexOf(endpointGroupKey) : -1;
+  const endpointRoute = endpointGroupKey ? displayedGroupRoutes[endpointGroupKey] : undefined;
+  const displayedEndpointCoordinate: [number, number] | undefined = routeEditorGroupKey
+    ? routeDraftEndpoint ?? undefined
+    : endpointRoute && Number.isFinite(endpointRoute.longitude) && Number.isFinite(endpointRoute.latitude)
+      ? [endpointRoute.longitude, endpointRoute.latitude]
+      : undefined;
+  const displayedTrackBoundary = routeEditorGroupKey && routeDraftPosition
+    ? routeDraftPosition.coordinate
+    : endpointRoute && focusMeasure
+      ? positionAtDistance(focusMeasure, endpointRoute.endDistanceMeters).coordinate
+      : undefined;
+  const displayedEndpointColor = endpointGroupIndex >= 0
+    ? JOURNEY_SEGMENT_COLORS[endpointGroupIndex % JOURNEY_SEGMENT_COLORS.length]
+    : theme.accent;
+  const displayedEndpointConnector = displayedTrackBoundary && displayedEndpointCoordinate
+    && distanceMeters(displayedTrackBoundary, displayedEndpointCoordinate) > 2
+    ? [displayedTrackBoundary, displayedEndpointCoordinate] as [[number, number], [number, number]]
+    : undefined;
+  const openRouteEditor = useCallback((groupKey: string) => {
+    routeEditorPreviousSheetIndex.current = journeySheetIndex;
+    setRouteEditorGroupKey(groupKey);
+    setRouteDraftPosition(null);
+    const currentRoute = focusedTimeline.groupRoutes[groupKey];
+    setRouteDraftEndpoint(
+      currentRoute && Number.isFinite(currentRoute.longitude) && Number.isFinite(currentRoute.latitude)
+        ? [currentRoute.longitude, currentRoute.latitude]
+        : null,
+    );
+    setRouteMapSelectionRequest(undefined);
+    setSelectedJourneyDay(groupKey);
+    setJourneyDaySelectionRequest((current) => ({ day: groupKey, revision: (current?.revision ?? 0) + 1 }));
+    sheetRef.current?.snapTo(0);
+  }, [focusedTimeline.groupRoutes, journeySheetIndex]);
+  const closeRouteEditor = useCallback(() => {
+    setRouteEditorGroupKey(null);
+    setRouteDraftPosition(null);
+    setRouteDraftEndpoint(null);
+    setRouteMapSelectionRequest(undefined);
+    sheetRef.current?.snapTo(routeEditorPreviousSheetIndex.current);
+  }, []);
+  const journeyCoverUri = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.photoUris?.[0] : undefined;
+  const journeyHeroMode = nav.pointInfo?.kind === 'journey'
+    ? nav.pointInfo.heroMode ?? ((focusCoords?.length ?? 0) >= 2 ? 'track' : journeyCoverUri ? 'cover' : 'track')
+    : 'track';
+  const journeyShowsCover = !routeEditorGroupKey && journeyHeroMode === 'cover' && !!journeyCoverUri;
+  const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
+  const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover && !routeEditorGroupKey;
+  const journeyMapBottomPadding = journeySheetIndex === 0
+    ? journeyMinimum + space.xl
+    : journeySheetIndex === 1
+      ? focusPanel + space.xl
+      : full + space.md;
+
+  const fitJourneyMapRoute = () => {
+    setMapStylePickerOpen(false);
+    setJourneyMapAtRouteFrame(true);
+    setJourneyMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
+  };
+
+
 
   // sheet stats
   const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
@@ -423,15 +667,48 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
       {/* full-screen interactive map (Apple-Maps style) — subtabs, top-right
           chrome, locate button and the bottom sheet all float on top of it */}
       <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        {journeyShowsCover ? (
+          <>
+            <Image source={{ uri: journeyCoverUri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+            <LinearGradient
+              colors={['rgba(0,0,0,0.38)', 'rgba(0,0,0,0.04)', 'rgba(0,0,0,0.18)']}
+              locations={[0, 0.42, 1]}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+          </>
+        ) : (
         <Globe
           theme={theme}
           size={globeSize}
           pois={nav.pointInfo ? [] : placeGroups.map(({ rep, group }) => {
             const [lng, lat] = poiMapCoordinate(rep);
-            return { id: rep.id, lng, lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0] };
+            return { id: rep.id, lng, lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0], label: rep.name };
           })}
           activePoiId={activeRepId}
+          mapStyle={mapStyle}
+          mapLocale={resolved}
+          showMapLabels={mapLabelsVisible}
+          cameraAction={journeyMapCameraAction}
+          focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : undefined}
+          onCameraGestureStart={nav.pointInfo?.kind === 'journey' ? () => setJourneyMapAtRouteFrame(false) : undefined}
           focusCoords={focusCoords}
+          focusSegments={journeyMapDetailsVisible || routeEditorGroupKey ? focusSegments : []}
+          focusBoundaries={journeyMapDetailsVisible || routeEditorGroupKey ? displayedFocusBoundaries : []}
+          selectionPin={routeEditorGroupKey && routeDraftPosition && routeEditorIndex >= 0 ? {
+            coordinate: routeDraftEndpoint ?? routeDraftPosition.coordinate,
+            color: JOURNEY_SEGMENT_COLORS[routeEditorIndex % JOURNEY_SEGMENT_COLORS.length],
+          } : undefined}
+          focusConnector={displayedEndpointConnector ? {
+            coordinates: displayedEndpointConnector,
+            color: displayedEndpointColor,
+          } : undefined}
+          onRouteBoundaryPress={(groupKey) => {
+            setJourneyDaySelectionRequest((current) => ({ day: groupKey, revision: (current?.revision ?? 0) + 1 }));
+          }}
+          onMapCoordinatePress={routeEditorGroupKey ? (coordinate) => {
+            setRouteMapSelectionRequest((current) => ({ coordinate, revision: (current?.revision ?? 0) + 1 }));
+          } : undefined}
           center={nav.pointInfo ? (() => {
             const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
             return { lon, lat };
@@ -454,6 +731,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
           }}
           onBackgroundPress={() => sheetRef.current?.dismiss()}
         />
+        )}
       </View>
 
       {/* subtabs */}
@@ -509,10 +787,13 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               accessibilityRole="button"
               accessibilityLabel={t('common.back')}
               hitSlop={6}
-              onPress={() => sheetRef.current?.dismiss()}
+              onPress={() => {
+                if (routeEditorGroupKey) closeRouteEditor();
+                else sheetRef.current?.dismiss();
+              }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Icon name="chevronL" color={theme.text} size={27} />
+              <Icon name="chevronL" color={journeyChromeColor} size={27} />
             </Press>
           </View>
           <View style={{ position: 'absolute', top: insets.top + 5, right: 13, flexDirection: 'row' }}>
@@ -522,18 +803,11 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               hitSlop={6}
               onPress={() => {
                 const poi = nav.pointInfo;
-                if (!poi) return;
-                nav.openActionSheet({
-                  title: t('journey.manage.shareMenuTitle'),
-                  items: [
-                    { label: t('journey.manage.inviteParticipant'), icon: 'people', onPress: () => nav.openManageCompanions(poi, 'invite') },
-                    { label: t('journey.manage.shareJourney'), icon: 'share', onPress: () => nav.openSharePanel(poi) },
-                  ],
-                });
+                if (poi) nav.openSharePanel(poi);
               }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Icon name="share" color={theme.text} size={25} />
+              <Icon name="share" color={journeyChromeColor} size={25} />
             </Press>
             <Press
               accessibilityRole="button"
@@ -542,17 +816,86 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               onPress={() => nav.pointInfo && nav.openJourneySettings(nav.pointInfo)}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Icon name="gearSettings" color={theme.text} size={25} />
+              <Icon name="gearSettings" color={journeyChromeColor} size={25} />
             </Press>
           </View>
         </>
       ) : null}
 
-      {!nav.pointInfo ? <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56 }}>
-        <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
-          <Icon name="locate" color={chromeTheme.accent} size={21} />
-        </GlassIconBtn>
-      </View> : null}
+
+
+
+
+      {journeyMapFull ? (
+        <>
+          <Press
+            onPress={() => setMapStylePickerOpen((value) => !value)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: mapStylePickerOpen }}
+            accessibilityLabel={t('journey.map.layerTitle')}
+            style={{
+              position: 'absolute',
+              right: space.md,
+              bottom: journeyMinimum + space.md + 46,
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.controlSurface,
+              shadowColor: '#000000',
+              shadowOpacity: theme.dark ? 0.20 : 0.08,
+              shadowRadius: 5,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+            }}
+          >
+            <Icon name="layers" color={mapStylePickerOpen ? theme.accent : theme.text2} size={18} />
+          </Press>
+
+          <Press
+            onPress={fitJourneyMapRoute}
+            accessibilityRole="button"
+            accessibilityLabel={t('journey.map.fitRoute')}
+            accessibilityState={{ selected: journeyMapAtRouteFrame }}
+            style={{
+              position: 'absolute',
+              right: space.md,
+              bottom: journeyMinimum + space.md,
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.controlSurface,
+              shadowColor: '#000000',
+              shadowOpacity: theme.dark ? 0.20 : 0.08,
+              shadowRadius: 5,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+            }}
+          >
+            <Icon name="locate" color={journeyMapAtRouteFrame ? theme.accent : theme.text2} size={18} />
+          </Press>
+        </>
+      ) : null}
+
+      {!nav.pointInfo ? (
+        <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56, gap: 10 }}>
+          <GlassIconBtn
+            theme={chromeTheme}
+            size={44}
+            strong
+            onPress={() => setMapStylePickerOpen((value) => !value)}
+            accessibilityLabel={t('journey.map.layerTitle')}
+          >
+            <Icon name="layers" color={mapStylePickerOpen ? chromeTheme.accent : chromeTheme.text} size={20} />
+          </GlassIconBtn>
+          <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
+            <Icon name="locate" color={chromeTheme.accent} size={21} />
+          </GlassIconBtn>
+        </View>
+      ) : null}
 
       {sheetVisible && (
       <TrailSheet
@@ -566,7 +909,10 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             : [collapsed, full]}
         initialIndex={nav.pointInfo?.kind === 'journey' ? 1 : 0}
         dismissOnDrag={nav.pointInfo?.kind !== 'journey'}
-        onIndexChange={nav.pointInfo?.kind === 'journey' ? setJourneySheetIndex : undefined}
+        onIndexChange={nav.pointInfo?.kind === 'journey' ? (index) => {
+          setJourneySheetIndex(index);
+          if (index !== 0) setMapStylePickerOpen(false);
+        } : undefined}
         header={nav.pointInfo ? <View /> : header}
         compact={false}
         backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
@@ -602,15 +948,21 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                 selectedPlanDays={selectedPlanDays}
                 onSelectedPlanDaysChange={setSelectedPlanDays}
                 onSelectedJourneyDayChange={handleSelectedJourneyDayChange}
+                journeyDaySelectionRequest={journeyDaySelectionRequest}
                 onSelectedTabChange={handleSelectedJourneyTabChange}
                 momentAddActionRef={momentAddActionRef}
                 momentDeleteActionRef={momentDeleteActionRef}
                 momentFilterActionRef={momentFilterActionRef}
+                momentFilterMenuRef={momentFilterMenuRef}
                 onMomentFilterStateChange={handleMomentFilterStateChange}
+                onMomentFilterMenuOpenChange={setMomentFilterMenuVisible}
                 checklistAddActionRef={checklistAddActionRef}
                 checklistDeleteActionRef={checklistDeleteActionRef}
                 checklistFilterActionRef={checklistFilterActionRef}
+                checklistFilterMenuRef={checklistFilterMenuRef}
+                checklistToggleAllActionRef={checklistToggleAllActionRef}
                 onChecklistFilterStateChange={handleChecklistFilterStateChange}
+                onChecklistFilterMenuOpenChange={setChecklistFilterMenuVisible}
                 checklistSelectionMode={checklistSelectionMode}
                 selectedChecklistItemIds={selectedChecklistItemIds}
                 onSelectedChecklistItemIdsChange={setSelectedChecklistItemIds}
@@ -621,6 +973,7 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                 onSelectedMomentIdsChange={setSelectedMomentIds}
                 onVisibleMomentIdsChange={setVisibleMomentIds}
                 onJourneyDaysChange={setAvailableJourneyDays}
+                onRouteBoundaryRequest={openRouteEditor}
                 timelineSelectionMode={timelineSelectionMode}
                 selectedTimelineItemIds={selectedTimelineItemIds}
                 onSelectedTimelineItemIdsChange={setSelectedTimelineItemIds}
@@ -682,7 +1035,276 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
         )}
       </TrailSheet>
       )}
-      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.blockingOverlayOpen ? (
+      {mapStylePickerOpen && (journeyMapFull || !nav.pointInfo) ? (
+        <MapStylePickerSheet
+          theme={theme}
+          title={t('journey.map.layerTitle')}
+          closeLabel={t('common.close')}
+          options={([
+            { id: 'standard', label: t('journey.map.layerStandard') },
+            { id: 'terrain', label: t('journey.map.layerTerrain') },
+            { id: 'satellite', label: t('journey.map.layerSatellite') },
+          ] satisfies { id: MapPresentationStyle; label: string }[])}
+          value={mapStyle === 'light' ? 'standard' : mapStyle}
+          detailsTitle={t('journey.map.displayTitle')}
+          details={(journeyMapFull ? [
+            {
+              id: 'journey-stops',
+              label: t('journey.map.journeyStops'),
+              value: journeyMapDetailsVisible,
+              onChange: setJourneyMapDetailsVisible,
+            },
+            {
+              id: 'map-labels',
+              label: t('journey.map.showLabels'),
+              value: mapLabelsVisible,
+              onChange: setMapLabelsVisible,
+            },
+          ] : [
+            {
+              id: 'map-labels',
+              label: t('journey.map.showLabels'),
+              value: mapLabelsVisible,
+              onChange: setMapLabelsVisible,
+            },
+          ]) satisfies MapDisplayOption[]}
+          bottomInset={insets.bottom}
+          onChange={setMapStyle}
+          onClose={() => setMapStylePickerOpen(false)}
+        />
+      ) : null}
+      {routeEditorGroupKey && nav.pointInfo?.kind === 'journey' && focusMeasure && routeEditorIndex >= 0 ? (
+        <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 190 }]}>
+          <JourneyRouteBoundarySheet
+            theme={theme}
+            info={nav.pointInfo}
+            groupLabel={routeEditorGroupKey}
+            minimumMeters={routeEditorMinimumMeters}
+            maximumMeters={routeEditorMaximumMeters}
+            current={focusedTimeline.groupRoutes[routeEditorGroupKey]}
+            backgroundMap
+            mapSelectionRequest={routeMapSelectionRequest}
+            onSelectionChange={setRouteDraftPosition}
+            onEndpointCoordinateChange={setRouteDraftEndpoint}
+            onClose={closeRouteEditor}
+            onSave={(route) => focusedTimeline.setGroupRoute(routeEditorGroupKey, route)}
+          />
+        </View>
+      ) : null}
+      {selectedJourneyTab === 'moments' && momentFilterMenuRef.current ? (
+        <View
+          pointerEvents={momentFilterMenuOpen ? 'box-none' : 'none'}
+          accessibilityElementsHidden={!momentFilterMenuOpen}
+          importantForAccessibility={momentFilterMenuOpen ? 'auto' : 'no-hide-descendants'}
+          style={[StyleSheet.absoluteFill, { zIndex: 170 }]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('common.close')}
+            onPress={() => setMomentFilterMenuVisible(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <Animated.View
+            style={{
+              position: 'absolute',
+              right: space.lg,
+              bottom: Math.max(insets.bottom, space.md) + 68,
+              width: 240,
+              maxHeight: 380,
+              borderRadius: radius.feature,
+              shadowColor: '#000000',
+              shadowOpacity: theme.dark ? 0.42 : 0.16,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: 12 },
+              elevation: 12,
+              opacity: momentFilterMenuProgress,
+              transform: [
+                { translateY: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
+                { scale: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] }) },
+              ],
+            }}
+          >
+            <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={78}>
+              <View
+                style={{
+                  maxHeight: '100%',
+                  paddingVertical: space.sm,
+                  backgroundColor: Platform.OS === 'android'
+                    ? (theme.dark ? '#202024' : '#FFFFFF')
+                    : theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.74)',
+                }}
+              >
+                <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
+                  <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.xxs, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
+                    {momentFilterMenuRef.current.typeTitle}
+                  </Text>
+                  {momentFilterMenuRef.current.typeOptions.map((option) => {
+                    const selected = option.id === momentFilterMenuRef.current?.selectedType;
+                    return (
+                      <Press
+                        key={option.id}
+                        scaleTo={1}
+                        onPress={() => momentFilterMenuRef.current?.selectType(option.id)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        style={{ minHeight: 48, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+                      >
+                        <View style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                          <Icon name={option.icon} color={theme.text2} size={15} />
+                        </View>
+                        <Text numberOfLines={1} style={[type.body, { flex: 1, color: theme.text, fontWeight: selected ? '700' : '500' }]}>{option.label}</Text>
+                        {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
+                      </Press>
+                    );
+                  })}
+
+                  <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
+                    {momentFilterMenuRef.current.participantTitle}
+                  </Text>
+                  <Press
+                    scaleTo={1}
+                    onPress={() => momentFilterMenuRef.current?.selectAuthor(null)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: momentFilterMenuRef.current.selectedAuthor == null }}
+                    style={{ minHeight: 48, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+                  >
+                    <View style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                      <Icon name="people" color={theme.text2} size={15} />
+                    </View>
+                    <Text numberOfLines={1} style={[type.body, { flex: 1, color: theme.text, fontWeight: momentFilterMenuRef.current.selectedAuthor == null ? '700' : '500' }]}>
+                      {momentFilterMenuRef.current.allParticipantsLabel}
+                    </Text>
+                    {momentFilterMenuRef.current.selectedAuthor == null ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
+                  </Press>
+                  {momentFilterMenuRef.current.authors.map((author) => {
+                    const selected = author.key === momentFilterMenuRef.current?.selectedAuthor;
+                    return (
+                      <Press
+                        key={author.key}
+                        scaleTo={1}
+                        onPress={author.count > 0 ? () => momentFilterMenuRef.current?.selectAuthor(author.key) : undefined}
+                        disabled={author.count === 0}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected, disabled: author.count === 0 }}
+                        style={{ minHeight: 58, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm, opacity: author.count > 0 ? 1 : 0.5 }}
+                      >
+                        <Avatar uri={author.avatarUrl} size={32} />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                            <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text, fontWeight: selected ? '700' : '500' }]}>{author.name}</Text>
+                            {author.host ? (
+                              <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: theme.accentSofter }}>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: theme.accent }}>{momentFilterMenuRef.current?.hostLabel}</Text>
+                              </View>
+                            ) : null}
+                            {author.self ? (
+                              <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: theme.text2 }}>{momentFilterMenuRef.current?.selfLabel}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          {author.countLabel ? <Text style={[type.caption, { color: theme.text3, marginTop: 2 }]}>{author.countLabel}</Text> : null}
+                        </View>
+                        {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
+                      </Press>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </Glass>
+          </Animated.View>
+        </View>
+      ) : null}
+      {selectedJourneyTab === 'checklist' && checklistFilterMenuRef.current ? (
+        <View
+          pointerEvents={checklistFilterMenuOpen ? 'box-none' : 'none'}
+          accessibilityElementsHidden={!checklistFilterMenuOpen}
+          importantForAccessibility={checklistFilterMenuOpen ? 'auto' : 'no-hide-descendants'}
+          style={[StyleSheet.absoluteFill, { zIndex: 170 }]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('common.close')}
+            onPress={() => setChecklistFilterMenuVisible(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <Animated.View
+            renderToHardwareTextureAndroid
+            shouldRasterizeIOS
+            style={{
+              position: 'absolute',
+              right: space.lg,
+              bottom: Math.max(insets.bottom, space.md) + 68,
+              width: 264,
+              maxHeight: 420,
+              padding: space.sm,
+              borderRadius: radius.feature,
+              backgroundColor: Platform.OS === 'android' ? (theme.dark ? '#202024' : '#FFFFFF') : theme.surfaceTop,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.fieldBorder,
+              boxShadow: theme.dark ? '0px 10px 28px rgba(0,0,0,0.34)' : '0px 10px 28px rgba(0,0,0,0.12)',
+              opacity: checklistFilterArrowProgress,
+              transform: [
+                {
+                  translateY: checklistFilterArrowProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [6, 0],
+                  }),
+                },
+                {
+                  scale: checklistFilterArrowProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.975, 1],
+                  }),
+                },
+              ],
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled contentContainerStyle={{ paddingTop: space.xs, paddingBottom: space.xxs }}>
+              {checklistFilterMenuRef.current.options.some((option) => option.kind === 'shared') ? (
+                <>
+                  <Text style={[type.caption, { paddingHorizontal: space.sm, paddingTop: space.xxs, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
+                    {t('journey.packing.sharedSection')}
+                  </Text>
+                  {checklistFilterMenuRef.current.options
+                    .filter((option) => option.kind === 'shared')
+                    .map((option) => (
+                      <JourneyChecklistFilterOptionRow
+                        key={option.key}
+                        theme={theme}
+                        option={option}
+                        selected={option.key === checklistFilterMenuRef.current?.activeKey}
+                        onPress={() => {
+                          checklistFilterMenuRef.current?.select(option.key);
+                          setChecklistFilterMenuVisible(false);
+                        }}
+                      />
+                    ))}
+                </>
+              ) : null}
+
+              <Text style={[type.caption, { paddingHorizontal: space.sm, paddingTop: space.md, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
+                {t('journey.packing.participantsSection')}
+              </Text>
+              {checklistFilterMenuRef.current.options
+                .filter((option) => option.kind !== 'shared')
+                .map((option) => (
+                  <JourneyChecklistFilterOptionRow
+                    key={option.key}
+                    theme={theme}
+                    option={option}
+                    selected={option.key === checklistFilterMenuRef.current?.activeKey}
+                    onPress={() => {
+                      checklistFilterMenuRef.current?.select(option.key);
+                      setChecklistFilterMenuVisible(false);
+                    }}
+                  />
+                ))}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      ) : null}
+      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -771,7 +1393,8 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
               {!momentSelectionMode ? (
                 <Press
                   hitSlop={3}
-                  onPress={() => momentFilterActionRef.current?.()}
+                  opacityTo={1}
+                  onPress={() => setMomentFilterMenuVisible(!momentFilterMenuOpen)}
                   accessibilityRole="button"
                   accessibilityLabel={t('journey.moments.filterTitle')}
                   style={{
@@ -792,6 +1415,20 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                   <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
                     {momentFilterLabel}
                   </Text>
+                  <Animated.View
+                    style={{
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transform: [{
+                        rotate: momentFilterMenuProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '180deg'],
+                        }),
+                      }],
+                    }}
+                  >
+                    <Icon name="chevronDown" color={theme.text3} size={12} strokeWidth={2.2} />
+                  </Animated.View>
                 </Press>
               ) : null}
               {momentSelectionMode ? (
@@ -855,28 +1492,26 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                   <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'edit'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
                 </Press>
               ) : null}
-              {checklistSelectionMode && visibleChecklistItemIds.length > 0 ? (
+              {checklistSelectionMode ? (
                 <Press
                   hitSlop={3}
-                  onPress={() => {
-                    const allSelected = visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id));
-                    setSelectedChecklistItemIds(allSelected ? new Set() : new Set(visibleChecklistItemIds));
-                  }}
+                  onPress={() => checklistToggleAllActionRef.current?.()}
                   accessibilityRole="button"
-                  accessibilityLabel={visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                  accessibilityLabel={visibleChecklistItemIds.length > 0 && visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
                   style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
                 >
                   <JourneyFooterActionLabel
                     theme={theme}
                     icon="checkAll"
-                    label={visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
+                    label={visibleChecklistItemIds.length > 0 && visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
                   />
                 </Press>
               ) : null}
               {!checklistSelectionMode ? (
                 <Press
                   hitSlop={3}
-                  onPress={() => checklistFilterActionRef.current?.()}
+                  opacityTo={1}
+                  onPress={() => setChecklistFilterMenuVisible(!checklistFilterMenuOpen)}
                   accessibilityRole="button"
                   accessibilityLabel={t('journey.packing.title')}
                   style={{
@@ -889,14 +1524,28 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
                     gap: space.xs,
                     backgroundColor: theme.controlSurface,
                     borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: checklistFilterActive ? theme.accent : theme.fieldBorder,
+                    borderColor: theme.fieldBorder,
                     boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
                   }}
                 >
-                  <Icon name="filter" color={checklistFilterActive ? theme.accent : theme.text} size={15} />
-                  <Text numberOfLines={1} style={{ maxWidth: 120, color: checklistFilterActive ? theme.accent : theme.text, fontSize: 13, fontWeight: '700' }}>
+                  <Icon name={checklistFilterIsMine ? 'user' : 'people'} color={theme.text2} size={15} />
+                  <Text numberOfLines={1} style={{ maxWidth: 120, color: theme.text, fontSize: 13, fontWeight: '700' }}>
                     {checklistFilterLabel}
                   </Text>
+                  <Animated.View
+                    style={{
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transform: [{
+                        rotate: checklistFilterArrowProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '180deg'],
+                        }),
+                      }],
+                    }}
+                  >
+                    <Icon name="chevronDown" color={theme.text3} size={12} strokeWidth={2.2} />
+                  </Animated.View>
                 </Press>
               ) : null}
               {checklistSelectionMode ? (
@@ -930,9 +1579,6 @@ export function DiscoverScreen({ theme }: { theme: Theme }) {
             </>
           ) : (
             <>
-              <Press hitSlop={3} onPress={addPlanGroup} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
-                <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
-              </Press>
               <Press
                 hitSlop={3}
                 onPress={() => {

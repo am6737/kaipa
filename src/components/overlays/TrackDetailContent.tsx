@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, PanResponder, Share, Alert, InteractionManager } from 'react-native';
 import Svg, { Path, Line, Circle, Defs, LinearGradient, Stop, ClipPath, Rect, G } from 'react-native-svg';
-import { MapView, Camera, ShapeSource, LineLayer, MarkerView, StyleImport } from '@rnmapbox/maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -11,7 +10,10 @@ import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { Press } from '../Press';
 import { CircleBtn } from '../CircleBtn';
-import { TrackMap, STANDARD_STYLE, ensureMapboxToken } from './TrackMap';
+import { Icon } from '../Icon';
+import { radius, space, type } from '../../design-system';
+import { MapStylePickerSheet } from '../MapStylePickerSheet';
+import { MapStyleId, TrackMap, TrackMapHandle, TrackMapWaypoint, ensureMapboxToken } from './TrackMap';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const INITIAL_WAYPOINT_RENDER_COUNT = 32;
@@ -88,6 +90,182 @@ const MarkerRow = React.memo(function MarkerRow({
     </View>
   );
 });
+
+type FullMapPanel = 'layers' | null;
+
+function FullscreenTrackMap({
+  theme,
+  info,
+  coords,
+  totalKm,
+  maxEle,
+  accent,
+  onClose,
+}: {
+  theme: Theme;
+  info: Poi;
+  coords: [number, number][];
+  totalKm: number;
+  maxEle: number;
+  accent: string;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const { t } = useI18n();
+  const mapRef = useRef<TrackMapHandle>(null);
+  const routePadding = useMemo<[number, number, number, number]>(
+    () => [insets.top + 72, 64, insets.bottom + 116, 52],
+    [insets.bottom, insets.top],
+  );
+  const [mapStyle, setMapStyle] = useState<MapStyleId>('standard');
+  const [panel, setPanel] = useState<FullMapPanel>(null);
+  const [showWaypoints, setShowWaypoints] = useState(Boolean(info.trackWaypoints?.length));
+  const [showMapLabels, setShowMapLabels] = useState(true);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [cameraOrientation, setCameraOrientation] = useState({ heading: 0, pitch: 0 });
+
+  const mapWaypoints = useMemo<TrackMapWaypoint[]>(() => {
+    if (!info.trackWaypoints?.length || coords.length < 2) return [];
+    const divisor = Math.max(totalKm, 0.001);
+    return info.trackWaypoints.map((waypoint) => {
+      const index = Math.max(0, Math.min(coords.length - 1, Math.round((waypoint.km / divisor) * (coords.length - 1))));
+      return { name: waypoint.name, km: waypoint.km, coord: coords[index] };
+    });
+  }, [coords, info.trackWaypoints, totalKm]);
+
+  const compassVisible = Math.abs(cameraOrientation.heading) > 2 || cameraOrientation.pitch > 2;
+  const summarySurface = theme.dark ? 'rgba(20,20,22,0.90)' : 'rgba(255,255,255,0.94)';
+  const layerOptions: { id: MapStyleId; label: string }[] = [
+    { id: 'standard', label: t('journey.map.layerStandard') },
+    { id: 'terrain', label: t('journey.map.layerTerrain') },
+    { id: 'satellite', label: t('journey.map.layerSatellite') },
+  ];
+
+  const togglePanel = (next: 'layers') => {
+    setPanel((current) => current === next ? null : next);
+  };
+
+  const resetNorth = () => {
+    mapRef.current?.resetNorth();
+    setCameraOrientation({ heading: 0, pitch: 0 });
+  };
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 300 }]}>
+      <TrackMap
+        ref={mapRef}
+        coords={coords}
+        theme={theme}
+        accent={accent}
+        fill
+        rounded={false}
+        showLegend={false}
+        interactive
+        mapStyle={mapStyle}
+        waypoints={mapWaypoints}
+        showWaypoints={showWaypoints}
+        showMapLabels={showMapLabels}
+        routePadding={routePadding}
+        onCameraOrientationChange={(heading, pitch) => {
+          setCameraOrientation((current) => {
+            if (Math.abs(current.heading - heading) < 1 && Math.abs(current.pitch - pitch) < 1) return current;
+            return { heading, pitch };
+          });
+        }}
+      />
+
+      <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.sm }}>
+        <CircleBtn theme={theme} name="chevronL" onPress={onClose} />
+      </View>
+
+      <View style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm, gap: space.sm }}>
+        <CircleBtn theme={theme} name="layers" active={panel === 'layers'} onPress={() => togglePanel('layers')} />
+        <CircleBtn theme={theme} name="route" onPress={() => { setPanel(null); mapRef.current?.fitRoute(); }} />
+        {compassVisible ? <CircleBtn theme={theme} name="compassN" onPress={resetNorth} /> : null}
+      </View>
+
+      {panel === 'layers' ? (
+        <MapStylePickerSheet
+          theme={theme}
+          title={t('journey.map.layerTitle')}
+          closeLabel={t('common.close')}
+          options={layerOptions}
+          value={mapStyle}
+          detailsTitle={t('journey.map.displayTitle')}
+          details={[
+            {
+              id: 'waypoints',
+              label: t('journey.map.showWaypoints'),
+              value: showWaypoints,
+              disabled: !mapWaypoints.length,
+              onChange: setShowWaypoints,
+            },
+            {
+              id: 'map-labels',
+              label: t('journey.map.showLabels'),
+              value: showMapLabels,
+              onChange: setShowMapLabels,
+            },
+          ]}
+          bottomInset={insets.bottom}
+          onChange={setMapStyle}
+          onClose={() => setPanel(null)}
+        />
+      ) : null}
+
+      <Press
+        onPress={() => setSummaryExpanded((value) => !value)}
+        style={{
+          position: 'absolute',
+          left: space.sm,
+          right: space.sm,
+          bottom: insets.bottom + space.sm,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
+          borderRadius: radius.feature,
+          backgroundColor: summarySurface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.border,
+          boxShadow: theme.dark ? '0px 8px 24px rgba(0,0,0,0.48)' : '0px 8px 24px rgba(0,0,0,0.15)',
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <MapSummaryMetric theme={theme} value={info.dist || '—'} label={t('journey.elevation.totalDistance')} color={accent} />
+          <View style={{ width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.border }} />
+          <MapSummaryMetric theme={theme} value={info.asc || '—'} label={t('journey.elevation.ascent')} />
+          <View style={{ width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.border }} />
+          <MapSummaryMetric theme={theme} value={`${fmt(maxEle)} m`} label={t('journey.elevation.max')} />
+          <Icon name={summaryExpanded ? 'chevronDown' : 'arrowUp'} size={17} color={theme.text3} />
+        </View>
+        {summaryExpanded ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, paddingTop: space.sm, marginTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
+            <MapLegendItem theme={theme} color="#34C759" label={t('journey.elevation.waypointStart')} />
+            <MapLegendItem theme={theme} color={theme.danger} label={t('journey.elevation.waypointEnd')} />
+            <Text style={[type.caption, { color: theme.text3, marginLeft: 'auto' }]}>{t('journey.map.summaryHint')}</Text>
+          </View>
+        ) : null}
+      </Press>
+    </View>
+  );
+}
+
+function MapSummaryMetric({ theme, value, label, color }: { theme: Theme; value: string; label: string; color?: string }) {
+  return (
+    <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space.xs }}>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={[type.metric, { color: color || theme.text, fontSize: 16, lineHeight: 20 }]}>{value}</Text>
+      <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: 1 }]}>{label}</Text>
+    </View>
+  );
+}
+
+function MapLegendItem({ theme, color, label }: { theme: Theme; color: string; label: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+      <Text style={[type.caption, { color: theme.text2 }]}>{label}</Text>
+    </View>
+  );
+}
 
 export function TrackDetailContent({
   theme,
@@ -491,71 +669,17 @@ export function TrackDetailContent({
         </View>
       )}
 
-      {mapFull && hasMap && (() => {
-        let mnLat = Infinity, mxLat = -Infinity, mnLon = Infinity, mxLon = -Infinity;
-        for (const [lon, lat] of coords) {
-          mnLat = Math.min(mnLat, lat); mxLat = Math.max(mxLat, lat);
-          mnLon = Math.min(mnLon, lon); mxLon = Math.max(mxLon, lon);
-        }
-        const pd = Math.max(mxLat - mnLat, mxLon - mnLon) * 0.12;
-        const fullBounds = { ne: [mxLon + pd, mxLat + pd] as [number, number], sw: [mnLon - pd, mnLat - pd] as [number, number] };
-        const fullGeo: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] };
-        const s = coords[0], e = coords[coords.length - 1];
-        return (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 300 }]}> 
-            <MapView
-              style={StyleSheet.absoluteFill}
-              styleURL={STANDARD_STYLE}
-              scaleBarEnabled={false} logoEnabled={false} attributionEnabled={false} compassEnabled={false}
-              rotateEnabled zoomEnabled scrollEnabled pitchEnabled
-            >
-              <Camera defaultSettings={{ bounds: { ...fullBounds, paddingLeft: 40, paddingRight: 40, paddingTop: insets.top + 70, paddingBottom: insets.bottom + 100 } }} />
-              <StyleImport id="basemap" existing config={{ lightPreset: theme.dark ? 'dusk' : 'day', showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: true, showTransitLabels: true } as any} />
-              <ShapeSource id="full-elev-route" shape={fullGeo}>
-                <LineLayer slot="top" id="full-elev-shadow" style={{ lineColor: routeHalo, lineWidth: theme.dark ? 8 : 9, lineBlur: theme.dark ? 1 : 2.5, lineCap: 'round', lineJoin: 'round' } as any} />
-                <LineLayer slot="top" id="full-elev-outer" style={{ lineColor: routeOuter, lineOpacity: 1, lineEmissiveStrength: 1.2, lineWidth: theme.dark ? 6 : 6, lineBlur: 0, lineCap: 'round', lineJoin: 'round' } as any} />
-                <LineLayer slot="top" id="full-elev-line" style={{ lineColor: ac, lineOpacity: 1, lineEmissiveStrength: 1.6, lineWidth: theme.dark ? 4 : 4, lineCap: 'round', lineJoin: 'round' } as any} />
-              </ShapeSource>
-              <MarkerView coordinate={s} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#34C759', borderWidth: 3, borderColor: '#fff' }} />
-              </MarkerView>
-              <MarkerView coordinate={e} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: theme.danger, borderWidth: 3, borderColor: '#fff' }} />
-              </MarkerView>
-            </MapView>
-
-            <View style={{ position: 'absolute', top: insets.top + 8, left: 12 }}>
-              <CircleBtn theme={theme} name="chevronL" onPress={() => setMapFull(false)} />
-            </View>
-
-            <View style={{ position: 'absolute', bottom: insets.bottom + 12, left: 12, right: 12, flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: ac }}>{info.dist}</Text>
-                <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{t('journey.elevation.totalDistance')}</Text>
-              </View>
-              <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{info.asc}</Text>
-                <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{t('journey.elevation.ascent')}</Text>
-              </View>
-              <View style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.92)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>{fmt(maxEle)} m</Text>
-                <Text style={{ fontSize: 10, color: theme.text2, marginTop: 2 }}>{t('journey.elevation.max')}</Text>
-              </View>
-            </View>
-
-            <View style={{ position: 'absolute', bottom: insets.bottom + 88, left: 12, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: theme.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#34C759' }} />
-                <Text style={{ fontSize: 11, color: theme.text2 }}>{t('journey.elevation.waypointStart')}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.danger }} />
-                <Text style={{ fontSize: 11, color: theme.text2 }}>{t('journey.elevation.waypointEnd')}</Text>
-              </View>
-            </View>
-          </View>
-        );
-      })()}
+      {mapFull && hasMap ? (
+        <FullscreenTrackMap
+          theme={theme}
+          info={info}
+          coords={coords}
+          totalKm={totalKm}
+          maxEle={maxEle}
+          accent={ac}
+          onClose={() => setMapFull(false)}
+        />
+      ) : null}
     </View>
   );
 }

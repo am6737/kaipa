@@ -10,6 +10,7 @@ import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
 import { supabase } from './lib/supabase';
+import { upgradeCurrentAnonymousSession } from './lib/auth';
 import { uploadMedia } from './lib/storage';
 import { AuthFlow } from './screens/AuthFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
@@ -18,7 +19,7 @@ import { MeScreen } from './screens/MeScreen';
 import { BottomTabs } from './components/BottomTabs';
 import { ActionSheet } from './components/overlays/ActionSheet';
 import { AddRouteSheet } from './components/overlays/AddRouteSheet';
-import { NewJourneySheet } from './components/overlays/NewJourneySheet';
+import { NewJourneySheet, NJSharePanel } from './components/overlays/NewJourneySheet';
 import { ElevationFull } from './components/overlays/ElevationFull';
 import { PhotoWall } from './components/overlays/PhotoWall';
 import { JourneyEntryEditor } from './components/overlays/JourneyTimeline';
@@ -27,6 +28,7 @@ import { JourneySettings } from './components/overlays/JourneySettings';
 import { HostShareSheet } from './components/overlays/HostShareSheet';
 import { NearbyJoinSheet } from './components/overlays/NearbyJoinSheet';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
+import { JourneyShareSheet } from './components/overlays/JourneyShareSheet';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
@@ -37,14 +39,43 @@ function AppShell() {
   const nav = useNav();
   const { userId } = useData();
   const [trackLoading, setTrackLoading] = useState(false);
+  const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
 
   const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
   const hidden = { display: 'none' as const };
+  const directInvitePoi = nav.manageCompanions?.initialAction === 'invite'
+    ? nav.manageCompanions.poi
+    : null;
+  const directInviteElevations = directInvitePoi?.trackElevation
+    ?.map((point) => point.ele)
+    .filter(Number.isFinite) || [];
+  const directInviteHighestElevation = directInviteElevations.length
+    ? Math.max(...directInviteElevations)
+    : undefined;
+  const directInviteMetrics = directInvitePoi
+    ? [
+        directInvitePoi.days || directInvitePoi.totalDays
+          ? {
+              label: t('journey.stat.days'),
+              value: directInvitePoi.days || t('journeyEdit.meta.days', { count: directInvitePoi.totalDays || 1 }),
+            }
+          : null,
+        directInvitePoi.dist
+          ? { label: t('journey.stat.distance'), value: directInvitePoi.dist }
+          : null,
+        directInviteHighestElevation != null
+          ? {
+              label: t('journey.stat.highest'),
+              value: `${t('journey.stat.elevation')} ${Math.round(directInviteHighestElevation)} m`,
+            }
+          : null,
+      ].filter((metric): metric is { label: string; value: string } => Boolean(metric))
+    : [];
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'discover' && hidden]}>
-        <DiscoverScreen theme={theme} />
+        <DiscoverScreen theme={theme} externalOverlayOpen={Boolean(sharePosterPoi)} />
       </View>
       <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'gear' && hidden]}>
         <GearScreen theme={theme} />
@@ -52,7 +83,7 @@ function AppShell() {
       <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'me' && hidden]}>
         <MeScreen theme={theme} />
       </View>
-      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen} />
+      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi} />
 
       {nav.addRouteOpen && (
         <AddRouteSheet
@@ -153,7 +184,7 @@ function AppShell() {
       {nav.journeySettings && (
         <JourneySettings
           theme={theme}
-          poi={nav.journeySettings}
+          poi={nav.merged(nav.journeySettings)}
           onClose={() => nav.closeJourneySettings()}
           onToast={(message) => nav.showToast(message)}
         />
@@ -173,23 +204,52 @@ function AppShell() {
           onToast={(m) => nav.showToast(m)}
         />
       )}
-      {nav.manageCompanions && (
+      {directInvitePoi ? (
+        <NJSharePanel
+          theme={theme}
+          tripName={directInvitePoi.name}
+          journeyId={directInvitePoi.id}
+          participantCount={directInvitePoi.companionList?.length || directInvitePoi.companions || 1}
+          metrics={directInviteMetrics}
+          onClose={() => nav.closeManageCompanions()}
+          onToast={(m) => nav.showToast(m)}
+          backgroundColor={theme.featureSurface}
+        />
+      ) : nav.manageCompanions ? (
         <ManageCompanions
           theme={theme}
           poi={nav.manageCompanions.poi}
-          initialAction={nav.manageCompanions.initialAction}
           onClose={() => nav.closeManageCompanions()}
           onToast={(m) => nav.showToast(m)}
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
           onPermissionsChange={(participantPermissions) => nav.patchCurrent({ participantPermissions })}
         />
-      )}
+      ) : null}
       {nav.sharePanel && (
-        <SharePoster
+        <JourneyShareSheet
           theme={theme}
           poi={nav.sharePanel}
           onClose={() => nav.closeSharePanel()}
           onToast={(m) => nav.showToast(m)}
+          onCollaborate={() => {
+            const sharedPoi = nav.sharePanel;
+            nav.closeSharePanel();
+            if (sharedPoi) nav.openManageCompanions(sharedPoi, 'invite');
+          }}
+          onPoster={() => {
+            const sharedPoi = nav.sharePanel;
+            nav.closeSharePanel();
+            if (sharedPoi) setSharePosterPoi(sharedPoi);
+          }}
+        />
+      )}
+      {sharePosterPoi && (
+        <SharePoster
+          theme={theme}
+          poi={sharePosterPoi}
+          userId={userId}
+          onClose={() => setSharePosterPoi(null)}
+          onToast={(message) => nav.showToast(message)}
         />
       )}
       {nav.searchOpen && <SearchScreen theme={theme} />}
@@ -222,9 +282,30 @@ export function AppRoot() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
-    return () => subscription.unsubscribe();
+    let active = true;
+    const initialize = async () => {
+      const { data } = await supabase.auth.getSession();
+      let nextSession = data.session;
+      if (nextSession?.user.is_anonymous) {
+        const upgraded = await upgradeCurrentAnonymousSession();
+        if (upgraded.error) {
+          await supabase.auth.signOut();
+          nextSession = null;
+        } else {
+          nextSession = upgraded.data.session;
+        }
+      }
+      if (active) setSession(nextSession);
+    };
+    void initialize();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!nextSession?.user.is_anonymous) setSession(nextSession);
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSignOut = async () => {

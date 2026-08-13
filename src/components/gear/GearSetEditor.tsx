@@ -43,12 +43,13 @@ export function GearSetEditor({
   allItems: GearItem[];
   catMap: Record<string, GearCat>;
   onCancel: () => void;
-  onSave: (name: string, items: string[], overrides: Record<string, GearSetOverride>) => void;
+  onSave: (name: string, description: string | undefined, items: string[], overrides: Record<string, GearSetOverride>) => void;
   onAddGear?: (onAdded: (item: GearItem) => void) => void;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState(initial?.name || '');
+  const [description, setDescription] = useState(initial?.description || '');
   const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set(initial?.items || []));
   const [overrides, setOverrides] = useState<Record<string, GearSetOverride>>(() => {
     const next: Record<string, GearSetOverride> = {};
@@ -103,7 +104,7 @@ export function GearSetEditor({
       const key = keyFor(item);
       if (overrides[key]) cleanOverrides[key] = overrides[key];
     });
-    onSave(trimmedName, allItems.filter((item) => selectedNames.has(item.name)).map((item) => item.name), cleanOverrides);
+    onSave(trimmedName, description.trim() || undefined, allItems.filter((item) => selectedNames.has(item.name)).map((item) => item.name), cleanOverrides);
   };
 
   const pickerPage = pickerOpen ? (
@@ -177,6 +178,19 @@ export function GearSetEditor({
             style={{ minHeight: 34, padding: 0, fontSize: 19, lineHeight: 26, fontWeight: '800', letterSpacing: -0.35, color: theme.text }}
           />
           <Text style={{ marginTop: space.xs, fontFamily: MONO, fontSize: 10.5, color: theme.text3 }}>{name.length}/24</Text>
+        </AppCard>
+
+        <AppSectionHeader theme={theme} text={t('gear.setEditor.descriptionLabel')} marginTop={space.xl} />
+        <AppCard theme={theme} radius={radius.feature} style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
+          <TextInput
+            value={description}
+            onChangeText={setDescription}
+            placeholder={t('gear.setEditor.descriptionPlaceholder')}
+            placeholderTextColor={theme.text3}
+            multiline
+            scrollEnabled={false}
+            style={{ minHeight: 76, padding: 0, fontSize: 14.5, lineHeight: 22, color: theme.text, textAlignVertical: 'top' }}
+          />
         </AppCard>
 
         <View style={{ marginTop: space.sm, flexDirection: 'row', gap: space.xs }}>

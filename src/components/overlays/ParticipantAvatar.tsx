@@ -10,12 +10,16 @@ export function ParticipantAvatar({
   size = 44,
   ring = false,
   ringColor,
+  ringWidth = 2,
+  backgroundColor,
 }: {
   theme: Theme;
   uri?: string;
   size?: number;
   ring?: boolean;
   ringColor?: string;
+  ringWidth?: number;
+  backgroundColor?: string;
 }) {
   return (
     <View
@@ -26,8 +30,8 @@ export function ParticipantAvatar({
         overflow: 'hidden',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.fieldSurface,
-        borderWidth: ring ? 2 : 0,
+        backgroundColor: backgroundColor || theme.fieldSurface,
+        borderWidth: ring ? ringWidth : 0,
         borderColor: ringColor || theme.featureSurface,
       }}
     >

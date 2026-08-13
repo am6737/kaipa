@@ -1,6 +1,6 @@
 // Shared settings primitives used by the pushed pages under 设置.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, ViewStyle, StyleProp } from 'react-native';
+import { View, Text, StyleSheet, Switch, ViewStyle, StyleProp, type DimensionValue } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
@@ -11,11 +11,13 @@ export function MeSection({
   title,
   first,
   children,
+  horizontalPadding = space.xl,
 }: {
   theme: Theme;
   title?: string;
   first?: boolean;
   children: React.ReactNode;
+  horizontalPadding?: number;
 }) {
   return (
     <View style={{ marginTop: first ? space.lg : layout.sectionGap }}>
@@ -25,14 +27,14 @@ export function MeSection({
             ...type.eyebrow,
             color: theme.text3,
             textTransform: 'uppercase',
-            paddingHorizontal: space.xl,
+            paddingHorizontal: horizontalPadding,
             marginBottom: space.xs,
           }}
         >
           {title}
         </Text>
       ) : null}
-      <View style={{ paddingHorizontal: space.xl }}>{children}</View>
+      <View style={{ paddingHorizontal: horizontalPadding }}>{children}</View>
     </View>
   );
 }
@@ -74,19 +76,25 @@ export function MeRow({
   label,
   detail,
   detailLeading,
+  detailMaxWidth,
+  trailing,
   leading,
   onPress,
   danger,
   last,
+  showChevron = true,
 }: {
   theme: Theme;
   label: string;
   detail?: string;
   detailLeading?: React.ReactNode;
+  detailMaxWidth?: DimensionValue;
+  trailing?: React.ReactNode;
   leading?: React.ReactNode;
   onPress?: () => void;
   danger?: boolean;
   last?: boolean;
+  showChevron?: boolean;
 }) {
   const body = (
     <View
@@ -104,7 +112,7 @@ export function MeRow({
         style={{
           flex: 1,
           ...type.cardTitle,
-          color: danger ? theme.danger : theme.text,
+          color: danger ? '#FFFFFF' : theme.text,
           fontWeight: danger ? '700' : type.cardTitle.fontWeight,
           textAlign: danger ? 'center' : 'left',
         }}
@@ -113,11 +121,16 @@ export function MeRow({
       </Text>
       {detailLeading}
       {detail ? (
-        <Text style={[type.caption, { color: theme.text2, marginRight: onPress && !danger ? space.xxs : 0 }]} numberOfLines={1}>
+        <Text
+          style={[type.caption, { flexShrink: 1, minWidth: 0, maxWidth: detailMaxWidth, color: theme.text2, textAlign: 'right', marginRight: onPress && !danger ? space.xxs : 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="middle"
+        >
           {detail}
         </Text>
       ) : null}
-      {onPress && !danger ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
+      {trailing ? <View style={{ marginLeft: space.xs }}>{trailing}</View> : null}
+      {!trailing && onPress && !danger && showChevron ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
     </View>
   );
   if (!onPress) return body;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadMedia, removeMedia } from '../lib/storage';
 import { toInspoMedia } from '../lib/mappers';
@@ -6,6 +6,7 @@ import type { InspoMedia } from '../data/inspoStore';
 
 export function useInspo(journeyId: string | undefined, userId: string | undefined) {
   const [media, setMedia] = useState<InspoMedia[]>([]);
+  const [loading, setLoading] = useState(true);
   const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
@@ -23,17 +24,32 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     else inflight.current--;
   };
 
-  const fetchMedia = useCallback(async () => {
-    if (!journeyId || !userId) return;
-    const { data } = await supabase
-      .from('inspo_media')
-      .select('*')
-      .eq('journey_id', journeyId)
-      .order('created_at');
-    if (data) setMedia(data.map(toInspoMedia));
-  }, [journeyId, userId]);
+  useEffect(() => {
+    let active = true;
 
-  useEffect(() => { fetchMedia(); }, [fetchMedia]);
+    if (!journeyId || !userId) {
+      setMedia([]);
+      setLoading(false);
+      return () => { active = false; };
+    }
+
+    setMedia([]);
+    setLoading(true);
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from('inspo_media')
+          .select('*')
+          .eq('journey_id', journeyId)
+          .order('created_at');
+        if (active && data) setMedia(data.map(toInspoMedia));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+
+    return () => { active = false; };
+  }, [journeyId, userId]);
 
   // Single upload (used for camera captures). Placeholder is handled by caller.
   const add = async (m: Omit<InspoMedia, 'id'>) => {
@@ -147,5 +163,5 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     setRemovingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
 
-  return { media, add, addAll, remove, uploading: uploadingIds.size > 0, uploadingIds, removingIds };
+  return { media, loading, add, addAll, remove, uploading: uploadingIds.size > 0, uploadingIds, removingIds };
 }

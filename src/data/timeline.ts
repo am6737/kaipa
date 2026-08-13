@@ -30,6 +30,17 @@ export interface TLRow {
   custom?: boolean;
   checked?: boolean;
 }
+
+export interface TimelineGroupRoute {
+  endDistanceMeters: number;
+  longitude: number;
+  latitude: number;
+  trackPointIndex: number;
+  trackPointFraction: number;
+  source: 'waypoint' | 'map' | 'distance';
+  locationName?: string;
+}
+
 export interface TLGroup {
   key: string;
   label: string;

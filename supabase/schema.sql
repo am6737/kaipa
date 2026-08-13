@@ -5,11 +5,17 @@
 create table if not exists profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default '',
+  nick        text not null default '',
+  username    text not null default '',
+  bio         text not null default '',
   avatar_ini  text default '',
   avatar_color text default '#FF5C3A',
   gear_weight_unit text not null default 'kg' check (gear_weight_unit in ('kg','g','oz','lb')),
   created_at  timestamptz default now()
 );
+alter table profiles add column if not exists nick text not null default '';
+alter table profiles add column if not exists username text not null default '';
+alter table profiles add column if not exists bio text not null default '';
 alter table profiles enable row level security;
 create policy "profiles_select" on profiles for select to authenticated using (true);
 create policy "profiles_update" on profiles for update to authenticated using (id = auth.uid());
@@ -17,10 +23,17 @@ create policy "profiles_insert" on profiles for insert to authenticated with che
 
 -- auto-create profile on signup
 create or replace function handle_new_user()
-returns trigger language plpgsql security definer as $$
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  profile_name text := coalesce(
+    nullif(new.raw_user_meta_data ->> 'nickname', ''),
+    nullif(new.raw_user_meta_data ->> 'display_name', ''),
+    nullif(split_part(new.email, '@', 1), ''),
+    '游客'
+  );
 begin
-  insert into profiles (id, display_name, avatar_ini)
-  values (new.id, coalesce(split_part(new.email, '@', 1), ''), '');
+  insert into profiles (id, display_name, nick, avatar_ini)
+  values (new.id, profile_name, profile_name, left(profile_name, 1));
   return new;
 end;
 $$;
@@ -102,6 +115,7 @@ create table if not exists journeys (
   track_waypoints jsonb,
   track_file_url  text,
   track_file_name text,
+  hero_mode      text check (hero_mode in ('track', 'cover')),
   track_public    boolean default false,
   route_show_photos   boolean default true,
   route_show_timeline boolean default true,
@@ -116,6 +130,9 @@ create policy "journeys_public_select" on journeys for select to authenticated u
 
 -- migration: add columns to existing journeys tables (safe to re-run)
 do $$ begin
+  if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='hero_mode') then
+    alter table journeys add column hero_mode text check (hero_mode in ('track', 'cover'));
+  end if;
   if not exists (select 1 from information_schema.columns where table_name='journeys' and column_name='track_public') then
     alter table journeys add column track_public boolean default false;
   end if;
@@ -233,6 +250,7 @@ create table if not exists gear_sets (
   id       text primary key default 'gs_' || gen_random_uuid()::text,
   user_id  uuid not null references profiles(id) on delete cascade,
   name     text not null,
+  description text,
   created_at timestamptz default now()
 );
 alter table gear_sets enable row level security;
@@ -303,6 +321,13 @@ create table if not exists timeline_groups (
   sort_order int4 not null default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
+  route_end_meters float8,
+  route_end_lng float8,
+  route_end_lat float8,
+  route_end_track_index int4,
+  route_end_track_fraction float8,
+  route_end_source text check (route_end_source is null or route_end_source in ('waypoint', 'map', 'distance')),
+  route_location_name text,
   unique (journey_id, name)
 );
 alter table timeline_groups enable row level security;
@@ -339,6 +364,15 @@ create policy "inspo_all" on inspo_media for all to authenticated
 -- This supersedes the earlier responsibility-board checklist model.
 
 alter table companions add column if not exists user_id uuid references profiles(id) on delete set null;
+
+-- Older journeys were created before companions.user_id existed. Link the host/self
+-- companion to the journey owner so personal packing lists can sync under RLS.
+update companions c
+set user_id = j.user_id
+from journeys j
+where c.journey_id = j.id
+  and c.user_id is null
+  and (c.is_self = true or c.is_host = true);
 
 create table if not exists journey_packing_lists (
   id uuid primary key default gen_random_uuid(),
@@ -515,7 +549,7 @@ create policy "journey_packing_items_insert" on journey_packing_items for insert
     join journeys j on j.id = l.journey_id
     left join companions owner on owner.id = l.owner_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (j.user_id = auth.uid() or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)))
     )
   )
@@ -529,7 +563,7 @@ create policy "journey_packing_items_update" on journey_packing_items for update
     left join companions owner on owner.id = l.owner_companion_id
     left join companions carrier on carrier.id = carrier_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (
         j.user_id = auth.uid()
         or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)
@@ -549,7 +583,7 @@ create policy "journey_packing_items_delete" on journey_packing_items for delete
     join journeys j on j.id = l.journey_id
     left join companions owner on owner.id = l.owner_companion_id
     where l.id = list_id and public.is_journey_member(l.journey_id) and (
-      (l.kind = 'personal' and owner.user_id = auth.uid())
+      (l.kind = 'personal' and (owner.user_id = auth.uid() or j.user_id = auth.uid()))
       or (l.kind = 'shared' and (j.user_id = auth.uid() or coalesce((j.participant_permissions->>'editChecklist')::boolean, false)))
     )
   )
