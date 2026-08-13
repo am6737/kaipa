@@ -43,6 +43,14 @@ module.exports = ({ config }) => ({
         microphonePermission: 'Kaipa 在录制视频时需要使用麦克风。',
       },
     ],
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'Kaipa 需要使用相机，以便扫描二维码登录其他设备。',
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     'expo-font',
     'expo-localization',
     'expo-sharing',

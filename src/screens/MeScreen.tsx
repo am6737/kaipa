@@ -25,8 +25,10 @@ import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
 import { AppCard, AppSectionHeader, layout, motion, radius, space, type } from '../design-system';
+import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 
 type MePage =
+  | { type: 'scanLogin' }
   | { type: 'account' }
   | { type: 'edit'; field: MeEditField }
   | { type: 'notif' }
@@ -234,6 +236,17 @@ export function MeScreen({ theme }: { theme: Theme }) {
 
   const renderPage = (pg: MePage) => {
     switch (pg.type) {
+      case 'scanLogin':
+        return (
+          <QrLoginScannerPage
+            theme={theme}
+            onBack={pop}
+            onApproved={() => {
+              pop();
+              showToast(t('qrLogin.approvedToast'));
+            }}
+          />
+        );
       case 'account':
         return (
           <AccountPage
@@ -288,7 +301,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg }}>
           <Press
-            onPress={() => showToast(t('me.scanComingSoon'))}
+            onPress={() => push({ type: 'scanLogin' })}
             accessibilityRole="button"
             accessibilityLabel={t('me.scan')}
             scaleTo={1}

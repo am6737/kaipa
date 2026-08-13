@@ -33,12 +33,14 @@ import { layout, motion, radius, space, type } from '../design-system';
 import { useI18n, TKey } from '../i18n';
 import { signInWithEmail, signUpWithEmail, signInAnonymously } from '../lib/auth';
 import { WeChatIcon } from '../components/WeChatIcon';
+import QRCode from 'react-native-qrcode-svg';
+import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload } from '../lib/qrLogin';
 
 const SCREEN_W = Dimensions.get('window').width;
 
 type DocId = 'agreement' | 'privacy';
 type SocialId = 'wechat' | 'apple' | 'google';
-type Step = 'entry' | 'phone' | 'otp' | 'recover';
+type Step = 'entry' | 'phone' | 'otp' | 'recover' | 'qr';
 
 // ── SVG glyphs (ported verbatim from the prototype) ─────────────────────────
 const Mail = ({ c }: { c: string }) => (
@@ -119,6 +121,14 @@ const PhoneGlyph = ({ c = '#fff' }: { c?: string }) => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
     <Rect x={6.5} y={3} width={11} height={18} rx={2.6} stroke={c} strokeWidth={1.8} />
     <Path d="M10.5 18h3" stroke={c} strokeWidth={1.8} strokeLinecap="round" />
+  </Svg>
+);
+const QrGlyph = ({ c }: { c: string }) => (
+  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    <Rect x={3} y={3} width={6} height={6} rx={1} stroke={c} strokeWidth={1.8} />
+    <Rect x={15} y={3} width={6} height={6} rx={1} stroke={c} strokeWidth={1.8} />
+    <Rect x={3} y={15} width={6} height={6} rx={1} stroke={c} strokeWidth={1.8} />
+    <Path d="M14 14h3v3h4M14 21v-3h3M21 13v2" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 
@@ -935,6 +945,79 @@ function AuthRecover({ t, onBack, onDone, onOpenDoc }: { t: Theme; onBack: () =>
   );
 }
 
+function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const { t: tr } = useI18n();
+  const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const slide = useSlideIn();
+
+  const createRequest = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setRequest(await createQrLoginRequest());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : tr('qrLogin.unavailable'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void createRequest();
+  }, []);
+
+  useEffect(() => {
+    if (!request) return;
+    const poll = setInterval(() => {
+      void consumeQrLoginRequest(request).then((status) => {
+        if (status === 'signed_in') clearInterval(poll);
+        else if (status === 'expired' || status === 'consumed') {
+          clearInterval(poll);
+          setError(tr('qrLogin.errorExpired'));
+        }
+      }).catch((cause) => {
+        clearInterval(poll);
+        setError(cause instanceof Error ? cause.message : tr('qrLogin.errorGeneric'));
+      });
+    }, 1800);
+    return () => clearInterval(poll);
+  }, [request]);
+
+  const qrValue = request ? encodeQrLoginPayload(request) : '';
+
+  return (
+    <Animated.View style={{ flex: 1, backgroundColor: t.featureSurface, transform: [{ translateX: slide }] }}>
+      <AuthBack t={t} top={insets.top + 5} onPress={onBack} />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', paddingTop: insets.top + 82, paddingHorizontal: space.xxl, paddingBottom: insets.bottom + space.xxl }}
+      >
+        <StepTitle t={t} title={tr('qrLogin.title')} sub={tr('qrLogin.subtitle')} />
+        <View style={{ flex: 1, minHeight: 360, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 254, height: 254, borderRadius: radius.feature, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: t.hairline }}>
+            {loading ? <Spinner size={26} color={t.accent} track={t.accentSofter} width={2.5} /> : request ? (
+              <QRCode value={qrValue} size={210} color="#111111" backgroundColor="#FFFFFF" />
+            ) : (
+              <Text style={{ color: t.text2, fontSize: 14, textAlign: 'center', paddingHorizontal: space.xl }}>{error}</Text>
+            )}
+          </View>
+          <Text style={{ color: t.text2, fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: space.lg }}>
+            {tr('qrLogin.openScannerHint')}
+          </Text>
+          {request ? <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresHint')}</Text> : null}
+          {error && request ? <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: space.md }}>{error}</Text> : null}
+        </View>
+        <Press onPress={() => void createRequest()} disabled={loading} style={{ minHeight: 48, paddingHorizontal: space.xl, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: t.accent, fontSize: 14, fontWeight: '700' }}>{loading ? tr('qrLogin.generating') : tr('qrLogin.refresh')}</Text>
+        </Press>
+      </ScrollView>
+    </Animated.View>
+  );
+}
+
 // Wraps each internal recover step so it re-slides in on step change (auth-push).
 function SlideStep({ t, stepKey, children }: { t: Theme; stepKey: string; children: React.ReactNode }) {
   return <SlideStepInner key={stepKey} t={t} children={children} />;
@@ -1057,6 +1140,7 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     );
   if (step === 'otp') return <AuthOtp t={t} phone={phone} busy={busy} onBack={() => setStep('phone')} onVerify={onVerify} />;
   if (step === 'recover') return <AuthRecover t={t} onBack={() => setStep('entry')} onDone={() => setStep('entry')} onOpenDoc={setDoc} />;
+  if (step === 'qr') return <AuthQrLogin t={t} onBack={() => setStep('entry')} />;
 
   if (!emailOpen) {
     return (
@@ -1083,6 +1167,15 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
               label={tr('auth.more.phoneLogin')}
               icon={<PhoneGlyph c={t.text} />}
               onPress={() => setStep('phone')}
+            />
+            <LandingButton
+              t={t}
+              label={tr('qrLogin.entry')}
+              icon={<QrGlyph c={t.text} />}
+              onPress={() => {
+                if (!agree) { flashAgree(); return; }
+                setStep('qr');
+              }}
             />
             <Press
               accessibilityRole="button"
