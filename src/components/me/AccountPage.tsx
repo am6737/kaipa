@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import ImageCropTool from '@bsky.app/expo-image-crop-tool';
-import { View, Text, StyleSheet } from 'react-native';
+import ImageCropPicker from 'react-native-image-crop-picker';
+import { InteractionManager, View, Text, StyleSheet } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -70,24 +70,41 @@ export function AccountPage({
     const asset = selection.canceled ? undefined : selection.assets[0];
     if (!asset) return;
 
+    // Let the system photo picker finish dismissing before presenting the
+    // native cropper. Both modules present full-screen native controllers.
+    await new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => setTimeout(resolve, 350));
+    });
+
     try {
-      const image = await ImageCropTool.openCropperAsync({
-        imageUri: asset.uri,
-        shape: 'circle',
-        aspectRatio: 1,
-        format: 'jpeg',
+      const image = await ImageCropPicker.openCropper({
+        path: asset.uri,
+        mediaType: 'photo',
+        cropping: true,
+        cropperCircleOverlay: true,
+        width: 512,
+        height: 512,
         compressImageQuality: 0.9,
-        rotationEnabled: true,
-        rotationControlEnabled: true,
-        cancelButtonText: t('common.cancel'),
-        doneButtonText: t('common.done'),
+        forceJpg: true,
+        avoidEmptySpaceAroundImage: true,
+        freeStyleCropEnabled: false,
+        cropperToolbarTitle: t('account.profile.avatarCropTitle'),
+        cropperCancelText: t('common.cancel'),
+        cropperChooseText: t('common.done'),
+        cropperToolbarColor: theme.dark ? '#111113' : '#FFFFFF',
+        cropperToolbarWidgetColor: theme.dark ? '#FFFFFF' : '#111113',
+        cropperActiveWidgetColor: theme.accent,
+        cropperStatusBarLight: !theme.dark,
+        cropperNavigationBarLight: !theme.dark,
+        showCropGuidelines: false,
+        showCropFrame: false,
       });
       setSelectedAvatarUri(image.path);
       showToast(t('account.profile.toastAvatarUpdated'));
     } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      if (message.includes('cancel')) return;
-      showToast(t('account.profile.avatarPickerFailed'));
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      if (code === 'E_PICKER_CANCELLED') return;
+      showToast(code === 'E_CROPPER_IMAGE_NOT_FOUND' ? t('account.profile.avatarCropImageFailed') : t('account.profile.avatarPickerFailed'));
     }
   };
 
