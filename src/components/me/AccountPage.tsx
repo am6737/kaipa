@@ -2,7 +2,8 @@
 // 注销账号, and a UID/join-date footer. Mirrors the prototype AccountScreen.
 import React, { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import ImagePicker from 'react-native-image-crop-picker';
+import * as ImagePicker from 'expo-image-picker';
+import ImageCropTool from '@bsky.app/expo-image-crop-tool';
 import { View, Text, StyleSheet } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -55,34 +56,38 @@ export function AccountPage({
   };
 
   const pickAvatar = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      showToast(t('account.profile.avatarLibraryPermission'));
+      return;
+    }
+
+    const selection = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: false,
+      quality: 1,
+    });
+    const asset = selection.canceled ? undefined : selection.assets[0];
+    if (!asset) return;
+
     try {
-      const image = await ImagePicker.openPicker({
-        mediaType: 'photo',
-        cropping: true,
-        cropperCircleOverlay: true,
-        width: 512,
-        height: 512,
+      const image = await ImageCropTool.openCropperAsync({
+        imageUri: asset.uri,
+        shape: 'circle',
+        aspectRatio: 1,
+        format: 'jpeg',
         compressImageQuality: 0.9,
-        forceJpg: true,
-        avoidEmptySpaceAroundImage: true,
-        freeStyleCropEnabled: false,
-        cropperToolbarTitle: t('account.profile.avatarCropTitle'),
-        cropperCancelText: t('common.cancel'),
-        cropperChooseText: t('common.done'),
-        cropperToolbarColor: theme.dark ? '#111113' : '#FFFFFF',
-        cropperToolbarWidgetColor: theme.dark ? '#FFFFFF' : '#111113',
-        cropperActiveWidgetColor: theme.accent,
-        cropperStatusBarLight: !theme.dark,
-        cropperNavigationBarLight: !theme.dark,
-        showCropGuidelines: false,
-        showCropFrame: false,
+        rotationEnabled: true,
+        rotationControlEnabled: true,
+        cancelButtonText: t('common.cancel'),
+        doneButtonText: t('common.done'),
       });
       setSelectedAvatarUri(image.path);
       showToast(t('account.profile.toastAvatarUpdated'));
     } catch (error) {
-      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
-      if (code === 'E_PICKER_CANCELLED') return;
-      showToast(code === 'E_NO_LIBRARY_PERMISSION' ? t('account.profile.avatarLibraryPermission') : t('account.profile.avatarPickerFailed'));
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (message.includes('cancel')) return;
+      showToast(t('account.profile.avatarPickerFailed'));
     }
   };
 

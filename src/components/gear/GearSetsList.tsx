@@ -18,6 +18,7 @@ import { Glass } from '../Glass';
 import { AppHeaderSearch, AppIconButton, DetailPage } from '../../design-system';
 import { usePersistedSort } from './usePersistedSort';
 import { GearMenuTransition } from './GearMenuTransition';
+import { GearEmptyState } from './GearEmptyState';
 
 type LayoutMode = 'grid' | 'list';
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
@@ -312,11 +313,23 @@ export function GearSetsList({
               <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={pickerMode || selectMode} selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)} onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => { if (!picker) enterSelect(row.set.id); }} />
             ))}
           </View>
+        ) : query.trim() ? (
+          <GearEmptyState
+            theme={theme}
+            icon="search"
+            title={t('gear.empty.noSets')}
+            actionLabel={t('gear.empty.clearSetSearch')}
+            actionIcon="close"
+            onAction={closeSearch}
+          />
         ) : (
-          <View style={{ minHeight: 300, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <View style={{ width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}><Package color={theme.accent} size={27} strokeWidth={1.5} /></View>
-            <Text style={{ fontSize: 15, color: theme.text2 }}>{query ? t('gear.empty.noSets') : t('gear.empty.noSetsYet')}</Text>
-          </View>
+          <GearEmptyState
+            theme={theme}
+            icon="layers"
+            title={t('gear.empty.noSetsYet')}
+            actionLabel={!picker ? t('gear.empty.createFirstSet') : undefined}
+            onAction={!picker ? onAdd : undefined}
+          />
         )}
       </View>
     </DetailPage>

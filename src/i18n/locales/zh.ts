@@ -301,8 +301,13 @@ export const zh = {
     },
     empty: {
       noItems: "没有匹配的装备",
+      noItemsYet: "还没有装备",
+      addFirstItem: "添加第一件装备",
+      clearItemFilters: "清除筛选",
       noSets: "没有匹配的清单",
       noSetsYet: "还没有装备清单",
+      createFirstSet: "创建第一份清单",
+      clearSetSearch: "清除搜索",
     },
     unit: {
       items: "件",
@@ -1489,6 +1494,8 @@ export const zh = {
       avatarLibraryPermission: "需要相册权限才能选择头像",
       avatarCropTitle: "调整头像",
       avatarPickerFailed: "无法打开头像选择器，请重试",
+      avatarCropImageFailed: "无法读取所选照片，请重新选择",
+      avatarCropperBuildRequired: "头像裁剪组件需要重新安装开发构建",
       avatarRemove: "移除当前头像",
       toastCameraOpened: "已打开相机",
       toastAvatarUpdated: "已更新头像",

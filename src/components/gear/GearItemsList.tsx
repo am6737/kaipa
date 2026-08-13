@@ -23,6 +23,7 @@ import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { GearMenuTransition } from './GearMenuTransition';
+import { GearEmptyState } from './GearEmptyState';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
@@ -150,6 +151,7 @@ function GearItemsListView({
     return next.map(({ item }) => item);
   }, [catMap, category, items, query, sort, t]);
 
+  const hasActiveFilter = query.trim().length > 0 || category != null;
   const totalWeight = items.reduce((sum, item) => sum + itemWeight(item), 0);
   const itemColumns = [rows.filter((_, index) => index % 2 === 0), rows.filter((_, index) => index % 2 === 1)];
   const gridCardWidth = (width - 48 - 12) / 2;
@@ -437,11 +439,27 @@ function GearItemsListView({
               />
             ))}
           </View>
+        ) : hasActiveFilter ? (
+          <GearEmptyState
+            theme={theme}
+            icon="search"
+            title={t('gear.empty.noItems')}
+            actionLabel={t('gear.empty.clearItemFilters')}
+            actionIcon="close"
+            onAction={() => {
+              setQuery('');
+              setCategory(null);
+              setSearchOpen(false);
+            }}
+          />
         ) : (
-          <View style={{ minHeight: 320, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <View style={{ width: 66, height: 66, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}><Package color={theme.accent} size={28} strokeWidth={1.5} /></View>
-            <Text style={{ fontSize: 15, color: theme.text2 }}>{t('gear.empty.noItems')}</Text>
-          </View>
+          <GearEmptyState
+            theme={theme}
+            icon="bag"
+            title={t('gear.empty.noItemsYet')}
+            actionLabel={picker?.onAdd || !picker ? t('gear.empty.addFirstItem') : undefined}
+            onAction={picker?.onAdd ?? (!picker ? onAdd : undefined)}
+          />
         )}
       </View>
     </DetailPage>

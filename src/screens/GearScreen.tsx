@@ -23,6 +23,7 @@ import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { GearOverviewDetail } from '../components/gear/GearOverviewDetail';
+import { GearEmptyState } from '../components/gear/GearEmptyState';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import { layout, motion, radius, space, type } from '../design-system';
 
@@ -261,6 +262,8 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
           onPullOpenItems={() => pushPage({ type: 'itemsList', entry: 'pull' })}
           onOpenSet={(set) => pushPage({ type: 'set', set })}
           onOpenItem={(item) => pushPage({ type: 'item', item })}
+          onAddSet={() => setSetEditor({ mode: 'new' })}
+          onAddItem={() => setAddChoose(true)}
         />
       ) : null}
 
@@ -420,7 +423,7 @@ function edgePullHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 }
 
-function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenSets, onOpenItems, onPullOpenSets, onPullOpenItems, onOpenSet, onOpenItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenSets: () => void; onOpenItems: () => void; onPullOpenSets: () => void; onPullOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void }) {
+function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenSets, onOpenItems, onPullOpenSets, onPullOpenItems, onOpenSet, onOpenItem, onAddSet, onAddItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenSets: () => void; onOpenItems: () => void; onPullOpenSets: () => void; onPullOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void; onAddSet: () => void; onAddItem: () => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
@@ -656,7 +659,16 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, 
                   </Animated.View>
                 </View>
               </GestureDetector>
-            ) : <EmptyText theme={theme} text={t('gear.empty.noSetsYet')} />}
+            ) : (
+              <GearEmptyState
+                theme={theme}
+                compact
+                icon="layers"
+                title={t('gear.empty.noSetsYet')}
+                actionLabel={t('gear.empty.createFirstSet')}
+                onAction={onAddSet}
+              />
+            )}
 
             <SectionHeader theme={theme} title={t('gear.home.myGear')} action={t('gear.home.viewAll')} onPress={onOpenItems} />
             <View style={{ gap: 10 }}>
@@ -691,7 +703,16 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, 
                     </View>
                   </Press>
                 );
-              }) : <EmptyText theme={theme} text={t('gear.empty.noItems')} />}
+              }) : (
+                <GearEmptyState
+                  theme={theme}
+                  compact
+                  icon="bag"
+                  title={t('gear.empty.noItemsYet')}
+                  actionLabel={t('gear.empty.addFirstItem')}
+                  onAction={onAddItem}
+                />
+              )}
             </View>
           </GestureScrollView>
         </Animated.View>
@@ -777,7 +798,3 @@ const styles = StyleSheet.create({
 
 function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
 function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : space.xxl, marginBottom: first ? 18 : space.sm }}><Text style={[first ? type.pageTitle : type.sectionTitle, { color: theme.text }]}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={[type.eyebrow, { color: theme.text2 }]}>{action} ›</Text></Press> : null}</View>; }
-
-function EmptyText({ theme, text }: { theme: Theme; text: string }) {
-  return <Text style={{ paddingVertical: 40, textAlign: 'center', fontSize: 14, color: theme.text3 }}>{text}</Text>;
-}

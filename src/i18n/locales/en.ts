@@ -302,8 +302,13 @@ export const en: SameShape<typeof zh> = {
     },
     empty: {
       noItems: "No matching gear",
+      noItemsYet: "No gear yet",
+      addFirstItem: "Add your first item",
+      clearItemFilters: "Clear filters",
       noSets: "No matching sets",
       noSetsYet: "No sets yet",
+      createFirstSet: "Create your first set",
+      clearSetSearch: "Clear search",
     },
     unit: {
       items: "items",
@@ -1518,6 +1523,8 @@ export const en: SameShape<typeof zh> = {
       avatarLibraryPermission: "Photo library access is required to choose an avatar",
       avatarCropTitle: "Adjust Avatar",
       avatarPickerFailed: "Unable to open the avatar picker. Please try again.",
+      avatarCropImageFailed: "Unable to read the selected photo. Please choose it again.",
+      avatarCropperBuildRequired: "Reinstall the development build to enable avatar cropping.",
       avatarRemove: "Remove Current Avatar",
       toastCameraOpened: "Camera opened",
       toastAvatarUpdated: "Avatar updated",
