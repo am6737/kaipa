@@ -12,6 +12,7 @@ export function AppIconButton({
   softShadow,
   active,
   danger,
+  accessibilityLabel,
   size = layout.iconButton,
 }: {
   theme: Theme;
@@ -21,7 +22,8 @@ export function AppIconButton({
   softShadow?: boolean;
   active?: boolean;
   danger?: boolean;
+  accessibilityLabel?: string;
   size?: number;
 }) {
-  return <CircleBtn {...{ theme, name, onPress, noShadow, softShadow, active, danger, size }} />;
+  return <CircleBtn {...{ theme, name, onPress, noShadow, softShadow, active, danger, size, accessibilityLabel }} />;
 }

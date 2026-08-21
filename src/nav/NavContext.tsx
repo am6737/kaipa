@@ -120,7 +120,7 @@ export interface NavValue {
   savedRoutes: Poi[];
   extraJourneys: Poi[];
   addSavedRoute: (p: Poi) => void;
-  addJoinedJourney: (p: Poi) => void;
+  addJoinedJourney: (p: Poi) => Promise<Poi | null>;
 
   // share panel
   sharePanel: Poi | null;
@@ -132,6 +132,14 @@ export interface NavValue {
   openSearch: () => void;
   closeSearch: () => void;
 
+  // Global in-app agent. Feature pages may provide a prompt and current journey.
+  assistantOpen: boolean;
+  assistantPrompt?: string;
+  assistantJourneyId?: string;
+  openAssistant: (prompt?: string, journeyId?: string) => void;
+  clearAssistantPrompt: () => void;
+  closeAssistant: () => void;
+
   // toast
   toast: { message: string; placement: 'top' | 'bottom' } | null;
   showToast: (msg: string, placement?: 'top' | 'bottom') => void;
@@ -141,7 +149,7 @@ export interface NavValue {
   tabBarHidden: boolean;
   setTabBarHidden: (v: boolean) => void;
 
-  auth: { signOut: () => void };
+  auth: { signOut: () => void; deleteAccount: () => Promise<void> };
 }
 
 const NavContext = createContext<NavValue | null>(null);
@@ -160,7 +168,7 @@ export function NavProvider({
   db,
 }: {
   children: React.ReactNode;
-  auth: { signOut: () => void };
+  auth: { signOut: () => void; deleteAccount: () => Promise<void> };
   db?: NavDB;
 }) {
   const [mainTab, setMainTabRaw] = useState<MainTab>('discover');
@@ -187,6 +195,9 @@ export function NavProvider({
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [sharePanel, setSharePanel] = useState<Poi | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantPrompt, setAssistantPrompt] = useState<string>();
+  const [assistantJourneyId, setAssistantJourneyId] = useState<string>();
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHidden, setTabBarHidden] = useState(false);
 
@@ -203,7 +214,8 @@ export function NavProvider({
     nearbyJoinOpen ||
     manageCompanions ||
     sharePanel ||
-    searchOpen
+    searchOpen ||
+    assistantOpen
   );
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -230,6 +242,9 @@ export function NavProvider({
     setManageCompanions(null);
     setSharePanel(null);
     setSearchOpen(false);
+    setAssistantOpen(false);
+    setAssistantPrompt(undefined);
+    setAssistantJourneyId(undefined);
   };
 
   const setMainTab = (t: MainTab) => {
@@ -373,12 +388,33 @@ export function NavProvider({
       searchOpen,
       openSearch: () => setSearchOpen(true),
       closeSearch: () => setSearchOpen(false),
+      assistantOpen,
+      assistantPrompt,
+      assistantJourneyId,
+      openAssistant: (prompt, journeyId) => {
+        setAssistantPrompt(prompt);
+        setAssistantJourneyId(journeyId);
+        setAssistantOpen(true);
+      },
+      clearAssistantPrompt: () => setAssistantPrompt(undefined),
+      closeAssistant: () => {
+        setAssistantOpen(false);
+        setAssistantPrompt(undefined);
+        setAssistantJourneyId(undefined);
+      },
       savedRoutes,
       extraJourneys,
       addSavedRoute: (p) => setSavedRoutes((s) => [p, ...s]),
-      addJoinedJourney: (p) => {
-        setExtraJourneys((s) => (s.some((x) => x.id === p.id) ? s : [p, ...s]));
-        db?.createJourney?.(p);
+      addJoinedJourney: async (p) => {
+        try {
+          const saved = await db?.createJourney?.(p);
+          if (!saved) return null;
+          setExtraJourneys((s) => (s.some((x) => x.id === saved.id) ? s : [saved, ...s]));
+          return saved;
+        } catch (error) {
+          console.warn('[NavProvider] create journey error:', error);
+          return null;
+        }
       },
       toast,
       showToast,
@@ -409,6 +445,9 @@ export function NavProvider({
       manageCompanions,
       sharePanel,
       searchOpen,
+      assistantOpen,
+      assistantPrompt,
+      assistantJourneyId,
       savedRoutes,
       extraJourneys,
       toast,

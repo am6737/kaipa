@@ -13,6 +13,7 @@ export interface DataValue {
   userId: string;
   profile: UserProfile;
   updateProfile: (field: string, value: string) => Promise<void>;
+  updateAvatar: (localUri: string) => Promise<void>;
   routes: Poi[];
   routesLoading: boolean;
   journeys: Poi[];
@@ -61,7 +62,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     refetch: refetchGear,
   } = useGear(userId);
   const {
-    profile, updateProfile,
+    profile, updateProfile, updateAvatar,
   } = useProfile(userId);
   const {
     list: notifList, unread: notifUnread,
@@ -70,7 +71,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
 
   const value: DataValue = {
     userId,
-    profile, updateProfile,
+    profile, updateProfile, updateAvatar,
     routes, routesLoading,
     journeys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, toggleFav, refetchJourneys, refetchRoutes,
     cats, items, sets, gearLoading,

@@ -26,12 +26,12 @@ import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { uploadMedia } from '../../lib/storage';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
-import { generateSmartPlan, parseJourneySchedule, SmartPlanItem } from '../../lib/smartPlan';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
 import { AppCard, motion, radius, space, type } from '../../design-system';
 import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../../lib/routeSegments';
 import { JourneyRouteBoundarySheet } from './JourneyRouteBoundarySheet';
+import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -92,9 +92,9 @@ function DayGroupPicker({ theme, data, value, onChange }: {
   onChange: (value: string) => void;
 }) {
   const { t } = useI18n();
-  const selectedIndex = dayIndexFromName(value);
+  const selectedIndex = journeyDayOrdinal(value);
   const selected = data.find((item) => item.value === value)?.value
-    ?? data.find((item) => selectedIndex != null && dayIndexFromName(item.value) === selectedIndex)?.value
+    ?? data.find((item) => selectedIndex != null && journeyDayOrdinal(item.value) === selectedIndex)?.value
     ?? data[0]?.value;
   if (!selected) return null;
 
@@ -155,30 +155,6 @@ function TimeWheel({ theme, value, onChange, compact }: { theme: Theme; value: n
 
 const fmtRange = (s?: number, e?: number) => (s == null ? '' : e == null || e === s ? fmtMins(s) : `${fmtMins(s)}-${fmtMins(e)}`);
 
-const defaultDayName = (n: number, t: ReturnType<typeof useI18n>['t']) => t('journey.timeline.defaultDay', { n });
-const chineseDayNumber = (value: string) => {
-  const digits: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  if (value === '十') return 10;
-  const tenIndex = value.indexOf('十');
-  if (tenIndex >= 0) {
-    const tens = tenIndex === 0 ? 1 : digits[value[tenIndex - 1]];
-    const ones = tenIndex === value.length - 1 ? 0 : digits[value[tenIndex + 1]];
-    return tens == null || ones == null ? null : tens * 10 + ones;
-  }
-  const parsed = [...value].reduce((total, char) => digits[char] == null ? Number.NaN : total * 10 + digits[char], 0);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-};
-const dayIndexFromName = (name: string) => {
-  const trimmed = name.trim();
-  const m = trimmed.match(/^(?:第\s*)?(\d+)\s*(?:天|日)?$|^Day\s*(\d+)$/i);
-  if (m) return Number(m[1] || m[2]);
-  const zh = trimmed.match(/^第\s*([零〇一二两三四五六七八九十]+)\s*(?:天|日)$/);
-  return zh ? chineseDayNumber(zh[1]) : null;
-};
-const nextDefaultDayName = (days: string[], t: ReturnType<typeof useI18n>['t']) => {
-  const used = days.map(dayIndexFromName).filter((n): n is number => !!n && n > 0);
-  return defaultDayName(used.length ? Math.max(...used) + 1 : days.length + 1, t);
-};
 
 // Start/end time-of-day picker — both wheels side by side (开始 至 结束), with a
 // title row + clear action, shown as a contained card.
@@ -230,8 +206,8 @@ function groupRows(rows: TLRow[], knownGroups: string[]): TLGroup[] {
   }
   return [...map.entries()]
     .sort((a, b) => {
-      const ai = dayIndexFromName(a[0]);
-      const bi = dayIndexFromName(b[0]);
+      const ai = journeyDayOrdinal(a[0]);
+      const bi = journeyDayOrdinal(b[0]);
       if (ai != null && bi != null) return ai - bi;
       if (ai != null) return -1;
       if (bi != null) return 1;
@@ -1132,132 +1108,9 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   );
 }
 
-function SmartPlanSheet({ theme, info, rows, defaultDays, onApply, onClose }: {
-  theme: Theme;
-  info: Poi;
-  rows: TLRow[];
-  defaultDays: number;
-  onApply: (items: SmartPlanItem[]) => Promise<void>;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const { t } = useI18n();
-  const [notes, setNotes] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [items, setItems] = useState<SmartPlanItem[]>([]);
-  const [meta, setMeta] = useState<{ provider: string; model?: string; warning?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const subtle = theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)';
-  const run = async () => {
-    const sched = parseJourneySchedule(info);
-    const n = sched.days ?? Math.max(1, Math.min(14, defaultDays || 2));
-    const st = startTime.trim();
-    setLoading(true);
-    try {
-      const res = await generateSmartPlan({
-        poi: info,
-        rows,
-        preferences: { days: n, startTime: /^\d{1,2}:\d{2}$/.test(st) ? st : undefined, notes: notes.trim() || undefined },
-      });
-      setItems(res.items);
-      setMeta({ provider: res.provider, model: res.model, warning: res.warning });
-    } catch (e) {
-      Alert.alert(t('journey.smartPlan.failedTitle'), e instanceof Error ? e.message : t('journey.smartPlan.failedBody'));
-    } finally {
-      setLoading(false);
-    }
-  };
-  const apply = async () => {
-    if (!items.length) return;
-    setApplying(true);
-    try {
-      await onApply(items);
-      onClose();
-    } catch (e) {
-      Alert.alert(t('journey.smartPlan.applyFailed'), e instanceof Error ? e.message : t('journey.smartPlan.failedBody'));
-    } finally {
-      setApplying(false);
-    }
-  };
-  return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.28)' }}
-      >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={{ maxHeight: items.length ? '88%' : undefined, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: theme.bg, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 12), overflow: 'hidden' }}>
-          <View style={{ alignItems: 'center', paddingBottom: 6 }}><View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: theme.text3 }} /></View>
-          <View style={{ paddingHorizontal: 18, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: theme.text }}>{t('journey.smartPlan.title')}</Text>
-              <Text style={{ marginTop: 3, fontSize: 12.5, lineHeight: 18, color: theme.text2 }}>{t('journey.smartPlan.subtitle')}</Text>
-            </View>
-            <Press onPress={onClose} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: subtle }}><Icon name="close" color={theme.text2} size={15} /></Press>
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" scrollEnabled={!!items.length} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: items.length ? 18 : 0 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text2 }}>{t('journey.smartPlan.startTime')}</Text>
-              <TextInput
-                value={startTime}
-                onChangeText={setStartTime}
-                placeholder={t('journey.smartPlan.startTimePlaceholder')}
-                placeholderTextColor={theme.text3}
-                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
-                maxLength={5}
-                style={{ minWidth: 96, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: subtle, color: theme.text, fontSize: 14 }}
-              />
-            </View>
-            <TextInput
-              value={notes}
-              onChangeText={setNotes}
-              multiline
-              placeholder={t('journey.smartPlan.notesPlaceholder')}
-              placeholderTextColor={theme.text3}
-              style={{ minHeight: 96, borderRadius: 16, padding: 12, backgroundColor: subtle, color: theme.text, fontSize: 14, lineHeight: 20, textAlignVertical: 'top', marginBottom: 12 }}
-            />
-            <Press onPress={run} disabled={loading} style={{ height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: loading ? subtle : theme.accent, marginBottom: items.length ? 14 : 0 }}>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: loading ? theme.text3 : '#fff' }}>{loading ? t('journey.smartPlan.generating') : t('journey.smartPlan.generate')}</Text>
-            </Press>
-            {meta ? (
-              meta.provider === 'fallback' ? (
-                <Text style={{ marginBottom: items.length ? 12 : 0, fontSize: 12, lineHeight: 17, color: '#E4A11B', fontWeight: '600' }}>
-                  ⚠️ {t('journey.smartPlan.fallbackNotice', { reason: meta.warning || '' })}
-                </Text>
-              ) : (
-                <Text style={{ marginBottom: items.length ? 12 : 0, fontSize: 12, color: theme.text3 }}>
-                  {t('journey.smartPlan.generatedBy', { provider: meta.model ? `${meta.provider} · ${meta.model}` : meta.provider })}
-                </Text>
-              )
-            ) : null}
-            {items.length ? (
-              <View style={{ borderRadius: 16, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' }}>
-                {items.map((it, i) => (
-                  <View key={`${it.day}-${i}`} style={{ paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-                    <Text style={{ fontSize: 11.5, fontWeight: '800', color: theme.accent }}>{it.day}{it.timeStart != null ? ` · ${fmtRange(it.timeStart, it.timeEnd)}` : ''}</Text>
-                    <Text style={{ marginTop: 4, fontSize: 14.5, fontWeight: '600', lineHeight: 20, color: theme.text }}>{it.title}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </ScrollView>
-          {items.length ? (
-            <View style={{ paddingHorizontal: 18, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <Press onPress={apply} disabled={applying} style={{ height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: applying ? subtle : theme.accent }}>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: applying ? theme.text3 : '#fff' }}>{applying ? t('journey.smartPlan.applying') : t('journey.smartPlan.apply', { count: items.length })}</Text>
-              </Press>
-            </View>
-          ) : null}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
-
 export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onRouteBoundaryRequest }: { theme: Theme; info: Poi; readOnly?: boolean; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onRouteBoundaryRequest?: (groupKey: string) => void }) {
   const nav = useNav();
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const { userId } = useData();
   const tl = useTimeline(info.id, userId);
   const [activeDay, setActiveDay] = useState<string>(ALL_DAYS);
@@ -1265,7 +1118,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
   const [viewer, setViewer] = useState<{ rowId: string; media: TLMedia[]; index: number } | null>(null);
   const [chipsEditing, setChipsEditing] = useState(false);
   const [dismissChipsSignal, setDismissChipsSignal] = useState(0);
-  const [smartPlanOpen, setSmartPlanOpen] = useState(false);
   const [routeGroupKey, setRouteGroupKey] = useState<string | null>(null);
   const trackMeasure = useMemo(() => measureTrack(info.trackCoords), [info.trackCoords]);
   const selectedIds = selectedItemIds ?? new Set<string>();
@@ -1279,7 +1131,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
 
   const defaultDayCount = Math.max(1, info.totalDays || Number.parseInt(info.days || '', 10) || 1);
   // When the parent owns the day tabs, preserve its exact group key. The
-  // displayed label may be localized (for example `第 一 天`) while persisted
+  // displayed label may be localized (for example `第一天`) while persisted
   // timeline groups still use `Day 1`; regenerating keys here would make the
   // selected-day filter miss every group and render a blank panel.
   const defaultDays = info.kind === 'journey'
@@ -1288,14 +1140,9 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
       : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
     : [];
   const groups = groupRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
-  const dayLabel = (g: TLGroup) => g.label.trim() || t('journey.timeline.ungrouped');
+  const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t('journey.timeline.ungrouped');
   const currentDay = selectedDay || activeDay;
-  const nextDayName = () => {
-    const used = new Set(groups.map((g) => g.key));
-    let n = 1;
-    while (used.has(`Day ${n}`)) n += 1;
-    return `Day ${n}`;
-  };
+  const nextDayName = () => nextJourneyDayKey(groups.map((group) => group.key));
   const addNextDay = () => {
     const day = nextDayName();
     tl.addGroup(day);
@@ -1308,7 +1155,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
       else next.add(key);
       return next;
     });
-  const openSmartPlan = () => setSmartPlanOpen(true);
+  const openJourneyAgent = () => nav.openAssistant(undefined, info.id);
 
   const confirmDeleteGroup = (g: TLGroup) => {
     const label = dayLabel(g);
@@ -1344,7 +1191,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
                 <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#fff' }}>{t('journey.timeline.addManually')}</Text>
               </Press>
               <Press
-                onPress={openSmartPlan}
+                onPress={openJourneyAgent}
                 style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.06)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}
               >
                 <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.text2 }}>{t('journey.timeline.smartPlan')}</Text>
@@ -1352,18 +1199,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
             </View>
           </View>
         )}
-        {smartPlanOpen ? (
-          <SmartPlanSheet
-            theme={theme}
-            info={info}
-            rows={tl.rows}
-            defaultDays={Number.parseInt(info.days || '', 10) || 2}
-            onClose={() => setSmartPlanOpen(false)}
-            onApply={async (items) => {
-              for (const it of items) await tl.add({ title: it.title, day: it.day, timeStart: it.timeStart, timeEnd: it.timeEnd });
-            }}
-          />
-        ) : null}
       </View>
     );
   }
@@ -1550,7 +1385,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
       {readOnly || !showDayTabs ? null : (
         <View style={{ marginBottom: 16, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <Press
-            onPress={openSmartPlan}
+            onPress={openJourneyAgent}
             style={{ flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.accentSoft }}
           >
             <Text style={{ fontSize: 14, fontWeight: '700', color: theme.accent }}>{t('journey.timeline.smartPlanFull')}</Text>
@@ -1634,18 +1469,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
           }
         />
       ) : null}
-      {smartPlanOpen ? (
-        <SmartPlanSheet
-          theme={theme}
-          info={info}
-          rows={tl.rows}
-          defaultDays={groups.length || Number.parseInt(info.days || '', 10) || 2}
-          onClose={() => setSmartPlanOpen(false)}
-          onApply={async (items) => {
-            for (const it of items) await tl.add({ title: it.title, day: it.day, timeStart: it.timeStart, timeEnd: it.timeEnd });
-          }}
-        />
-      ) : null}
     </View>
   );
 }
@@ -1672,7 +1495,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const initDay = editRow ? (editRow.day || defaultDay) : initialDay?.trim() || defaultDay;
   const [text, setText] = useState(editRow?.title ?? '');
   const [media, setMedia] = useState<TLMedia[]>(editRow?.media ?? []);
@@ -1682,11 +1505,11 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   const dayChoiceMap = new Map<string, string>();
   const availableGroups = existingDays.length ? existingDays : [day.trim() || defaultDay];
   availableGroups.map((value) => value.trim()).filter(Boolean).forEach((value) => {
-    const index = dayIndexFromName(value);
+    const index = journeyDayOrdinal(value);
     const identity = index ? `day:${index}` : `group:${value}`;
     if (!dayChoiceMap.has(identity)) dayChoiceMap.set(identity, value);
   });
-  const dayChoices = [...dayChoiceMap.values()].map((value) => ({ value, label: value }));
+  const dayChoices = [...dayChoiceMap.values()].map((value) => ({ value, label: journeyDayDisplayLabel(value, resolved) }));
   const [startMins, setStartMins] = useState<number | null>(editRow?.timeStart ?? null);
   const [endMins, setEndMins] = useState<number | null>(editRow?.timeEnd ?? null);
   const [showTime, setShowTime] = useState(false);
@@ -1951,17 +1774,16 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
 export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, editRow, onClose }: { theme: Theme; info: Poi; initialDay?: string; availableGroups?: string[]; editRow?: TLRow; onClose: () => void }) {
   const { userId } = useData();
   const tl = useTimeline(info.id, userId);
-  const { t } = useI18n();
   const existingDays = groupRows(tl.rows, tl.knownGroups).map((g) => g.key).filter(Boolean);
   const sourceGroups = availableGroups?.length ? availableGroups : existingDays;
   const selectableGroupMap = new Map<string, string>();
   sourceGroups.forEach((value) => {
-    const index = dayIndexFromName(value);
+    const index = journeyDayOrdinal(value);
     const identity = index ? `day:${index}` : `group:${value}`;
     if (!selectableGroupMap.has(identity)) selectableGroupMap.set(identity, value);
   });
   const selectableGroups = [...selectableGroupMap.values()];
-  const defaultDay = selectableGroups[0] ?? nextDefaultDayName(existingDays, t);
+  const defaultDay = selectableGroups[0] ?? nextJourneyDayKey(existingDays);
   return (
     <QuickAddSheet
       theme={theme}

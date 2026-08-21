@@ -15,8 +15,10 @@ import {
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
@@ -30,6 +32,9 @@ import { Avatar } from '../Avatar';
 import { RecordJourneySheet } from './RecordJourneySheet';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
+import { AppIconButton, radius, space, type } from '../../design-system';
+import { MAPBOX_TOKEN, TrackMap } from './TrackMap';
+import { JourneyDateRangePicker } from './JourneyDateRangePicker';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
 
@@ -40,6 +45,7 @@ type TFn = (key: TKey, vars?: TVars) => string;
 // ──────────────────────────────────────────────────────────────
 interface NJRoute {
   id: string;
+  routeId?: string;
   name: string;
   region: string;
   dist: string;
@@ -60,6 +66,7 @@ function useRouteSuggestions(): NJRoute[] {
   const { routes } = useData();
   return useMemo(() => routes.map((p) => ({
     id: p.id,
+    routeId: p.id,
     name: p.name,
     region: p.region,
     dist: p.dist,
@@ -127,6 +134,20 @@ function njDurationLabel(mins: number, t: TFn): string {
 }
 
 const NJ_DEFAULT_DURATION = 60 * 24; // 24h
+const NJ_PRESET_DEFAULT_DURATION = 60 * 24; // route-first planning uses the shared day-range picker
+
+function njInitialPlannedStart(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(7, 30, 0, 0);
+  return d;
+}
+
+function njPresetDuration(preset?: Poi | null): number {
+  if (!preset?.trackDurationMs || preset.trackDurationMs <= 0) return NJ_PRESET_DEFAULT_DURATION;
+  const days = Math.max(1, Math.ceil(preset.trackDurationMs / (24 * 60 * 60 * 1000)));
+  return days * 24 * 60;
+}
 
 // Quick-duration chips. Labels are i18n keys resolved at render (rules of hooks).
 const NJ_DURATION_OPTIONS: { value: number; labelKey: TKey }[] = [
@@ -648,7 +669,7 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     mine: true,
     fav: false,
     desc: '',
-    routeId: route.custom ? undefined : route.id,
+    routeId: route.routeId,
     trackCoords: route.trackCoords,
     trackElevation: route.trackElevation,
     trackDurationMs: route.trackDurationMs,
@@ -666,6 +687,7 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
 function presetToRoute(p: Poi): NJRoute {
   return {
     id: p.routeId || p.id,
+    routeId: p.routeId || (p.kind === 'route' ? p.id : undefined),
     name: p.name,
     region: p.region,
     dist: p.dist,
@@ -683,9 +705,135 @@ function presetToRoute(p: Poi): NJRoute {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Route-first planner — map entry with an already selected route
+// ──────────────────────────────────────────────────────────────
+function NJPresetPlanner({
+  theme,
+  route,
+  startDt,
+  durationMins,
+  onOpenTimePicker,
+  onInvite,
+  onClose,
+  onCreate,
+}: {
+  theme: Theme;
+  route: NJRoute;
+  startDt: Date;
+  durationMins: number;
+  onOpenTimePicker: () => void;
+  onInvite: () => void;
+  onClose: () => void;
+  onCreate: () => void;
+}) {
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const plannerHeight = Math.min(Math.max(height * 0.44, 350), 410);
+  const hasNativeMap = Boolean(MAPBOX_TOKEN && route.trackCoords?.length);
+  const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][startDt.getDay()] as 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
+  const plannedDate = t('journeyEdit.planner.dateSummary', {
+    month: startDt.getMonth() + 1,
+    day: startDt.getDate(),
+    weekday: t(`journeyEdit.weekday.${dayKey}`),
+  });
+  const routeMetrics = [route.dist, route.asc ? `↑ ${(route.asc || '').replace('+', '')}` : ''].filter(Boolean);
+
+  const PlannerRow = ({ icon, label, value, onPress }: { icon: 'clock' | 'people'; label: string; value: string; onPress: () => void }) => (
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      style={{ minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+    >
+      <Icon name={icon} color={theme.text2} size={17} />
+      <Text style={{ flex: 1, fontSize: 13, color: theme.text2 }}>{label}</Text>
+      <Text numberOfLines={1} style={{ maxWidth: '58%', fontSize: 13, fontWeight: '700', color: theme.text }}>{value}</Text>
+    </Press>
+  );
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface }]}>
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: height - plannerHeight + radius.feature, overflow: 'hidden' }}>
+        {hasNativeMap ? (
+          <TrackMap
+            fill
+            interactive
+            showLegend={false}
+            coords={route.trackCoords as [number, number][]}
+            theme={theme}
+            accent={theme.accent}
+            routePadding={[insets.top + 84, 34, 48, 34]}
+          />
+        ) : (
+          <PhotoTile tone={route.tone} seed={route.name} darken style={StyleSheet.absoluteFill} resWidth={1000}>
+            <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', opacity: 0.86 }]}>
+              <Svg width="72%" height="40%" viewBox="0 0 280 130" fill="none">
+                <Path d="M20 108C62 86 54 50 100 58s42 35 78 10 40-39 82-48" stroke="rgba(255,255,255,0.82)" strokeWidth={8} strokeLinecap="round" />
+                <Path d="M20 108C62 86 54 50 100 58s42 35 78 10 40-39 82-48" stroke={theme.accent} strokeWidth={4} strokeLinecap="round" />
+                <Circle cx={20} cy={108} r={7} fill="#FFFFFF" stroke={theme.accent} strokeWidth={4} />
+                <Circle cx={260} cy={20} r={7} fill={theme.text} stroke="#FFFFFF" strokeWidth={4} />
+              </Svg>
+            </View>
+          </PhotoTile>
+        )}
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(0,0,0,0.16)', 'rgba(0,0,0,0)', theme.groupedBg]}
+          locations={[0, 0.48, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+
+      <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, right: space.md, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <AppIconButton theme={theme} name="close" onPress={onClose} softShadow />
+        <View pointerEvents="none" style={{ position: 'absolute', left: 54, right: 54, alignItems: 'center' }}>
+          <Text style={{ ...type.navTitle, color: theme.text }}>{t('journeyEdit.planner.title')}</Text>
+        </View>
+        <View style={{ width: 44 }} />
+      </View>
+
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: plannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, ...shadow(theme.dark ? 0.36 : 0.12, 28, -8) }}>
+        <View style={{ width: 38, height: 4, borderRadius: radius.pill, alignSelf: 'center', marginTop: space.sm, backgroundColor: theme.progressTrack }} />
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: 96 }}>
+          <Text numberOfLines={1} style={{ ...type.pageTitle, color: theme.text }}>{route.name}</Text>
+          <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.xs }}>
+            {routeMetrics.map((metric, index) => (
+              <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 11, color: theme.text2 }}>{metric}</Text>
+            ))}
+          </View>
+
+          <Press
+            onPress={onOpenTimePicker}
+            accessibilityRole="button"
+            style={{ marginTop: space.lg, minHeight: 104, padding: space.md, borderRadius: radius.feature, backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, ...shadow(theme.dark ? 0.28 : 0.06, 16, 4) }}
+          >
+            <Text style={{ ...type.sectionTitle, color: theme.text }}>{t('journeyEdit.planner.when')}</Text>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', marginTop: space.lg }}>
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, fontWeight: '700', color: theme.text }}>{plannedDate}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{njDurationLabel(durationMins, t)}</Text>
+            </View>
+          </Press>
+
+          <View style={{ marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.card, backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, ...shadow(theme.dark ? 0.24 : 0.05, 14, 3) }}>
+            <PlannerRow icon="people" label={t('journeyEdit.details.companionsLabel')} value={t('journeyEdit.planner.solo')} onPress={onInvite} />
+          </View>
+        </ScrollView>
+
+        <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', theme.groupedBg, theme.groupedBg]} locations={[0, 0.28, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 104 }} />
+        <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: Math.max(insets.bottom, space.md) }}>
+          <Press onPress={onCreate} accessibilityRole="button" style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent, ...shadow(0.28, 16, 6, theme.accent) }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('journeyEdit.planner.create')}</Text>
+          </Press>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Main flow
 // ──────────────────────────────────────────────────────────────
-export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => void; onToast: (m: string) => void; preset?: Poi | null }) {
+export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   // A preset (再次出发 / 开始旅程 on an existing route) seeds the route and jumps
@@ -697,8 +845,8 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
   const [direction, setDirection] = useState(1);
   const [route, setRoute] = useState<NJRoute | null>(presetRoute);
   const [tripName, setTripName] = useState('');
-  const [startDt, setStartDt] = useState<Date>(() => njRoundedNow());
-  const [durationMins, setDurationMins] = useState(NJ_DEFAULT_DURATION);
+  const [startDt, setStartDt] = useState<Date>(() => (preset ? njInitialPlannedStart() : njRoundedNow()));
+  const [durationMins, setDurationMins] = useState(() => (preset ? njPresetDuration(preset) : NJ_DEFAULT_DURATION));
   const [shareOpen, setShareOpen] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
 
@@ -706,8 +854,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
   const nameInit = useRef(false);
   useEffect(() => {
     if (route && !nameInit.current && !tripName) {
-      const today = new Date();
-      const datePart = t('journeyEdit.meta.monthDay', { month: today.getMonth() + 1, day: today.getDate() });
+      const datePart = t('journeyEdit.meta.monthDay', { month: startDt.getMonth() + 1, day: startDt.getDate() });
       const namePart = route.custom ? t('journeyEdit.newJourneyName') : route.name;
       setTripName(`${datePart} · ${namePart}`);
       nameInit.current = true;
@@ -736,8 +883,12 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
       setDirection(1);
       setStep(2);
       const poi = buildJourney(route, tripName, startDt, durationMins, t);
-      setTimeout(() => {
-        onCreate(poi);
+      setTimeout(async () => {
+        const created = await onCreate(poi);
+        if (!created) {
+          setDirection(-1);
+          setStep(1);
+        }
       }, 1500);
     }
   };
@@ -779,7 +930,37 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
 
   // Record-past sub-flow (记录走过的) — renders its own full-screen overlay
   if (mode === 'record') {
-    return <RecordJourneySheet theme={theme} onBack={() => setMode(null)} onClose={onClose} onCreate={onCreate} onToast={onToast} />;
+    return <RecordJourneySheet theme={theme} onBack={() => setMode(null)} onClose={onClose} onCreate={(poi) => { void onCreate(poi); }} onToast={onToast} />;
+  }
+
+  if (presetLocked && route && step === 1) {
+    return (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
+        <NJPresetPlanner
+          theme={theme}
+          route={route}
+          startDt={startDt}
+          durationMins={durationMins}
+          onOpenTimePicker={() => setTimeOpen(true)}
+          onInvite={() => setShareOpen(true)}
+          onClose={onClose}
+          onCreate={next}
+        />
+        {shareOpen && <NJSharePanel theme={theme} tripName={tripName || route.name} onClose={() => setShareOpen(false)} onToast={onToast} />}
+        {timeOpen && (
+          <JourneyDateRangePicker
+            theme={theme}
+            initialStart={startDt}
+            initialDurationDays={Math.max(1, Math.round(durationMins / (24 * 60)))}
+            onApply={({ start, totalDays }) => {
+              setStartDt(start);
+              setDurationMins(totalDays * 24 * 60);
+            }}
+            onClose={() => setTimeOpen(false)}
+          />
+        )}
+      </View>
+    );
   }
 
   return (

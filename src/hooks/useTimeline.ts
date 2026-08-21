@@ -12,6 +12,11 @@ interface TLState {
 
 const cache = new Map<string, TLState>();
 const listeners = new Map<string, Set<() => void>>();
+const refreshers = new Map<string, Set<() => Promise<void>>>();
+
+export async function refetchJourneyTimeline(journeyId: string) {
+  await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
+}
 
 function getState(key: string): TLState {
   if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [], groupRoutes: {} });
@@ -77,6 +82,20 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
   }, [journeyId, userId, key]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+
+  useEffect(() => {
+    if (!key) return;
+    let journeyRefreshers = refreshers.get(key);
+    if (!journeyRefreshers) {
+      journeyRefreshers = new Set();
+      refreshers.set(key, journeyRefreshers);
+    }
+    journeyRefreshers.add(fetchRows);
+    return () => {
+      journeyRefreshers!.delete(fetchRows);
+      if (!journeyRefreshers!.size) refreshers.delete(key);
+    };
+  }, [fetchRows, key]);
 
   const state = getState(key);
 

@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
@@ -34,7 +35,7 @@ import { useI18n, TKey } from '../i18n';
 import { signInWithEmail, signUpWithEmail, signInAnonymously } from '../lib/auth';
 import { WeChatIcon } from '../components/WeChatIcon';
 import QRCode from 'react-native-qrcode-svg';
-import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload } from '../lib/qrLogin';
+import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload, getQrLoginStatus } from '../lib/qrLogin';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -949,19 +950,30 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const { t: tr } = useI18n();
   const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
+  const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'signingIn' | 'expired' | 'error'>('generating');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [secondsLeft, setSecondsLeft] = useState(300);
   const slide = useSlideIn();
+  const qrReveal = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  const statusProgress = useRef(new Animated.Value(0)).current;
+  const consumedRef = useRef(false);
 
   const createRequest = async () => {
-    setLoading(true);
+    consumedRef.current = false;
+    setPhase('generating');
     setError('');
+    setRequest(null);
+    qrReveal.setValue(0);
     try {
-      setRequest(await createQrLoginRequest());
+      const next = await createQrLoginRequest();
+      setRequest(next);
+      setSecondsLeft(Math.max(0, Math.ceil((new Date(next.expiresAt).getTime() - Date.now()) / 1000)));
+      setPhase('waiting');
+      Animated.spring(qrReveal, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 4 }).start();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : tr('qrLogin.unavailable'));
-    } finally {
-      setLoading(false);
+      setError(cause instanceof Error && cause.message !== 'Edge Function returned a non-2xx status code' ? cause.message : tr('qrLogin.unavailable'));
+      setPhase('error');
     }
   };
 
@@ -970,48 +982,229 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (!request) return;
-    const poll = setInterval(() => {
-      void consumeQrLoginRequest(request).then((status) => {
-        if (status === 'signed_in') clearInterval(poll);
-        else if (status === 'expired' || status === 'consumed') {
-          clearInterval(poll);
-          setError(tr('qrLogin.errorExpired'));
+    if (!request || phase === 'expired' || phase === 'error') return;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0) setPhase('expired');
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [phase, request]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    if (phase === 'waiting') loop.start();
+    return () => loop.stop();
+  }, [phase, pulse]);
+
+  useEffect(() => {
+    Animated.timing(statusProgress, {
+      toValue: phase === 'scanned' || phase === 'signingIn' ? 1 : 0,
+      duration: motion.standard,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [phase, statusProgress]);
+
+  useEffect(() => {
+    if (!request || phase !== 'waiting') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const status = await getQrLoginStatus(request);
+        if (cancelled) return;
+        if (status === 'approved' && !consumedRef.current) {
+          consumedRef.current = true;
+          setPhase('scanned');
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          return;
         }
-      }).catch((cause) => {
-        clearInterval(poll);
-        setError(cause instanceof Error ? cause.message : tr('qrLogin.errorGeneric'));
-      });
-    }, 1800);
-    return () => clearInterval(poll);
-  }, [request]);
+        if (status === 'expired' || status === 'consumed') {
+          setPhase('expired');
+          return;
+        }
+        timer = setTimeout(poll, 850);
+      } catch (cause) {
+        if (cancelled) return;
+        const message = cause instanceof Error ? cause.message : tr('qrLogin.errorGeneric');
+        if (message === 'QR_LOGIN_EXPIRED') setPhase('expired');
+        else timer = setTimeout(poll, 1400);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [phase, request, tr]);
+
+  useEffect(() => {
+    if (!request || phase !== 'scanned') return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      setPhase('signingIn');
+      try {
+        const result = await consumeQrLoginRequest(request);
+        if (result !== 'signed_in') throw new Error(tr('qrLogin.errorGeneric'));
+      } catch (cause) {
+        if (cancelled) return;
+        const message = cause instanceof Error ? cause.message : tr('qrLogin.errorGeneric');
+        setError(message === 'QR_LOGIN_EXPIRED' ? tr('qrLogin.errorExpired') : message);
+        setPhase(message === 'QR_LOGIN_EXPIRED' ? 'expired' : 'error');
+      }
+    }, 620);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phase, request, tr]);
 
   const qrValue = request ? encodeQrLoginPayload(request) : '';
+  const qrScale = qrReveal.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
+  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
+  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.34, 0] });
+  const statusTranslate = statusProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = String(secondsLeft % 60).padStart(2, '0');
+  const active = phase === 'waiting' || phase === 'scanned' || phase === 'signingIn';
+
+  const statusLabel = phase === 'scanned'
+    ? tr('qrLogin.scanned')
+    : phase === 'signingIn'
+      ? tr('qrLogin.signingIn')
+      : phase === 'expired'
+        ? tr('qrLogin.expired')
+        : phase === 'error'
+          ? error
+          : tr('qrLogin.waiting');
 
   return (
     <Animated.View style={{ flex: 1, backgroundColor: t.featureSurface, transform: [{ translateX: slide }] }}>
       <AuthBack t={t} top={insets.top + 5} onPress={onBack} />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', paddingTop: insets.top + 82, paddingHorizontal: space.xxl, paddingBottom: insets.bottom + space.xxl }}
+        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', paddingTop: insets.top + 82, paddingHorizontal: space.xxl, paddingBottom: insets.bottom + space.xl }}
       >
         <StepTitle t={t} title={tr('qrLogin.title')} sub={tr('qrLogin.subtitle')} />
-        <View style={{ flex: 1, minHeight: 360, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-          <View style={{ width: 254, height: 254, borderRadius: radius.feature, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: t.hairline }}>
-            {loading ? <Spinner size={26} color={t.accent} track={t.accentSofter} width={2.5} /> : request ? (
-              <QRCode value={qrValue} size={210} color="#111111" backgroundColor="#FFFFFF" />
-            ) : (
-              <Text style={{ color: t.text2, fontSize: 14, textAlign: 'center', paddingHorizontal: space.xl }}>{error}</Text>
+        <View style={{ flex: 1, minHeight: 390, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 276, height: 276, alignItems: 'center', justifyContent: 'center' }}>
+            {phase === 'waiting' ? (
+              <Animated.View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  width: 264,
+                  height: 264,
+                  borderRadius: radius.feature + 6,
+                  borderWidth: 2,
+                  borderColor: t.accent,
+                  opacity: pulseOpacity,
+                  transform: [{ scale: pulseScale }],
+                }}
+              />
+            ) : null}
+            <View
+              style={{
+                width: 254,
+                height: 254,
+                borderRadius: radius.feature,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#fff',
+                borderWidth: 1,
+                borderColor: active ? t.accentSoft : t.hairline,
+                overflow: 'hidden',
+                boxShadow: t.dark ? '0 18px 44px rgba(0,0,0,0.34)' : '0 18px 44px rgba(0,0,0,0.08)',
+              }}
+            >
+              {phase === 'generating' ? (
+                <View style={{ alignItems: 'center', gap: space.md }}>
+                  <Spinner size={28} color={t.accent} track={t.accentSofter} width={2.5} />
+                  <Text style={{ color: t.text2, fontSize: 13, fontWeight: '600' }}>{tr('qrLogin.generating')}</Text>
+                </View>
+              ) : request ? (
+                <Animated.View style={{ opacity: qrReveal, transform: [{ scale: qrScale }] }}>
+                  <QRCode value={qrValue} size={210} color="#111111" backgroundColor="#FFFFFF" />
+                </Animated.View>
+              ) : (
+                <View style={{ alignItems: 'center', paddingHorizontal: space.xl }}>
+                  <Text style={{ color: t.danger, fontSize: 14, lineHeight: 21, textAlign: 'center' }}>{statusLabel}</Text>
+                </View>
+              )}
+
+              {request && (phase === 'scanned' || phase === 'signingIn' || phase === 'expired') ? (
+                <Animated.View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: phase === 'expired' ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.92)',
+                      opacity: phase === 'expired' ? 1 : statusProgress,
+                      transform: phase === 'expired' ? undefined : [{ translateY: statusTranslate }],
+                    },
+                  ]}
+                >
+                  {phase === 'scanned' ? (
+                    <View style={{ width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: t.accent }}>
+                      <CheckBig />
+                    </View>
+                  ) : phase === 'signingIn' ? (
+                    <Spinner size={30} color={t.accent} track={t.accentSofter} width={2.5} />
+                  ) : (
+                    <QrGlyph c={t.text3} />
+                  )}
+                  <Text style={{ color: phase === 'expired' ? t.text2 : t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
+                  {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
+                </Animated.View>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={{ minHeight: 80, alignItems: 'center', justifyContent: 'center', marginTop: space.md }}>
+            {phase === 'waiting' ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} />
+                  <Text style={{ color: t.text, fontSize: 14, fontWeight: '700' }}>{tr('qrLogin.waiting')}</Text>
+                </View>
+                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: space.sm }}>{tr('qrLogin.openScannerHint')}</Text>
+                <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresIn', { time: `${minutes}:${seconds}` })}</Text>
+              </>
+            ) : phase === 'expired' || phase === 'error' ? (
+              <Text style={{ color: phase === 'error' ? t.danger : t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
+            ) : phase === 'generating' ? null : (
+              <Text style={{ color: t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             )}
           </View>
-          <Text style={{ color: t.text2, fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: space.lg }}>
-            {tr('qrLogin.openScannerHint')}
-          </Text>
-          {request ? <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresHint')}</Text> : null}
-          {error && request ? <Text style={{ color: t.danger, fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: space.md }}>{error}</Text> : null}
         </View>
-        <Press onPress={() => void createRequest()} disabled={loading} style={{ minHeight: 48, paddingHorizontal: space.xl, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: t.accent, fontSize: 14, fontWeight: '700' }}>{loading ? tr('qrLogin.generating') : tr('qrLogin.refresh')}</Text>
+
+        <Press
+          onPress={() => void createRequest()}
+          disabled={phase === 'generating' || phase === 'scanned' || phase === 'signingIn'}
+          style={{
+            minHeight: 48,
+            paddingHorizontal: space.xl,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: phase === 'expired' || phase === 'error' ? t.accent : 'transparent',
+          }}
+        >
+          <Text style={{ color: phase === 'expired' || phase === 'error' ? '#fff' : t.accent, fontSize: 14, fontWeight: '700' }}>
+            {phase === 'generating' ? tr('qrLogin.generating') : tr('qrLogin.refresh')}
+          </Text>
         </Press>
       </ScrollView>
     </Animated.View>

@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@openai/agents": "npm:@openai/agents@0.16.1",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.108.1",
+    "zod": "npm:zod@4.1.12"
+  }
+}

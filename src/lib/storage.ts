@@ -59,6 +59,19 @@ export async function ensureCloudMedia(
   return Promise.all(uris.map((uri) => isCloudUri(uri) ? uri : uploadMedia(uri, userId, scopeId)));
 }
 
+export async function uploadAvatar(localUri: string, userId: string): Promise<string> {
+  const storagePath = `avatars/${userId}/avatar.jpg`;
+  const buffer = await new FSFile(localUri).arrayBuffer();
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buffer, { contentType: 'image/jpeg', upsert: true });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+  return `${data.publicUrl}?t=${Date.now()}`;
+}
+
 export async function uploadCover(
   localUri: string,
   journeyId: string,

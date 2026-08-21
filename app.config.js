@@ -51,6 +51,13 @@ module.exports = ({ config }) => ({
         recordAudioAndroid: false,
       },
     ],
+    [
+      'expo-speech-recognition',
+      {
+        microphonePermission: 'Kaipa 需要使用麦克风，以便将你的语音转换为文字。',
+        speechRecognitionPermission: 'Kaipa 需要使用系统语音识别，以便将你的语音转换为文字。',
+      },
+    ],
     'expo-font',
     'expo-localization',
     'expo-sharing',

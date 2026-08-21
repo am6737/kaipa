@@ -14,6 +14,11 @@ import { supabase } from '../lib/supabase';
 
 const keyFor = (journeyId: string) => `kaipa_journey_packing_v1:${journeyId}`;
 const makeId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+const refreshers = new Map<string, Set<() => Promise<void>>>();
+
+export async function refetchJourneyPacking(journeyId: string) {
+  await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
+}
 
 const mapList = (row: any): JourneyPackingList => ({
   id: row.id,
@@ -208,6 +213,19 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
   }, [journey.id, migrateLocalToRemote, readLocal]);
 
   useEffect(() => { void fetchPacking(); }, [fetchPacking]);
+
+  useEffect(() => {
+    let journeyRefreshers = refreshers.get(journey.id);
+    if (!journeyRefreshers) {
+      journeyRefreshers = new Set();
+      refreshers.set(journey.id, journeyRefreshers);
+    }
+    journeyRefreshers.add(fetchPacking);
+    return () => {
+      journeyRefreshers!.delete(fetchPacking);
+      if (!journeyRefreshers!.size) refreshers.delete(journey.id);
+    };
+  }, [fetchPacking, journey.id]);
 
   useEffect(() => {
     if (localMode) return;

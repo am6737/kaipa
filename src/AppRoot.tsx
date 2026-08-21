@@ -32,6 +32,7 @@ import { JourneyShareSheet } from './components/overlays/JourneyShareSheet';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
+import { AppAssistant } from './components/assistant/AppAssistant';
 
 function AppShell() {
   const theme = useTheme();
@@ -83,7 +84,11 @@ function AppShell() {
       <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'me' && hidden]}>
         <MeScreen theme={theme} />
       </View>
-      <BottomTabs theme={theme} hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi} />
+      <BottomTabs
+        theme={theme}
+        hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi}
+        onOpenAssistant={() => nav.openAssistant()}
+      />
 
       {nav.addRouteOpen && (
         <AddRouteSheet
@@ -158,11 +163,16 @@ function AppShell() {
           preset={nav.newJourneyPreset}
           onClose={() => nav.closeNewJourney()}
           onToast={(m) => nav.showToast(m)}
-          onCreate={(poi) => {
-            nav.addJoinedJourney(poi);
+          onCreate={async (poi) => {
+            const saved = await nav.addJoinedJourney(poi);
+            if (!saved) {
+              nav.showToast(t('appShell.toastJourneyCreateFailed'));
+              return false;
+            }
             nav.closeNewJourney();
             nav.showToast(t('appShell.toastJourneyCreated'));
-            nav.openPoint(poi);
+            nav.openPoint(saved);
+            return true;
           }}
         />
       )}
@@ -253,17 +263,25 @@ function AppShell() {
         />
       )}
       {nav.searchOpen && <SearchScreen theme={theme} />}
+      <AppAssistant
+        theme={theme}
+        visible={nav.assistantOpen}
+        initialPrompt={nav.assistantPrompt}
+        currentJourneyId={nav.assistantJourneyId}
+        onClearPrompt={() => nav.clearAssistantPrompt()}
+        onClose={() => nav.closeAssistant()}
+      />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>
   );
 }
 
-function NavBridge({ signOut }: { signOut: () => void }) {
+function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAccount: () => Promise<void> }) {
   const data = useData();
   return (
     <NavProvider
-      auth={{ signOut }}
+      auth={{ signOut, deleteAccount }}
       db={{
         updateJourney: data.updateJourney,
         updateRoute: data.updateRoute,
@@ -312,6 +330,12 @@ export function AppRoot() {
     await supabase.auth.signOut();
   };
 
+  const handleDeleteAccount = async () => {
+    const { error } = await supabase.functions.invoke('delete-account', { body: {} });
+    if (error) throw error;
+    await supabase.auth.signOut({ scope: 'local' });
+  };
+
   const userId = session?.user?.id;
 
   return (
@@ -319,7 +343,7 @@ export function AppRoot() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       {session === undefined ? null : session && userId ? (
         <DataProvider userId={userId}>
-          <NavBridge signOut={handleSignOut} />
+          <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />
         </DataProvider>
       ) : (
         <AuthFlow theme={theme} onSuccess={() => {}} />

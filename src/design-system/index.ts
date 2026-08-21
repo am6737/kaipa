@@ -1,4 +1,5 @@
 export { AppCard } from './components/AppCard';
+export { AppActionDialog } from './components/AppActionDialog';
 export { AppIconButton } from './components/AppIconButton';
 export { AppMetricStrip } from './components/AppMetricStrip';
 export type { AppMetric } from './components/AppMetricStrip';

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import ImageCropPicker from 'react-native-image-crop-picker';
-import { InteractionManager, View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, AppState, InteractionManager, View, Text, StyleSheet } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -16,8 +16,29 @@ import { useData } from '../../data/DataContext';
 import { MePushPage } from './MePushPage';
 import { MeSection, MeCard, MeRow } from './parts';
 import { MeEditField } from './EditFieldPage';
+import { AvatarUpdateError } from '../../hooks/useProfile';
 import { AccountActionDialog } from './AccountActionDialog';
 import { AppCard, layout, radius, space } from '../../design-system';
+
+const waitForNativePhotoPickerDismissal = async () => {
+  if (AppState.currentState !== 'active') {
+    await new Promise<void>((resolve) => {
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state !== 'active') return;
+        subscription.remove();
+        resolve();
+      });
+    });
+  }
+
+  await new Promise<void>((resolve) => {
+    InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTimeout(resolve, 700));
+      });
+    });
+  });
+};
 
 export interface MeProfile {
   nick: string;
@@ -46,9 +67,10 @@ export function AccountPage({
   const uid = data.profile.uid;
   const displayedUid = uid.length > 13 ? `${uid.slice(0, 8)}…${uid.slice(-4)}` : uid;
   const createdAt = data.profile.createdAt;
-  const [selectedAvatarUri, setSelectedAvatarUri] = useState<string>();
+  const [avatarSaving, setAvatarSaving] = useState(false);
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const copyUid = async () => {
     await Clipboard.setStringAsync(uid);
@@ -70,11 +92,9 @@ export function AccountPage({
     const asset = selection.canceled ? undefined : selection.assets[0];
     if (!asset) return;
 
-    // Let the system photo picker finish dismissing before presenting the
-    // native cropper. Both modules present full-screen native controllers.
-    await new Promise<void>((resolve) => {
-      InteractionManager.runAfterInteractions(() => setTimeout(resolve, 350));
-    });
+    // PHPicker can resolve before its native dismissal transition finishes.
+    // Wait until the app is active and the native presentation slot is free.
+    await waitForNativePhotoPickerDismissal();
 
     try {
       const image = await ImageCropPicker.openCropper({
@@ -99,12 +119,25 @@ export function AccountPage({
         showCropGuidelines: false,
         showCropFrame: false,
       });
-      setSelectedAvatarUri(image.path);
+      setAvatarSaving(true);
+      await data.updateAvatar(image.path);
       showToast(t('account.profile.toastAvatarUpdated'));
     } catch (error) {
       const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
       if (code === 'E_PICKER_CANCELLED') return;
-      showToast(code === 'E_CROPPER_IMAGE_NOT_FOUND' ? t('account.profile.avatarCropImageFailed') : t('account.profile.avatarPickerFailed'));
+      console.warn('[AccountPage] Avatar update failed', error);
+      const cause = error instanceof AvatarUpdateError ? error.cause : error;
+      const causeCode = typeof cause === 'object' && cause && 'code' in cause ? String(cause.code) : '';
+      const message = error instanceof AvatarUpdateError && error.stage === 'profile' && causeCode === '42703'
+        ? t('account.profile.avatarMigrationRequired')
+        : error instanceof AvatarUpdateError && error.stage === 'upload'
+          ? t('account.profile.avatarUploadFailed')
+          : code === 'E_CROPPER_IMAGE_NOT_FOUND'
+            ? t('account.profile.avatarCropImageFailed')
+            : t('account.profile.avatarUpdateFailed');
+      showToast(message);
+    } finally {
+      setAvatarSaving(false);
     }
   };
 
@@ -119,14 +152,15 @@ export function AccountPage({
                 <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
               </View>
               <Press
-                onPress={() => void pickAvatar()}
+                onPress={avatarSaving ? undefined : () => void pickAvatar()}
                 accessibilityRole="button"
                 accessibilityLabel={t('account.profile.avatarLibrary')}
                 scaleTo={0.96}
                 opacityTo={0.82}
                 style={{ width: 68, height: 68, borderRadius: 34 }}
               >
-                <Avatar uri={selectedAvatarUri} size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
+                <Avatar uri={data.profile.avatarUrl} size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
+                {avatarSaving ? <View pointerEvents="none" style={{ position: 'absolute', inset: 0, borderRadius: 34, backgroundColor: 'rgba(0,0,0,0.36)', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#FFFFFF" /></View> : null}
                 <View pointerEvents="none" style={{ position: 'absolute', right: -1, bottom: -1, width: 28, height: 28, borderRadius: radius.pill, backgroundColor: theme.accent, borderWidth: 2.5, borderColor: theme.featureSurface, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="camera" color="#fff" size={14} />
                 </View>
@@ -244,10 +278,18 @@ export function AccountPage({
         message={t('account.delete.message')}
         confirmLabel={t('account.delete.action')}
         cancelLabel={t('common.cancel')}
-        onCancel={() => setDeleteDialogOpen(false)}
+        confirming={deletingAccount}
+        onCancel={() => {
+          if (!deletingAccount) setDeleteDialogOpen(false);
+        }}
         onConfirm={() => {
-          setDeleteDialogOpen(false);
-          showToast(t('account.delete.toastSubmitted'));
+          if (deletingAccount) return;
+          setDeletingAccount(true);
+          void nav.auth.deleteAccount().catch((error) => {
+            console.warn('[AccountPage] Account deletion failed', error);
+            setDeletingAccount(false);
+            showToast(t('account.delete.toastFailed'));
+          });
         }}
       />
 

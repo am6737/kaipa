@@ -187,6 +187,7 @@ function JourneyChecklistTabComponent({
             ...item,
             weightKg: item.weightKg ?? linkedGearItem?.w,
             carryStatus: linkedGearItem ? itemStatus(linkedGearItem) : 'packed',
+            inGearLibrary: linkedGearItem != null,
           };
         })
         .sort((a, b) => a.sortOrder - b.sortOrder),
@@ -394,6 +395,7 @@ export const JourneyChecklistTab = React.memo(JourneyChecklistTabComponent);
 
 type PackingDisplayItem = JourneyPackingItem & {
   carryStatus: GearCarryStatus;
+  inGearLibrary: boolean;
 };
 
 type PackingWeightStats = {
@@ -681,10 +683,10 @@ function PackingGroupChevron({ theme, collapsed }: { theme: Theme; collapsed: bo
   );
 }
 
-function PackingGroups({ theme, items, weightUnit, isShared, canCheck, canEdit, currentCompanionId, companions, onToggle, onSetPacked, onOpen, selectionMode, selectedItemIds, onSelectedItemIdsChange }: { theme: Theme; items: JourneyPackingItem[]; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; canEdit: boolean; currentCompanionId: number; companions: JourneyPackingController['companions']; onToggle: (item: JourneyPackingItem) => void; onSetPacked: (itemIds: string[], packed: boolean) => void; onOpen: (item: JourneyPackingItem) => void; selectionMode: boolean; selectedItemIds: Set<string>; onSelectedItemIdsChange: (ids: Set<string>) => void }) {
+function PackingGroups({ theme, items, weightUnit, isShared, canCheck, canEdit, currentCompanionId, companions, onToggle, onSetPacked, onOpen, selectionMode, selectedItemIds, onSelectedItemIdsChange }: { theme: Theme; items: PackingDisplayItem[]; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; canEdit: boolean; currentCompanionId: number; companions: JourneyPackingController['companions']; onToggle: (item: JourneyPackingItem) => void; onSetPacked: (itemIds: string[], packed: boolean) => void; onOpen: (item: JourneyPackingItem) => void; selectionMode: boolean; selectedItemIds: Set<string>; onSelectedItemIdsChange: (ids: Set<string>) => void }) {
   const { t } = useI18n();
   const groups = useMemo(() => {
-    const map = new Map<string, JourneyPackingItem[]>();
+    const map = new Map<string, PackingDisplayItem[]>();
     items.forEach((item) => {
       const key = item.categoryName || '';
       map.set(key, [...(map.get(key) ?? []), item]);
@@ -832,7 +834,7 @@ function PackingGroups({ theme, items, weightUnit, isShared, canCheck, canEdit, 
   );
 }
 
-function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, onToggle, onOpen, selectionMode, selected, onToggleSelection }: { theme: Theme; item: JourneyPackingItem; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; companions: JourneyPackingController['companions']; onToggle: () => void; onOpen: () => void; selectionMode: boolean; selected: boolean; onToggleSelection: () => void }) {
+function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, onToggle, onOpen, selectionMode, selected, onToggleSelection }: { theme: Theme; item: PackingDisplayItem; weightUnit: WeightUnit; isShared: boolean; canCheck: boolean; companions: JourneyPackingController['companions']; onToggle: () => void; onOpen: () => void; selectionMode: boolean; selected: boolean; onToggleSelection: () => void }) {
   const { t } = useI18n();
   const carrier = companions.find((companion, index) => (companion.id ?? -(index + 1)) === item.carrierCompanionId);
   const checked = selectionMode ? selected : item.packed;
@@ -905,6 +907,26 @@ function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, o
           {isShared && !carrier ? <Text style={[type.caption, { color: theme.text3 }]}>{t('journey.packing.noCarrier')}</Text> : null}
         </View>
       </View>
+      {!item.inGearLibrary ? (
+        <View
+          accessibilityLabel={t('journey.packing.notInGearLibrary')}
+          style={{
+            minHeight: 20,
+            marginLeft: space.sm,
+            paddingHorizontal: space.xs,
+            borderRadius: radius.pill,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space.xxs,
+            backgroundColor: theme.dangerSoft,
+          }}
+        >
+          <Package color={theme.danger} size={12} strokeWidth={1.9} />
+          <Text style={[type.caption, { color: theme.danger, fontWeight: '700' }]}>
+            {t('journey.packing.notInGearLibrary')}
+          </Text>
+        </View>
+      ) : null}
     </Press>
   );
 }

@@ -14,9 +14,23 @@ type QrLoginResponse = {
   error?: { message?: string };
 };
 
+async function readFunctionError(error: unknown) {
+  const context = (error as { context?: Response } | null)?.context;
+  if (context) {
+    try {
+      const body = await context.clone().json() as QrLoginResponse;
+      if (body.error?.message) return new Error(body.error.message);
+      if (body.status === 'expired') return new Error('QR_LOGIN_EXPIRED');
+    } catch {
+      // Fall through to the function client error.
+    }
+  }
+  return error instanceof Error ? error : new Error('扫码登录失败');
+}
+
 async function invoke(body: Record<string, string>) {
   const { data, error } = await supabase.functions.invoke<QrLoginResponse>('qr-login', { body });
-  if (error) throw error;
+  if (error) throw await readFunctionError(error);
   if (data?.error) throw new Error(data.error.message || '扫码登录失败');
   return data || {};
 }
@@ -37,6 +51,11 @@ export async function createQrLoginRequest() {
   const data = await invoke({ action: 'create' });
   if (!data.id || !data.secret || !data.expires_at) throw new Error('扫码登录请求无效');
   return { id: data.id, secret: data.secret, expiresAt: data.expires_at };
+}
+
+export async function getQrLoginStatus(payload: QrLoginPayload) {
+  const data = await invoke({ action: 'status', ...payload });
+  return data.status || 'pending';
 }
 
 export async function approveQrLoginRequest(payload: QrLoginPayload) {

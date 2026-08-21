@@ -28,6 +28,8 @@ import { useTimeline } from '../hooks/useTimeline';
 import { buildJourneyRouteSegments, distanceMeters, JOURNEY_SEGMENT_COLORS, measureTrack, positionAtDistance, type TrackPosition } from '../lib/routeSegments';
 import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBoundarySheet';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
+import { AssistantMark } from '../components/assistant/AssistantMark';
+import { journeyDayDisplayLabel } from '../lib/journeyDays';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -528,12 +530,12 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
       selectedJourneyDay,
     ).map((segment) => ({
       id: segment.id,
-      label: `${segment.groupKey.toUpperCase()} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
+      label: `${journeyDayDisplayLabel(segment.groupKey, resolved)} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
       coordinates: segment.coordinates,
       color: segment.color,
       active: segment.active,
     }));
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay]);
   const focusBoundaries = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
     return focusGroupKeys.flatMap((groupKey, index) => {
@@ -545,7 +547,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
       return [{
         id: `journey-boundary-${index}`,
         groupKey,
-        title: groupKey,
+        title: journeyDayDisplayLabel(groupKey, resolved),
         distance: `${(displayMeters / 1000).toFixed(1)} km`,
         coordinate: [route.longitude, route.latitude] as [number, number],
         color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
@@ -553,7 +555,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
         pending,
       }];
     });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay]);
   const routeEditorIndex = routeEditorGroupKey ? focusGroupKeys.indexOf(routeEditorGroupKey) : -1;
   let routeEditorMinimumMeters = 0;
   let routeEditorMaximumMeters: number | undefined;
@@ -1319,6 +1321,38 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
             gap: space.xs,
           }}
         >
+          {!timelineSelectionMode && !momentSelectionMode && !checklistSelectionMode && !planEditorOpen ? (
+            <Press
+              hitSlop={3}
+              onPress={() => {
+                if (!nav.pointInfo || nav.pointInfo.kind !== 'journey') return;
+                nav.openAssistant(
+                  t('agent.journeyPrompt'),
+                  nav.pointInfo.id,
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('agent.journeyEntry')}
+              style={{
+                height: 38,
+                maxWidth: 176,
+                marginRight: 'auto',
+                paddingHorizontal: space.sm,
+                borderRadius: radius.pill,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: space.xs,
+                backgroundColor: theme.accent,
+                boxShadow: theme.dark ? '0px 5px 14px rgba(0,0,0,0.42)' : '0px 5px 14px rgba(0,0,0,0.12)',
+              }}
+            >
+              <AssistantMark color="#FFFFFF" size={21} />
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                {t('agent.journeyEntry')}
+              </Text>
+            </Press>
+          ) : null}
           {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
             <>
               {!timelineSelectionMode ? (
@@ -1338,7 +1372,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                   if (timelineSelectionMode) setSelectedTimelineItemIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, marginRight: timelineSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={timelineSelectionMode ? 'check' : 'edit'} label={timelineSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
@@ -1368,7 +1402,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                   setSelectedMomentIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, marginRight: momentSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={momentSelectionMode ? 'check' : 'edit'} label={momentSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
@@ -1487,7 +1521,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                     setSelectedChecklistItemIds(new Set());
                   }}
                   accessibilityRole="button"
-                  style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={{ height: 38, marginRight: checklistSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
                 >
                   <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'edit'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
                 </Press>
@@ -1586,7 +1620,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                   if (planEditorOpen) setSelectedPlanDays(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: 'auto', paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, marginRight: planEditorOpen ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={planEditorOpen ? 'check' : 'edit'} label={planEditorOpen ? t('common.done') : t('common.edit')} />
               </Press>

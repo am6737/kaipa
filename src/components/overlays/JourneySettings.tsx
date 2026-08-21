@@ -18,7 +18,13 @@ import { Press } from "../Press";
 import { useI18n } from "../../i18n";
 import { useNav } from "../../nav/NavContext";
 import { uploadCover } from "../../lib/storage";
-import { DetailPage, radius, space, type } from "../../design-system";
+import {
+  AppActionDialog,
+  DetailPage,
+  radius,
+  space,
+  type,
+} from "../../design-system";
 import { MediaViewer } from "./JourneyTimeline";
 import { JourneyLocationPicker } from "./JourneyLocationPicker";
 import {
@@ -504,6 +510,7 @@ export function JourneySettings({
   const [saving, setSaving] = useState(false);
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const hasChanges = useMemo(
     () =>
       selectedCover !== (originalPhotos[0] ?? null) ||
@@ -599,17 +606,7 @@ export function JourneySettings({
   };
 
   const confirmDelete = () => {
-    nav.openActionSheet({
-      title: t("journey.settings.deleteConfirmTitle"),
-      message: t("journey.remove.confirmMessage"),
-      items: [
-        {
-          label: t("journey.settings.deleteJourney"),
-          destructive: true,
-          onPress: () => nav.removeJourney(),
-        },
-      ],
-    });
+    setDeleteDialogOpen(true);
   };
 
   const saveButton = (
@@ -880,6 +877,22 @@ export function JourneySettings({
           }}
         />
       ) : null}
+
+      <AppActionDialog
+        theme={theme}
+        visible={deleteDialogOpen}
+        title={t("journey.settings.deleteConfirmTitle")}
+        message={t("journey.remove.confirmMessage")}
+        confirmLabel={t("journey.settings.deleteJourney")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        confirmIcon="trash"
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={() => {
+          setDeleteDialogOpen(false);
+          nav.removeJourney();
+        }}
+      />
     </View>
   );
 }

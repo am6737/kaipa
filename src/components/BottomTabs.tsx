@@ -2,20 +2,16 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
-import { rgba, Theme } from '../theme/theme';
-import { Icon, IconName } from './Icon';
+import { Theme } from '../theme/theme';
 import { Press } from './Press';
 import { useNav, MainTab } from '../nav/NavContext';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
+import { AssistantMark } from './assistant/AssistantMark';
 
-const TABS: { id: MainTab; icon: IconName }[] = [
-  { id: 'gear', icon: 'bag' },
-  { id: 'discover', icon: 'compass' },
-  { id: 'me', icon: 'user' },
-];
+const TABS: MainTab[] = ['gear', 'discover', 'me'];
 
-export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: boolean }) {
+export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -57,50 +53,38 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
         },
       ]}
     >
-      <View
-        style={[
-          styles.bar,
-          barSurface,
-        ]}
-      >
-        {TABS.map((tab) => {
-          const active = nav.mainTab === tab.id;
-          const color = active ? rgba(theme.accent, theme.dark ? 0.86 : 0.66) : theme.text2;
-          const itemSurface = active
-            ? theme.dark
-              ? '#363638'
-              : '#F1F1F1'
-            : 'transparent';
+      <View style={styles.row}>
+        <View style={[styles.bar, barSurface]}>
+          {TABS.map((tab) => {
+            const active = nav.mainTab === tab;
 
-          return (
-            <Press
-              key={tab.id}
-              accessibilityRole="tab"
-              accessibilityLabel={t(`tabs.${tab.id}`)}
-              accessibilityState={{ selected: active }}
-              onPress={() => nav.setMainTab(tab.id)}
-              style={[styles.tab, { backgroundColor: itemSurface }]}
-            >
-              <View>
-                <Icon name={tab.icon} color={color} size={20} strokeWidth={active ? 2.1 : 1.8} />
-                {tab.id === 'me' && unread > 0 && (
-                  <View
-                    style={[
-                      styles.unread,
-                      {
-                        backgroundColor: theme.danger,
-                        borderColor: active ? itemSurface : theme.controlSurface,
-                      },
-                    ]}
-                  />
-                )}
-              </View>
-              <Text style={[styles.label, { color, fontWeight: active ? '600' : '500' }]}>
-                {t(`tabs.${tab.id}`)}
-              </Text>
-            </Press>
-          );
-        })}
+            return (
+              <Press
+                key={tab}
+                accessibilityRole="tab"
+                accessibilityLabel={t(`tabs.${tab}`)}
+                accessibilityState={{ selected: active }}
+                onPress={() => nav.setMainTab(tab)}
+                style={styles.tab}
+              >
+                <Text style={[styles.label, { color: active ? theme.text : theme.text3, fontWeight: active ? '700' : '600' }]}>
+                  {t(`tabs.${tab}`)}
+                </Text>
+                {tab === 'me' && unread > 0 ? <View style={[styles.unread, { backgroundColor: theme.danger, borderColor: theme.controlSurface }]} /> : null}
+              </Press>
+            );
+          })}
+        </View>
+        {onOpenAssistant ? (
+          <Press
+            accessibilityRole="button"
+            accessibilityLabel={t('agent.open')}
+            onPress={onOpenAssistant}
+            style={[styles.assistant, { backgroundColor: theme.accent }]}
+          >
+            <AssistantMark color="#FFFFFF" size={27} />
+          </Press>
+        ) : null}
       </View>
     </Animated.View>
   );
@@ -112,34 +96,48 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
+    zIndex: 400,
+    elevation: 30,
   },
   bar: {
-    width: 252,
+    width: 208,
     height: 52,
     flexDirection: 'row',
     padding: space.xxs,
     borderRadius: radius.pill,
     borderWidth: 1.5,
   },
+  row: {
+    width: 336,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 76,
+  },
+  assistant: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
     borderRadius: radius.pill,
   },
   label: {
-    fontSize: 9,
-    lineHeight: 10,
-    letterSpacing: 0.1,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: 0,
   },
   unread: {
     position: 'absolute',
-    right: -5,
-    top: -3,
-    width: 8,
-    height: 8,
+    right: 8,
+    top: 9,
+    width: 7,
+    height: 7,
     borderRadius: radius.pill,
-    borderWidth: 1.5,
+    borderWidth: 1,
   },
 });

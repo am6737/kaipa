@@ -119,7 +119,7 @@ fi
 
 python3 - "$RUNTIME_DIR" "$PUBLIC_URL" "$API_EXTERNAL_URL" "$KONG_HTTP_PORT" "$KONG_HTTPS_PORT" "$POSTGRES_PORT" "$POOLER_PORT" <<'PY'
 from pathlib import Path
-import base64, hashlib, hmac, json, secrets, sys, time
+import base64, hashlib, hmac, json, os, secrets, sys, time
 runtime=Path(sys.argv[1])
 public_url, api_url, kong_http, kong_https, pg_port, pooler_port = sys.argv[2:8]
 compose=runtime/'docker-compose.yml'
@@ -145,8 +145,16 @@ compose.write_text(s)
 # AI and product-link preview credentials are server-only. Keep the values in
 # the generated runtime .env and expose only these names to the Edge Runtime.
 s=compose.read_text()
-ai_env='''      # smart-plan：统一大模型服务端凭证
+ai_env='''      # app-agent：服务端模型凭证与 OpenAI 兼容端点
       KAIPA_AI_API_KEY: "${KAIPA_AI_API_KEY:-}"
+      KAIPA_AI_BASE_URL: "${KAIPA_AI_BASE_URL:-https://ai.dootask.com/v1}"
+      KAIPA_AI_MODEL: "${KAIPA_AI_MODEL:-gpt-5.6-sol}"
+      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
+      TRAVEL_SEARCH_SOURCES: "${TRAVEL_SEARCH_SOURCES:-tavily}"
+      TRAVEL_SEARCH_TIMEOUT_MS: "${TRAVEL_SEARCH_TIMEOUT_MS:-8000}"
+      TRAVEL_SEARCH_MAX_RESULTS: "${TRAVEL_SEARCH_MAX_RESULTS:-10}"
+      MEDIACRAWLER_SEARCH_URL: "${MEDIACRAWLER_SEARCH_URL:-}"
+      MEDIACRAWLER_API_KEY: "${MEDIACRAWLER_API_KEY:-}"
 '''
 gear_env='''      # gear-link-preview：淘宝/天猫、京东开放平台服务端凭证
       TAOBAO_APP_KEY: "${TAOBAO_APP_KEY:-}"
@@ -163,17 +171,39 @@ gear_env='''      # gear-link-preview：淘宝/天猫、京东开放平台服务
       JD_API_METHOD: "${JD_API_METHOD:-}"
       GEAR_LINK_ALLOWED_HOSTS: "${GEAR_LINK_ALLOWED_HOSTS:-}"
 '''
-if 'KAIPA_AI_API_KEY:' not in s or 'TAOBAO_APP_KEY:' not in s:
-    marker='      SMART_PLAN_DEFAULT_PROVIDER: "${SMART_PLAN_DEFAULT_PROVIDER:-}"\n'
+if 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s:
+    marker='      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"\n'
     if marker not in s:
         raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
     missing=''
     if 'KAIPA_AI_API_KEY:' not in s:
         missing+=ai_env
+    else:
+        if 'TAVILY_API_KEY:' not in s:
+            missing+='      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"\n'
+        if 'MEDIACRAWLER_SEARCH_URL:' not in s:
+            missing+='''      TRAVEL_SEARCH_SOURCES: "${TRAVEL_SEARCH_SOURCES:-tavily}"
+      TRAVEL_SEARCH_TIMEOUT_MS: "${TRAVEL_SEARCH_TIMEOUT_MS:-8000}"
+      TRAVEL_SEARCH_MAX_RESULTS: "${TRAVEL_SEARCH_MAX_RESULTS:-10}"
+      MEDIACRAWLER_SEARCH_URL: "${MEDIACRAWLER_SEARCH_URL:-}"
+      MEDIACRAWLER_API_KEY: "${MEDIACRAWLER_API_KEY:-}"
+'''
     if 'TAOBAO_APP_KEY:' not in s:
         missing+=gear_env
     s=s.replace(marker, marker+missing, 1)
-    compose.write_text(s)
+s='\n'.join(line for line in s.splitlines() if 'SMART_PLAN_PROVIDERS:' not in line and 'SMART_PLAN_DEFAULT_PROVIDER:' not in line)+'\n'
+compose.write_text(s)
+
+# Agent turns may include multiple external searches before the final model
+# response, so the stock one-minute self-hosted worker limit is too short.
+router=runtime/'volumes/functions/main/index.ts'
+if router.exists():
+    router_source=router.read_text()
+    router_source=router_source.replace(
+        'const workerTimeoutMs = 1 * 60 * 1000',
+        'const workerTimeoutMs = 3 * 60 * 1000',
+    )
+    router.write_text(router_source)
 
 def b64url(data: bytes): return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
 def jwt(role: str, secret: str):
@@ -200,14 +230,40 @@ updates={
  'VAULT_ENC_KEY': secrets.token_hex(16),
 }
 env=runtime/'.env'
-out=[]
+existing_env={}
+for line in env.read_text().splitlines():
+    if line and not line.lstrip().startswith('#') and '=' in line:
+        key, value = line.split('=', 1)
+        existing_env[key] = value
+
+def configured(name: str, fallback: str = '') -> str:
+    return os.environ.get(name, existing_env.get(name, fallback))
+
+agent_env={
+ 'KAIPA_AI_API_KEY': configured('KAIPA_AI_API_KEY'),
+ 'KAIPA_AI_BASE_URL': configured('KAIPA_AI_BASE_URL', 'https://ai.dootask.com/v1'),
+ 'KAIPA_AI_MODEL': configured('KAIPA_AI_MODEL', 'gpt-5.6-sol'),
+ 'TAVILY_API_KEY': configured('TAVILY_API_KEY'),
+ 'TRAVEL_SEARCH_SOURCES': configured('TRAVEL_SEARCH_SOURCES', 'tavily'),
+ 'TRAVEL_SEARCH_TIMEOUT_MS': configured('TRAVEL_SEARCH_TIMEOUT_MS', '8000'),
+ 'TRAVEL_SEARCH_MAX_RESULTS': configured('TRAVEL_SEARCH_MAX_RESULTS', '10'),
+ 'MEDIACRAWLER_SEARCH_URL': configured('MEDIACRAWLER_SEARCH_URL'),
+ 'MEDIACRAWLER_API_KEY': configured('MEDIACRAWLER_API_KEY'),
+}
+out=[]; seen=set()
 for line in env.read_text().splitlines():
     if line and not line.lstrip().startswith('#') and '=' in line:
         k=line.split('=',1)[0]
+        seen.add(k)
         if k in updates:
             out.append(f'{k}={updates[k]}')
             continue
+        if k in agent_env:
+            out.append(f'{k}={agent_env[k]}')
+            continue
     out.append(line)
+for k,v in agent_env.items():
+    if k not in seen: out.append(f'{k}={v}')
 env.write_text('\n'.join(out)+'\n')
 (runtime/'kaipa-client.env').write_text(
     f"EXPO_PUBLIC_SUPABASE_URL={public_url}\nEXPO_PUBLIC_SUPABASE_ANON_KEY={updates['ANON_KEY']}\n"
@@ -256,6 +312,7 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-packing-migration.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-categories-per-user.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-category-delete-to-uncategorized.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/account-deletion.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

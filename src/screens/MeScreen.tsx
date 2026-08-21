@@ -349,7 +349,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
                   {profile.nick || t('me.unnamed')}
                 </Text>
               </View>
-              <Avatar size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
+              <Avatar uri={data.profile.avatarUrl} size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
             </View>
             {profile.bio ? <Text numberOfLines={2} style={[type.body, { color: theme.text2, lineHeight: 20, marginTop: space.md }]}>{profile.bio}</Text> : null}
           </Press>

@@ -1,7 +1,7 @@
 // JourneyCard.tsx — SelectedPoiCard: the rich detail body for a route or journey,
 // shown inside the discover sheet's in-place journey detail panel.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, FlatList, Modal, Pressable, Switch, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, Modal, Pressable } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,16 +22,17 @@ import { useTimeline } from '../hooks/useTimeline';
 import { useData } from '../data/DataContext';
 import { genPhotos } from '../components/overlays/PhotoWall';
 import { useI18n, TKey, ResolvedLang } from '../i18n';
-import { NJBottomSheet, njHapticTick } from '../components/overlays/NewJourneyParts';
+import { NJBottomSheet } from '../components/overlays/NewJourneyParts';
 import { ElevationStrip } from '../components/overlays/ElevationStrip';
 import { JourneyTrackUploadSheet } from '../components/overlays/JourneyTrackUploadSheet';
+import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangePicker';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { Glass } from '../components/Glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import WheelPicker from '@quidone/react-native-wheel-picker';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -531,350 +532,33 @@ function compactPlannedDate(d: Date): string {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 }
 
-function chineseNumber(value: number): string {
-  if (value <= 0 || value > 99) return String(value);
-  const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
-  if (value < 10) return digits[value];
-  const tens = Math.floor(value / 10);
-  const ones = value % 10;
-  return `${tens === 1 ? '' : digits[tens]}十${ones ? digits[ones] : ''}`;
-}
-
-function defaultJourneyDayLabel(index: number, resolved: ResolvedLang, t: ReturnType<typeof useI18n>['t']): string {
-  return t('journey.timeline.defaultDay', {
-    n: resolved === 'zh' ? chineseNumber(index) : index,
-  });
-}
-
-function journeyDayOrdinal(label: string, resolved: ResolvedLang, t: ReturnType<typeof useI18n>['t']): number | undefined {
-  const english = label.trim().match(/^day\s*(\d+)$/i);
-  if (english) return Number(english[1]);
-  for (let index = 1; index <= 99; index += 1) {
-    if (label.trim() === defaultJourneyDayLabel(index, resolved, t)) return index;
-  }
-  return undefined;
-}
-
-function journeyDayDisplayLabel(label: string, resolved: ResolvedLang, t: ReturnType<typeof useI18n>['t']): string {
-  const english = label.trim().match(/^day\s*(\d+)$/i);
-  return english ? defaultJourneyDayLabel(Number(english[1]), resolved, t) : label;
-}
-
-export function nextJourneyDayLabel(labels: string[], resolved: ResolvedLang, t: ReturnType<typeof useI18n>['t']): string {
-  const usedOrdinals = new Set(labels.map((label) => journeyDayOrdinal(label, resolved, t)).filter((value): value is number => value != null));
-  let index = 1;
-  while (usedOrdinals.has(index)) index += 1;
-  return defaultJourneyDayLabel(index, resolved, t);
-}
-
-const JOURNEY_DAY_MS = 24 * 60 * 60 * 1000;
-const JOURNEY_MONTH_RANGE = 1200;
-const JOURNEY_MONTH_HEIGHT = 344;
-
-function journeyDateOnly(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function journeyAddDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function journeyCalendarDayDiff(start: Date, end: Date): number {
-  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-  return Math.max(1, Math.round((endUtc - startUtc) / JOURNEY_DAY_MS));
-}
-
-function journeySameCalendarDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function JourneyRangeMonth({
-  theme,
-  month,
-  start,
-  end,
-  resolved,
-  onSelect,
-}: {
-  theme: Theme;
-  month: Date;
-  start: Date;
-  end: Date | null;
-  resolved: ResolvedLang;
-  onSelect: (date: Date) => void;
-}) {
-  const year = month.getFullYear();
-  const monthIndex = month.getMonth();
-  const firstWeekday = new Date(year, monthIndex, 1).getDay();
-  const dayCount = new Date(year, monthIndex + 1, 0).getDate();
-  const cells: (Date | null)[] = Array.from({ length: firstWeekday }, () => null);
-  for (let day = 1; day <= dayCount; day += 1) cells.push(new Date(year, monthIndex, day));
-  while (cells.length < 42) cells.push(null);
-
-  const startDay = journeyDateOnly(start).getTime();
-  const endDay = end ? journeyDateOnly(end).getTime() : null;
-  const today = journeyDateOnly(new Date());
-  const weekdays = resolved === 'zh' ? ['日', '一', '二', '三', '四', '五', '六'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  const monthTitle = new Intl.DateTimeFormat(resolved === 'zh' ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: resolved === 'zh' ? 'long' : 'long',
-  }).format(month);
-  const rangeFill = theme.accentSofter;
-
-  return (
-    <View style={{ height: JOURNEY_MONTH_HEIGHT, paddingBottom: space.lg }}>
-      <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: -0.35, color: theme.text, marginBottom: space.sm }}>
-        {monthTitle}
-      </Text>
-      <View style={{ flexDirection: 'row', marginBottom: space.xxs }}>
-        {weekdays.map((weekday, index) => (
-          <Text key={`${weekday}-${index}`} style={{ width: `${100 / 7}%`, textAlign: 'center', fontSize: 12.5, fontWeight: '500', color: theme.text3 }}>
-            {weekday}
-          </Text>
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: space.xxs }}>
-        {cells.map((date, index) => {
-          if (!date) return <View key={`empty-${index}`} style={{ width: `${100 / 7}%`, height: 40 }} />;
-          const dayTime = date.getTime();
-          const isStart = dayTime === startDay;
-          const isEnd = endDay !== null && dayTime === endDay;
-          const inRange = endDay !== null && dayTime >= startDay && dayTime <= endDay;
-          const isToday = journeySameCalendarDay(date, today);
-          const weekIndex = index % 7;
-          return (
-            <Press
-              key={`${year}-${monthIndex}-${date.getDate()}`}
-              onPress={() => onSelect(date)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isStart || isEnd }}
-              style={{ width: `${100 / 7}%`, height: 40, justifyContent: 'center' }}
-            >
-              <View style={{ height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                {inRange ? (
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      left: isStart ? '50%' : 0,
-                      right: isEnd ? '50%' : 0,
-                      borderTopLeftRadius: weekIndex === 0 ? radius.pill : 0,
-                      borderBottomLeftRadius: weekIndex === 0 ? radius.pill : 0,
-                      borderTopRightRadius: weekIndex === 6 ? radius.pill : 0,
-                      borderBottomRightRadius: weekIndex === 6 ? radius.pill : 0,
-                      backgroundColor: rangeFill,
-                    }}
-                  />
-                ) : null}
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: radius.pill,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: isStart || isEnd ? theme.accent : 'transparent',
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 16.5,
-                      fontWeight: isStart || isEnd ? '700' : '600',
-                      color: isStart || isEnd ? '#FFFFFF' : inRange ? theme.accent : theme.text,
-                    }}
-                  >
-                    {date.getDate()}
-                  </Text>
-                  {isToday && !inRange ? (
-                    <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: radius.pill, backgroundColor: theme.accent }} />
-                  ) : null}
-                </View>
-              </View>
-            </Press>
-          );
-        })}
-      </View>
-    </View>
-  );
+export function nextJourneyDayLabel(labels: string[], _resolved: ResolvedLang, _t: ReturnType<typeof useI18n>['t']): string {
+  return nextJourneyDayKey(labels);
 }
 
 function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi: Poi; onApply: (patch: Partial<Poi>) => void; onClose: () => void }) {
-  const { t, resolved } = useI18n();
-  const { width, height } = useWindowDimensions();
   const initialStart = useMemo(() => parseJourneyStart(poi), [poi]);
   const initialDurationDays = useMemo(() => Math.max(1, Math.round(parseJourneyDurationMins(poi) / (24 * 60))), [poi]);
-  const [draftStart, setDraftStart] = useState(initialStart);
-  const [draftEnd, setDraftEnd] = useState<Date | null>(() => journeyAddDays(initialStart, initialDurationDays));
-  const [flexible, setFlexible] = useState(() => !poi.plannedDate && !poi.date && Boolean(poi.days || poi.totalDays));
-  const [flexibleDays, setFlexibleDays] = useState(initialDurationDays);
-  const visibleMonths = useMemo(() => Array.from(
-    { length: JOURNEY_MONTH_RANGE * 2 + 1 },
-    (_, index) => new Date(initialStart.getFullYear(), initialStart.getMonth() + index - JOURNEY_MONTH_RANGE, 1),
-  ), [initialStart]);
-  const dayOptions = useMemo(() => Array.from({ length: 30 }, (_, index) => ({ value: index + 1, label: String(index + 1) })), []);
-
-  const handleDateSelect = (selectedDate: Date) => {
-    const selected = new Date(selectedDate);
-    selected.setHours(draftStart.getHours(), draftStart.getMinutes(), 0, 0);
-
-    // A completed range always starts over from the next tapped date.
-    if (draftEnd) {
-      setDraftStart(selected);
-      setDraftEnd(null);
-      return;
-    }
-
-    // An end date must be later than the start. Earlier or equal taps become
-    // the new start instead of creating an invalid range.
-    if (selected <= draftStart) {
-      setDraftStart(selected);
-      return;
-    }
-
-    setDraftEnd(selected);
-  };
-
-  const setPickerMode = (nextFlexible: boolean) => {
-    setFlexible(nextFlexible);
-    if (nextFlexible) {
-      setFlexibleDays(draftEnd ? journeyCalendarDayDiff(draftStart, draftEnd) : initialDurationDays);
-    } else if (!draftEnd) {
-      setDraftEnd(journeyAddDays(draftStart, flexibleDays));
-    }
-  };
-
-  const apply = () => {
-    const totalDays = flexible ? flexibleDays : draftEnd ? journeyCalendarDayDiff(draftStart, draftEnd) : 1;
-    const durationMins = totalDays * 24 * 60;
-    onApply({
-      date: flexible ? '' : compactDate(draftStart),
-      plannedDate: flexible ? '' : compactPlannedDate(draftStart),
-      days: detailDurationLabel(durationMins),
-      totalDays,
-      trackDurationMs: durationMins * 60000,
-    });
-    onClose();
-  };
-
-  const sheetHeight = Math.max(480, Math.min(height * 0.66, 620) - space.xxxl - space.xs);
-  const wheelWidth = Math.min(width - space.xxxl * 2, 420);
-
+  const initialFlexible = !poi.plannedDate && !poi.date && Boolean(poi.days || poi.totalDays);
 
   return (
-    <Modal transparent visible animationType="none" onRequestClose={onClose}>
-      <NJBottomSheet theme={theme} onClose={onClose} full bodyScrolls backgroundColor={theme.featureSurface} bottomPadding={space.sm}>
-        <View style={{ height: sheetHeight, paddingHorizontal: space.lg }}>
-          <View
-            style={{
-              zIndex: 2,
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingVertical: space.xs,
-              backgroundColor: theme.featureSurface,
-            }}
-          >
-            <View style={{ flex: 1, paddingRight: space.sm }}>
-              <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.55, color: theme.text }}>
-                {t('journeyEdit.time.durationQuestion')}
-              </Text>
-            </View>
-            <View style={{ minHeight: 44, paddingLeft: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-              <View style={{ width: 52, height: 32, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-                <Switch
-                  value={flexible}
-                  onValueChange={setPickerMode}
-                  trackColor={{ false: theme.hairline, true: theme.accent }}
-                  thumbColor="#FFFFFF"
-                  ios_backgroundColor={theme.hairline}
-                  style={{ transform: [{ scale: 0.76 }] }}
-                />
-              </View>
-              <Text
-                pointerEvents="none"
-                style={{ flexShrink: 0, paddingRight: space.xxs, fontSize: 13, fontWeight: '600', color: flexible ? theme.text : theme.text2 }}
-              >
-                {t('journeyEdit.time.flexibleDays')}
-              </Text>
-            </View>
-          </View>
-
-          {flexible ? (
-            <View style={{ flex: 1, minHeight: 0, zIndex: 0, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-              <WheelPicker
-                data={dayOptions}
-                value={flexibleDays}
-                onValueChanging={njHapticTick}
-                onValueChanged={({ item }) => setFlexibleDays(item.value)}
-                itemHeight={80}
-                visibleItemCount={5}
-                width={wheelWidth}
-                itemTextStyle={{ fontSize: 50, fontWeight: '500', letterSpacing: -1, color: theme.text }}
-                overlayItemStyle={{ backgroundColor: theme.fieldSurface, borderRadius: radius.control }}
-              />
-            </View>
-          ) : (
-            <FlatList
-              data={visibleMonths}
-              initialScrollIndex={JOURNEY_MONTH_RANGE}
-              getItemLayout={(_, index) => ({ length: JOURNEY_MONTH_HEIGHT, offset: JOURNEY_MONTH_HEIGHT * index, index })}
-              keyExtractor={(month) => `${month.getFullYear()}-${month.getMonth()}`}
-              renderItem={({ item: month }) => (
-                <JourneyRangeMonth
-                  theme={theme}
-                  month={month}
-                  start={draftStart}
-                  end={draftEnd}
-                  resolved={resolved}
-                  onSelect={handleDateSelect}
-                />
-              )}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 76 }}
-              initialNumToRender={3}
-              maxToRenderPerBatch={4}
-              windowSize={5}
-            />
-          )}
-
-          <View
-            pointerEvents="box-none"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: space.xs,
-              zIndex: 4,
-              alignItems: 'center',
-            }}
-          >
-            <Press
-              onPress={apply}
-              accessibilityRole="button"
-              style={{
-                width: Math.min(width - space.xxxl * 2, 360),
-                height: 56,
-                borderRadius: radius.pill,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.controlSurface,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.fieldBorder,
-                boxShadow: theme.dark
-                  ? '0px 4px 12px rgba(0,0,0,0.38)'
-                  : '0px 4px 12px rgba(0,0,0,0.08)',
-              }}
-            >
-              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>{t('journeyEdit.time.durationConfirm')}</Text>
-            </Press>
-          </View>
-        </View>
-      </NJBottomSheet>
-    </Modal>
+    <JourneyDateRangePicker
+      theme={theme}
+      initialStart={initialStart}
+      initialDurationDays={initialDurationDays}
+      initialFlexible={initialFlexible}
+      onApply={({ start, totalDays, flexible }) => {
+        const durationMins = totalDays * 24 * 60;
+        onApply({
+          date: flexible ? '' : compactDate(start),
+          plannedDate: flexible ? '' : compactPlannedDate(start),
+          days: detailDurationLabel(durationMins),
+          totalDays,
+          trackDurationMs: durationMins * 60000,
+        });
+      }}
+      onClose={onClose}
+    />
   );
 }
 
@@ -1293,7 +977,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const journeyDays = useMemo(() => {
     if (!isJourney) return [];
     const removed = new Set(timeline.removedGroups);
-    const removedOrdinals = new Set(timeline.removedGroups.map((label) => journeyDayOrdinal(label, resolved, t)).filter((value): value is number => value != null));
+    const removedOrdinals = new Set(timeline.removedGroups.map(journeyDayOrdinal).filter((value): value is number => value != null));
     const labels = new Set<string>();
     timeline.knownGroups.forEach((label) => {
       const next = label.trim();
@@ -1303,14 +987,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       const next = row.day.trim();
       if (next && !removed.has(next)) labels.add(next);
     });
-    const usedOrdinals = new Set([...labels].map((label) => journeyDayOrdinal(label, resolved, t)).filter((value): value is number => value != null));
+    const usedOrdinals = new Set([...labels].map(journeyDayOrdinal).filter((value): value is number => value != null));
     const total = Math.max(1, poi.totalDays || Number.parseInt(poi.days || '', 10) || 1);
     for (let day = 1; day <= total; day += 1) {
-      if (!usedOrdinals.has(day) && !removedOrdinals.has(day)) labels.add(defaultJourneyDayLabel(day, resolved, t));
+      if (!usedOrdinals.has(day) && !removedOrdinals.has(day)) labels.add(journeyDayKey(day));
     }
     return [...labels].sort((a, b) => {
-      const ai = journeyDayOrdinal(a, resolved, t) ?? Number.POSITIVE_INFINITY;
-      const bi = journeyDayOrdinal(b, resolved, t) ?? Number.POSITIVE_INFINITY;
+      const ai = journeyDayOrdinal(a) ?? Number.POSITIVE_INFINITY;
+      const bi = journeyDayOrdinal(b) ?? Number.POSITIVE_INFINITY;
       return ai === bi ? a.localeCompare(b) : ai - bi;
     });
   }, [isJourney, poi.totalDays, poi.days, timeline.knownGroups, timeline.removedGroups, timeline.rows, resolved, t]);
@@ -1449,7 +1133,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         { id: 'checklist', label: t('journey.tab.checklist') },
         ...journeyDays.map((day) => ({
           id: `day:${day}` as TabId,
-          label: journeyDayDisplayLabel(day, resolved, t),
+          label: journeyDayDisplayLabel(day, resolved),
         })),
       ];
     }
@@ -1837,7 +1521,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   </Press>
                     ) : null}
                   </View>
-                  <JourneyPlanEditContent theme={theme} days={journeyDays} rows={timeline.rows} selectedDays={selectedPlanDays} onToggleDay={toggleSelectedPlanDay} onRenameDay={setRenamingPlanDay} getDayLabel={(day) => journeyDayDisplayLabel(day, resolved, t)} />
+                  <JourneyPlanEditContent theme={theme} days={journeyDays} rows={timeline.rows} selectedDays={selectedPlanDays} onToggleDay={toggleSelectedPlanDay} onRenameDay={setRenamingPlanDay} getDayLabel={(day) => journeyDayDisplayLabel(day, resolved)} />
                   {!externalPlanEditorControls ? (
                     <View
                       style={{
@@ -2026,7 +1710,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                             >
                               <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
                                 <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
-                                  {journeyDayDisplayLabel(day, resolved, t)}
+                                  {journeyDayDisplayLabel(day, resolved)}
                                 </Text>
                                 {rows.length ? (
                                   <Text
@@ -2069,7 +1753,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                               >
                                 <View style={{ flex: 1, minWidth: 0, paddingRight: space.sm }}>
                                   <Text style={[type.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 24 }]}>
-                                    {journeyDayDisplayLabel(day, resolved, t)}
+                                    {journeyDayDisplayLabel(day, resolved)}
                                   </Text>
                                   {rows.length ? (
                                     <Text
@@ -2625,12 +2309,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       {renamingPlanDay ? (
         <JourneyGroupRenameSheet
           theme={theme}
-          initialName={journeyDayDisplayLabel(renamingPlanDay, resolved, t)}
+          initialName={journeyDayDisplayLabel(renamingPlanDay, resolved)}
           onClose={() => setRenamingPlanDay(null)}
           onSave={(name) => {
             const current = renamingPlanDay;
             setRenamingPlanDay(null);
-            if (!current || name === journeyDayDisplayLabel(current, resolved, t)) return;
+            if (!current || name === journeyDayDisplayLabel(current, resolved)) return;
             void timeline.renameGroup(current, name);
             if (seg === `day:${current}`) setSeg(`day:${name}`);
             if (selectedPlanDays.has(current)) {

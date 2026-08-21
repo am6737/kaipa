@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
 import { Press } from '../Press';
@@ -13,6 +13,7 @@ type Props = {
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirming?: boolean;
 };
 
 export function AccountActionDialog({
@@ -24,6 +25,7 @@ export function AccountActionDialog({
   cancelLabel,
   onConfirm,
   onCancel,
+  confirming = false,
 }: Props) {
   const { width } = useWindowDimensions();
   const [mounted, setMounted] = React.useState(visible);
@@ -67,7 +69,7 @@ export function AccountActionDialog({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={cancelLabel}
-            onPress={onCancel}
+            onPress={confirming ? undefined : onCancel}
             style={[styles.fill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.72)' : 'rgba(20,20,24,0.38)' }]}
           />
         </Animated.View>
@@ -97,16 +99,19 @@ export function AccountActionDialog({
             <Press
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
-              onPress={onConfirm}
+              accessibilityState={{ busy: confirming, disabled: confirming }}
+              onPress={confirming ? undefined : onConfirm}
               opacityTo={1}
               style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.danger }}
             >
-              <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
+              {confirming
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>}
             </Press>
             <Press
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
-              onPress={onCancel}
+              onPress={confirming ? undefined : onCancel}
               opacityTo={1}
               style={{ height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
             >

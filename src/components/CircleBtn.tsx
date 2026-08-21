@@ -14,10 +14,12 @@ const subtleShadow = (t: Theme): ViewStyle =>
     ? { boxShadow: '0px 1px 5px rgba(0,0,0,0.24)' }
     : { boxShadow: '0px 1px 5px rgba(0,0,0,0.07)' };
 
-export function CircleBtn({ theme, name, onPress, noShadow, softShadow, active, danger, size = 44 }: { theme: Theme; name: IconName; onPress: () => void; noShadow?: boolean; softShadow?: boolean; active?: boolean; danger?: boolean; size?: number }) {
+export function CircleBtn({ theme, name, onPress, noShadow, softShadow, active, danger, size = 44, accessibilityLabel }: { theme: Theme; name: IconName; onPress: () => void; noShadow?: boolean; softShadow?: boolean; active?: boolean; danger?: boolean; size?: number; accessibilityLabel?: string }) {
   return (
     <Press
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       opacityTo={1}
       style={{
         width: size,

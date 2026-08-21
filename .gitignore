@@ -44,3 +44,4 @@ yarn-error.*
 kaipa-supabase-docker/
 infra/supabase-docker/
 infra/supabase/.runtime/
+supabase/.temp/

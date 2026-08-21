@@ -148,11 +148,23 @@ export function useJourneys(userId: string | undefined) {
       track_file_url: poi.trackFileUrl || null,
       track_file_name: poi.trackFileName || null,
     };
-    const { data, error } = await supabase
+    let insertResult = await supabase
       .from("journeys")
       .insert(row)
       .select()
       .single();
+    if (
+      insertResult.error?.code === "23503" &&
+      insertResult.error.message.includes("route_id")
+    ) {
+      row.route_id = null;
+      insertResult = await supabase
+        .from("journeys")
+        .insert(row)
+        .select()
+        .single();
+    }
+    const { data, error } = insertResult;
     if (error) {
       console.warn("createJourney error:", error.message);
       return null;
