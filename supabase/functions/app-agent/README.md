@@ -16,6 +16,15 @@ supabase secrets set \
   TAVILY_API_KEY=...
 ```
 
+`AMAP_WEB_KEY` is also used by the separate authenticated `map-search` function
+for client place search and reverse geocoding. Deploy it after setting secrets:
+
+```bash
+supabase functions deploy map-search
+```
+
+Never expose this key through an `EXPO_PUBLIC_` environment variable.
+
 If the project already has `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`, the
 agent uses those when `KAIPA_AI_API_KEY` is absent. In that case the base URL
 defaults to `https://openrouter.ai/api/v1`.

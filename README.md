@@ -16,15 +16,28 @@ development build.
 
 ## Enabling native maps
 
-MapKit does not need an API key. Android AMap and place search need keys from the
-高德开放平台. Add them to `.env` without committing the values:
+MapKit does not need an API key. Android AMap needs a native key from the
+高德开放平台. Add it to `.env` without committing the value:
 
 ```bash
-EXPO_PUBLIC_AMAP_ANDROID_KEY=your_android_native_key
-EXPO_PUBLIC_AMAP_WEB_KEY=your_web_service_key
+AMAP_ANDROID_KEY=your_android_native_key
 ```
 
-The app agent uses `AMAP_WEB_KEY` in the Supabase Edge Function environment.
+The native key is written to `AndroidManifest.xml` at build time and therefore
+cannot be treated as a secret after distribution. Restrict it in the 高德 console
+to Kaipa's Android package name and the SHA-1 fingerprint of every allowed
+signing certificate. Configure quotas and usage alerts as an additional guard.
+
+Place search and reverse geocoding run through the authenticated `map-search`
+Supabase Edge Function. Its Web Service key must remain server-side:
+
+```bash
+supabase secrets set AMAP_WEB_KEY=YOUR_WEB_SERVICE_KEY
+supabase functions deploy map-search
+```
+
+Do not create an `EXPO_PUBLIC_AMAP_WEB_KEY`; every `EXPO_PUBLIC_` variable is
+included in the client JavaScript bundle.
 
 ### Dev build via EAS (cloud — works from any OS)
 
@@ -38,9 +51,8 @@ eas login
 # 2. link the project (writes extra.eas.projectId)
 eas init
 
-# 3. provide the AMap keys to the cloud build environment
-eas env:create --environment development --name EXPO_PUBLIC_AMAP_ANDROID_KEY --value YOUR_KEY --visibility sensitive
-eas env:create --environment development --name EXPO_PUBLIC_AMAP_WEB_KEY --value YOUR_KEY --visibility sensitive
+# 3. provide the native AMap key to the cloud build environment
+eas env:create --environment development --name AMAP_ANDROID_KEY --value YOUR_KEY --visibility sensitive
 
 # 4. build the Android dev client (APK)
 eas build --profile development --platform android

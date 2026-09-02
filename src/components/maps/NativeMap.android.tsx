@@ -4,18 +4,15 @@ import type { MapViewRef } from 'expo-gaode-map';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 import type { NativeMapHandle, NativeMapProps } from './types';
 
-const AMAP_ANDROID_KEY = (process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '').trim();
 let AMap: typeof import('expo-gaode-map') | null = null;
 let amapInitialized = false;
 
-if (AMAP_ANDROID_KEY) {
-  try {
-    // Lazy loading keeps Expo Go usable when the AMap native module is absent.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    AMap = require('expo-gaode-map') as typeof import('expo-gaode-map');
-  } catch {
-    AMap = null;
-  }
+try {
+  // Lazy loading keeps Expo Go usable when the AMap native module is absent.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  AMap = require('expo-gaode-map') as typeof import('expo-gaode-map');
+} catch {
+  AMap = null;
 }
 
 function ensureAmapReady(module: typeof import('expo-gaode-map')): boolean {
@@ -27,7 +24,8 @@ function ensureAmapReady(module: typeof import('expo-gaode-map')): boolean {
       hasAgree: true,
       privacyVersion: '2026-09-02',
     });
-    module.ExpoGaodeMapModule.initSDK({ androidKey: AMAP_ANDROID_KEY });
+    // The config plugin writes the build-only key to AndroidManifest.xml.
+    module.ExpoGaodeMapModule.initSDK({});
     amapInitialized = true;
     return true;
   } catch {

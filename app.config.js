@@ -16,7 +16,7 @@ module.exports = ({ config }) => ({
     [
       'expo-gaode-map',
       {
-        androidKey: process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '',
+        androidKey: process.env.AMAP_ANDROID_KEY || '',
         enableLocation: true,
         locationDescription: 'Kaipa 需要访问你的位置，以便将当前位置设为旅程地点。',
       },
