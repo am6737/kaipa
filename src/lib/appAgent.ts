@@ -12,6 +12,7 @@ export interface AgentApproval {
 export interface AgentQuickReply {
   label: string;
   message: string;
+  action?: 'upload_track' | 'skip_track';
 }
 
 export interface AgentSource {
@@ -20,6 +21,14 @@ export interface AgentSource {
   source?: string;
   snippet?: string;
   publishedAt?: string;
+}
+
+export interface AgentAttachment {
+  kind: 'image' | 'file';
+  name: string;
+  url: string;
+  mimeType: string;
+  size?: number;
 }
 
 export interface AgentPlanPreview {
@@ -32,11 +41,20 @@ export interface AgentPlanPreview {
   }>;
 }
 
+export interface AgentUndoAction {
+  runId: string;
+  undoneAt?: string;
+}
+
 export interface AgentMessageUi {
   quickReplies?: AgentQuickReply[];
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
+  attachments?: AgentAttachment[];
+  undoAction?: AgentUndoAction;
+  createJourneyFlow?: { step: 'collect_date' | 'collect_duration' | 'collect_date_and_duration' | 'ask_track'; originalMessage: string };
+  trackPrompt?: { message: string; intent?: AgentIntent };
 }
 
 export interface AgentRunActivity {
@@ -88,7 +106,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; threadId?: string; currentJourneyId?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string }) {
+export function sendAgentTurn(args: { message: string; threadId?: string; currentJourneyId?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 
@@ -114,4 +132,8 @@ export function getAgentRunActivity(runId: string) {
 
 export function deleteAgentThread(threadId: string) {
   return invoke<{ deleted: true }>({ action: 'delete_thread', threadId });
+}
+
+export function undoAgentRun(runId: string) {
+  return invoke<{ undone: true; undoneAt: string; journeyId?: string; affectedOperations: number }>({ action: 'undo', runId });
 }

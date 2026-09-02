@@ -38,14 +38,26 @@ function AppShell() {
   const theme = useTheme();
   const { t } = useI18n();
   const nav = useNav();
-  const { userId } = useData();
+  const { userId, journeys } = useData();
   const [trackLoading, setTrackLoading] = useState(false);
   const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
+  const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
 
-  const sheetUp = nav.mainTab === 'discover' && (nav.sheetOpen || !!nav.pointInfo);
+  useEffect(() => {
+    if (!assistantReturnJourneyId || nav.pointInfo || nav.assistantOpen) return;
+    const journeyId = assistantReturnJourneyId;
+    setAssistantReturnJourneyId(undefined);
+    nav.openAssistant(undefined, journeyId);
+  }, [assistantReturnJourneyId, nav.assistantOpen, nav.pointInfo]);
+
+  const detailOpen = !!nav.pointInfo;
+  const sheetUp = detailOpen || (nav.mainTab === 'discover' && nav.sheetOpen);
   const hidden = { display: 'none' as const };
+  const managedPoi = nav.manageCompanions
+    ? journeys.find((journey) => journey.id === nav.manageCompanions?.poi.id) || nav.manageCompanions.poi
+    : null;
   const directInvitePoi = nav.manageCompanions?.initialAction === 'invite'
-    ? nav.manageCompanions.poi
+    ? managedPoi
     : null;
   const directInviteElevations = directInvitePoi?.trackElevation
     ?.map((point) => point.ele)
@@ -75,13 +87,13 @@ function AppShell() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'discover' && hidden]}>
+      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'discover' && !detailOpen && hidden]}>
         <DiscoverScreen theme={theme} externalOverlayOpen={Boolean(sharePosterPoi)} />
       </View>
-      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'gear' && hidden]}>
+      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'gear' || detailOpen) && hidden]}>
         <GearScreen theme={theme} />
       </View>
-      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'me' && hidden]}>
+      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'me' || detailOpen) && hidden]}>
         <MeScreen theme={theme} />
       </View>
       <BottomTabs
@@ -228,7 +240,7 @@ function AppShell() {
       ) : nav.manageCompanions ? (
         <ManageCompanions
           theme={theme}
-          poi={nav.manageCompanions.poi}
+          poi={managedPoi!}
           onClose={() => nav.closeManageCompanions()}
           onToast={(m) => nav.showToast(m)}
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
@@ -270,6 +282,15 @@ function AppShell() {
         currentJourneyId={nav.assistantJourneyId}
         onClearPrompt={() => nav.clearAssistantPrompt()}
         onClose={() => nav.closeAssistant()}
+        onOpenJourney={(journeyId) => {
+          const journey = journeys.find((item) => item.id === journeyId);
+          if (!journey) return;
+          setAssistantReturnJourneyId(journeyId);
+          nav.closeAssistant();
+          nav.setMainTab('discover');
+          nav.setSubTab('memory');
+          nav.openPoint(journey);
+        }}
       />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}

@@ -72,7 +72,7 @@ function JourneyChecklistTabComponent({
   filterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>;
   toggleAllActionRef?: React.MutableRefObject<(() => void) | null>;
   onFilterStateChange?: (label: string, active: boolean) => void;
-  onFilterMenuOpenChange?: (open: boolean) => void;
+  onFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void;
   selectionMode?: boolean;
   selectedItemIds: Set<string>;
   onSelectedItemIdsChange: (ids: Set<string>) => void;
@@ -88,6 +88,7 @@ function JourneyChecklistTabComponent({
   const [sourceMode, setSourceMode] = useState<'gear' | 'sets' | 'templates' | null>(null);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<JourneyPackingItem | null>(null);
+  const filterAnchorRef = useRef<View>(null);
   const [gearDetailItem, setGearDetailItem] = useState<GearItem | null>(null);
   const gearItemsById = useMemo(() => new Map(gearItems.map((item) => [item.id, item])), [gearItems]);
   const gearItemsByName = useMemo(() => new Map(gearItems.map((item) => [item.name.trim().toLocaleLowerCase(), item])), [gearItems]);
@@ -226,6 +227,33 @@ function JourneyChecklistTabComponent({
   return (
     <>
       <View>
+        <View style={{ minHeight: 36, marginBottom: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <Text numberOfLines={1} style={[type.caption, { flex: 1, color: theme.text2, fontWeight: '700' }]}>
+            {scopeLabel}
+          </Text>
+          {!selectionMode ? (
+            <View ref={filterAnchorRef} collapsable={false}>
+              <AppIconButton
+                theme={theme}
+                name="filter"
+                size={36}
+                noShadow
+                active={!isMine}
+                onPress={() => {
+                  const anchor = filterAnchorRef.current;
+                  if (!anchor) {
+                    onFilterMenuOpenChange?.(true);
+                    return;
+                  }
+                  anchor.measureInWindow((x, y, width, height) => {
+                    onFilterMenuOpenChange?.(true, { x, y, width, height });
+                  });
+                }}
+                accessibilityLabel={`${t('journey.packing.title')} ${scopeLabel}`}
+              />
+            </View>
+          ) : null}
+        </View>
         {controller.localMode ? (
           <View
             style={{

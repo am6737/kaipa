@@ -198,16 +198,15 @@ export function ManageCompanions({
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
-  // Split the roster: the 发起人 (self, else host) anchors the top and can't be
-  // edited or removed; everyone else is the editable list.
+  // The journey host stays pinned; `self` identifies the current signed-in
+  // viewer and may therefore belong to another row for joined participants.
   const { anchor, initialOthers } = useMemo(() => {
     const cl = poi.companionList || [];
-    let ai = cl.findIndex((c) => c.self);
-    if (ai < 0) ai = cl.findIndex((c) => c.host);
+    let ai = cl.findIndex((c) => c.host);
+    if (ai < 0) ai = cl.findIndex((c) => c.self);
     if (ai < 0) return { anchor: null as Companion | null, initialOthers: cl };
     return { anchor: cl[ai], initialOthers: cl.filter((_, i) => i !== ai) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poi.id]);
+  }, [poi.companionList]);
 
   const initialTotal = initialOthers.length + (anchor ? 1 : 0);
   const [others, setOthers] = useState<Companion[]>(initialOthers);
@@ -222,6 +221,10 @@ export function ManageCompanions({
     ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
     ...(poi.participantPermissions || {}),
   }));
+
+  useEffect(() => {
+    setOthers(initialOthers);
+  }, [initialOthers]);
 
   const total = others.length + (anchor ? 1 : 0);
   const atCapacity = total >= MAX_JOURNEY_PARTICIPANTS;
@@ -412,7 +415,10 @@ export function ManageCompanions({
           ) : null}
         </View>
         <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
-          <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{c.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs }}>
+            <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, flexShrink: 1 }]}>{c.name}</Text>
+            {c.self ? <MemberBadge label={t('journey.companions.meBadge')} /> : null}
+          </View>
           <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>
             {c.role || t('journey.manage.participantRole')}
           </Text>

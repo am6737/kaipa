@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { supabase } from "../lib/supabase";
 import { toJourneyPoi } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
@@ -100,7 +101,7 @@ export function useJourneys(userId: string | undefined) {
     }
     setJourneys(
       [...ownedRows, ...joinedRows].map((j: any) =>
-        toJourneyPoi({ ...j, asc: j.asc_ }),
+        toJourneyPoi({ ...j, asc: j.asc_ }, undefined, userId),
       ),
     );
     setLoading(false);
@@ -109,6 +110,37 @@ export function useJourneys(userId: string | undefined) {
   useEffect(() => {
     fetchJourneys();
   }, [fetchJourneys]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void fetchJourneys(); }, 120);
+    };
+    const channel = supabase
+      .channel(`journey-data:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "journeys" },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "companions" },
+        scheduleRefresh,
+      )
+      .subscribe();
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") scheduleRefresh();
+    });
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      appStateSubscription.remove();
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchJourneys, userId]);
 
   const createJourney = async (poi: Partial<Poi>) => {
     if (!userId) return null;
@@ -209,7 +241,7 @@ export function useJourneys(userId: string | undefined) {
       if (companionRes.data) savedCompanions = companionRes.data;
     }
 
-    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions });
+    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions }, undefined, userId);
     setJourneys((prev) => [newPoi, ...prev]);
     return newPoi;
   };

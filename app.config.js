@@ -44,6 +44,13 @@ module.exports = ({ config }) => ({
       },
     ],
     [
+      'expo-media-library',
+      {
+        photosPermission: 'Kaipa 需要访问你的相册，以便在 AI 对话中展示和选择最近照片。',
+        granularPermissions: ['photo'],
+      },
+    ],
+    [
       'expo-camera',
       {
         cameraPermission: 'Kaipa 需要使用相机，以便扫描二维码登录其他设备。',

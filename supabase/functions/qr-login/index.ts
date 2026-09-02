@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     const secretHash = await sha256(body.secret);
     const { data: request, error: requestError } = await admin
       .from('qr_login_requests')
-      .select('id, secret_hash, status, expires_at, token_hash, verification_type')
+      .select('id, secret_hash, status, user_id, expires_at, token_hash, verification_type')
       .eq('id', body.id)
       .maybeSingle();
     if (requestError) throw requestError;
@@ -79,12 +79,33 @@ Deno.serve(async (req) => {
 
     if (body.action === 'status') return json({ status: request.status });
 
-    if (body.action === 'approve') {
+    if (body.action === 'scan') {
       if (request.status !== 'pending') return json({ status: request.status });
+      const token = bearerToken(req);
+      if (!token) return json({ error: { code: 'unauthorized', message: '请先登录后再扫描' } }, 401);
+      const { data: { user }, error: userError } = await admin.auth.getUser(token);
+      if (userError || !user) return json({ error: { code: 'unauthorized', message: '登录状态已失效' } }, 401);
+
+      const { data: updated, error: updateError } = await admin
+        .from('qr_login_requests')
+        .update({ status: 'scanned', user_id: user.id, scanned_at: new Date().toISOString() })
+        .eq('id', body.id)
+        .eq('status', 'pending')
+        .select('status')
+        .maybeSingle();
+      if (updateError) throw updateError;
+      return json({ status: updated?.status || 'scanned' });
+    }
+
+    if (body.action === 'approve') {
+      if (request.status !== 'pending' && request.status !== 'scanned') return json({ status: request.status });
       const token = bearerToken(req);
       if (!token) return json({ error: { code: 'unauthorized', message: '请先登录后再确认' } }, 401);
       const { data: { user }, error: userError } = await admin.auth.getUser(token);
       if (userError || !user) return json({ error: { code: 'unauthorized', message: '登录状态已失效' } }, 401);
+      if (request.status === 'scanned' && request.user_id && request.user_id !== user.id) {
+        return json({ error: { code: 'user_mismatch', message: '请使用刚才扫码的账号确认登录' } }, 403);
+      }
       if (!user.email) return json({ error: { code: 'email_required', message: '当前账号暂不支持扫码登录' } }, 409);
 
       const { data: link, error: linkError } = await admin.auth.admin.generateLink({
@@ -103,7 +124,7 @@ Deno.serve(async (req) => {
           approved_at: new Date().toISOString(),
         })
         .eq('id', body.id)
-        .eq('status', 'pending')
+        .in('status', ['pending', 'scanned'])
         .select('status')
         .maybeSingle();
       if (updateError) throw updateError;
@@ -111,7 +132,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'consume') {
-      if (request.status === 'pending') return json({ status: 'pending' });
+      if (request.status === 'pending' || request.status === 'scanned') return json({ status: request.status });
       if (request.status !== 'approved' || !request.token_hash) return json({ status: request.status }, 409);
       const { data: consumed, error: consumeError } = await admin
         .from('qr_login_requests')

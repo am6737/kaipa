@@ -6,7 +6,8 @@ import Svg, { Path } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { Press } from '../Press';
 import { DetailPage, layout, motion, radius, space, type } from '../../design-system';
-import { approveQrLoginRequest, parseQrLoginPayload, QrLoginPayload } from '../../lib/qrLogin';
+import { approveQrLoginRequest, markQrLoginScanned, parseQrLoginPayload, QrLoginPayload } from '../../lib/qrLogin';
+import { parseJourneyInviteUrl, type JourneyInvite } from '../../lib/journeyInvite';
 import { useI18n } from '../../i18n';
 
 const CheckGlyph = ({ color = '#fff', size = 34 }: { color?: string; size?: number }) => (
@@ -27,12 +28,13 @@ function ScannerCorners({ color }: { color: string }) {
   );
 }
 
-export function QrLoginScannerPage({ theme, onBack, onApproved }: { theme: Theme; onBack: () => void; onApproved: () => void }) {
+export function QrLoginScannerPage({ theme, onBack, onApproved, onJourneyInvite }: { theme: Theme; onBack: () => void; onApproved: () => void; onJourneyInvite: (invite: JourneyInvite) => Promise<void> }) {
   const { t } = useI18n();
   const [permission, requestPermission] = useCameraPermissions();
   const [payload, setPayload] = useState<QrLoginPayload | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [joiningJourney, setJoiningJourney] = useState(false);
   const [approved, setApproved] = useState(false);
   const scanLocked = useRef(false);
   const invalidTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,8 +72,25 @@ export function QrLoginScannerPage({ theme, onBack, onApproved }: { theme: Theme
     setError('');
   };
 
-  const handleScan = (data: string) => {
+  const handleScan = async (data: string) => {
     if (scanLocked.current) return;
+    const journeyInviteUrl = parseJourneyInviteUrl(data);
+    if (journeyInviteUrl) {
+      scanLocked.current = true;
+      setError('');
+      setJoiningJourney(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      try {
+        await onJourneyInvite(journeyInviteUrl);
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : '';
+        setError(message.includes('JOURNEY_FULL') ? t('qrLogin.errorJourneyFull') : t('qrLogin.errorJoinJourney'));
+        scanLocked.current = false;
+      } finally {
+        setJoiningJourney(false);
+      }
+      return;
+    }
     const parsed = parseQrLoginPayload(data);
     if (!parsed) {
       scanLocked.current = true;
@@ -88,6 +107,14 @@ export function QrLoginScannerPage({ theme, onBack, onApproved }: { theme: Theme
     setError('');
     setPayload(parsed);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    try {
+      const result = await markQrLoginScanned(parsed);
+      if (result.status !== 'scanned' && result.status !== 'approved') throw new Error(t('qrLogin.errorExpired'));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('qrLogin.errorGeneric'));
+      scanLocked.current = false;
+      setPayload(null);
+    }
   };
 
   const approve = async () => {
@@ -124,7 +151,7 @@ export function QrLoginScannerPage({ theme, onBack, onApproved }: { theme: Theme
               style={StyleSheet.absoluteFill}
               facing="back"
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={approved || payload ? undefined : ({ data }) => handleScan(data)}
+              onBarcodeScanned={approved || payload || joiningJourney ? undefined : ({ data }) => void handleScan(data)}
             />
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl }}>
@@ -176,6 +203,12 @@ export function QrLoginScannerPage({ theme, onBack, onApproved }: { theme: Theme
                 </View>
                 <Text style={{ color: '#fff', fontSize: 17, fontWeight: '800', marginTop: space.md }}>{t('qrLogin.approved')}</Text>
               </Animated.View>
+            </View>
+          ) : null}
+          {joiningJourney ? (
+            <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.58)' }]}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginTop: space.md }}>{t('qrLogin.joiningJourney')}</Text>
             </View>
           ) : null}
         </View>

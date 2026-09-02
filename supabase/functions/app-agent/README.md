@@ -124,3 +124,13 @@ The client passes a run UUID and polls `run_activity` while planning. Completed
 assistant messages persist a compact `activities` summary alongside `sources`
 and `planPreview` in `agent_messages.ui`, so the work log, research citations,
 and itinerary preview survive conversation reloads.
+
+Low-risk writes to the current itinerary, route-group endpoints, and packing
+list execute without interrupting the conversation. A completed run containing
+those writes exposes one persistent "undo changes" action. Undo runs all inverse
+operations in reverse order inside one database transaction; destructive tools
+still require explicit approval.
+
+Apply `supabase/app-agent.sql` before deploying a function version that exposes
+undo. The file is idempotent and adds the undo metadata plus the transactional
+apply, finalize, and undo RPCs used by the Edge Function.

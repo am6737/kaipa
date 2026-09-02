@@ -34,7 +34,7 @@ export function toRoutePoi(r: any): Poi {
   };
 }
 
-export function toJourneyPoi(j: any, companions?: any[]): Poi {
+export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string): Poi {
   const list: Companion[] = (companions ?? j.companions ?? []).map(
     (c: any) => ({
       id: c.id ?? undefined,
@@ -47,7 +47,7 @@ export function toJourneyPoi(j: any, companions?: any[]): Poi {
       avatarUrl: c.avatar_url ?? undefined,
       trips: c.trips ?? undefined,
       host: c.is_host ?? false,
-      self: c.is_self ?? false,
+      self: c.user_id && viewerUserId ? c.user_id === viewerUserId : c.is_self ?? false,
     }),
   );
 

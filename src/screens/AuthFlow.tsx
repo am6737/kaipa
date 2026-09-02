@@ -950,12 +950,11 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const { t: tr } = useI18n();
   const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
-  const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'signingIn' | 'expired' | 'error'>('generating');
+  const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'confirmed' | 'signingIn' | 'expired' | 'error'>('generating');
   const [error, setError] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(300);
   const slide = useSlideIn();
   const qrReveal = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
   const statusProgress = useRef(new Animated.Value(0)).current;
   const consumedRef = useRef(false);
 
@@ -994,19 +993,8 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, request]);
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    if (phase === 'waiting') loop.start();
-    return () => loop.stop();
-  }, [phase, pulse]);
-
-  useEffect(() => {
     Animated.timing(statusProgress, {
-      toValue: phase === 'scanned' || phase === 'signingIn' ? 1 : 0,
+      toValue: phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn' ? 1 : 0,
       duration: motion.standard,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -1014,7 +1002,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, statusProgress]);
 
   useEffect(() => {
-    if (!request || phase !== 'waiting') return;
+    if (!request || (phase !== 'waiting' && phase !== 'scanned')) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1022,9 +1010,17 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
       try {
         const status = await getQrLoginStatus(request);
         if (cancelled) return;
+        if (status === 'scanned') {
+          if (phase !== 'scanned') {
+            setPhase('scanned');
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          }
+          timer = setTimeout(poll, 700);
+          return;
+        }
         if (status === 'approved' && !consumedRef.current) {
           consumedRef.current = true;
-          setPhase('scanned');
+          setPhase('confirmed');
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           return;
         }
@@ -1049,7 +1045,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, request, tr]);
 
   useEffect(() => {
-    if (!request || phase !== 'scanned') return;
+    if (!request || phase !== 'confirmed') return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (cancelled) return;
@@ -1072,22 +1068,22 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
 
   const qrValue = request ? encodeQrLoginPayload(request) : '';
   const qrScale = qrReveal.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
-  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.34, 0] });
   const statusTranslate = statusProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = String(secondsLeft % 60).padStart(2, '0');
-  const active = phase === 'waiting' || phase === 'scanned' || phase === 'signingIn';
+  const active = phase === 'waiting' || phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn';
 
   const statusLabel = phase === 'scanned'
     ? tr('qrLogin.scanned')
-    : phase === 'signingIn'
-      ? tr('qrLogin.signingIn')
-      : phase === 'expired'
+    : phase === 'confirmed'
+      ? tr('qrLogin.confirmed')
+      : phase === 'signingIn'
+        ? tr('qrLogin.signingIn')
+        : phase === 'expired'
         ? tr('qrLogin.expired')
-        : phase === 'error'
-          ? error
-          : tr('qrLogin.waiting');
+          : phase === 'error'
+            ? error
+            : tr('qrLogin.waiting');
 
   return (
     <Animated.View style={{ flex: 1, backgroundColor: t.featureSurface, transform: [{ translateX: slide }] }}>
@@ -1099,21 +1095,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
         <StepTitle t={t} title={tr('qrLogin.title')} sub={tr('qrLogin.subtitle')} />
         <View style={{ flex: 1, minHeight: 390, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 276, height: 276, alignItems: 'center', justifyContent: 'center' }}>
-            {phase === 'waiting' ? (
-              <Animated.View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  width: 264,
-                  height: 264,
-                  borderRadius: radius.feature + 6,
-                  borderWidth: 2,
-                  borderColor: t.accent,
-                  opacity: pulseOpacity,
-                  transform: [{ scale: pulseScale }],
-                }}
-              />
-            ) : null}
             <View
               style={{
                 width: 254,
@@ -1143,7 +1124,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                 </View>
               )}
 
-              {request && (phase === 'scanned' || phase === 'signingIn' || phase === 'expired') ? (
+              {request && (phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn' || phase === 'expired') ? (
                 <Animated.View
                   style={[
                     StyleSheet.absoluteFill,
@@ -1157,6 +1138,10 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                   ]}
                 >
                   {phase === 'scanned' ? (
+                    <View style={{ width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: t.accentSofter }}>
+                      <QrGlyph c={t.accent} />
+                    </View>
+                  ) : phase === 'confirmed' ? (
                     <View style={{ width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: t.accent }}>
                       <CheckBig />
                     </View>
@@ -1166,7 +1151,8 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                     <QrGlyph c={t.text3} />
                   )}
                   <Text style={{ color: phase === 'expired' ? t.text2 : t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
-                  {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
+                  {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.scanConfirmOnPhone')}</Text> : null}
+                  {phase === 'confirmed' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
                 </Animated.View>
               ) : null}
             </View>
@@ -1192,7 +1178,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
 
         <Press
           onPress={() => void createRequest()}
-          disabled={phase === 'generating' || phase === 'scanned' || phase === 'signingIn'}
+          disabled={phase === 'generating' || phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn'}
           style={{
             minHeight: 48,
             paddingHorizontal: space.xl,

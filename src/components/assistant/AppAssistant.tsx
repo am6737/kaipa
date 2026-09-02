@@ -1,22 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { File as FSFile } from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
-import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Copy, CornerDownLeft, Globe2, Link2, Menu, Mic, Mountain, Plus, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
-import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useData } from '../../data/DataContext';
-import { layout, radius, space, type } from '../../design-system';
+import { AppActionDialog, layout, motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, resolveAgentRun, sendAgentTurn, type AgentApproval, type AgentHistoryResponse, type AgentIntent, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentThreadSummary, type AgentTurnResponse } from '../../lib/appAgent';
+import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, resolveAgentRun, sendAgentTurn, undoAgentRun, type AgentApproval, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
+import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
+import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
 import { journeyDayDisplayLabel } from '../../lib/journeyDays';
+import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
 
 type Turn = {
@@ -29,6 +35,9 @@ type Turn = {
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
+  attachments?: AgentAttachment[];
+  undoAction?: AgentUndoAction;
+  createJourneyFlow?: AgentMessageUi['createJourneyFlow'];
 };
 
 const storageKey = (userId: string, journeyId?: string) => `kaipa_agent_thread_v1:${userId}:${journeyId || 'global'}`;
@@ -41,6 +50,80 @@ function createRunId() {
   });
 }
 
+
+function localAgentTimeContext() {
+  const now = new Date();
+  const clientLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const clientLocalTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  return { clientLocalDate, clientLocalTime, clientTimeZone, clientTimestamp: now.toISOString() };
+}
+
+function localAttachmentId(prefix: string, uri: string) {
+  return `${prefix}:${uri}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function isTrackAttachmentName(name: string) {
+  return /\.(gpx|kml|kmz)(?:$|[?#])/i.test(name);
+}
+
+function trackFileName(file: { name?: string; uri?: string; type?: string }) {
+  const candidates = [file.name, file.uri ? decodeURIComponent(file.uri) : undefined].filter((value): value is string => Boolean(value));
+  const candidate = candidates.find(isTrackAttachmentName) || file.name || candidates[0] || `track-${Date.now()}.gpx`;
+  const ext = candidate.match(/\.(gpx|kml|kmz)(?:$|[?#])/i)?.[1]?.toLowerCase();
+  if (ext) {
+    const baseName = candidate.split(/[/?#]/).pop() || candidate;
+    return `${baseName.replace(/\.(gpx|kml|kmz).*$/i, '')}.${ext}`;
+  }
+  if (/kml/i.test(file.type || '')) return `${candidate}.kml`;
+  if (/kmz|zip/i.test(file.type || '')) return `${candidate}.kmz`;
+  if (/gpx|xml|text/i.test(file.type || '')) return `${candidate}.gpx`;
+  return candidate;
+}
+
+function isTrackPickedFile(file: { name?: string; uri?: string; type?: string }) {
+  return isTrackAttachmentName(file.name || '') || isTrackAttachmentName(file.uri ? decodeURIComponent(file.uri) : '') || /(gpx|kml|kmz)/i.test(file.type || '');
+}
+
+function trackMimeType(name: string, fallback?: string) {
+  const ext = name.split('.').pop()?.toLowerCase();
+  if (ext === 'gpx') return 'application/gpx+xml';
+  if (ext === 'kml') return 'application/vnd.google-earth.kml+xml';
+  if (ext === 'kmz') return 'application/vnd.google-earth.kmz';
+  return fallback || 'application/octet-stream';
+}
+
+
+function wantsNoTrackReply(message: string) {
+  return /(不上传|不用上传|暂不上传|没有轨迹|无轨迹|跳过轨迹|不要轨迹|no track|skip track|not now)/i.test(message);
+}
+
+function wantsTrackUploadReply(message: string) {
+  return /(上传轨迹|使用轨迹|有轨迹|gpx|kml|kmz|upload track|use track)/i.test(message);
+}
+
+
+function messageIsTrackPrompt(text: string) {
+  // Only classify the current step as track upload when the assistant is
+  // directly asking for a track. Date-collection copy may mention that track
+  // upload comes later; that must not become a track action UI.
+  return /^(这个旅程要上传|请先选择要使用的).{0,20}(GPX|KML|KMZ|轨迹)|请(?:先)?上传.{0,30}(GPX|KML|KMZ|轨迹)|^(Do you want to upload|Please choose).{0,40}track|please upload.{0,30}(GPX|KML|KMZ|track)/i.test(text.trim());
+}
+
+function turnHasTrackAction(turn: Turn) {
+  return Boolean(turn.quickReplies?.some((reply) => reply.action === 'upload_track' || reply.action === 'skip_track'));
+}
+
+function isTrackPromptTurn(turn: Turn) {
+  return turn.role === 'assistant' && (turn.createJourneyFlow?.step === 'ask_track' || turnHasTrackAction(turn) || messageIsTrackPrompt(turn.text));
+}
+
+function trackPromptFromTurn(turn: Turn): { message: string; intent?: AgentIntent } | undefined {
+  if (turn.createJourneyFlow?.step === 'ask_track') return { message: turn.createJourneyFlow.originalMessage, intent: undefined };
+  if (turn.role === 'assistant' && (turnHasTrackAction(turn) || messageIsTrackPrompt(turn.text))) return { message: '', intent: undefined };
+  return undefined;
+}
+
 function sourceHost(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
@@ -50,7 +133,12 @@ function formatTime(minutes?: number) {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
-type ResearchStep = { key: string; text: string; status: AgentRunActivity['status'] };
+type ResearchStep = {
+  key: string;
+  text: string;
+  status: AgentRunActivity['status'];
+  emphasis?: boolean;
+};
 
 function searchReports(output: unknown) {
   if (!output || typeof output !== 'object' || !('sources' in output) || !Array.isArray(output.sources)) return [];
@@ -71,21 +159,35 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
     const key = `${activity.toolName}_${index}`;
     const query = String(activity.arguments.query || '').trim();
     if (activity.toolName === 'search_travel_web') {
-      if (activity.status === 'running') return [{ key, status: activity.status, text: t('agent.research.searching', { query }) }];
-      if (activity.status === 'failed') return [{ key, status: activity.status, text: t('agent.research.searchFailed', { query }) }];
+      const searchStep: ResearchStep = {
+        key,
+        status: activity.status,
+        emphasis: true,
+        text: t(activity.status === 'running'
+          ? 'agent.research.searchingTitle'
+          : activity.status === 'failed'
+          ? 'agent.research.searchFailedTitle'
+          : 'agent.research.searchCompletedTitle'),
+      };
+      const queryStep: ResearchStep[] = query ? [{
+        key: `${key}_query`,
+        status: activity.status,
+        text: t('agent.research.query', { query }),
+      }] : [];
+      if (activity.status !== 'completed') return [searchStep, ...queryStep];
       const reports = searchReports(activity.output);
       const providerSteps: ResearchStep[] = reports.map((report) => ({
         key: `${key}_${report.source}`,
         status: report.status === 'completed' ? 'completed' : 'failed',
         text: report.status === 'completed'
-          ? t('agent.research.sourceFound', { source: sourceLabel(report.source, t), count: report.resultCount })
+          ? t('agent.research.sourceFound', { query, source: sourceLabel(report.source, t), count: report.resultCount })
           : report.status === 'unavailable'
           ? t('agent.research.sourceUnavailable', { source: sourceLabel(report.source, t) })
           : report.status === 'timed_out'
           ? t('agent.research.sourceTimedOut', { source: sourceLabel(report.source, t) })
           : t('agent.research.sourceFailed', { source: sourceLabel(report.source, t) }),
       }));
-      return providerSteps.length ? providerSteps : [{ key, status: activity.status, text: t('agent.research.searchCompleted', { query }) }];
+      return [searchStep, ...queryStep, ...providerSteps];
     }
     const stepKeys: Record<string, Record<AgentRunActivity['status'], TKey>> = {
       get_app_context: { running: 'agent.research.step.context.running', completed: 'agent.research.step.context.completed', failed: 'agent.research.step.context.failed' },
@@ -95,11 +197,13 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       get_journey_details: { running: 'agent.research.step.journeyDetails.running', completed: 'agent.research.step.journeyDetails.completed', failed: 'agent.research.step.journeyDetails.failed' },
       create_journey: { running: 'agent.research.step.createJourney.running', completed: 'agent.research.step.createJourney.completed', failed: 'agent.research.step.createJourney.failed' },
       add_itinerary_items: { running: 'agent.research.step.itinerary.running', completed: 'agent.research.step.itinerary.completed', failed: 'agent.research.step.itinerary.failed' },
+      set_journey_map_location: { running: 'agent.research.step.journeyMapLocation.running', completed: 'agent.research.step.journeyMapLocation.completed', failed: 'agent.research.step.journeyMapLocation.failed' },
       set_itinerary_group_endpoints: { running: 'agent.research.step.itineraryEndpoints.running', completed: 'agent.research.step.itineraryEndpoints.completed', failed: 'agent.research.step.itineraryEndpoints.failed' },
       add_packing_items: { running: 'agent.research.step.packing.running', completed: 'agent.research.step.packing.completed', failed: 'agent.research.step.packing.failed' },
       delete_itinerary_items: { running: 'agent.research.step.deleteItinerary.running', completed: 'agent.research.step.deleteItinerary.completed', failed: 'agent.research.step.deleteItinerary.failed' },
       delete_packing_items: { running: 'agent.research.step.deletePacking.running', completed: 'agent.research.step.deletePacking.completed', failed: 'agent.research.step.deletePacking.failed' },
       add_gear: { running: 'agent.research.step.addGear.running', completed: 'agent.research.step.addGear.completed', failed: 'agent.research.step.addGear.failed' },
+      undo_last_agent_changes: { running: 'agent.research.step.undo.running', completed: 'agent.research.step.undo.completed', failed: 'agent.research.step.undo.failed' },
     };
     const keys = stepKeys[activity.toolName];
     return keys ? [{ key, status: activity.status, text: t(keys[activity.status]) }] : [];
@@ -125,6 +229,7 @@ function SelectableMessageText({ text, theme }: { text: string; theme: Theme }) 
       </Text>
       <TextInput
         accessibilityLabel={text}
+        caretHidden
         multiline
         scrollEnabled={false}
         showSoftInputOnFocus={false}
@@ -137,22 +242,82 @@ function SelectableMessageText({ text, theme }: { text: string; theme: Theme }) 
   );
 }
 
+function MessageAttachments({ theme, attachments }: { theme: Theme; attachments: AgentAttachment[] }) {
+  return (
+    <View style={styles.messageAttachments}>
+      {attachments.map((attachment) => attachment.kind === 'image' ? (
+        <Image key={attachment.url} source={{ uri: attachment.url }} contentFit="cover" style={styles.messageAttachmentImage} />
+      ) : (
+        <View key={attachment.url} style={[styles.messageAttachmentFile, { backgroundColor: theme.controlSurface }]}>
+          <FileText size={18} color={theme.text2} strokeWidth={1.8} />
+          <Text numberOfLines={1} style={[styles.messageAttachmentName, { color: theme.text }]}>{attachment.name}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PendingAttachments({ theme, attachments, onRemove }: { theme: Theme; attachments: LocalAgentAttachment[]; onRemove: (id: string) => void }) {
+  if (!attachments.length) return null;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pendingAttachments}>
+      {attachments.map((attachment) => (
+        <View key={attachment.id} style={[styles.pendingAttachment, { backgroundColor: theme.fieldSurface }]}>
+          {attachment.kind === 'image'
+            ? <Image source={{ uri: attachment.uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+            : <View style={styles.pendingFile}><FileText size={20} color={theme.text2} /><Text numberOfLines={2} style={[styles.pendingFileName, { color: theme.text }]}>{attachment.name}</Text></View>}
+          <Press onPress={() => onRemove(attachment.id)} accessibilityRole="button" style={[styles.removeAttachment, { backgroundColor: theme.text }]}>
+            <X size={12} color={theme.featureSurface} strokeWidth={2.5} />
+          </Press>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 function ResearchActivity({ theme, activities, running }: { theme: Theme; activities: AgentRunActivity[]; running: boolean }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(running);
+  const arrowProgress = useRef(new Animated.Value(running ? 1 : 0)).current;
   const steps = researchSteps(activities, t);
   const visibleSteps = steps.length ? steps : [{ key: 'preparing', status: 'running' as const, text: t('agent.research.preparing') }];
+  const toggleExpanded = () => {
+    const next = !expanded;
+    arrowProgress.stopAnimation();
+    Animated.timing(arrowProgress, {
+      toValue: next ? 1 : 0,
+      duration: next ? 140 : 90,
+      easing: next
+        ? Easing.bezier(0.16, 1, 0.3, 1)
+        : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    setExpanded(next);
+  };
   return (
     <View style={styles.researchProgress}>
       <Press
-        onPress={() => setExpanded((value) => !value)}
+        onPress={toggleExpanded}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         style={styles.researchHeader}
       >
         {running ? <ActivityIndicator size="small" color={theme.text} /> : <CheckCircle2 size={18} color={theme.text2} strokeWidth={2} />}
         <Text style={[styles.researchTitle, { color: theme.text }]}>{t(running ? 'agent.research.title' : 'agent.research.completed')}</Text>
-        {expanded ? <ChevronUp size={17} color={theme.text3} /> : <ChevronDown size={17} color={theme.text3} />}
+        <Animated.View
+          style={{
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{
+              rotate: arrowProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '180deg'],
+              }),
+            }],
+          }}
+        >
+          <ChevronDown size={17} color={theme.text3} />
+        </Animated.View>
       </Press>
       {expanded ? visibleSteps.map((step) => (
         <View key={step.key} style={styles.researchLine}>
@@ -161,7 +326,7 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
             : step.status === 'completed'
             ? <Check size={14} color={theme.text3} strokeWidth={2} />
             : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}</Text>
+          <Text style={[styles.researchLineText, step.emphasis && styles.researchLineTitle, { color: step.emphasis ? theme.text : theme.text2 }]}>{step.text}</Text>
         </View>
       )) : null}
     </View>
@@ -173,22 +338,27 @@ function SourcesStrip({ theme, sources, title }: { theme: Theme; sources: AgentS
     <View style={styles.sourcesWrap}>
       <Text style={[styles.supportLabel, { color: theme.text3 }]}>{title}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourcesContent}>
-        {sources.map((source) => (
-          <Press
-            key={source.url}
-            onPress={() => void Linking.openURL(source.url)}
-            accessibilityRole="link"
-            accessibilityLabel={source.title}
-            style={[styles.sourceCard, { backgroundColor: theme.fieldSurface, borderColor: theme.hairline }]}
-          >
-            <View style={styles.sourceTop}>
-              <Globe2 size={15} color={theme.text3} strokeWidth={1.8} />
-              <Text numberOfLines={1} style={[styles.sourceHost, { color: theme.text3 }]}>{sourceHost(source.url)}</Text>
-              <ArrowUpRight size={14} color={theme.text3} strokeWidth={1.8} />
-            </View>
-            <Text numberOfLines={2} style={[styles.sourceTitle, { color: theme.text }]}>{source.title}</Text>
-          </Press>
-        ))}
+        {sources.map((source) => {
+          const brandKind = sourceBrandKind(source.source, source.url);
+          return (
+            <Press
+              key={source.url}
+              onPress={() => void Linking.openURL(source.url)}
+              accessibilityRole="link"
+              accessibilityLabel={source.title}
+              style={[styles.sourceCard, { backgroundColor: theme.fieldSurface }]}
+            >
+              <View style={styles.sourceTop}>
+                {brandKind
+                  ? <SourceBrandIcon kind={brandKind} />
+                  : <Globe2 size={15} color={theme.text3} strokeWidth={1.8} />}
+                <Text numberOfLines={1} style={[styles.sourceHost, { color: theme.text3 }]}>{sourceHost(source.url)}</Text>
+                <ArrowUpRight size={14} color={theme.text3} strokeWidth={1.8} />
+              </View>
+              <Text numberOfLines={2} style={[styles.sourceTitle, { color: theme.text }]}>{source.title}</Text>
+            </Press>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -197,12 +367,12 @@ function SourcesStrip({ theme, sources, title }: { theme: Theme; sources: AgentS
 function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; preview: AgentPlanPreview; openLabel: string; onOpen: () => void }) {
   const { resolved } = useI18n();
   return (
-    <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }] }>
+    <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }] }>
       <Text style={[styles.planTitle, { color: theme.text }]}>{preview.title}</Text>
       {preview.dateLabel ? <Text style={[styles.planMeta, { color: theme.text3 }]}>{preview.dateLabel}</Text> : null}
       <View style={styles.planDays}>
         {preview.days.slice(0, 7).map((day, index) => (
-          <View key={`${day.label}_${index}`} style={[styles.planDay, index > 0 && { borderTopColor: theme.hairline, borderTopWidth: StyleSheet.hairlineWidth }] }>
+          <View key={`${day.label}_${index}`} style={styles.planDay}>
             <Text style={[styles.planDayTitle, { color: theme.text }]}>{journeyDayDisplayLabel(day.label, resolved)}</Text>
             {day.items.slice(0, 4).map((item, itemIndex) => {
               const start = formatTime(item.timeStart);
@@ -218,7 +388,7 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
           </View>
         ))}
       </View>
-      <Press onPress={onOpen} accessibilityRole="button" style={[styles.openPlan, { borderColor: theme.fieldBorder }] }>
+      <Press onPress={onOpen} accessibilityRole="button" style={styles.openPlan}>
         <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
         <Text style={[styles.openPlanText, { color: theme.text }]}>{openLabel}</Text>
       </Press>
@@ -250,6 +420,9 @@ function historyTurns(history: AgentHistoryResponse, approvalIntro: string): Tur
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
     activities: message.ui?.activities,
+    attachments: message.ui?.attachments,
+    undoAction: message.ui?.undoAction,
+    createJourneyFlow: message.ui?.createJourneyFlow,
   }));
   if (history.pendingRun) {
     restored.push({
@@ -264,46 +437,124 @@ function historyTurns(history: AgentHistoryResponse, approvalIntro: string): Tur
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, approvals, sources, planPreview, activities }) => ({
-    role, text, quickReplies, approvals, sources, planPreview, activities,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, approvals, sources, planPreview, activities, attachments, undoAction, createJourneyFlow }) => ({
+    role, text, quickReplies, approvals, sources, planPreview, activities, attachments, undoAction, createJourneyFlow,
   })));
 }
 
-async function resolveCurrentJourneyApprovals(response: AgentTurnResponse, journeyId?: string) {
-  if (!journeyId) return { response, executed: false };
-  let next = response;
-  let executed = false;
-  for (let round = 0; round < 4 && next.status === 'pending_approval' && next.approvals?.length; round += 1) {
-    const approvals = next.approvals;
-    const writesCurrentJourney = approvals.every((approval) =>
-      (approval.toolName === 'add_itinerary_items' || approval.toolName === 'set_itinerary_group_endpoints' || approval.toolName === 'add_packing_items')
-      && approval.arguments.journeyId === journeyId
-    );
-    if (!writesCurrentJourney) break;
-    executed = true;
-    next = await resolveAgentRun({
-      runId: next.runId,
-      currentJourneyId: journeyId,
-      decisions: approvals.map((approval) => ({ callId: approval.callId, approved: true })),
-    });
-  }
-  return { response: next, executed };
+function retainPendingApprovalSelection(current: Set<string>, approvals: AgentApproval[]) {
+  const pendingCallIds = new Set(approvals.map((approval) => approval.callId));
+  const retained = new Set([...current].filter((callId) => pendingCallIds.has(callId)));
+  return retained.size === current.size ? current : retained;
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, onClose, onClearPrompt }: {
+const VOICE_BAR_HEIGHTS = [5, 6, 8, 12, 7, 11, 15, 8, 6, 10, 14, 7, 11, 17, 9, 6, 12, 18, 8, 14, 7, 11, 16, 9, 6, 12, 8, 11, 7, 6, 5] as const;
+const THREAD_SWIPE_SPRING = { mass: 0.7, damping: 22, stiffness: 240, overshootClamping: true } as const;
+
+function VoiceListeningIndicator({ theme, label, cancelling }: { theme: Theme; label: string; cancelling: boolean }) {
+  const bars = useRef(VOICE_BAR_HEIGHTS.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    const animations = bars.map((bar, index) => Animated.sequence([
+      Animated.delay(index * 16),
+      Animated.loop(Animated.sequence([
+        Animated.timing(bar, { toValue: 1, duration: motion.quick + (index % 4) * 24, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(bar, { toValue: 0, duration: motion.quick + (index % 3) * 30, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])),
+    ]));
+    animations.forEach((animation) => animation.start());
+    return () => animations.forEach((animation) => animation.stop());
+  }, [bars]);
+
+  return (
+    <View style={styles.voiceListening} accessibilityLiveRegion="polite" accessibilityLabel={label}>
+      <View style={styles.voiceBars}>
+        {bars.map((bar, index) => (
+          <Animated.View
+            key={index}
+            style={[
+              styles.voiceBar,
+              {
+                height: VOICE_BAR_HEIGHTS[index],
+                backgroundColor: cancelling ? theme.danger : theme.text3,
+                opacity: bar.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0.9] }),
+                transform: [{ scaleY: bar.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }) }],
+              },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ThreadSwipeActions({
+  progress,
+  theme,
+  deleting,
+  deleteDisabled,
+  openLabel,
+  deleteLabel,
+  onOpen,
+  onDelete,
+}: {
+  progress: SharedValue<number>;
+  theme: Theme;
+  deleting: boolean;
+  deleteDisabled: boolean;
+  openLabel: string;
+  deleteLabel: string;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.18, 1], [0, 0.62, 1], Extrapolation.CLAMP),
+    transform: [{ translateX: interpolate(progress.value, [0, 1], [32, 0], Extrapolation.CLAMP) }],
+  }));
+
+  return (
+    <ReAnimated.View style={[styles.threadSwipeActions, { backgroundColor: theme.featureSurface }, animatedStyle]}>
+      <Press accessibilityRole="button" accessibilityLabel={openLabel} onPress={onOpen} style={styles.threadSwipeAction}>
+        <Clock3 size={28} color={theme.text} strokeWidth={2.1} />
+      </Press>
+      <Press disabled={deleteDisabled} accessibilityRole="button" accessibilityLabel={deleteLabel} onPress={onDelete} style={styles.threadSwipeAction}>
+        {deleting ? <ActivityIndicator color={theme.danger} /> : <Trash2 size={28} color={theme.danger} strokeWidth={2.1} />}
+      </Press>
+    </ReAnimated.View>
+  );
+}
+
+export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, onClose, onClearPrompt, onOpenJourney }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
   currentJourneyId?: string;
   onClose: () => void;
   onClearPrompt: () => void;
+  onOpenJourney: (journeyId: string) => void;
 }) {
   const { resolved, t } = useI18n();
   const data = useData();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+  const voiceLongPressTriggeredRef = useRef(false);
+  const voiceHoldingRef = useRef(false);
+  const voiceCancellingRef = useRef(false);
+  const voiceTouchStartYRef = useRef(0);
+  const voiceInitialInputRef = useRef('');
+  const voiceSendOnEndRef = useRef(false);
   const [input, setInput] = useState('');
+  const [attachmentTrayOpen, setAttachmentTrayOpen] = useState(false);
+  const [attachmentTrayMounted, setAttachmentTrayMounted] = useState(false);
+  const attachmentTrayProgress = useRef(new Animated.Value(0)).current;
+  const [selectedAttachments, setSelectedAttachments] = useState<LocalAgentAttachment[]>([]);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [trackPrompt, setTrackPrompt] = useState<{ message: string; intent?: AgentIntent } | null>(null);
+  const [trackPicking, setTrackPicking] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [voiceHolding, setVoiceHolding] = useState(false);
+  const [voiceCancelling, setVoiceCancelling] = useState(false);
   const [threadId, setThreadId] = useState<string>();
   const [threadTitle, setThreadTitle] = useState('');
   const [threadJourneyId, setThreadJourneyId] = useState<string>();
@@ -311,22 +562,25 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   const [loading, setLoading] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string>();
   const [runActivities, setRunActivities] = useState<AgentRunActivity[]>([]);
+  const runActivitiesRef = useRef<AgentRunActivity[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [resolvingRunId, setResolvingRunId] = useState<string>();
+  const [resolvingAction, setResolvingAction] = useState<'execute' | 'reject'>();
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
+  const [undoingRunId, setUndoingRunId] = useState<string>();
   const [selectedApprovals, setSelectedApprovals] = useState<Set<string>>(new Set());
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string>();
+  const [deleteThreadCandidate, setDeleteThreadCandidate] = useState<AgentThreadSummary>();
+  const pendingThreadSwipeCloseRef = useRef<(() => void) | null>(null);
   const [threads, setThreads] = useState<AgentThreadSummary[]>([]);
   const showSpeechError = (error: SpeechRecognitionInputError) => {
-    if (error === 'no-speech') return;
+    if (error === 'no-speech' || error === 'failed') return;
     Alert.alert(t(
       error === 'permission-denied'
         ? 'agent.voicePermissionDenied'
-        : error === 'unavailable'
-        ? 'agent.voiceUnavailable'
-        : 'agent.voiceError',
+        : 'agent.voiceUnavailable',
     ));
   };
   const speech = useSpeechRecognitionInput({
@@ -335,6 +589,72 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     onChange: setInput,
     onError: showSpeechError,
   });
+  const attachmentLabels = useMemo(() => ({
+    camera: t('agent.attachment.camera'),
+    library: t('agent.attachment.library'),
+    file: t('agent.attachment.file'),
+    recent: t('agent.attachment.recent'),
+    permission: t('agent.attachment.permission'),
+    tooMany: t('agent.attachment.tooMany'),
+    tooLarge: t('agent.attachment.tooLarge'),
+    failed: t('agent.attachment.failed'),
+  }), [t]);
+  const showAttachmentError = useCallback((message: string) => Alert.alert(message), []);
+  const voiceActive = speech.isStarting || speech.isListening;
+  const voiceMode = voiceHolding || voiceActive;
+  const canSend = Boolean(input.trim() || selectedAttachments.length);
+  const trackAttachmentSelected = selectedAttachments.some((attachment) => isTrackAttachmentName(attachment.name));
+  const startVoiceInput = () => {
+    inputRef.current?.blur();
+    void speech.start();
+  };
+  const handleIdleInputPressIn = (event: GestureResponderEvent) => {
+    voiceLongPressTriggeredRef.current = false;
+    voiceCancellingRef.current = false;
+    voiceTouchStartYRef.current = event.nativeEvent.pageY;
+    setVoiceCancelling(false);
+  };
+  const handleIdleInputPress = () => {
+    if (voiceLongPressTriggeredRef.current) {
+      voiceLongPressTriggeredRef.current = false;
+      return;
+    }
+    if (voiceActive) return;
+    inputRef.current?.focus();
+  };
+  const handleIdleInputLongPress = () => {
+    if (loading || resolvingRunId || voiceActive) return;
+    voiceLongPressTriggeredRef.current = true;
+    voiceHoldingRef.current = true;
+    voiceInitialInputRef.current = input;
+    voiceSendOnEndRef.current = false;
+    setVoiceHolding(true);
+    startVoiceInput();
+  };
+  const handleIdleInputPressMove = (event: GestureResponderEvent) => {
+    if (!voiceHoldingRef.current) return;
+    const cancelling = voiceTouchStartYRef.current - event.nativeEvent.pageY > 64;
+    if (cancelling === voiceCancellingRef.current) return;
+    voiceCancellingRef.current = cancelling;
+    setVoiceCancelling(cancelling);
+  };
+  const finishHeldVoiceInput = (cancelled: boolean) => {
+    if (!voiceHoldingRef.current) return;
+    voiceHoldingRef.current = false;
+    setVoiceHolding(false);
+    if (cancelled || voiceCancellingRef.current) {
+      voiceSendOnEndRef.current = false;
+      speech.abort();
+      setInput(voiceInitialInputRef.current);
+    } else {
+      voiceSendOnEndRef.current = true;
+      speech.stop();
+    }
+    voiceCancellingRef.current = false;
+    setVoiceCancelling(false);
+  };
+  const handleIdleInputTouchEnd = () => finishHeldVoiceInput(false);
+  const handleIdleInputTouchCancel = () => finishHeldVoiceInput(true);
   const activeJourneyId = currentJourneyId || threadJourneyId;
   const currentJourney = useMemo(
     () => data.journeys.find((journey) => journey.id === activeJourneyId),
@@ -358,6 +678,57 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     { label: t('agent.planQuickReply.yunnan'), message: t('agent.planQuickReply.yunnanMessage') },
   ], [t]);
 
+  const chooseTrackForPlan = async (preset?: { message: string; intent?: AgentIntent }) => {
+    if (trackPicking || loading || attachmentUploading) return;
+    const pending = preset || trackPrompt;
+    setTrackPrompt(null);
+    if (!pending) return;
+    setTrackPicking(true);
+    try {
+      const result = await FSFile.pickFileAsync({
+        multipleFiles: true,
+        mimeTypes: [
+          'application/gpx+xml',
+          'application/vnd.google-earth.kml+xml',
+          'application/vnd.google-earth.kmz',
+          'application/zip',
+          'application/xml',
+          'text/xml',
+          'text/*',
+        ],
+      });
+      if (result.canceled) return;
+      const files = result.result.filter(isTrackPickedFile);
+      if (!files.length) {
+        showAttachmentError(t('record.track.errFormat'));
+        return;
+      }
+      const trackAttachments = files.map((file) => ({
+        id: localAttachmentId('track', file.uri),
+        kind: 'file' as const,
+        name: trackFileName(file),
+        uri: file.uri,
+        mimeType: trackMimeType(trackFileName(file), file.type),
+        size: file.size,
+      }));
+      setInput('');
+      setSelectedAttachments([]);
+      setAttachmentTrayOpen(false);
+      await submit(resolved === 'en' ? 'Upload track' : '上传轨迹', pending.intent, true, trackAttachments);
+    } catch (error) {
+      console.warn('[AppAgent] track picker failed', error);
+      showAttachmentError(t('agent.attachment.failed'));
+    } finally {
+      setTrackPicking(false);
+    }
+  };
+
+  const continuePlanWithoutTrack = (preset?: { message: string; intent?: AgentIntent }) => {
+    const pending = preset || trackPrompt;
+    setTrackPrompt(null);
+    if (pending) void submit(resolved === 'en' ? 'No track for now' : '暂不上传轨迹', pending.intent, true);
+  };
+
   const refetchWrittenJourney = async (journeyId = activeJourneyId) => {
     await Promise.all([
       data.refetchGear(),
@@ -372,7 +743,10 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     const poll = async () => {
       try {
         const result = await getAgentRunActivity(activeRunId);
-        if (active) setRunActivities(result.activities);
+        if (active) {
+          runActivitiesRef.current = result.activities;
+          setRunActivities(result.activities);
+        }
       } catch {
         // Older deployments do not expose run activity; keep the generic state.
       }
@@ -384,6 +758,15 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
 
   useEffect(() => {
     if (!visible) {
+      voiceHoldingRef.current = false;
+      voiceCancellingRef.current = false;
+      voiceSendOnEndRef.current = false;
+      setVoiceHolding(false);
+      setVoiceCancelling(false);
+      setInputFocused(false);
+      setAttachmentTrayOpen(false);
+      setSelectedAttachments([]);
+      setTrackPicking(false);
       speech.abort();
       return;
     }
@@ -395,6 +778,8 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setTurns([]);
     setSelectedApprovals(new Set());
     setInput('');
+    setAttachmentTrayOpen(false);
+    setSelectedAttachments([]);
     const key = storageKey(data.userId, currentJourneyId);
     const restore = async () => {
       try {
@@ -428,23 +813,14 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
           activities: message.ui?.activities,
+          attachments: message.ui?.attachments,
+          undoAction: message.ui?.undoAction,
+          createJourneyFlow: message.ui?.createJourneyFlow,
         }));
         if (history.pendingRun) {
           const approvals = history.pendingRun.pending_approvals || [];
-          const applied = await resolveCurrentJourneyApprovals({
-            threadId: savedThreadId,
-            runId: history.pendingRun.id,
-            status: 'pending_approval',
-            approvals,
-          }, restoredJourneyId);
-          if (applied.executed) await refetchWrittenJourney(restoredJourneyId);
-          if (applied.response.status === 'pending_approval') {
-            const remaining = applied.response.approvals || [];
-            restored.push({ id: `pending_${applied.response.runId}`, role: 'assistant', text: t('agent.approvalIntro'), runId: applied.response.runId, approvals: remaining });
-            setSelectedApprovals(new Set(remaining.map((approval) => approval.callId)));
-          } else {
-            restored.push({ id: `a_${Date.now()}`, role: 'assistant', text: applied.response.message || t('agent.executed'), quickReplies: applied.response.quickReplies, sources: applied.response.ui?.sources, planPreview: applied.response.ui?.planPreview, activities: applied.response.ui?.activities });
-          }
+          restored.push({ id: `pending_${history.pendingRun.id}`, role: 'assistant', text: t('agent.approvalIntro'), runId: history.pendingRun.id, approvals });
+          setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
         }
         if (!active) return;
         setThreadId(savedThreadId);
@@ -492,12 +868,11 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
             : synchronized
         ));
         setThreadTitle(history.thread.title);
+        setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || undefined);
         if (history.pendingRun) {
-          const nextSelected = history.pendingRun.pending_approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId);
-          setSelectedApprovals((current) => (
-            current.size === nextSelected.length && nextSelected.every((callId) => current.has(callId))
-              ? current
-              : new Set(nextSelected)
+          setSelectedApprovals((current) => retainPendingApprovalSelection(
+            current,
+            history.pendingRun?.pending_approvals || [],
           ));
         } else {
           setSelectedApprovals((current) => current.size ? new Set() : current);
@@ -511,58 +886,128 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     return () => { active = false; clearInterval(timer); };
   }, [currentJourneyId, loading, resolvingRunId, restoring, t, threadId, visible]);
 
-  const appendResponse = (response: AgentTurnResponse, createdThreadTitle?: string) => {
+  const completedActivitiesFor = async (response: AgentTurnResponse) => {
+    try {
+      const result = await getAgentRunActivity(response.runId);
+      if (result.activities.length) return result.activities;
+    } catch {
+      // Keep the completed process visible when run_activity is not deployed yet.
+    }
+    return response.ui?.activities?.length ? response.ui.activities : runActivitiesRef.current;
+  };
+
+  const appendResponse = (response: AgentTurnResponse, createdThreadTitle?: string, activities = response.ui?.activities) => {
     setThreadId(response.threadId);
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, currentJourneyId), response.threadId);
+    if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
     if (response.status === 'pending_approval') {
       const approvals = response.approvals || [];
       setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
-      setTurns((current) => [...current, { id: `pending_${response.runId}_${Date.now()}`, role: 'assistant', text: t('agent.approvalIntro'), runId: response.runId, approvals, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities: response.ui?.activities }]);
+      setTurns((current) => [...current, { id: `pending_${response.runId}_${Date.now()}`, role: 'assistant', text: t('agent.approvalIntro'), runId: response.runId, approvals, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities }]);
     } else {
-      setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities: response.ui?.activities }]);
+      setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     }
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
-  const submit = async (preset?: string, intent?: AgentIntent) => {
-    const message = (preset ?? input).trim();
-    if (!message || loading || resolvingRunId) return;
-    setTurns((current) => [...current, { id: `u_${Date.now()}`, role: 'user', text: message }]);
-    setInput('');
-    setLoading(true);
+  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[]) => {
+    const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
+    const typedMessage = (preset ?? input).trim();
+    const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
+    if (!message || loading || resolvingRunId || attachmentUploading || (trackPicking && !attachmentOverride)) return;
+    const pendingHasTrackAttachment = pendingAttachments.some((attachment) => isTrackAttachmentName(attachment.name) || isTrackAttachmentName(attachment.uri));
+    const lastTrackPromptTurn = [...turns].reverse().find(isTrackPromptTurn);
+    const activeTrackPrompt = trackPrompt || (lastTrackPromptTurn ? trackPromptFromTurn(lastTrackPromptTurn) : undefined);
+    if (!attachmentOverride && !pendingHasTrackAttachment && wantsTrackUploadReply(message)) {
+      console.log('[AppAgent] intercepting track upload text without attachment; opening picker');
+      void chooseTrackForPlan(activeTrackPrompt || {
+        message: turns
+          .filter((turn) => turn.role === 'user' && !wantsTrackUploadReply(turn.text) && !wantsNoTrackReply(turn.text))
+          .map((turn) => turn.text.trim())
+          .filter(Boolean)
+          .join('，'),
+        intent,
+      });
+      return;
+    }
+    if (!skipTrackPrompt && !attachmentOverride) {
+      if (activeTrackPrompt && wantsTrackUploadReply(message)) {
+        void chooseTrackForPlan(activeTrackPrompt);
+        return;
+      }
+      if (activeTrackPrompt && wantsNoTrackReply(message)) {
+        continuePlanWithoutTrack(activeTrackPrompt);
+        return;
+      }
+    }
+    setAttachmentUploading(pendingAttachments.length > 0);
+    let requestStarted = false;
     const clientRunId = createRunId();
-    setActiveRunId(clientRunId);
-    setRunActivities([]);
     try {
+      const attachments: AgentAttachment[] = await Promise.all(pendingAttachments.map(async (attachment) => ({
+        kind: attachment.kind,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        url: await uploadAgentAttachment(attachment.uri, data.userId, attachment.name, attachment.mimeType),
+      })));
+      setTurns((current) => [...current, { id: `u_${Date.now()}`, role: 'user', text: message, attachments }]);
+      setInput('');
+      setSelectedAttachments([]);
+      setAttachmentTrayOpen(false);
+      setLoading(true);
+      requestStarted = true;
+      setActiveRunId(clientRunId);
+      runActivitiesRef.current = [];
+      setRunActivities([]);
       const creatingThread = !threadId;
-      const response = await sendAgentTurn({ message, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId });
-      const applied = await resolveCurrentJourneyApprovals(response, activeJourneyId);
-      if (applied.executed) await refetchWrittenJourney();
-      appendResponse(applied.response, creatingThread ? message.slice(0, 36) : undefined);
+      const response = await sendAgentTurn({ message, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, ...localAgentTimeContext() });
+      const changedJourneyData = Boolean(response.ui?.undoAction)
+        || response.ui?.activities?.some((activity) => activity.toolName === 'undo_last_agent_changes' && activity.status === 'completed');
+      if (response.status === 'completed' && changedJourneyData) await refetchWrittenJourney();
+      const completedActivities = await completedActivitiesFor(response);
+      appendResponse(response, creatingThread ? message.slice(0, 36) : undefined, completedActivities);
     } catch (error) {
       console.warn('[AppAgent] turn failed', error);
-      setTurns((current) => [...current, { id: `e_${Date.now()}`, role: 'assistant', text: t('agent.error') }]);
+      if (requestStarted) {
+        setTurns((current) => [...current, { id: `e_${Date.now()}`, role: 'assistant', text: t('agent.error') }]);
+      } else {
+        showAttachmentError(t('agent.attachment.failed'));
+      }
     } finally {
-      setLoading(false);
-      setActiveRunId(undefined);
+      setAttachmentUploading(false);
+      if (requestStarted) {
+        setLoading(false);
+        setActiveRunId(undefined);
+      }
     }
   };
+
+  useEffect(() => {
+    if (!voiceSendOnEndRef.current || voiceActive) return;
+    voiceSendOnEndRef.current = false;
+    const message = input.trim();
+    if (message && message !== voiceInitialInputRef.current.trim()) void submit(message);
+  }, [input, voiceActive, voiceHolding]);
 
   const resolve = async (turn: Turn, rejectAll = false) => {
     if (!turn.runId || !turn.approvals?.length || resolvingRunId) return;
     setResolvingRunId(turn.runId);
+    setResolvingAction(rejectAll ? 'reject' : 'execute');
     try {
       const decisions = turn.approvals.map((approval) => ({ callId: approval.callId, approved: !rejectAll && selectedApprovals.has(approval.callId) }));
       const response = await resolveAgentRun({ runId: turn.runId, decisions, currentJourneyId: activeJourneyId });
       setTurns((current) => current.filter((item) => item.id !== turn.id));
       await refetchWrittenJourney();
-      appendResponse(response);
+      const completedActivities = await completedActivitiesFor(response);
+      appendResponse(response, undefined, completedActivities);
     } catch (error) {
       console.warn('[AppAgent] approval failed', error);
       setTurns((current) => [...current, { id: `e_${Date.now()}`, role: 'assistant', text: t('agent.executeError') }]);
     } finally {
       setResolvingRunId(undefined);
+      setResolvingAction(undefined);
     }
   };
 
@@ -573,6 +1018,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setTurns([]);
     setSelectedApprovals(new Set());
     setInput('');
+    setAttachmentTrayOpen(false);
+    setSelectedAttachments([]);
+    setTrackPicking(false);
     setThreadSheetOpen(false);
     void AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId));
   };
@@ -601,10 +1049,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setThreadsLoading(true);
     try {
       const history = await getAgentHistory(thread.id);
-      const restored: Turn[] = history.messages.map((message) => ({ id: message.id, role: message.role, text: message.content, quickReplies: message.ui?.quickReplies, sources: message.ui?.sources, planPreview: message.ui?.planPreview, activities: message.ui?.activities }));
+      const restored: Turn[] = historyTurns(history, t('agent.approvalIntro'));
       if (history.pendingRun) {
         const approvals = history.pendingRun.pending_approvals || [];
-        restored.push({ id: `pending_${history.pendingRun.id}`, role: 'assistant', text: t('agent.approvalIntro'), runId: history.pendingRun.id, approvals });
         setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
       } else {
         setSelectedApprovals(new Set());
@@ -614,6 +1061,8 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
       setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || thread.current_journey_id || undefined);
       setTurns(restored);
       setInput('');
+      setAttachmentTrayOpen(false);
+      setSelectedAttachments([]);
       await AsyncStorage.setItem(storageKey(data.userId, currentJourneyId), thread.id);
       setThreadSheetOpen(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
@@ -637,8 +1086,11 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
         setTurns([]);
         setSelectedApprovals(new Set());
         setInput('');
+        setAttachmentTrayOpen(false);
+        setSelectedAttachments([]);
         await AsyncStorage.removeItem(storageKey(data.userId, currentJourneyId));
       }
+      setDeleteThreadCandidate(undefined);
     } catch (error) {
       console.warn('[AppAgent] thread delete failed', error);
       Alert.alert(t('agent.deleteFailed'));
@@ -649,28 +1101,42 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
 
   const confirmDeleteThread = (thread: AgentThreadSummary, close: () => void) => {
     close();
-    Alert.alert(t('agent.deleteConversation'), t('agent.deleteConversationBody', { title: thread.title }), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('common.delete'), style: 'destructive', onPress: () => void deleteThread(thread.id) },
-    ]);
+    setDeleteThreadCandidate(thread);
   };
 
   const threadAge = (date: string) => {
-    const days = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 86_400_000));
-    return days === 0 ? t('agent.today') : t('agent.daysAgo', { count: days });
+    const updatedAt = new Date(date);
+    if (Number.isNaN(updatedAt.getTime())) return '';
+    const now = new Date();
+    const sameLocalDay = updatedAt.getFullYear() === now.getFullYear()
+      && updatedAt.getMonth() === now.getMonth()
+      && updatedAt.getDate() === now.getDate();
+    if (sameLocalDay) {
+      return `${String(updatedAt.getHours()).padStart(2, '0')}:${String(updatedAt.getMinutes()).padStart(2, '0')}`;
+    }
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const updatedDay = new Date(updatedAt.getFullYear(), updatedAt.getMonth(), updatedAt.getDate()).getTime();
+    const days = Math.max(1, Math.round((today - updatedDay) / 86_400_000));
+    return t('agent.daysAgo', { count: days });
   };
 
   const openAddMenu = () => {
-    const usePrompt = (prompt: string) => {
-      setInput(prompt);
-      setTimeout(() => inputRef.current?.focus(), 80);
-    };
-    Alert.alert(t('agent.addContext'), undefined, [
-      { text: t('agent.suggestion.plan'), onPress: () => usePrompt(t('agent.suggestion.plan')) },
-      { text: t('agent.suggestion.gear'), onPress: () => usePrompt(t('agent.suggestion.gear')) },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    inputRef.current?.blur();
+    setAttachmentTrayOpen((open) => !open);
   };
+
+  useEffect(() => {
+    if (attachmentTrayOpen) setAttachmentTrayMounted(true);
+    attachmentTrayProgress.stopAnimation();
+    Animated.timing(attachmentTrayProgress, {
+      toValue: attachmentTrayOpen ? 1 : 0,
+      duration: motion.standard,
+      easing: attachmentTrayOpen ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished && !attachmentTrayOpen) setAttachmentTrayMounted(false);
+    });
+  }, [attachmentTrayOpen, attachmentTrayProgress]);
 
   const toggleApproval = (callId: string) => {
     setSelectedApprovals((current) => {
@@ -686,7 +1152,45 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setTimeout(() => setCopiedTurnId((current) => current === turn.id ? undefined : current), 1600);
   };
 
+  const undoTurn = async (turn: Turn) => {
+    const runId = turn.undoAction?.runId;
+    if (!runId || turn.undoAction?.undoneAt || undoingRunId) return;
+    setUndoingRunId(runId);
+    try {
+      const result = await undoAgentRun(runId);
+      setTurns((current) => current.map((item) => item.undoAction?.runId === runId
+        ? { ...item, undoAction: { ...item.undoAction, undoneAt: result.undoneAt } }
+        : item));
+      await refetchWrittenJourney(result.journeyId || activeJourneyId);
+    } catch (error) {
+      console.warn('[AppAgent] undo failed', error);
+      Alert.alert(t('agent.undoFailed'));
+    } finally {
+      setUndoingRunId(undefined);
+    }
+  };
+
+  const trackActionPromptForTurn = (turn: Turn, index: number) => {
+    if (!isTrackPromptTurn(turn)) return undefined;
+    const hasAnsweredTrackPrompt = turns.slice(index + 1).some((item) => {
+      if (item.role !== 'user') return false;
+      if (item.attachments?.some((attachment) => isTrackAttachmentName(attachment.name))) return true;
+      return wantsTrackUploadReply(item.text) || wantsNoTrackReply(item.text);
+    });
+    if (hasAnsweredTrackPrompt) return undefined;
+    const fromTurn = trackPromptFromTurn(turn);
+    if (fromTurn?.message) return fromTurn;
+    const message = turns
+      .slice(0, index)
+      .filter((item) => item.role === 'user' && !wantsTrackUploadReply(item.text) && !wantsNoTrackReply(item.text))
+      .map((item) => item.text.trim())
+      .filter(Boolean)
+      .join('，');
+    return { message, intent: undefined };
+  };
+
   const quickRepliesForTurn = (turn: Turn, index: number) => {
+    if (isTrackPromptTurn(turn)) return [];
     if (turn.quickReplies?.length) return turn.quickReplies;
     const isPlanStarter = index === turns.length - 1
       && turns.length <= 2
@@ -697,21 +1201,34 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={[styles.root, { backgroundColor: theme.featureSurface }]}
-        behavior="padding"
-        automaticOffset
-      >
+      <GestureHandlerRootView style={styles.root}>
+        <KeyboardAvoidingView
+          style={[styles.root, { backgroundColor: theme.featureSurface }]}
+          behavior="padding"
+          automaticOffset
+        >
         <View style={[styles.header, { paddingTop: insets.top + space.md }]}>
-          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} style={[styles.headerButton, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}>
+          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
             <X size={23} color={theme.text} strokeWidth={2.2} />
           </Press>
-          {currentJourney || (threadId && threadTitle) ? (
-            <View pointerEvents="none" style={[styles.activeThreadTitleWrap, currentJourney && styles.journeyTitleWrap, currentJourney && { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}>
-              <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{currentJourney?.name || threadTitle}</Text>
+          {currentJourney ? (
+            <View pointerEvents="box-none" style={styles.activeThreadTitleWrap}>
+              <Press
+                onPress={() => onOpenJourney(currentJourney.id)}
+                accessibilityRole="button"
+                accessibilityLabel={t('agent.openJourney', { name: currentJourney.name })}
+                style={[styles.journeyTitleWrap, { backgroundColor: theme.controlSurface }]}
+              >
+                <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{currentJourney.name}</Text>
+                <ChevronRight size={18} color={theme.text2} strokeWidth={2.2} />
+              </Press>
+            </View>
+          ) : threadId && threadTitle ? (
+            <View pointerEvents="none" style={styles.activeThreadTitleWrap}>
+              <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{threadTitle}</Text>
             </View>
           ) : null}
-          <Press onPress={openMenu} accessibilityRole="button" accessibilityLabel={t('agent.menu')} style={[styles.headerButton, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}>
+          <Press onPress={openMenu} accessibilityRole="button" accessibilityLabel={t('agent.menu')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
             <Menu size={24} color={theme.text} strokeWidth={1.8} />
           </Press>
         </View>
@@ -722,7 +1239,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
               <View style={styles.journeySuggestions}>
                 {journeySuggestions.map((suggestion) => {
                   const SuggestionIcon = suggestion.icon;
-                  return <Press key={suggestion.text} accessibilityRole="button" onPress={() => void submit(suggestion.text)} style={[styles.journeySuggestion, { backgroundColor: theme.fieldSurface, borderColor: theme.hairline }]}>
+                  return <Press key={suggestion.text} accessibilityRole="button" onPress={() => void submit(suggestion.text)} style={[styles.journeySuggestion, { backgroundColor: theme.fieldSurface }]}>
                     <SuggestionIcon size={19} color={theme.text2} strokeWidth={1.8} />
                     <Text style={[styles.journeySuggestionText, { color: theme.text }]}>{suggestion.text}</Text>
                   </Press>
@@ -736,7 +1253,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                 <View style={styles.suggestions}>
                   {suggestions.map((suggestion) => {
                     const SuggestionIcon = suggestion.icon;
-                    return <Press key={suggestion.text} onPress={() => void submit(suggestion.text, suggestion.intent)} style={[styles.suggestion, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}>
+                    return <Press key={suggestion.text} onPress={() => void submit(suggestion.text, suggestion.intent)} style={[styles.suggestion, { backgroundColor: theme.controlSurface }]}>
                       <SuggestionIcon size={19} color={theme.text2} strokeWidth={1.8} />
                       <Text style={[styles.suggestionText, { color: theme.text }]} numberOfLines={1}>{suggestion.text}</Text>
                       <CornerDownLeft size={17} color={theme.text3} strokeWidth={2} />
@@ -751,31 +1268,73 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
               <View style={[
                 turn.role === 'user' ? styles.userBubble : styles.assistantBubble,
                 turn.approvals?.length ? styles.approvalIntroBubble : null,
-                { backgroundColor: turn.approvals?.length ? 'transparent' : turn.role === 'user' ? theme.accentSoft : theme.fieldSurface },
+                turn.role === 'user' ? { backgroundColor: theme.accentSoft } : null,
               ]}>
+                {turn.attachments?.length ? <MessageAttachments theme={theme} attachments={turn.attachments} /> : null}
                 <SelectableMessageText text={turn.text} theme={theme} />
               </View>
+              {trackActionPromptForTurn(turn, turnIndex) ? (
+                <View style={styles.quickReplies}>
+                  <Press
+                    disabled={loading || Boolean(resolvingRunId) || trackPicking}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: loading || Boolean(resolvingRunId) || trackPicking, busy: trackPicking }}
+                    onPress={() => {
+                      const prompt = trackActionPromptForTurn(turn, turnIndex);
+                      if (prompt) void chooseTrackForPlan(prompt);
+                    }}
+                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || Boolean(resolvingRunId) || trackPicking) && styles.quickReplyDisabled]}
+                  >
+                    {trackPicking ? <ActivityIndicator size="small" color={theme.text} /> : null}
+                    <Text style={[styles.quickReplyText, { color: theme.text }]}>上传轨迹</Text>
+                  </Press>
+                  <Press
+                    disabled={loading || Boolean(resolvingRunId) || trackPicking}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: loading || Boolean(resolvingRunId) || trackPicking }}
+                    onPress={() => {
+                      const prompt = trackActionPromptForTurn(turn, turnIndex);
+                      if (prompt) continuePlanWithoutTrack(prompt);
+                    }}
+                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || Boolean(resolvingRunId) || trackPicking) && styles.quickReplyDisabled]}
+                  >
+                    <Text style={[styles.quickReplyText, { color: theme.text }]}>暂不上传</Text>
+                  </Press>
+                </View>
+              ) : null}
               {quickRepliesForTurn(turn, turnIndex).length ? (
                 <View style={styles.quickReplies}>
-                  {quickRepliesForTurn(turn, turnIndex).map((reply) => (
-                    <Press
-                      key={`${turn.id}_${reply.message}`}
-                      disabled={loading || Boolean(resolvingRunId)}
-                      onPress={() => void submit(reply.message)}
-                      style={[styles.quickReply, { backgroundColor: theme.accentSofter, borderColor: theme.accentSoft }]}
-                    >
-                      <Text style={[styles.quickReplyText, { color: theme.text }]}>{reply.label}</Text>
-                    </Press>
-                  ))}
+                  {quickRepliesForTurn(turn, turnIndex).map((reply) => {
+                    const inlineTrackPrompt = trackPromptFromTurn(turn) || trackPrompt || undefined;
+                    const isTrackUploadReply = reply.action === 'upload_track' || wantsTrackUploadReply(reply.message) || wantsTrackUploadReply(reply.label);
+                    const isSkipTrackReply = reply.action === 'skip_track' || Boolean(inlineTrackPrompt && wantsNoTrackReply(reply.message));
+                    const disabled = loading || Boolean(resolvingRunId) || trackPicking;
+                    return (
+                      <Press
+                        key={`${turn.id}_${reply.message}`}
+                        disabled={disabled}
+                        accessibilityState={{ disabled, busy: isTrackUploadReply && trackPicking }}
+                        onPress={() => {
+                          if (isTrackUploadReply) void chooseTrackForPlan(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
+                          else if (isSkipTrackReply) continuePlanWithoutTrack(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
+                          else void submit(reply.message);
+                        }}
+                        style={[styles.quickReply, { backgroundColor: theme.accentSofter }, disabled && styles.quickReplyDisabled]}
+                      >
+                        {isTrackUploadReply && trackPicking ? <ActivityIndicator size="small" color={theme.text} /> : null}
+                        <Text style={[styles.quickReplyText, { color: theme.text }]}>{reply.label}</Text>
+                      </Press>
+                    );
+                  })}
                 </View>
               ) : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
               {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.openPlan')} onOpen={onClose} /> : null}
               {turn.approvals?.length ? (
-                <View style={[styles.proposal, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
+                <View style={[styles.proposal, { backgroundColor: theme.surfaceTop }]}>
                   <Text style={[styles.proposalTitle, { color: theme.text }]}>{t('agent.proposal')}</Text>
                   <View style={styles.actionList}>
-                    {turn.approvals.map((approval, index) => {
+                    {turn.approvals.map((approval) => {
                       const selected = selectedApprovals.has(approval.callId);
                       return (
                         <Press
@@ -783,16 +1342,13 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                           onPress={() => toggleApproval(approval.callId)}
                           accessibilityRole="checkbox"
                           accessibilityState={{ checked: selected }}
-                          style={[
-                            styles.actionRow,
-                            index > 0 && { borderTopColor: theme.hairline, borderTopWidth: StyleSheet.hairlineWidth },
-                          ]}
+                          style={styles.actionRow}
                         >
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[type.cardTitle, { color: approval.destructive ? theme.danger : theme.text }]}>{approval.title}</Text>
                             <Text style={[styles.actionDetail, { color: theme.text2 }]}>{approval.detail}</Text>
                           </View>
-                          <View style={[styles.checkbox, { backgroundColor: selected ? theme.text : 'transparent', borderColor: selected ? theme.text : theme.text3 }]}>
+                          <View style={[styles.checkbox, { backgroundColor: selected ? theme.text : theme.fieldSurface }]}>
                             {selected ? <Check size={14} color={theme.featureSurface} strokeWidth={3} /> : null}
                           </View>
                         </Press>
@@ -806,54 +1362,133 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                     accessibilityState={{ disabled: resolvingRunId === turn.runId || selectedApprovals.size === 0 }}
                     style={[styles.execute, { backgroundColor: selectedApprovals.size ? theme.text : theme.fieldSurface }]}
                   >
-                    {resolvingRunId === turn.runId ? <ActivityIndicator color={theme.featureSurface} /> : null}
+                    {resolvingRunId === turn.runId && resolvingAction === 'execute' ? <ActivityIndicator color={theme.featureSurface} /> : null}
                     <Text style={[styles.executeText, { color: selectedApprovals.size ? theme.featureSurface : theme.text3 }]}>
                       {t('agent.confirmSelected', { count: selectedApprovals.size })}
                     </Text>
                   </Press>
                   <Press disabled={resolvingRunId === turn.runId} onPress={() => void resolve(turn, true)} style={styles.reject}>
-                    <Text style={[type.body, { color: theme.text2, fontWeight: '700' }]}>{t('agent.rejectAll')}</Text>
+                    {resolvingRunId === turn.runId && resolvingAction === 'reject'
+                      ? <ActivityIndicator color={theme.text2} />
+                      : <Text style={[type.body, { color: theme.text2, fontWeight: '700' }]}>{t('agent.rejectAll')}</Text>}
                   </Press>
                 </View>
               ) : null}
               {turn.role === 'assistant' ? (
-                <Press
-                  onPress={() => void copyTurn(turn)}
-                  accessibilityRole="button"
-                  accessibilityLabel={t(copiedTurnId === turn.id ? 'agent.copied' : 'agent.copy')}
-                  style={styles.copyAction}
-                >
-                  {copiedTurnId === turn.id ? <Check size={15} color={theme.text3} /> : <Copy size={15} color={theme.text3} />}
-                  <Text style={[styles.copyText, { color: theme.text3 }]}>{t(copiedTurnId === turn.id ? 'agent.copied' : 'agent.copy')}</Text>
-                </Press>
+                <View style={styles.messageActions}>
+                  <Press
+                    onPress={() => void copyTurn(turn)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t(copiedTurnId === turn.id ? 'agent.copied' : 'agent.copy')}
+                    style={styles.copyAction}
+                  >
+                    {copiedTurnId === turn.id ? <Check size={15} color={theme.text3} /> : <Copy size={15} color={theme.text3} />}
+                    <Text style={[styles.copyText, { color: theme.text3 }]}>{t(copiedTurnId === turn.id ? 'agent.copied' : 'agent.copy')}</Text>
+                  </Press>
+                  {turn.undoAction ? (
+                    <Press
+                      disabled={Boolean(turn.undoAction.undoneAt) || undoingRunId === turn.undoAction.runId}
+                      onPress={() => void undoTurn(turn)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t(turn.undoAction.undoneAt ? 'agent.undone' : 'agent.undo')}
+                      style={styles.copyAction}
+                    >
+                      {undoingRunId === turn.undoAction.runId
+                        ? <ActivityIndicator size="small" color={theme.text3} />
+                        : turn.undoAction.undoneAt
+                        ? <Check size={15} color={theme.text3} />
+                        : <RotateCcw size={15} color={theme.text3} />}
+                      <Text style={[styles.copyText, { color: theme.text3 }]}>{t(turn.undoAction.undoneAt ? 'agent.undone' : 'agent.undo')}</Text>
+                    </Press>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           ))}
           {loading ? <ResearchActivity theme={theme} activities={runActivities} running /> : null}
         </ScrollView>
 
-        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, space.sm), backgroundColor: theme.featureSurface }]}>
-          <View style={[styles.composer, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}>
-            <Press onPress={openAddMenu} accessibilityRole="button" accessibilityLabel={t('agent.addContext')} style={styles.composerAction}>
-              <Plus size={27} color={theme.text} strokeWidth={1.8} />
-            </Press>
-            <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t(speech.isListening ? 'agent.voiceListening' : 'agent.placeholder')} placeholderTextColor={theme.text3} multiline maxLength={1000} style={[styles.input, { color: theme.text }]} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
-            <Press
-              disabled={loading || Boolean(resolvingRunId)}
-              accessibilityLabel={speech.isListening ? t('agent.stopVoiceInput') : input.trim() ? t('agent.send') : t('agent.voiceInput')}
-              accessibilityState={{ disabled: loading || Boolean(resolvingRunId), selected: speech.isListening }}
-              onPress={speech.isListening ? speech.stop : input.trim() ? () => void submit() : () => void speech.start()}
-              style={[styles.composerAction, (input.trim() || speech.isListening) && { backgroundColor: theme.accent }]}
-            >
-              {speech.isListening
-                ? <Square size={16} color="#FFFFFF" fill="#FFFFFF" strokeWidth={2} />
-                : input.trim()
-                ? <ArrowUp size={19} color="#FFFFFF" strokeWidth={2.4} />
-                : <Mic size={24} color={theme.text} strokeWidth={1.9} />}
-            </Press>
+        <Animated.View
+          style={[
+            styles.bottomArea,
+            {
+              paddingBottom: attachmentTrayProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [Math.max(insets.bottom - space.sm, space.xxs), 0],
+              }),
+              backgroundColor: theme.featureSurface,
+            },
+          ]}
+        >
+          <View style={styles.composerWrap}>
+            {voiceMode ? <Text style={[styles.voiceGestureHint, { color: voiceCancelling ? theme.danger : theme.text3 }]}>{t(voiceCancelling ? 'agent.voiceReleaseToCancel' : voiceHolding ? 'agent.voiceReleaseToSend' : 'agent.voiceListening')}</Text> : null}
+            <View style={[styles.composer, { backgroundColor: theme.controlSurface }]}>
+              <Press pointerEvents={voiceHolding ? 'none' : 'auto'} onPress={openAddMenu} accessibilityRole="button" accessibilityLabel={t('agent.addContext')} style={[styles.composerAction, voiceHolding && styles.voiceActionHidden]}>
+                {attachmentTrayOpen ? <X size={24} color={theme.text} strokeWidth={1.9} /> : <Plus size={27} color={theme.text} strokeWidth={1.8} />}
+              </Press>
+              <View style={styles.inputWrap}>
+                <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t('agent.placeholder')} placeholderTextColor={theme.text3} multiline maxLength={1000} editable={!voiceMode} style={[styles.input, { color: theme.text }, voiceMode && styles.voiceInputHidden]} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
+                {voiceMode ? <VoiceListeningIndicator theme={theme} label={t('agent.voiceListening')} cancelling={voiceCancelling} /> : null}
+                {!inputFocused ? (
+                  <Press
+                    accessible={false}
+                    delayLongPress={450}
+                    pressRetentionOffset={{ top: 180, right: 40, bottom: 40, left: 40 }}
+                    onPressIn={handleIdleInputPressIn}
+                    onPress={handleIdleInputPress}
+                    onLongPress={handleIdleInputLongPress}
+                    onPressMove={handleIdleInputPressMove}
+                    onTouchEnd={handleIdleInputTouchEnd}
+                    onTouchCancel={handleIdleInputTouchCancel}
+                    style={StyleSheet.absoluteFill}
+                  />
+                ) : null}
+              </View>
+              <Press
+                pointerEvents={voiceHolding ? 'none' : 'auto'}
+                disabled={loading || attachmentUploading || Boolean(resolvingRunId)}
+                accessibilityLabel={voiceActive ? t('agent.stopVoiceInput') : canSend ? t('agent.send') : t('agent.voiceInput')}
+                accessibilityState={{ disabled: loading || attachmentUploading || Boolean(resolvingRunId), selected: voiceActive }}
+                onPress={voiceActive ? speech.stop : canSend ? () => void submit() : startVoiceInput}
+                style={[styles.composerAction, (canSend || voiceActive) && { backgroundColor: theme.accent }, voiceHolding && styles.voiceActionHidden]}
+              >
+                {attachmentUploading
+                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  : voiceActive
+                  ? <Square size={16} color="#FFFFFF" fill="#FFFFFF" strokeWidth={2} />
+                  : canSend
+                  ? <ArrowUp size={19} color="#FFFFFF" strokeWidth={2.4} />
+                  : <Mic size={24} color={theme.text} strokeWidth={1.9} />}
+              </Press>
+            </View>
           </View>
           <Text style={[styles.generatedNotice, { color: theme.text3 }]}>{t('agent.disclaimer')}</Text>
-        </View>
+          {selectedAttachments.length ? (
+            <View style={styles.pendingAttachmentsWrap}>
+              <PendingAttachments theme={theme} attachments={selectedAttachments} onRemove={(id) => setSelectedAttachments((current) => current.filter((attachment) => attachment.id !== id))} />
+            </View>
+          ) : null}
+          <Animated.View
+            pointerEvents={attachmentTrayOpen ? 'auto' : 'none'}
+            style={[
+              styles.attachmentTrayClip,
+              {
+                height: attachmentTrayProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 318] }),
+                opacity: attachmentTrayProgress,
+              },
+            ]}
+          >
+            {attachmentTrayMounted ? (
+              <AssistantAttachmentTray
+                theme={theme}
+                selected={selectedAttachments}
+                labels={attachmentLabels}
+                onChange={setSelectedAttachments}
+                onError={showAttachmentError}
+              />
+            ) : null}
+          </Animated.View>
+        </Animated.View>
 
         {threadSheetOpen ? (
           <View style={[StyleSheet.absoluteFill, styles.threadOverlay]}>
@@ -877,38 +1512,34 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                     const journey = threadJourney(thread);
                     const photoUri = firstPhoto(journey?.photo_uris);
                     return (
-                      <ReanimatedSwipeable
+                      <TwoStageSwipeable
                         key={thread.id}
-                        friction={1.8}
-                        rightThreshold={36}
-                        overshootRight={false}
+                        friction={1}
+                        rightThreshold={56}
+                        dragOffsetFromRightEdge={6}
+                        animationOptions={THREAD_SWIPE_SPRING}
+                        onSecondLeftSwipe={(methods) => {
+                          pendingThreadSwipeCloseRef.current = methods.close;
+                          setDeleteThreadCandidate(thread);
+                        }}
                         containerStyle={[styles.threadSwipe, { backgroundColor: theme.featureSurface }]}
-                        renderRightActions={(_progress, _translation, methods) => (
-                          <View style={[styles.threadSwipeActions, { backgroundColor: theme.featureSurface }]}>
-                            <Press
-                              accessibilityRole="button"
-                              accessibilityLabel={t('agent.openConversation')}
-                              onPress={() => {
-                                methods.close();
-                                void selectThread(thread);
-                              }}
-                              style={styles.threadSwipeAction}
-                            >
-                              <Clock3 size={28} color={theme.text} strokeWidth={2.1} />
-                            </Press>
-                            <Press
-                              disabled={Boolean(deletingThreadId)}
-                              accessibilityRole="button"
-                              accessibilityLabel={t('agent.deleteConversation')}
-                              onPress={() => confirmDeleteThread(thread, methods.close)}
-                              style={styles.threadSwipeAction}
-                            >
-                              {deletingThreadId === thread.id ? <ActivityIndicator color={theme.danger} /> : <Trash2 size={28} color={theme.danger} strokeWidth={2.1} />}
-                            </Press>
-                          </View>
+                        renderRightActions={(progress, _translation, methods) => (
+                          <ThreadSwipeActions
+                            progress={progress}
+                            theme={theme}
+                            deleting={deletingThreadId === thread.id}
+                            deleteDisabled={Boolean(deletingThreadId)}
+                            openLabel={t('agent.openConversation')}
+                            deleteLabel={t('agent.deleteConversation')}
+                            onOpen={() => {
+                              methods.close();
+                              void selectThread(thread);
+                            }}
+                            onDelete={() => confirmDeleteThread(thread, methods.close)}
+                          />
                         )}
                       >
-                        <Press onPress={() => void selectThread(thread)} style={[styles.threadCard, { backgroundColor: theme.accentSofter, borderColor: thread.id === threadId ? theme.accentSoft : theme.hairline }]}>
+                        <Press onPress={() => void selectThread(thread)} style={[styles.threadCard, { backgroundColor: theme.accentSofter }]}>
                           {photoUri ? <Image source={{ uri: photoUri }} contentFit="cover" style={styles.threadCover} /> : null}
                           <View style={[styles.threadCopy, photoUri && styles.threadCopyWithCover]}>
                             <Text style={[styles.threadCardTitle, { color: theme.text }]} numberOfLines={2}>{thread.title}</Text>
@@ -918,7 +1549,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                             </View>
                           </View>
                         </Press>
-                      </ReanimatedSwipeable>
+                      </TwoStageSwipeable>
                     );
                   })}
                 </ScrollView>
@@ -928,7 +1559,30 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
             </View>
           </View>
         ) : null}
-      </KeyboardAvoidingView>
+        <AppActionDialog
+          theme={theme}
+          visible={Boolean(deleteThreadCandidate)}
+          title={t('agent.deleteConversation')}
+          message={t('agent.deleteConversationBody', { title: deleteThreadCandidate?.title || '' })}
+          confirmLabel={t('common.delete')}
+          cancelLabel={t('common.cancel')}
+          destructive
+          confirming={deletingThreadId === deleteThreadCandidate?.id}
+          confirmIcon="trash"
+          onCancel={() => {
+            pendingThreadSwipeCloseRef.current?.();
+            pendingThreadSwipeCloseRef.current = null;
+            setDeleteThreadCandidate(undefined);
+          }}
+          onConfirm={() => {
+            if (deleteThreadCandidate) {
+              pendingThreadSwipeCloseRef.current = null;
+              void deleteThread(deleteThreadCandidate.id);
+            }
+          }}
+        />
+        </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -936,10 +1590,10 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { minHeight: 94, paddingHorizontal: space.lg, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  headerButton: { width: 44, height: 44, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 7px 20px rgba(0,0,0,0.07)' },
+  headerButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 7px 20px rgba(0,0,0,0.07)' },
   activeThreadTitleWrap: { position: 'absolute', left: 76, right: 76, bottom: space.sm, height: 44, justifyContent: 'center', alignItems: 'center' },
-  journeyTitleWrap: { borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.md },
-  activeThreadTitle: { maxWidth: '100%', fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
+  journeyTitleWrap: { maxWidth: '100%', height: 44, borderRadius: radius.pill, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  activeThreadTitle: { maxWidth: '100%', flexShrink: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
   content: { flexGrow: 1, paddingHorizontal: layout.pagePadding, paddingTop: space.md, paddingBottom: space.xxl },
   emptyContent: { justifyContent: 'flex-end', paddingBottom: 58 },
   journeyEmptyContent: { justifyContent: 'flex-start', paddingTop: space.lg },
@@ -949,29 +1603,34 @@ const styles = StyleSheet.create({
   welcomeTitle: { fontSize: 25, lineHeight: 31, fontWeight: '800', letterSpacing: 0 },
   welcomeBody: { maxWidth: 350, fontSize: 19, lineHeight: 27, fontWeight: '700', letterSpacing: 0 },
   suggestions: { alignItems: 'flex-start', gap: space.xs, marginTop: space.lg },
-  suggestion: { width: 248, height: 50, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
+  suggestion: { width: 248, height: 50, borderRadius: radius.pill, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
   suggestionText: { flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: '500', letterSpacing: 0 },
   journeySuggestions: { alignItems: 'stretch', gap: space.sm },
-  journeySuggestion: { minHeight: 52, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  journeySuggestion: { minHeight: 52, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   journeySuggestionText: { flex: 1, minWidth: 0, fontSize: 15, lineHeight: 21, fontWeight: '500', letterSpacing: 0 },
   userRow: { alignItems: 'flex-end', marginBottom: space.lg },
   assistantRow: { alignItems: 'stretch', marginBottom: space.xl },
   userBubble: { maxWidth: '84%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card },
-  assistantBubble: { alignSelf: 'flex-start', maxWidth: '94%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card },
+  assistantBubble: { alignSelf: 'stretch' },
+  messageAttachments: { marginBottom: space.xs, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs },
+  messageAttachmentImage: { width: 112, height: 112, borderRadius: radius.control },
+  messageAttachmentFile: { maxWidth: 220, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  messageAttachmentName: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 17, fontWeight: '600', letterSpacing: 0 },
   messageMeasure: { opacity: 0 },
   messageInput: { padding: 0, textAlignVertical: 'top' },
   approvalIntroBubble: { maxWidth: '100%', paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0 },
   quickReplies: { alignItems: 'flex-start', gap: space.xs, marginTop: space.sm },
-  quickReply: { minHeight: 44, maxWidth: '92%', borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  quickReply: { minHeight: 44, maxWidth: '92%', borderRadius: radius.pill, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  quickReplyDisabled: { opacity: 0.65 },
   quickReplyText: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '600', letterSpacing: 0 },
   sourcesWrap: { marginTop: space.md, marginHorizontal: -layout.pagePadding },
   supportLabel: { paddingHorizontal: layout.pagePadding, marginBottom: space.xs, fontSize: 12, lineHeight: 16, fontWeight: '600', letterSpacing: 0 },
   sourcesContent: { paddingHorizontal: layout.pagePadding, gap: space.xs },
-  sourceCard: { width: 220, height: 94, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, padding: space.sm, justifyContent: 'space-between' },
+  sourceCard: { width: 220, height: 94, borderRadius: radius.card, padding: space.sm, justifyContent: 'space-between' },
   sourceTop: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
   sourceHost: { flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 15, letterSpacing: 0 },
   sourceTitle: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
-  planPreview: { marginTop: space.lg, borderRadius: radius.feature, borderWidth: StyleSheet.hairlineWidth, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.07)' },
+  planPreview: { marginTop: space.lg, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.07)' },
   planTitle: { fontSize: 20, lineHeight: 26, fontWeight: '800', letterSpacing: 0 },
   planMeta: { marginTop: space.xxs, fontSize: 13, lineHeight: 18, letterSpacing: 0 },
   planDays: { marginTop: space.md },
@@ -980,16 +1639,17 @@ const styles = StyleSheet.create({
   planItem: { marginTop: space.xs, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   planTime: { width: 78, fontSize: 12, lineHeight: 18, fontWeight: '600', letterSpacing: 0 },
   planItemText: { flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 19, letterSpacing: 0 },
-  openPlan: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  openPlan: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   openPlanText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
   copyAction: { alignSelf: 'flex-start', minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.xxs, marginTop: space.xs },
+  messageActions: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   copyText: { fontSize: 13, lineHeight: 17, letterSpacing: 0 },
-  proposal: { marginTop: space.lg, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.08)' },
+  proposal: { marginTop: space.lg, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.08)' },
   proposalTitle: { fontSize: 17, lineHeight: 22, fontWeight: '800', letterSpacing: 0 },
   actionList: { marginTop: space.sm },
   actionRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
   actionDetail: { marginTop: space.xxs, fontSize: 12.5, lineHeight: 17, letterSpacing: 0 },
-  checkbox: { width: 24, height: 24, borderRadius: radius.control, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 24, height: 24, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   execute: { height: 52, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, marginTop: space.md },
   executeText: { fontSize: 16, lineHeight: 21, fontWeight: '800', letterSpacing: 0 },
   reject: { height: 42, alignItems: 'center', justifyContent: 'center', marginTop: space.xxs },
@@ -998,11 +1658,27 @@ const styles = StyleSheet.create({
   researchTitle: { fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
   researchLine: { minHeight: 26, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
-  composerWrap: { paddingHorizontal: space.xxl, paddingTop: space.sm },
-  composer: { minHeight: 56, maxHeight: 124, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: space.xs, paddingVertical: space.xs, boxShadow: '0px 12px 30px rgba(0,0,0,0.08)' },
+  researchLineTitle: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  bottomArea: { flexShrink: 0 },
+  composerWrap: { paddingHorizontal: space.lg },
+  pendingAttachmentsWrap: { paddingHorizontal: space.lg, paddingTop: space.sm },
+  pendingAttachments: { gap: space.xs, paddingBottom: space.xs },
+  pendingAttachment: { width: 64, height: 64, borderRadius: radius.control, overflow: 'hidden' },
+  pendingFile: { flex: 1, padding: space.xs, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  pendingFileName: { maxWidth: '100%', fontSize: 9.5, lineHeight: 12, textAlign: 'center', letterSpacing: 0 },
+  removeAttachment: { position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  composer: { minHeight: layout.fieldHeight, maxHeight: 108, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: space.xs, paddingVertical: space.xxs / 2, boxShadow: '0px 12px 30px rgba(0,0,0,0.08)' },
   composerAction: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  input: { flex: 1, minHeight: 40, maxHeight: 108, fontSize: 15, lineHeight: 20, paddingHorizontal: space.xs, paddingTop: 10, paddingBottom: 8 },
-  generatedNotice: { textAlign: 'center', marginTop: space.sm, fontSize: 11, lineHeight: 14, letterSpacing: 0 },
+  voiceActionHidden: { opacity: 0 },
+  inputWrap: { flex: 1, minWidth: 0, minHeight: 40, maxHeight: 100 },
+  input: { width: '100%', minHeight: 40, maxHeight: 100, fontSize: 15, lineHeight: 20, paddingHorizontal: space.xs, paddingTop: 8, paddingBottom: 6 },
+  voiceInputHidden: { opacity: 0 },
+  voiceGestureHint: { minHeight: 20, marginBottom: space.sm, textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '600', letterSpacing: 0 },
+  voiceListening: { position: 'absolute', top: 0, right: -44, bottom: 0, left: -44, alignItems: 'center', justifyContent: 'center' },
+  voiceBars: { width: 132, height: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  voiceBar: { width: 2, borderRadius: radius.pill },
+  attachmentTrayClip: { overflow: 'hidden' },
+  generatedNotice: { textAlign: 'center', marginTop: space.xxs, fontSize: 11, lineHeight: 14, letterSpacing: 0 },
   threadOverlay: { zIndex: 20, justifyContent: 'flex-end' },
   threadBackdrop: { backgroundColor: 'rgba(0,0,0,0.56)' },
   threadSheet: { height: '66%', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingTop: space.xs, paddingHorizontal: space.lg, overflow: 'hidden' },
@@ -1013,7 +1689,7 @@ const styles = StyleSheet.create({
   newThreadText: { fontSize: 15, fontWeight: '700', letterSpacing: 0 },
   threadList: { gap: space.sm, paddingBottom: space.xxl },
   threadLoading: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },
-  threadCard: { height: 96, borderRadius: radius.feature, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'stretch', overflow: 'hidden' },
+  threadCard: { height: 96, borderRadius: radius.feature, flexDirection: 'row', alignItems: 'stretch', overflow: 'hidden' },
   threadSwipe: { height: 96, borderRadius: radius.feature, overflow: 'hidden' },
   threadSwipeActions: { width: 144, height: 96, flexDirection: 'row', alignItems: 'center' },
   threadSwipeAction: { width: 72, height: 96, alignItems: 'center', justifyContent: 'center' },

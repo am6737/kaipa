@@ -8,7 +8,7 @@ type QrLoginResponse = {
   id?: string;
   secret?: string;
   expires_at?: string;
-  status?: 'pending' | 'approved' | 'consumed' | 'expired';
+  status?: 'pending' | 'scanned' | 'approved' | 'consumed' | 'expired';
   token_hash?: string;
   type?: 'magiclink';
   error?: { message?: string };
@@ -56,6 +56,10 @@ export async function createQrLoginRequest() {
 export async function getQrLoginStatus(payload: QrLoginPayload) {
   const data = await invoke({ action: 'status', ...payload });
   return data.status || 'pending';
+}
+
+export async function markQrLoginScanned(payload: QrLoginPayload) {
+  return invoke({ action: 'scan', ...payload });
 }
 
 export async function approveQrLoginRequest(payload: QrLoginPayload) {

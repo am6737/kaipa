@@ -18,7 +18,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
@@ -33,7 +32,7 @@ import { RecordJourneySheet } from './RecordJourneySheet';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { AppIconButton, radius, space, type } from '../../design-system';
-import { MAPBOX_TOKEN, TrackMap } from './TrackMap';
+import { TrackMap } from './TrackMap';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
@@ -710,27 +709,34 @@ function presetToRoute(p: Poi): NJRoute {
 function NJPresetPlanner({
   theme,
   route,
+  tripName,
+  setTripName,
   startDt,
   durationMins,
   onOpenTimePicker,
-  onInvite,
   onClose,
   onCreate,
 }: {
   theme: Theme;
   route: NJRoute;
+  tripName: string;
+  setTripName: (value: string) => void;
   startDt: Date;
   durationMins: number;
   onOpenTimePicker: () => void;
-  onInvite: () => void;
   onClose: () => void;
   onCreate: () => void;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const plannerHeight = Math.min(Math.max(height * 0.44, 350), 410);
-  const hasNativeMap = Boolean(MAPBOX_TOKEN && route.trackCoords?.length);
+  const plannerHeight = Math.min(Math.max(height * 0.37, 318), 350);
+  const mapCoords = useMemo<[number, number][]>(() => {
+    if (route.trackCoords?.length) return route.trackCoords;
+    if (Number.isFinite(route.lng) && Number.isFinite(route.lat)) return [[route.lng as number, route.lat as number]];
+    return [];
+  }, [route.lat, route.lng, route.trackCoords]);
+  const hasMapLocation = mapCoords.length > 0;
   const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][startDt.getDay()] as 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
   const plannedDate = t('journeyEdit.planner.dateSummary', {
     month: startDt.getMonth() + 1,
@@ -739,89 +745,78 @@ function NJPresetPlanner({
   });
   const routeMetrics = [route.dist, route.asc ? `↑ ${(route.asc || '').replace('+', '')}` : ''].filter(Boolean);
 
-  const PlannerRow = ({ icon, label, value, onPress }: { icon: 'clock' | 'people'; label: string; value: string; onPress: () => void }) => (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      style={{ minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-    >
-      <Icon name={icon} color={theme.text2} size={17} />
-      <Text style={{ flex: 1, fontSize: 13, color: theme.text2 }}>{label}</Text>
-      <Text numberOfLines={1} style={{ maxWidth: '58%', fontSize: 13, fontWeight: '700', color: theme.text }}>{value}</Text>
-    </Press>
-  );
-
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface }]}>
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: height - plannerHeight + radius.feature, overflow: 'hidden' }}>
-        {hasNativeMap ? (
+        {hasMapLocation ? (
           <TrackMap
             fill
             interactive
             showLegend={false}
-            coords={route.trackCoords as [number, number][]}
+            coords={mapCoords}
             theme={theme}
             accent={theme.accent}
             routePadding={[insets.top + 84, 34, 48, 34]}
           />
         ) : (
-          <PhotoTile tone={route.tone} seed={route.name} darken style={StyleSheet.absoluteFill} resWidth={1000}>
-            <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', opacity: 0.86 }]}>
-              <Svg width="72%" height="40%" viewBox="0 0 280 130" fill="none">
-                <Path d="M20 108C62 86 54 50 100 58s42 35 78 10 40-39 82-48" stroke="rgba(255,255,255,0.82)" strokeWidth={8} strokeLinecap="round" />
-                <Path d="M20 108C62 86 54 50 100 58s42 35 78 10 40-39 82-48" stroke={theme.accent} strokeWidth={4} strokeLinecap="round" />
-                <Circle cx={20} cy={108} r={7} fill="#FFFFFF" stroke={theme.accent} strokeWidth={4} />
-                <Circle cx={260} cy={20} r={7} fill={theme.text} stroke="#FFFFFF" strokeWidth={4} />
-              </Svg>
-            </View>
-          </PhotoTile>
+          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }]}>
+            <Icon name="pin" color={theme.text2} size={24} />
+            <Text style={{ ...type.caption, color: theme.text2, marginTop: space.xs }}>{route.region}</Text>
+          </View>
         )}
-        <LinearGradient
-          pointerEvents="none"
-          colors={['rgba(0,0,0,0.16)', 'rgba(0,0,0,0)', theme.groupedBg]}
-          locations={[0, 0.48, 1]}
-          style={StyleSheet.absoluteFill}
-        />
       </View>
 
       <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, right: space.md, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <AppIconButton theme={theme} name="close" onPress={onClose} softShadow />
+        <AppIconButton theme={theme} name="close" onPress={onClose} noShadow accessibilityLabel={t('common.close')} />
         <View pointerEvents="none" style={{ position: 'absolute', left: 54, right: 54, alignItems: 'center' }}>
-          <Text style={{ ...type.navTitle, color: theme.text }}>{t('journeyEdit.planner.title')}</Text>
+          <View style={{ paddingHorizontal: space.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: 'rgba(0,0,0,0.56)' }}>
+            <Text style={{ ...type.navTitle, color: '#FFFFFF' }}>{t('journeyEdit.planner.title')}</Text>
+          </View>
         </View>
         <View style={{ width: 44 }} />
       </View>
 
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: plannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, ...shadow(theme.dark ? 0.36 : 0.12, 28, -8) }}>
+      <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 68, left: space.md, maxWidth: '72%', paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.control, backgroundColor: 'rgba(0,0,0,0.64)' }}>
+        <Text numberOfLines={1} style={{ ...type.cardTitle, color: '#FFFFFF' }}>{route.name}</Text>
+        {routeMetrics.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xxs }}>
+            {routeMetrics.map((metric, index) => <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 10.5, color: 'rgba(255,255,255,0.72)' }}>{metric}</Text>)}
+          </View>
+        ) : null}
+      </View>
+
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: plannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.fieldBorder }}>
         <View style={{ width: 38, height: 4, borderRadius: radius.pill, alignSelf: 'center', marginTop: space.sm, backgroundColor: theme.progressTrack }} />
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: 96 }}>
-          <Text numberOfLines={1} style={{ ...type.pageTitle, color: theme.text }}>{route.name}</Text>
-          <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.xs }}>
-            {routeMetrics.map((metric, index) => (
-              <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 11, color: theme.text2 }}>{metric}</Text>
-            ))}
+          <View>
+            <Text style={{ ...type.eyebrow, color: theme.text2, marginBottom: space.xs }}>{t('journeyEdit.details.nameLabel')}</Text>
+            <TextInput
+              value={tripName}
+              onChangeText={setTripName}
+              placeholder={t('journeyEdit.details.namePlaceholder')}
+              placeholderTextColor={theme.text3}
+              maxLength={32}
+              selectTextOnFocus
+              style={{ height: 50, paddingHorizontal: space.md, borderRadius: radius.card, backgroundColor: theme.featureSurface, color: theme.text, ...type.cardTitle }}
+            />
           </View>
 
-          <Press
-            onPress={onOpenTimePicker}
-            accessibilityRole="button"
-            style={{ marginTop: space.lg, minHeight: 104, padding: space.md, borderRadius: radius.feature, backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, ...shadow(theme.dark ? 0.28 : 0.06, 16, 4) }}
-          >
-            <Text style={{ ...type.sectionTitle, color: theme.text }}>{t('journeyEdit.planner.when')}</Text>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', marginTop: space.lg }}>
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, fontWeight: '700', color: theme.text }}>{plannedDate}</Text>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{njDurationLabel(durationMins, t)}</Text>
-            </View>
-          </Press>
-
-          <View style={{ marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.card, backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, ...shadow(theme.dark ? 0.24 : 0.05, 14, 3) }}>
-            <PlannerRow icon="people" label={t('journeyEdit.details.companionsLabel')} value={t('journeyEdit.planner.solo')} onPress={onInvite} />
+          <View style={{ marginTop: space.md }}>
+            <Text style={{ ...type.eyebrow, color: theme.text2, marginBottom: space.xs }}>{t('journeyEdit.details.timeLabel')}</Text>
+            <Press onPress={onOpenTimePicker} accessibilityRole="button" style={{ minHeight: 58, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm, borderRadius: radius.card, backgroundColor: theme.featureSurface }}>
+              <Icon name="calendar" color={theme.text2} size={18} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ ...type.cardTitle, color: theme.text }}>{plannedDate}</Text>
+                <Text numberOfLines={1} style={{ ...type.caption, color: theme.text2, marginTop: 2 }}>{njDurationLabel(durationMins, t)}</Text>
+              </View>
+              <Icon name="chevronR" color={theme.text3} size={15} />
+            </Press>
           </View>
         </ScrollView>
 
-        <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', theme.groupedBg, theme.groupedBg]} locations={[0, 0.28, 1]} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 104 }} />
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 68 + Math.max(insets.bottom, space.md), backgroundColor: theme.groupedBg }} />
         <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: Math.max(insets.bottom, space.md) }}>
-          <Press onPress={onCreate} accessibilityRole="button" style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent, ...shadow(0.28, 16, 6, theme.accent) }}>
+          <Press onPress={onCreate} accessibilityRole="button" accessibilityLabel={t('journeyEdit.planner.create')} style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}>
             <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('journeyEdit.planner.create')}</Text>
           </Press>
         </View>
@@ -939,10 +934,11 @@ export function NewJourneySheet({ theme, onClose, onCreate, onToast, preset }: {
         <NJPresetPlanner
           theme={theme}
           route={route}
+          tripName={tripName}
+          setTripName={setTripName}
           startDt={startDt}
           durationMins={durationMins}
           onOpenTimePicker={() => setTimeOpen(true)}
-          onInvite={() => setShareOpen(true)}
           onClose={onClose}
           onCreate={next}
         />

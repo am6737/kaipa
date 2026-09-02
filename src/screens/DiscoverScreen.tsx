@@ -2,7 +2,7 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert } from 'react-native';
+import { Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,6 +35,34 @@ import { journeyDayDisplayLabel } from '../lib/journeyDays';
 // their display label is resolved per-language at render time.
 const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
 const MEMORY_CHIPS = ['all', 'fav'] as const;
+
+type FilterMenuAnchor = { x: number; y: number; width: number; height: number };
+
+function anchoredFilterMenuStyle(anchor: FilterMenuAnchor | undefined, windowWidth: number, windowHeight: number, topInset: number, bottomInset: number, menuWidth: number, preferredHeight: number) {
+  if (!anchor) {
+    return { right: space.lg, bottom: Math.max(bottomInset, space.md) + 68, maxHeight: preferredHeight };
+  }
+  const gap = space.xs;
+  const right = Math.min(
+    Math.max(space.md, windowWidth - anchor.x - anchor.width),
+    Math.max(space.md, windowWidth - menuWidth - space.md),
+  );
+  const availableBelow = windowHeight - bottomInset - anchor.y - anchor.height - gap;
+  const availableAbove = anchor.y - topInset - gap;
+  const placeBelow = availableBelow >= Math.min(preferredHeight, 240) || availableBelow >= availableAbove;
+  if (placeBelow) {
+    return {
+      right,
+      top: anchor.y + anchor.height + gap,
+      maxHeight: Math.min(preferredHeight, Math.max(120, availableBelow)),
+    };
+  }
+  return {
+    right,
+    bottom: windowHeight - anchor.y + gap,
+    maxHeight: Math.min(preferredHeight, Math.max(120, availableAbove)),
+  };
+}
 
 function JourneyFooterActionLabel({
   theme,
@@ -188,11 +216,11 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
   const [selectedChecklistItemIds, setSelectedChecklistItemIds] = useState<Set<string>>(() => new Set());
   const [visibleChecklistItemIds, setVisibleChecklistItemIds] = useState<string[]>([]);
   const [checklistCanEdit, setChecklistCanEdit] = useState(true);
-  const [checklistFilterLabel, setChecklistFilterLabel] = useState(t('journey.packing.me'));
-  const [checklistFilterIsMine, setChecklistFilterIsMine] = useState(true);
+  const [checklistFilterAnchor, setChecklistFilterAnchor] = useState<FilterMenuAnchor>();
   const [checklistFilterMenuOpen, setChecklistFilterMenuOpen] = useState(false);
   const checklistFilterArrowProgress = React.useRef(new Animated.Value(0)).current;
-  const setChecklistFilterMenuVisible = useCallback((open: boolean) => {
+  const setChecklistFilterMenuVisible = useCallback((open: boolean, anchor?: FilterMenuAnchor) => {
+    if (anchor) setChecklistFilterAnchor(anchor);
     // Start the native animation before updating React state. The journey detail
     // tree is relatively large, so waiting for its render made the menu feel late.
     checklistFilterArrowProgress.stopAnimation();
@@ -206,11 +234,11 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
     }).start();
     setChecklistFilterMenuOpen(open);
   }, [checklistFilterArrowProgress]);
-  const [momentFilterLabel, setMomentFilterLabel] = useState(t('common.all'));
-  const [momentFilterActive, setMomentFilterActive] = useState(false);
+  const [momentFilterAnchor, setMomentFilterAnchor] = useState<FilterMenuAnchor>();
   const [momentFilterMenuOpen, setMomentFilterMenuOpen] = useState(false);
   const momentFilterMenuProgress = React.useRef(new Animated.Value(0)).current;
-  const setMomentFilterMenuVisible = useCallback((open: boolean) => {
+  const setMomentFilterMenuVisible = useCallback((open: boolean, anchor?: FilterMenuAnchor) => {
+    if (anchor) setMomentFilterAnchor(anchor);
     momentFilterMenuProgress.stopAnimation();
     Animated.timing(momentFilterMenuProgress, {
       toValue: open ? 1 : 0,
@@ -256,14 +284,6 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
       setVisibleChecklistItemIds([]);
     }
   }, []);
-  const handleMomentFilterStateChange = useCallback((label: string, active: boolean) => {
-    setMomentFilterLabel(label);
-    setMomentFilterActive(active);
-  }, []);
-  const handleChecklistFilterStateChange = useCallback((label: string, active: boolean) => {
-    setChecklistFilterLabel(label);
-    setChecklistFilterIsMine(!active);
-  }, []);
   const handleChecklistCanEditChange = useCallback((canEdit: boolean) => {
     setChecklistCanEdit(canEdit);
     if (!canEdit) {
@@ -300,12 +320,8 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
     setSelectedChecklistItemIds(new Set());
     setVisibleChecklistItemIds([]);
     setChecklistCanEdit(true);
-    setChecklistFilterLabel(t('journey.packing.me'));
-    setChecklistFilterIsMine(true);
     checklistFilterArrowProgress.setValue(0);
     setChecklistFilterMenuOpen(false);
-    setMomentFilterLabel(t('common.all'));
-    setMomentFilterActive(false);
     setAvailableJourneyDays([]);
     setTimelineSelectionMode(false);
     setSelectedTimelineItemIds(new Set());
@@ -956,14 +972,12 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                 momentDeleteActionRef={momentDeleteActionRef}
                 momentFilterActionRef={momentFilterActionRef}
                 momentFilterMenuRef={momentFilterMenuRef}
-                onMomentFilterStateChange={handleMomentFilterStateChange}
                 onMomentFilterMenuOpenChange={setMomentFilterMenuVisible}
                 checklistAddActionRef={checklistAddActionRef}
                 checklistDeleteActionRef={checklistDeleteActionRef}
                 checklistFilterActionRef={checklistFilterActionRef}
                 checklistFilterMenuRef={checklistFilterMenuRef}
                 checklistToggleAllActionRef={checklistToggleAllActionRef}
-                onChecklistFilterStateChange={handleChecklistFilterStateChange}
                 onChecklistFilterMenuOpenChange={setChecklistFilterMenuVisible}
                 checklistSelectionMode={checklistSelectionMode}
                 selectedChecklistItemIds={selectedChecklistItemIds}
@@ -1094,38 +1108,38 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
         </View>
       ) : null}
       {selectedJourneyTab === 'moments' && momentFilterMenuRef.current ? (
-        <View
-          pointerEvents={momentFilterMenuOpen ? 'box-none' : 'none'}
-          accessibilityElementsHidden={!momentFilterMenuOpen}
-          importantForAccessibility={momentFilterMenuOpen ? 'auto' : 'no-hide-descendants'}
-          style={[StyleSheet.absoluteFill, { zIndex: 170 }]}
+        <Modal
+          visible={momentFilterMenuOpen}
+          transparent
+          statusBarTranslucent
+          animationType="none"
+          onRequestClose={() => setMomentFilterMenuVisible(false)}
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('common.close')}
-            onPress={() => setMomentFilterMenuVisible(false)}
-            style={StyleSheet.absoluteFill}
-          />
-          <Animated.View
-            style={{
-              position: 'absolute',
-              right: space.lg,
-              bottom: Math.max(insets.bottom, space.md) + 68,
-              width: 240,
-              maxHeight: 380,
-              borderRadius: radius.feature,
-              shadowColor: '#000000',
-              shadowOpacity: theme.dark ? 0.42 : 0.16,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: 12 },
-              elevation: 12,
-              opacity: momentFilterMenuProgress,
-              transform: [
-                { translateY: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
-                { scale: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] }) },
-              ],
-            }}
-          >
+          <View style={{ flex: 1 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+              onPress={() => setMomentFilterMenuVisible(false)}
+              style={StyleSheet.absoluteFill}
+            />
+            <Animated.View
+              style={{
+                position: 'absolute',
+                ...anchoredFilterMenuStyle(momentFilterAnchor, width, height, insets.top, insets.bottom, 240, 380),
+                width: 240,
+                borderRadius: radius.feature,
+                shadowColor: '#000000',
+                shadowOpacity: theme.dark ? 0.42 : 0.16,
+                shadowRadius: 24,
+                shadowOffset: { width: 0, height: 12 },
+                elevation: 12,
+                opacity: momentFilterMenuProgress,
+                transform: [
+                  { translateY: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
+                  { scale: momentFilterMenuProgress.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] }) },
+                ],
+              }}
+            >
             <Glass solidOnAndroid theme={theme} radius={radius.feature} intensity={78}>
               <View
                 style={{
@@ -1214,54 +1228,55 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                 </ScrollView>
               </View>
             </Glass>
-          </Animated.View>
-        </View>
+            </Animated.View>
+          </View>
+        </Modal>
       ) : null}
       {selectedJourneyTab === 'checklist' && checklistFilterMenuRef.current ? (
-        <View
-          pointerEvents={checklistFilterMenuOpen ? 'box-none' : 'none'}
-          accessibilityElementsHidden={!checklistFilterMenuOpen}
-          importantForAccessibility={checklistFilterMenuOpen ? 'auto' : 'no-hide-descendants'}
-          style={[StyleSheet.absoluteFill, { zIndex: 170 }]}
+        <Modal
+          visible={checklistFilterMenuOpen}
+          transparent
+          statusBarTranslucent
+          animationType="none"
+          onRequestClose={() => setChecklistFilterMenuVisible(false)}
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('common.close')}
-            onPress={() => setChecklistFilterMenuVisible(false)}
-            style={StyleSheet.absoluteFill}
-          />
-          <Animated.View
-            renderToHardwareTextureAndroid
-            shouldRasterizeIOS
-            style={{
-              position: 'absolute',
-              right: space.lg,
-              bottom: Math.max(insets.bottom, space.md) + 68,
-              width: 264,
-              maxHeight: 420,
-              padding: space.sm,
-              borderRadius: radius.feature,
-              backgroundColor: Platform.OS === 'android' ? (theme.dark ? '#202024' : '#FFFFFF') : theme.surfaceTop,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: theme.fieldBorder,
-              boxShadow: theme.dark ? '0px 10px 28px rgba(0,0,0,0.34)' : '0px 10px 28px rgba(0,0,0,0.12)',
-              opacity: checklistFilterArrowProgress,
-              transform: [
-                {
-                  translateY: checklistFilterArrowProgress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [6, 0],
-                  }),
-                },
-                {
-                  scale: checklistFilterArrowProgress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.975, 1],
-                  }),
-                },
-              ],
-            }}
-          >
+          <View style={{ flex: 1 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+              onPress={() => setChecklistFilterMenuVisible(false)}
+              style={StyleSheet.absoluteFill}
+            />
+            <Animated.View
+              renderToHardwareTextureAndroid
+              shouldRasterizeIOS
+              style={{
+                position: 'absolute',
+                ...anchoredFilterMenuStyle(checklistFilterAnchor, width, height, insets.top, insets.bottom, 264, 420),
+                width: 264,
+                padding: space.sm,
+                borderRadius: radius.feature,
+                backgroundColor: Platform.OS === 'android' ? (theme.dark ? '#202024' : '#FFFFFF') : theme.surfaceTop,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.fieldBorder,
+                boxShadow: theme.dark ? '0px 10px 28px rgba(0,0,0,0.34)' : '0px 10px 28px rgba(0,0,0,0.12)',
+                opacity: checklistFilterArrowProgress,
+                transform: [
+                  {
+                    translateY: checklistFilterArrowProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [6, 0],
+                    }),
+                  },
+                  {
+                    scale: checklistFilterArrowProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.975, 1],
+                    }),
+                  },
+                ],
+              }}
+            >
             <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled contentContainerStyle={{ paddingTop: space.xs, paddingBottom: space.xxs }}>
               {checklistFilterMenuRef.current.options.some((option) => option.kind === 'shared') ? (
                 <>
@@ -1303,8 +1318,9 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                   />
                 ))}
             </ScrollView>
-          </Animated.View>
-        </View>
+            </Animated.View>
+          </View>
+        </Modal>
       ) : null}
       {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
         <View
@@ -1424,47 +1440,6 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                   />
                 </Press>
               ) : null}
-              {!momentSelectionMode ? (
-                <Press
-                  hitSlop={3}
-                  opacityTo={1}
-                  onPress={() => setMomentFilterMenuVisible(!momentFilterMenuOpen)}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('journey.moments.filterTitle')}
-                  style={{
-                    height: 38,
-                    paddingHorizontal: space.sm,
-                    borderRadius: radius.pill,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: space.xs,
-                    backgroundColor: theme.controlSurface,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: theme.fieldBorder,
-                    boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <Icon name="filter" color={theme.text} size={15} />
-                  <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
-                    {momentFilterLabel}
-                  </Text>
-                  <Animated.View
-                    style={{
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transform: [{
-                        rotate: momentFilterMenuProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0deg', '180deg'],
-                        }),
-                      }],
-                    }}
-                  >
-                    <Icon name="chevronDown" color={theme.text3} size={12} strokeWidth={2.2} />
-                  </Animated.View>
-                </Press>
-              ) : null}
               {momentSelectionMode ? (
                 <Press
                   hitSlop={3}
@@ -1539,47 +1514,6 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
                     icon="checkAll"
                     label={visibleChecklistItemIds.length > 0 && visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
                   />
-                </Press>
-              ) : null}
-              {!checklistSelectionMode ? (
-                <Press
-                  hitSlop={3}
-                  opacityTo={1}
-                  onPress={() => setChecklistFilterMenuVisible(!checklistFilterMenuOpen)}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('journey.packing.title')}
-                  style={{
-                    height: 38,
-                    paddingHorizontal: space.sm,
-                    borderRadius: radius.pill,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: space.xs,
-                    backgroundColor: theme.controlSurface,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: theme.fieldBorder,
-                    boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <Icon name={checklistFilterIsMine ? 'user' : 'people'} color={theme.text2} size={15} />
-                  <Text numberOfLines={1} style={{ maxWidth: 120, color: theme.text, fontSize: 13, fontWeight: '700' }}>
-                    {checklistFilterLabel}
-                  </Text>
-                  <Animated.View
-                    style={{
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transform: [{
-                        rotate: checklistFilterArrowProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0deg', '180deg'],
-                        }),
-                      }],
-                    }}
-                  >
-                    <Icon name="chevronDown" color={theme.text3} size={12} strokeWidth={2.2} />
-                  </Animated.View>
                 </Press>
               ) : null}
               {checklistSelectionMode ? (

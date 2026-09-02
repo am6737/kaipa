@@ -9,7 +9,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "用于从相册选择并裁剪你的头像。"
+        "NSPhotoLibraryUsageDescription": "Kaipa 需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。"
       }
     },
     "android": {
