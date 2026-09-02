@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
-import MapView, { Marker, Polyline, type EdgePadding, type MapType } from 'react-native-maps';
+import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
 import type { NativeMapHandle, NativeMapProps } from './types';
 
 function point([longitude, latitude]: [number, number]) {
@@ -8,6 +8,15 @@ function point([longitude, latitude]: [number, number]) {
 
 function padding(value: [number, number, number, number] = [28, 28, 28, 28]): EdgePadding {
   return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+}
+
+function region(coordinate: [number, number], zoom: number): Region {
+  const delta = 360 / (2 ** Math.max(0, Math.min(20, zoom)));
+  return {
+    ...point(coordinate),
+    latitudeDelta: delta,
+    longitudeDelta: delta,
+  };
 }
 
 export const NATIVE_MAP_AVAILABLE = true;
@@ -36,7 +45,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       mapRef.current?.fitToCoordinates(coordinates.map(point), { edgePadding: padding(edgePadding), animated: duration > 0 });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500) => {
-      mapRef.current?.animateCamera({ center: point(coordinate), zoom }, { duration });
+      mapRef.current?.animateToRegion(region(coordinate, zoom), duration);
     },
     resetNorth: () => {
       void mapRef.current?.getCamera().then((camera) => {
@@ -51,7 +60,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       ref={mapRef}
       style={style}
       mapType={mapType}
-      initialCamera={{ center: point(initialCenter), pitch: 0, heading: 0, zoom: initialZoom }}
+      initialRegion={region(initialCenter, initialZoom)}
       showsCompass={false}
       showsScale={false}
       showsBuildings={mapStyle !== 'terrain'}
