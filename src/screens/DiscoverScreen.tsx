@@ -1,4 +1,4 @@
-// DiscoverScreen.tsx — the 发现 tab. A Mapbox 3D globe (SVG fallback) of routes
+// DiscoverScreen.tsx — the 发现 tab. A platform-native map (SVG fallback) of routes
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
@@ -6,12 +6,12 @@ import { Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindo
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Theme, makeTheme } from '../theme/theme';
+import { Theme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, MAPBOX_ENABLED, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
+import { Globe, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
 import { Glass, GlassIconBtn } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -385,14 +385,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
     });
   }, []);
 
-  // The real Mapbox globe sits on black starry space in BOTH appearance modes,
-  // so chrome floating over the map always uses the dark treatment to stay
-  // legible. The bottom sheet (a separate surface) keeps the real theme,
-  // Apple-Maps style. The no-token SVG fallback renders on the app background,
-  // so there we leave the chrome on the real theme.
-  const chromeTheme = MAPBOX_ENABLED && mapStyle === 'standard' && !theme.dark
-    ? makeTheme('dark', theme.accent)
-    : theme;
+  const chromeTheme = theme;
 
   React.useEffect(() => {
     setChip(0);
@@ -1058,7 +1051,6 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
           closeLabel={t('common.close')}
           options={([
             { id: 'standard', label: t('journey.map.layerStandard') },
-            { id: 'terrain', label: t('journey.map.layerTerrain') },
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
           value={mapStyle === 'light' ? 'standard' : mapStyle}

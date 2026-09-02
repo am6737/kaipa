@@ -4,11 +4,12 @@ import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
 import { space, type } from '../../design-system';
 import type { JourneyLocationMapProps } from './JourneyLocationMap';
+import { NATIVE_MAP_AVAILABLE } from '../maps/NativeMap';
 
 let NativeMap: React.ComponentType<JourneyLocationMapProps> | null = null;
-if ((process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '').trim()) {
+if (NATIVE_MAP_AVAILABLE) {
   try {
-    // Lazy require keeps Expo Go usable when the native Mapbox module is absent.
+    // Lazy require keeps Expo Go and web usable when native map modules are absent.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     NativeMap = require('./JourneyLocationMap').default;
   } catch {

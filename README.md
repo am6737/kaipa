@@ -1,9 +1,8 @@
 # kaipa
 
 A hiking / journey app built with **Expo + React Native**, implementing the
-`kaipa-handoff` HTML/CSS prototype. The headline 发现 (Discover) screen renders an
-interactive **3D globe via Mapbox** (`@rnmapbox/maps`), with routes and journeys
-pinned at their real coordinates.
+`kaipa-handoff` HTML/CSS prototype. The 发现 (Discover) screen renders routes and
+journeys on Apple MapKit for iOS and AMap for Android.
 
 ## Quick start
 
@@ -12,37 +11,20 @@ npm install
 npm start          # Metro — press i / a, or scan the QR in Expo Go
 ```
 
-The app runs **as-is in Expo Go** using a stylized SVG globe fallback. To get the
-**real Mapbox globe** you need a token and a native dev build (see below).
+The app runs in Expo Go using a stylized SVG fallback. Native maps require a
+development build.
 
-## Enabling the Mapbox globe
+## Enabling native maps
 
-`@rnmapbox/maps` is a native module — it does **not** run in Expo Go and needs a
-custom dev build.
+MapKit does not need an API key. Android AMap and place search need keys from the
+高德开放平台. Add them to `.env` without committing the values:
 
-1. Create a free Mapbox account and tokens at
-   <https://account.mapbox.com/access-tokens/>.
-2. Put your **public** token (`pk.…`) in `.env`:
-   ```
-   EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_token_here
-   ```
-   For iOS native builds also add the **secret download** token (`sk.…` with the
-   `Downloads:Read` scope) to `MAPBOX_DOWNLOAD_TOKEN` (never commit it).
-3. Build & run a dev client:
-   ```bash
-   npx expo run:ios      # or: npx expo run:android
-   ```
+```bash
+EXPO_PUBLIC_AMAP_ANDROID_KEY=your_android_native_key
+EXPO_PUBLIC_AMAP_WEB_KEY=your_web_service_key
+```
 
-When `EXPO_PUBLIC_MAPBOX_TOKEN` is set and the native module is available, the
-globe uses Mapbox (`projection: globe`); otherwise it transparently falls back to
-the SVG globe — so the app never crashes if the token/dev-build isn't there.
-
-### Two Mapbox tokens you need
-
-| Token | env var | scope | used when |
-|-------|---------|-------|-----------|
-| Public | `EXPO_PUBLIC_MAPBOX_TOKEN` | default public (`pk.…`) | at runtime, to draw tiles |
-| Secret download | `MAPBOX_DOWNLOAD_TOKEN` | `Downloads:Read` (`sk.…`) | at native build time, to fetch the Mapbox SDK (both iOS **and** Android) |
+The app agent uses `AMAP_WEB_KEY` in the Supabase Edge Function environment.
 
 ### Dev build via EAS (cloud — works from any OS)
 
@@ -56,9 +38,9 @@ eas login
 # 2. link the project (writes extra.eas.projectId)
 eas init
 
-# 3. provide the Mapbox tokens to the cloud build env (development environment)
-eas env:create --environment development --name EXPO_PUBLIC_MAPBOX_TOKEN --value pk.YOURTOKEN --visibility plaintext
-eas env:create --environment development --name MAPBOX_DOWNLOAD_TOKEN  --value sk.YOURTOKEN --visibility secret
+# 3. provide the AMap keys to the cloud build environment
+eas env:create --environment development --name EXPO_PUBLIC_AMAP_ANDROID_KEY --value YOUR_KEY --visibility sensitive
+eas env:create --environment development --name EXPO_PUBLIC_AMAP_WEB_KEY --value YOUR_KEY --visibility sensitive
 
 # 4. build the Android dev client (APK)
 eas build --profile development --platform android
@@ -97,7 +79,7 @@ src/
   nav/NavContext.tsx        central UI state (tabs, selected POI, sheet, journey edits, overlays)
   data/                     pois (real lat/lng), tones+PRNG, elevation series, gear, notifications
   components/
-    globe/                  Mapbox globe + SVG fallback (orthographic projection), auto-selected
+    globe/                  native discovery map + SVG fallback, auto-selected
     Glass, PhotoTile, Avatar, Icon, Chip, ListRow, Sheet (draggable detents),
     Donut, ElevationStrip, State, Toast, BottomTabs
     overlays/               ActionSheet, AddRouteSheet, ElevationFull, PhotoWall
@@ -112,7 +94,7 @@ Notes:
 
 ## Implemented
 
-- **发现 (Discover):** Mapbox/SVG globe with route (探索) & journey (旅程) POIs,
+- **发现 (Discover):** native/SVG map with route (探索) & journey (旅程) POIs,
   subtab switch, filter chips, draggable detented sheet, per-POI detail card.
 - **Journey/route card:** hero, stat strip, status-aware CTA (出发/完成/再次出发),
   favourite, description, elevation track (→ full elevation overlay), companions,

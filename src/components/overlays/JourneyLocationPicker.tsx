@@ -17,12 +17,12 @@ import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { DetailPage, layout, radius, space, type } from '../../design-system';
 import {
-  hasMapboxGeocoding,
+  hasAmapGeocoding,
   JourneyLocationValue,
   locationFromPoi,
   reverseJourneyLocation,
   searchJourneyLocations,
-} from '../../lib/mapboxGeocoding';
+} from '../../lib/amapGeocoding';
 import { JourneyLocationMapHost } from './JourneyLocationMapHost';
 
 const COORDINATE_EPSILON = 0.000001;
@@ -124,7 +124,7 @@ export function JourneyLocationPicker({
   const [locating, setLocating] = useState(false);
   const coordinateController = useRef<AbortController | null>(null);
 
-  const geocodingReady = hasMapboxGeocoding();
+  const geocodingReady = hasAmapGeocoding();
   const hasQuery = query.trim().length > 0;
   const hasChanged = useMemo(() => !sameCoordinate(selected, initialLocation) || selected.region !== initialLocation.region, [initialLocation, selected]);
 

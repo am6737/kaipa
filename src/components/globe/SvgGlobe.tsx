@@ -1,6 +1,6 @@
 // SvgGlobe.tsx — stylized fallback globe (ported from the prototype's globe.jsx),
 // upgraded to place POIs by real orthographic projection so they sit
-// geographically. Used when no Mapbox token is configured (e.g. Expo Go).
+// geographically. Used when native map modules are unavailable (e.g. Expo Go).
 import React from 'react';
 import { View, Pressable } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G, Line, Rect, Text as SvgText } from 'react-native-svg';

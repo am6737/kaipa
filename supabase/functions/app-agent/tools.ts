@@ -112,43 +112,65 @@ function coordinateLabel(lng: number, lat: number): string {
   return `${Math.abs(lat).toFixed(5)} ${latDir}  ${Math.abs(lng).toFixed(5)} ${lngDir}`;
 }
 
-function mapboxToken() {
-  return (Deno.env.get('MAPBOX_TOKEN') || Deno.env.get('EXPO_PUBLIC_MAPBOX_TOKEN') || '').trim();
+function amapWebKey() {
+  return (Deno.env.get('AMAP_WEB_KEY') || '').trim();
 }
 
-function mapboxContextName(feature: any): string {
-  const context = feature?.properties?.context;
-  return (
-    context?.place?.name ||
-    context?.locality?.name ||
-    context?.district?.name ||
-    context?.region?.name ||
-    ''
-  );
+function wgs84ToGcj02(lng: number, lat: number): [number, number] {
+  if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return [lng, lat];
+  const pi = Math.PI;
+  const axis = 6378245;
+  const eccentricity = 0.006693421622965943;
+  const x = lng - 105;
+  const y = lat - 35;
+  let dLat = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  dLat += ((20 * Math.sin(6 * x * pi) + 20 * Math.sin(2 * x * pi)) * 2) / 3;
+  dLat += ((20 * Math.sin(y * pi) + 40 * Math.sin((y / 3) * pi)) * 2) / 3;
+  dLat += ((160 * Math.sin((y / 12) * pi) + 320 * Math.sin((y * pi) / 30)) * 2) / 3;
+  let dLng = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  dLng += ((20 * Math.sin(6 * x * pi) + 20 * Math.sin(2 * x * pi)) * 2) / 3;
+  dLng += ((20 * Math.sin(x * pi) + 40 * Math.sin((x / 3) * pi)) * 2) / 3;
+  dLng += ((150 * Math.sin((x / 12) * pi) + 300 * Math.sin((x / 30) * pi)) * 2) / 3;
+  const radLat = (lat / 180) * pi;
+  let magic = Math.sin(radLat);
+  magic = 1 - eccentricity * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / (((axis * (1 - eccentricity)) / (magic * sqrtMagic)) * pi);
+  dLng = (dLng * 180) / ((axis / sqrtMagic) * Math.cos(radLat) * pi);
+  return [lng + dLng, lat + dLat];
+}
+
+function gcj02ToWgs84(lng: number, lat: number): [number, number] {
+  let estimate: [number, number] = [lng, lat];
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const converted = wgs84ToGcj02(estimate[0], estimate[1]);
+    estimate = [estimate[0] + lng - converted[0], estimate[1] + lat - converted[1]];
+  }
+  return estimate;
 }
 
 async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Promise<JourneyMapLocation> {
-  const token = mapboxToken();
-  if (!token) throw new Error('地图定位服务暂不可用');
+  const key = amapWebKey();
+  if (!key) throw new Error('地图定位服务暂不可用');
   const params = new URLSearchParams({
-    q: query,
-    access_token: token,
-    autocomplete: 'false',
-    permanent: 'true',
-    limit: '1',
-    language,
-    types: 'country,region,postcode,district,place,locality,neighborhood,street,address,poi',
+    key,
+    keywords: query,
+    offset: '1',
+    page: '1',
+    extensions: 'base',
+    citylimit: 'false',
+    language: language.startsWith('en') ? 'en' : 'zh_cn',
   });
-  const response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`);
+  const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`);
   if (!response.ok) throw new Error('地图定位服务暂不可用');
-  const json = await response.json() as { features?: any[] };
-  const feature = json.features?.[0];
-  const coordinates = feature?.geometry?.coordinates;
-  const lng = Number(feature?.properties?.coordinates?.longitude ?? coordinates?.[0]);
-  const lat = Number(feature?.properties?.coordinates?.latitude ?? coordinates?.[1]);
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) throw new Error(`没有找到「${query}」的地图坐标`);
-  const name = feature.properties?.name_preferred || feature.properties?.name || query;
-  const parent = mapboxContextName(feature);
+  const json = await response.json() as { status?: string; pois?: any[] };
+  const poi = json.status === '1' ? json.pois?.[0] : null;
+  const [gcjLng, gcjLat] = String(poi?.location || '').split(',').map(Number);
+  if (!Number.isFinite(gcjLng) || !Number.isFinite(gcjLat)) throw new Error(`没有找到「${query}」的地图坐标`);
+  const [lng, lat] = gcj02ToWgs84(gcjLng, gcjLat);
+  const name = poi.name || query;
+  const parentValue = poi.cityname || poi.adname || poi.pname || '';
+  const parent = Array.isArray(parentValue) ? parentValue.filter(Boolean).join('') : parentValue;
   const regionParts = [name, parent].filter((part, index, parts) => part && parts.indexOf(part) === index);
   return {
     name,

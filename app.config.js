@@ -1,15 +1,5 @@
-// app.config.js — extends app.json and injects the Mapbox config plugin.
-//
-// @rnmapbox/maps needs two tokens:
-//   • A PUBLIC access token (pk.…) read at runtime from EXPO_PUBLIC_MAPBOX_TOKEN
-//     (see .env). This is what draws the map/globe tiles.
-//   • A SECRET download token (sk.…) used ONLY at native build time to fetch the
-//     Mapbox iOS SDK from their private Maven/CocoaPods. Put it in
-//     MAPBOX_DOWNLOAD_TOKEN (never commit it). Leaving it empty is fine until you
-//     run `npx expo run:ios` / build with EAS.
-//
-// The globe requires a native dev build — it does NOT run in Expo Go. Without a
-// token the app falls back to a stylized SVG globe so everything still runs.
+// Native maps use Apple MapKit on iOS and AMap on Android. Native map screens
+// require a development build; Expo Go/web keep the existing SVG fallback.
 
 module.exports = ({ config }) => ({
   ...config,
@@ -24,9 +14,11 @@ module.exports = ({ config }) => ({
   },
   plugins: [
     [
-      '@rnmapbox/maps',
+      'expo-gaode-map',
       {
-        RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN || '',
+        androidKey: process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '',
+        enableLocation: true,
+        locationDescription: 'Kaipa 需要访问你的位置，以便将当前位置设为旅程地点。',
       },
     ],
     [

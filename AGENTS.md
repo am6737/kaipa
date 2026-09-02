@@ -17,7 +17,7 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 - Web guest app: `App.web.tsx`, `src/web/`.
 - UI/navigation state: `src/nav/NavContext.tsx`.
 - Supabase data hooks: `src/hooks/`, composed by `src/data/DataContext.tsx`.
-- Mapbox native globe requires a dev build; Expo Go should keep fallback behavior.
+- Native maps use MapKit on iOS and AMap on Android; Expo Go should keep fallback behavior.
 
 ## Design system
 

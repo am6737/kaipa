@@ -30,7 +30,7 @@ import { JourneyLocationPicker } from "./JourneyLocationPicker";
 import {
   JourneyLocationValue,
   locationFromPoi,
-} from "../../lib/mapboxGeocoding";
+} from "../../lib/amapGeocoding";
 
 function SectionLabel({
   theme,

@@ -1,6 +1,5 @@
 // PhotoPin.tsx — the rounded photo + capsule label marker shared by both the
-// real Mapbox globe and the SVG fallback. Each globe wraps it in its own
-// positioning (MarkerView coordinate vs. absolute orthographic projection).
+// native map and the SVG fallback. Each renderer wraps it in its own positioning.
 //
 // The photo is the real scenery image picked deterministically from the POI's
 // tone + id (same source PhotoTile uses), so a given POI always shows the same

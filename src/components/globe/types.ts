@@ -16,7 +16,7 @@ export interface GlobePoi {
   label?: string;
 }
 
-export type GlobeMapStyle = 'standard' | 'light' | 'terrain' | 'satellite';
+export type GlobeMapStyle = 'standard' | 'light' | 'satellite';
 
 export type GlobeCameraAction = {
   type: 'fitRoute' | 'resetNorth';
@@ -68,11 +68,11 @@ export interface GlobeProps {
   onRouteBoundaryPress?: (groupKey: string) => void;
   /** show the current-location pin at this coordinate */
   pin?: { lng: number; lat: number } | null;
-  /** base-map presentation used by the native Mapbox renderer */
+  /** base-map presentation used by the platform-native renderer */
   mapStyle?: GlobeMapStyle;
   /** app language used by classic-style label expressions */
   mapLocale?: 'zh' | 'en';
-  /** hide ordinary Mapbox place/road/POI labels while keeping the journey route */
+  /** hide ordinary place/road/POI labels while keeping the journey route */
   showMapLabels?: boolean;
   /** imperatively re-frame the journey route or restore north-up orientation */
   cameraAction?: GlobeCameraAction;

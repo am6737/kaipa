@@ -1,6 +1,6 @@
 // pois.ts — route (探索) and journey (旅程/回忆) data. Unlike the prototype's
-// abstract x/y globe coords, each POI here carries real [lng, lat] so the Mapbox
-// globe and SVG fallback can place them geographically.
+// abstract x/y globe coords, each POI here carries real [lng, lat] so native
+// maps and the SVG fallback can place them geographically.
 
 import { Tone } from "./tones";
 

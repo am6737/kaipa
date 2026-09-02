@@ -1,13 +1,12 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
-import { Image } from 'expo-image';
 import { layout, radius, space, type } from '../design-system';
 import { Theme } from '../theme/theme';
 import { Icon } from './Icon';
 import { Press } from './Press';
 import { NJBottomSheet } from './overlays/NewJourneyParts';
 
-export type MapPresentationStyle = 'standard' | 'terrain' | 'satellite';
+export type MapPresentationStyle = 'standard' | 'satellite';
 
 export interface MapDisplayOption {
   id: string;
@@ -167,21 +166,10 @@ export function MapStylePickerSheet({
 
 
 function MapStylePreview({ theme, styleId, selected }: { theme: Theme; styleId: MapPresentationStyle; selected: boolean }) {
-  const token = (process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '').trim();
-  const styleName = styleId === 'satellite'
-    ? 'satellite-streets-v12'
-    : styleId === 'terrain'
-      ? 'outdoors-v12'
-      : 'streets-v12';
-  const previewUri = token
-    ? `https://api.mapbox.com/styles/v1/mapbox/${styleName}/static/113.72,27.62,8.2,0/320x220@2x?access_token=${encodeURIComponent(token)}`
-    : undefined;
   const fallbackColor = styleId === 'satellite'
     ? (theme.dark ? '#263126' : '#6C785E')
-    : styleId === 'terrain'
-      ? (theme.dark ? '#30382E' : '#DDE3D5')
-      : (theme.dark ? '#2C2C2E' : '#EEF0ED');
-  const fallbackIcon = styleId === 'satellite' ? 'photo' : styleId === 'terrain' ? 'route' : 'globe';
+    : (theme.dark ? '#2C2C2E' : '#EEF0ED');
+  const fallbackIcon = styleId === 'satellite' ? 'photo' : 'globe';
 
   return (
     <View
@@ -195,18 +183,9 @@ function MapStylePreview({ theme, styleId, selected }: { theme: Theme; styleId: 
         backgroundColor: fallbackColor,
       }}
     >
-      {previewUri ? (
-        <Image
-          source={previewUri}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          style={StyleSheet.absoluteFill}
-        />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-          <Icon name={fallbackIcon} size={24} color={theme.dark ? theme.text2 : theme.text3} />
-        </View>
-      )}
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Icon name={fallbackIcon} size={24} color={theme.dark ? theme.text2 : theme.text3} />
+      </View>
     </View>
   );
 }
