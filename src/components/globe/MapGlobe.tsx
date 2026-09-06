@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Icon } from '../Icon';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
+import { isValidMapCoordinate } from '../maps/types';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y } from './PhotoPin';
 import type { GlobeProps } from './types';
 
@@ -20,6 +21,8 @@ export default function MapGlobe({
   focusConnector,
   onRouteBoundaryPress,
   pin,
+  followUserLocation = false,
+  onUserLocationChange,
   mapStyle = 'standard',
   showMapLabels = true,
   cameraAction,
@@ -29,26 +32,44 @@ export default function MapGlobe({
 }: GlobeProps) {
   const { height } = useWindowDimensions();
   const mapRef = useRef<NativeMapHandle>(null);
-  const activeSegment = focusSegments?.find((segment) => segment.active);
-  const activeBoundary = focusBoundaries?.find((boundary) => boundary.active);
-  const hasFocusedRoutePart = (focusSegments?.some((segment) => !segment.active) ?? false)
-    || (focusBoundaries?.some((boundary) => !boundary.active) ?? false);
+  const validFocusCoords = useMemo(
+    () => focusCoords?.filter(isValidMapCoordinate),
+    [focusCoords],
+  );
+  const validFocusSegments = useMemo(
+    () => focusSegments?.map((segment) => ({
+      ...segment,
+      coordinates: segment.coordinates.filter(isValidMapCoordinate),
+    })).filter((segment) => segment.coordinates.length >= 2),
+    [focusSegments],
+  );
+  const validFocusBoundaries = useMemo(
+    () => focusBoundaries?.filter((boundary) => isValidMapCoordinate(boundary.coordinate)),
+    [focusBoundaries],
+  );
+  const activeSegment = validFocusSegments?.find((segment) => segment.active);
+  const activeBoundary = validFocusBoundaries?.find((boundary) => boundary.active);
+  const hasFocusedRoutePart = (validFocusSegments?.some((segment) => !segment.active) ?? false)
+    || (validFocusBoundaries?.some((boundary) => !boundary.active) ?? false);
   const cameraFocusCoords = hasFocusedRoutePart
-    ? activeSegment?.coordinates ?? (activeBoundary ? [activeBoundary.coordinate] : focusCoords)
-    : focusCoords;
-  const focusKey = cameraFocusCoords?.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join('|') || '';
+    ? activeSegment?.coordinates ?? (activeBoundary ? [activeBoundary.coordinate] : validFocusCoords)
+    : validFocusCoords;
   const routePadding: [number, number, number, number] = [90, 54, focusBottomPadding ?? Math.round(height * 0.54), 54];
 
   useEffect(() => {
     if (onMapCoordinatePress || !cameraFocusCoords?.length) return;
-    if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, 900);
-    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 900);
-  }, [focusKey, onMapCoordinatePress]);
+    if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, 250);
+    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 250);
+  }, [cameraFocusCoords, focusBottomPadding, height, onMapCoordinatePress]);
 
   useEffect(() => {
     if (!cameraAction) return;
     if (cameraAction.type === 'resetNorth') {
       mapRef.current?.resetNorth();
+      return;
+    }
+    if (cameraAction.type === 'locate') {
+      mapRef.current?.moveCamera(cameraAction.coordinate, 14, 650);
       return;
     }
     if (!cameraFocusCoords?.length) return;
@@ -58,16 +79,16 @@ export default function MapGlobe({
 
   const polylines = useMemo<NativeMapPolyline[]>(() => {
     const values: NativeMapPolyline[] = [];
-    if (focusCoords && focusCoords.length >= 2) {
+    if (validFocusCoords && validFocusCoords.length >= 2) {
       values.push({
         id: 'discover-focus-route',
-        coordinates: focusCoords,
-        color: focusSegments?.length ? theme.trailFaint : theme.accent,
-        width: focusSegments?.length ? 3 : 4,
-        opacity: focusSegments?.length ? 0.5 : 1,
+        coordinates: validFocusCoords,
+        color: validFocusSegments?.length ? theme.trailFaint : theme.accent,
+        width: validFocusSegments?.length ? 3 : 4,
+        opacity: validFocusSegments?.length ? 0.5 : 1,
       });
     }
-    focusSegments?.forEach((segment, index) => values.push({
+    validFocusSegments?.forEach((segment, index) => values.push({
       id: `discover-segment-${index}`,
       coordinates: segment.coordinates,
       color: segment.color,
@@ -85,10 +106,10 @@ export default function MapGlobe({
       });
     }
     return values;
-  }, [focusConnector, focusCoords, focusSegments, theme]);
+  }, [focusConnector, validFocusCoords, validFocusSegments, theme]);
 
   const markers = useMemo<NativeMapMarker[]>(() => {
-    const values: NativeMapMarker[] = pois.map((poi) => ({
+    const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi) => ({
       id: `poi-${poi.id}`,
       coordinate: [poi.lng, poi.lat],
       anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
@@ -101,7 +122,7 @@ export default function MapGlobe({
       ),
     }));
 
-    focusBoundaries?.forEach((boundary) => {
+    validFocusBoundaries?.forEach((boundary) => {
       const foreground = boundary.pending ? theme.text : '#FFFFFF';
       values.push({
         id: `boundary-${boundary.id}`,
@@ -146,24 +167,17 @@ export default function MapGlobe({
       });
     }
 
-    if (focusCoords?.[0]) {
-      values.push({ id: 'focus-start', coordinate: focusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-      if (!focusBoundaries?.length && focusCoords.length > 1) {
-        values.push({ id: 'focus-end', coordinate: focusCoords[focusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+    if (validFocusCoords?.[0]) {
+      values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
+      if (!validFocusBoundaries?.length && validFocusCoords.length > 1) {
+        values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
       }
     }
-    if (pin) {
-      values.push({
-        id: 'current-location',
-        coordinate: [pin.lng, pin.lat],
-        anchor: { x: 0.5, y: 0.5 },
-        content: <View style={[styles.currentLocation, { backgroundColor: theme.dotCore, borderColor: theme.dotRing }]} />,
-      });
-    }
     return values;
-  }, [activePoiId, focusBoundaries, focusCoords, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, theme]);
+  }, [activePoiId, onPoiPress, onRouteBoundaryPress, pois, selectionPin, theme, validFocusBoundaries, validFocusCoords]);
 
-  const initialCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
+  const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
+  const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.fieldSurface }]}>
       <NativeMap
@@ -171,16 +185,19 @@ export default function MapGlobe({
         style={StyleSheet.absoluteFill}
         initialCenter={initialCenter}
         initialZoom={3}
-        initialFitCoordinates={focusCoords || undefined}
+        initialFitCoordinates={validFocusCoords?.length ? validFocusCoords : undefined}
         initialPadding={routePadding}
-        mapStyle={mapStyle === 'light' ? 'standard' : mapStyle}
+        mapStyle={mapStyle}
         showLabels={showMapLabels}
+        showUserLocation={!!pin}
+        followUserLocation={followUserLocation}
         markers={markers}
         polylines={polylines}
         onPress={(coordinate) => {
           if (onMapCoordinatePress) onMapCoordinatePress(coordinate);
           else onBackgroundPress?.();
         }}
+        onUserLocationChange={onUserLocationChange}
         onCameraChange={onCameraOrientationChange}
         onGestureStart={onCameraGestureStart}
       />
@@ -197,5 +214,4 @@ const styles = StyleSheet.create({
   selectionPin: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
-  currentLocation: { width: 16, height: 16, borderRadius: 8, borderWidth: 3 },
 });

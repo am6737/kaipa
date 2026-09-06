@@ -17,7 +17,7 @@ const ACTIVE_SCALE = 1.08;
 const PHOTO_RADIUS = 8;
 
 export const PHOTO_PIN_WIDTH = 116;
-export const PHOTO_PIN_HEIGHT = 78;
+export const PHOTO_PIN_HEIGHT = 70;
 export const PHOTO_PIN_ANCHOR_Y = 17 / PHOTO_PIN_HEIGHT;
 
 export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; active?: boolean }) {
@@ -90,13 +90,13 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
       {poi.label ? (
         <View
           style={{
-            minWidth: 74,
+            minWidth: 52,
             maxWidth: PHOTO_PIN_WIDTH,
-            minHeight: 40,
-            marginTop: -10,
-            paddingTop: 12,
-            paddingBottom: 7,
-            paddingHorizontal: 11,
+            minHeight: 28,
+            marginTop: -7,
+            paddingTop: 8,
+            paddingBottom: 3,
+            paddingHorizontal: 6,
             borderRadius: 999,
             borderCurve: 'continuous',
             backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
@@ -104,7 +104,7 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
             borderColor: theme.hairline,
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: theme.dark ? '0px 2px 7px rgba(0,0,0,0.42)' : '0px 2px 7px rgba(0,0,0,0.12)',
+            boxShadow: theme.dark ? '0px 2px 4px rgba(0,0,0,0.38)' : '0px 2px 4px rgba(0,0,0,0.09)',
           }}
         >
           <Text

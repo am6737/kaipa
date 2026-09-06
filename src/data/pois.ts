@@ -77,6 +77,7 @@ export interface Poi {
   trackPublic?: boolean; // whether this journey's track is shown on the explore page
   routeShowPhotos?: boolean; // show user photos on the published route card
   routeShowTimeline?: boolean; // show itinerary on the published route card
+  deletedAt?: string; // journey-only: present while the journey is in the trash
 }
 
 const C = (

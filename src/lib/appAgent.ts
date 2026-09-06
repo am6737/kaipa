@@ -1,14 +1,5 @@
 import { supabase } from './supabase';
 
-export interface AgentApproval {
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  title: string;
-  detail: string;
-  destructive?: boolean;
-}
-
 export interface AgentQuickReply {
   label: string;
   message: string;
@@ -69,10 +60,9 @@ export type AgentIntent = 'plan_journey';
 export interface AgentTurnResponse {
   threadId: string;
   runId: string;
-  status: 'completed' | 'pending_approval';
+  status: 'completed';
   message?: string;
   quickReplies?: AgentQuickReply[];
-  approvals?: AgentApproval[];
   ui?: AgentMessageUi;
 }
 
@@ -87,7 +77,6 @@ export interface AgentHistoryMessage {
 export interface AgentHistoryResponse {
   thread: { id: string; title: string; current_journey_id: string | null };
   messages: AgentHistoryMessage[];
-  pendingRun: { id: string; status: 'pending_approval'; pending_approvals: AgentApproval[] } | null;
 }
 
 export interface AgentThreadSummary {
@@ -96,7 +85,7 @@ export interface AgentThreadSummary {
   current_journey_id: string | null;
   created_at: string;
   updated_at: string;
-  journeys: { name: string; photo_uris: unknown } | Array<{ name: string; photo_uris: unknown }> | null;
+  journeys: { name: string; photo_uris: unknown; deleted_at: string | null } | Array<{ name: string; photo_uris: unknown; deleted_at: string | null }> | null;
 }
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
@@ -106,28 +95,69 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; threadId?: string; currentJourneyId?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 
-export function resolveAgentRun(args: { runId: string; decisions: Array<{ callId: string; approved: boolean }>; currentJourneyId?: string }) {
-  return invoke<AgentTurnResponse>({ action: 'resolve', ...args });
-}
-
 export function getAgentHistory(threadId: string) {
-  return invoke<AgentHistoryResponse>({ action: 'history', threadId });
+  return Promise.all([
+    supabase.from('agent_threads').select('id,title,current_journey_id').eq('id', threadId).maybeSingle(),
+    supabase.from('agent_messages').select('id,role,content,ui,created_at').eq('thread_id', threadId).order('created_at'),
+  ]).then(([thread, messages]) => {
+    if (thread.error) throw thread.error;
+    if (!thread.data) throw new Error('Conversation not found');
+    if (messages.error) throw messages.error;
+    return {
+      thread: thread.data,
+      messages: (messages.data || []) as AgentHistoryMessage[],
+    };
+  });
 }
 
-export function getAgentThreads() {
-  return invoke<{ threads: AgentThreadSummary[] }>({ action: 'threads' });
+export async function getAgentThreads() {
+  const result = await supabase
+    .from('agent_threads')
+    .select('id,title,current_journey_id,created_at,updated_at,journeys(name,photo_uris,deleted_at)')
+    .order('updated_at', { ascending: false })
+    .limit(50);
+  if (result.error) throw result.error;
+  const threads = (result.data || []) as AgentThreadSummary[];
+  return {
+    threads: threads.filter((thread) => {
+      if (!thread.current_journey_id) return true;
+      const journey = Array.isArray(thread.journeys) ? thread.journeys[0] : thread.journeys;
+      return Boolean(journey && !journey.deleted_at);
+    }),
+  };
 }
 
-export function getJourneyAgentThread(journeyId: string) {
-  return invoke<{ threadId: string | null }>({ action: 'journey_thread', currentJourneyId: journeyId });
+export async function getJourneyAgentThread(journeyId: string) {
+  const result = await supabase
+    .from('agent_threads')
+    .select('id')
+    .eq('current_journey_id', journeyId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (result.error) throw result.error;
+  return { threadId: result.data?.id || null };
 }
 
-export function getAgentRunActivity(runId: string) {
-  return invoke<{ activities: AgentRunActivity[] }>({ action: 'run_activity', runId });
+export async function getAgentRunActivity(runId: string) {
+  const result = await supabase
+    .from('agent_tool_calls')
+    .select('tool_name,status,arguments,output,created_at')
+    .eq('run_id', runId)
+    .order('created_at');
+  if (result.error) throw result.error;
+  return {
+    activities: (result.data || []).map((activity) => ({
+      toolName: activity.tool_name,
+      status: activity.status,
+      arguments: activity.arguments || {},
+      output: activity.output,
+    })) as AgentRunActivity[],
+  };
 }
 
 export function deleteAgentThread(threadId: string) {

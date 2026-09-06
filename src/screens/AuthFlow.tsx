@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { RotateCw } from 'lucide-react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
@@ -1071,7 +1072,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const statusTranslate = statusProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = String(secondsLeft % 60).padStart(2, '0');
-  const active = phase === 'waiting' || phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn';
 
   const statusLabel = phase === 'scanned'
     ? tr('qrLogin.scanned')
@@ -1079,11 +1079,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
       ? tr('qrLogin.confirmed')
       : phase === 'signingIn'
         ? tr('qrLogin.signingIn')
-        : phase === 'expired'
-        ? tr('qrLogin.expired')
-          : phase === 'error'
-            ? error
-            : tr('qrLogin.waiting');
+        : error;
 
   return (
     <Animated.View style={{ flex: 1, backgroundColor: t.featureSurface, transform: [{ translateX: slide }] }}>
@@ -1103,8 +1099,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: '#fff',
-                borderWidth: 1,
-                borderColor: active ? t.accentSoft : t.hairline,
                 overflow: 'hidden',
                 boxShadow: t.dark ? '0 18px 44px rgba(0,0,0,0.34)' : '0 18px 44px rgba(0,0,0,0.08)',
               }}
@@ -1124,16 +1118,16 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                 </View>
               )}
 
-              {request && (phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn' || phase === 'expired') ? (
+              {request && (phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn') ? (
                 <Animated.View
                   style={[
                     StyleSheet.absoluteFill,
                     {
                       alignItems: 'center',
                       justifyContent: 'center',
-                      backgroundColor: phase === 'expired' ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.92)',
-                      opacity: phase === 'expired' ? 1 : statusProgress,
-                      transform: phase === 'expired' ? undefined : [{ translateY: statusTranslate }],
+                      backgroundColor: 'rgba(255,255,255,0.92)',
+                      opacity: statusProgress,
+                      transform: [{ translateY: statusTranslate }],
                     },
                   ]}
                 >
@@ -1147,13 +1141,37 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                     </View>
                   ) : phase === 'signingIn' ? (
                     <Spinner size={30} color={t.accent} track={t.accentSofter} width={2.5} />
-                  ) : (
-                    <QrGlyph c={t.text3} />
-                  )}
-                  <Text style={{ color: phase === 'expired' ? t.text2 : t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
+                  ) : null}
+                  <Text style={{ color: t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
                   {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.scanConfirmOnPhone')}</Text> : null}
                   {phase === 'confirmed' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
                 </Animated.View>
+              ) : null}
+
+              {request && phase === 'expired' ? (
+                <Press
+                  onPress={() => void createRequest()}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('qrLogin.refresh')}
+                  style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
+                >
+                  <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
+                  <View
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 28,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: t.controlSurface,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: t.hairline,
+                      ...shadow(0.14, 18, 5),
+                    }}
+                  >
+                    <RotateCw size={23} color={t.text} strokeWidth={2} />
+                  </View>
+                </Press>
               ) : null}
             </View>
           </View>
@@ -1161,37 +1179,27 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
           <View style={{ minHeight: 80, alignItems: 'center', justifyContent: 'center', marginTop: space.md }}>
             {phase === 'waiting' ? (
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} />
-                  <Text style={{ color: t.text, fontSize: 14, fontWeight: '700' }}>{tr('qrLogin.waiting')}</Text>
-                </View>
-                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: space.sm }}>{tr('qrLogin.openScannerHint')}</Text>
+                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
                 <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresIn', { time: `${minutes}:${seconds}` })}</Text>
               </>
-            ) : phase === 'expired' || phase === 'error' ? (
-              <Text style={{ color: phase === 'error' ? t.danger : t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
+            ) : phase === 'error' ? (
+              <Text style={{ color: t.danger, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             ) : phase === 'generating' ? null : (
-              <Text style={{ color: t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
+              phase === 'expired' ? null : <Text style={{ color: t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             )}
           </View>
         </View>
 
-        <Press
-          onPress={() => void createRequest()}
-          disabled={phase === 'generating' || phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn'}
-          style={{
-            minHeight: 48,
-            paddingHorizontal: space.xl,
-            borderRadius: radius.pill,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: phase === 'expired' || phase === 'error' ? t.accent : 'transparent',
-          }}
-        >
-          <Text style={{ color: phase === 'expired' || phase === 'error' ? '#fff' : t.accent, fontSize: 14, fontWeight: '700' }}>
-            {phase === 'generating' ? tr('qrLogin.generating') : tr('qrLogin.refresh')}
-          </Text>
-        </Press>
+        {phase === 'error' ? (
+          <Press
+            onPress={() => void createRequest()}
+            accessibilityRole="button"
+            accessibilityLabel={tr('qrLogin.refresh')}
+            style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <RotateCw size={22} color={t.accent} strokeWidth={2} />
+          </Press>
+        ) : null}
       </ScrollView>
     </Animated.View>
   );

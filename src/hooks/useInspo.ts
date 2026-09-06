@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { uploadMedia, removeMedia } from '../lib/storage';
+import { uploadMedia } from '../lib/storage';
 import { toInspoMedia } from '../lib/mappers';
 import type { InspoMedia } from '../data/inspoStore';
+
+const refreshers = new Map<string, Set<() => Promise<void>>>();
+
+export async function refetchJourneyInspo(journeyId: string) {
+  await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
+}
 
 export function useInspo(journeyId: string | undefined, userId: string | undefined) {
   const [media, setMedia] = useState<InspoMedia[]>([]);
@@ -35,7 +41,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
 
     setMedia([]);
     setLoading(true);
-    void (async () => {
+    const fetchMedia = async () => {
       try {
         const { data } = await supabase
           .from('inspo_media')
@@ -46,9 +52,21 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
       } finally {
         if (active) setLoading(false);
       }
-    })();
+    };
 
-    return () => { active = false; };
+    let journeyRefreshers = refreshers.get(journeyId);
+    if (!journeyRefreshers) {
+      journeyRefreshers = new Set();
+      refreshers.set(journeyId, journeyRefreshers);
+    }
+    journeyRefreshers.add(fetchMedia);
+    void fetchMedia();
+
+    return () => {
+      active = false;
+      journeyRefreshers!.delete(fetchMedia);
+      if (!journeyRefreshers!.size) refreshers.delete(journeyId);
+    };
   }, [journeyId, userId]);
 
   // Single upload (used for camera captures). Placeholder is handled by caller.
@@ -155,10 +173,6 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     setMedia(prev => prev.filter(x => x.id !== id));
     if (!id.startsWith('uploading-')) {
       await supabase.from('inspo_media').delete().eq('id', id);
-      if (item) {
-        const urls = [item.uri, item.thumbnail, item.pairedVideoUri].filter(Boolean) as string[];
-        removeMedia(urls).catch(() => {});
-      }
     }
     setRemovingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   };

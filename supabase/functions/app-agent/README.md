@@ -20,7 +20,7 @@ supabase secrets set \
 for client place search and reverse geocoding. Deploy it after setting secrets:
 
 ```bash
-supabase functions deploy map-search
+infra/supabase/deploy-functions.sh map-search
 ```
 
 Never expose this key through an `EXPO_PUBLIC_` environment variable.
@@ -118,7 +118,7 @@ Do not expose the separate MediaCrawler WebUI API to the public internet.
 Deploy after updating the function:
 
 ```bash
-supabase functions deploy app-agent
+infra/supabase/deploy-functions.sh app-agent
 ```
 
 When every enabled source is absent or unavailable, `search_travel_web` returns
@@ -135,11 +135,10 @@ assistant messages persist a compact `activities` summary alongside `sources`
 and `planPreview` in `agent_messages.ui`, so the work log, research citations,
 and itinerary preview survive conversation reloads.
 
-Low-risk writes to the current itinerary, route-group endpoints, and packing
-list execute without interrupting the conversation. A completed run containing
-those writes exposes one persistent "undo changes" action. Undo runs all inverse
-operations in reverse order inside one database transaction; destructive tools
-still require explicit approval.
+Writes execute without interrupting the conversation. A completed run containing
+reversible writes exposes one persistent "undo changes" action. Undo runs all
+inverse operations in reverse order inside one database transaction. Deletions
+execute directly but still require the current journey context and exact item IDs.
 
 Apply `supabase/app-agent.sql` before deploying a function version that exposes
 undo. The file is idempotent and adds the undo metadata plus the transactional

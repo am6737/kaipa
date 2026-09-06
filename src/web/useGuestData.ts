@@ -96,6 +96,7 @@ export function useGuestData(slug: string, code: string) {
             .from('journeys')
             .select('name, region, tone, date, days, total_days, track_duration_ms, photo_uris')
             .eq('id', shareRow.journey_id)
+            .is('deleted_at', null)
             .single(),
           guestSupabase
             .from('companions')

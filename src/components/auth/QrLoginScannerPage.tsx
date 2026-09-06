@@ -28,7 +28,7 @@ function ScannerCorners({ color }: { color: string }) {
   );
 }
 
-export function QrLoginScannerPage({ theme, onBack, onApproved, onJourneyInvite }: { theme: Theme; onBack: () => void; onApproved: () => void; onJourneyInvite: (invite: JourneyInvite) => Promise<void> }) {
+export function QrLoginScannerPage({ theme, journeyOnly = false, onBack, onApproved, onJourneyInvite }: { theme: Theme; journeyOnly?: boolean; onBack: () => void; onApproved: () => void; onJourneyInvite: (invite: JourneyInvite) => Promise<void> }) {
   const { t } = useI18n();
   const [permission, requestPermission] = useCameraPermissions();
   const [payload, setPayload] = useState<QrLoginPayload | null>(null);
@@ -92,6 +92,17 @@ export function QrLoginScannerPage({ theme, onBack, onApproved, onJourneyInvite 
       return;
     }
     const parsed = parseQrLoginPayload(data);
+    if (journeyOnly) {
+      scanLocked.current = true;
+      setError(t('qrLogin.errorInvalidJourneyInvite'));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      if (invalidTimer.current) clearTimeout(invalidTimer.current);
+      invalidTimer.current = setTimeout(() => {
+        scanLocked.current = false;
+        setError('');
+      }, 1600);
+      return;
+    }
     if (!parsed) {
       scanLocked.current = true;
       setError(t('qrLogin.errorInvalid'));
@@ -143,7 +154,7 @@ export function QrLoginScannerPage({ theme, onBack, onApproved, onJourneyInvite 
   const successScale = successProgress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] });
 
   return (
-    <DetailPage theme={theme} title={t('qrLogin.scanTitle')} onBack={onBack} backgroundColor={theme.featureSurface} scrollable={false}>
+    <DetailPage theme={theme} title={t(journeyOnly ? 'qrLogin.journeyScanTitle' : 'qrLogin.scanTitle')} onBack={onBack} backgroundColor={theme.featureSurface} scrollable={false}>
       <View style={{ flex: 1, paddingHorizontal: layout.pagePadding, paddingBottom: space.xxl, justifyContent: 'center' }}>
         <View style={{ borderRadius: radius.feature, overflow: 'hidden', aspectRatio: 1, backgroundColor: theme.fieldSurface }}>
           {permission?.granted ? (
@@ -215,7 +226,7 @@ export function QrLoginScannerPage({ theme, onBack, onApproved, onJourneyInvite 
 
         <View style={{ minHeight: 66, justifyContent: 'center' }}>
           <Text style={[type.body, { color: payload ? theme.text : theme.text2, textAlign: 'center', marginTop: space.lg, lineHeight: 21, fontWeight: payload ? '600' : '400' }]}>
-            {payload ? t('qrLogin.confirmHint') : t('qrLogin.scanHint')}
+            {payload ? t('qrLogin.confirmHint') : t(journeyOnly ? 'qrLogin.journeyScanHint' : 'qrLogin.scanHint')}
           </Text>
           {error ? <Text style={[type.caption, { color: theme.danger, textAlign: 'center', marginTop: space.xs }]}>{error}</Text> : null}
         </View>

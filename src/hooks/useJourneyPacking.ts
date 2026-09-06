@@ -38,19 +38,25 @@ const mapItem = (row: any): JourneyPackingItem => ({
   categoryColor: row.category_color ?? undefined,
   quantity: row.quantity ?? 1,
   weightKg: row.weight_kg == null ? undefined : Number(row.weight_kg),
+  weightEstimated: row.weight_estimated ?? undefined,
+  carryStatus: row.carry_status ?? undefined,
+  attrs: Array.isArray(row.attrs) ? row.attrs : undefined,
   note: row.note ?? undefined,
   packed: row.packed ?? false,
   carrierCompanionId: row.carrier_companion_id ?? undefined,
   sortOrder: row.sort_order ?? 0,
 });
 
-const itemFingerprint = (item: Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>) => JSON.stringify([
+const itemFingerprint = (item: Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'quantity' | 'weightKg' | 'weightEstimated' | 'carryStatus' | 'attrs' | 'note' | 'packed' | 'carrierCompanionId'>) => JSON.stringify([
   item.sourceType,
   item.sourceGearItemId ?? null,
   item.name.trim(),
   item.categoryName ?? null,
   item.quantity,
   item.weightKg ?? null,
+  item.weightEstimated ?? null,
+  item.carryStatus ?? null,
+  item.attrs ?? null,
   item.note ?? null,
   item.packed,
   item.carrierCompanionId ?? null,
@@ -159,6 +165,9 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
         category_color: item.categoryColor ?? null,
         quantity: item.quantity,
         weight_kg: item.weightKg ?? null,
+        weight_estimated: item.weightEstimated ?? null,
+        carry_status: item.carryStatus ?? null,
+        attrs: item.attrs ?? null,
         note: item.note ?? null,
         packed: item.packed,
         carrier_companion_id: item.carrierCompanionId && item.carrierCompanionId > 0 ? item.carrierCompanionId : null,
@@ -274,7 +283,8 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
           id: makeId('jpi'), listId: list.id, sourceType: input.sourceType,
           sourceGearItemId: input.sourceGearItemId, name: input.name,
           categoryName: input.categoryName, categoryColor: input.categoryColor,
-          quantity: input.quantity ?? 1, weightKg: input.weightKg, note: input.note,
+          quantity: input.quantity ?? 1, weightKg: input.weightKg, weightEstimated: input.weightEstimated, carryStatus: input.carryStatus,
+          attrs: input.attrs, note: input.note,
           packed: false, sortOrder: snapshot.items.filter((item) => item.listId === list.id).length + index,
         }));
         const baseLists = snapshot.lists.some((row) => row.id === list.id) ? snapshot.lists : [...snapshot.lists, list];
@@ -291,6 +301,9 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
         category_color: input.categoryColor ?? null,
         quantity: input.quantity ?? 1,
         weight_kg: input.weightKg ?? null,
+        weight_estimated: input.weightEstimated ?? null,
+        carry_status: input.carryStatus ?? null,
+        attrs: input.attrs ?? null,
         note: input.note ?? null,
         sort_order: offset + index,
       })));
@@ -299,7 +312,7 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     } finally { setSaving(false); }
   }, [ensureList, fetchPacking, localMode, snapshot, writeLocal]);
 
-  const updateItem = useCallback(async (itemId: string, patch: Partial<Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>>) => {
+  const updateItem = useCallback(async (itemId: string, patch: Partial<Pick<JourneyPackingItem, 'sourceType' | 'sourceGearItemId' | 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'weightEstimated' | 'carryStatus' | 'attrs' | 'note' | 'packed' | 'carrierCompanionId'>>) => {
     if (localMode) {
       await writeLocal({ ...snapshot, items: snapshot.items.map((item) => item.id === itemId ? { ...item, ...patch } : item) });
       return;
@@ -312,6 +325,9 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
     if (Object.prototype.hasOwnProperty.call(patch, 'categoryColor')) row.category_color = patch.categoryColor ?? null;
     if (patch.quantity != null) row.quantity = patch.quantity;
     if (patch.weightKg !== undefined) row.weight_kg = patch.weightKg ?? null;
+    if (patch.weightEstimated !== undefined) row.weight_estimated = patch.weightEstimated ?? null;
+    if (Object.prototype.hasOwnProperty.call(patch, 'carryStatus')) row.carry_status = patch.carryStatus ?? null;
+    if (patch.attrs !== undefined) row.attrs = patch.attrs ?? null;
     if (patch.note !== undefined) row.note = patch.note ?? null;
     if (patch.packed != null) row.packed = patch.packed;
     if (Object.prototype.hasOwnProperty.call(patch, 'carrierCompanionId')) row.carrier_companion_id = patch.carrierCompanionId ?? null;

@@ -40,6 +40,7 @@ export async function joinJourneyByInvite(invite: JourneyInvite): Promise<Poi> {
       companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
     `)
     .eq('id', journeyId)
+    .is('deleted_at', null)
     .single();
   if (error || !data) throw error || new Error('JOURNEY_INVITE_INVALID');
   const { data: { session } } = await supabase.auth.getSession();

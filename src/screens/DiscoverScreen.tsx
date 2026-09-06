@@ -2,17 +2,18 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import { Theme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
-import { Glass, GlassIconBtn } from '../components/Glass';
+import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
+import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
@@ -37,6 +38,41 @@ const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
 const MEMORY_CHIPS = ['all', 'fav'] as const;
 
 type FilterMenuAnchor = { x: number; y: number; width: number; height: number };
+
+function MapToolButton({
+  theme,
+  onPress,
+  accessibilityLabel,
+  children,
+  size = 44,
+}: {
+  theme: Theme;
+  onPress: () => void;
+  accessibilityLabel: string;
+  children: React.ReactNode;
+  size?: number;
+}) {
+  return (
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.controlSurface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.fieldBorder,
+        boxShadow: theme.dark ? '0px 2px 8px rgba(0,0,0,0.34)' : '0px 2px 8px rgba(0,0,0,0.12)',
+      }}
+    >
+      {children}
+    </Press>
+  );
+}
 
 function anchoredFilterMenuStyle(anchor: FilterMenuAnchor | undefined, windowWidth: number, windowHeight: number, topInset: number, bottomInset: number, menuWidth: number, preferredHeight: number) {
   if (!anchor) {
@@ -163,7 +199,19 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
   }));
 }
 
-export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: Theme; externalOverlayOpen?: boolean }) {
+export function DiscoverScreen({
+  theme,
+  active = true,
+  keepMapWarm = false,
+  externalOverlayOpen = false,
+  onBlockingOverlayChange,
+}: {
+  theme: Theme;
+  active?: boolean;
+  keepMapWarm?: boolean;
+  externalOverlayOpen?: boolean;
+  onBlockingOverlayChange?: (open: boolean) => void;
+}) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { routes, journeys, userId } = useData();
@@ -179,6 +227,11 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
   const [journeyMapAtRouteFrame, setJourneyMapAtRouteFrame] = useState(true);
   const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
   const [journeyMapCameraAction, setJourneyMapCameraAction] = useState<GlobeCameraAction>();
+  const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
+  const headingSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
+  const positionSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   // When a clustered map pin is tapped, the same journey-list sheet is scoped to
   // that trailhead (coordinate key) — only the header copy changes to 这个地点的旅程.
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
@@ -327,6 +380,11 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
   }, [checklistFilterArrowProgress, focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
+
+  React.useEffect(() => () => {
+    headingSubscriptionRef.current?.remove();
+    positionSubscriptionRef.current?.remove();
+  }, []);
 
   const deleteSelectedPlanDays = () => {
     if (!selectedPlanDays.size) return;
@@ -631,6 +689,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
   const journeyShowsCover = !routeEditorGroupKey && journeyHeroMode === 'cover' && !!journeyCoverUri;
   const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
   const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover && !routeEditorGroupKey;
+  const mapStylePickerVisible = mapStylePickerOpen && (journeyMapFull || !nav.pointInfo);
   const journeyMapBottomPadding = journeySheetIndex === 0
     ? journeyMinimum + space.xl
     : journeySheetIndex === 1
@@ -642,6 +701,85 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
     setJourneyMapAtRouteFrame(true);
     setJourneyMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
   };
+
+  React.useEffect(() => {
+    onBlockingOverlayChange?.(mapStylePickerVisible);
+  }, [mapStylePickerVisible, onBlockingOverlayChange]);
+
+  const locateCurrentPosition = useCallback(async () => {
+    if (locating) return;
+    if (currentLocation) {
+      setJourneyMapCameraAction((current) => ({
+        type: 'locate',
+        coordinate: [currentLocation.lng, currentLocation.lat],
+        revision: (current?.revision ?? 0) + 1,
+      }));
+      setMapAtCurrentLocation(true);
+      return;
+    }
+    setLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        nav.showToast(t('discover.locationPermissionDenied'));
+        return;
+      }
+      const approximateLocation = permission.ios?.accuracy === 'reduced'
+        || permission.android?.accuracy === 'coarse';
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      const coordinate: [number, number] = [position.coords.longitude, position.coords.latitude];
+      const positionHeading = position.coords.heading;
+      setCurrentLocation({
+        lng: coordinate[0],
+        lat: coordinate[1],
+        heading: positionHeading != null && positionHeading >= 0 ? positionHeading : undefined,
+      });
+      if (!NATIVE_MAP_ENABLED) {
+        setJourneyMapCameraAction((current) => ({
+          type: 'locate',
+          coordinate,
+          revision: (current?.revision ?? 0) + 1,
+        }));
+      }
+      setMapAtCurrentLocation(true);
+      if (approximateLocation) nav.showToast(t('discover.locationApproximate'));
+
+      if (!NATIVE_MAP_ENABLED) {
+        positionSubscriptionRef.current?.remove();
+        void Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Highest,
+            distanceInterval: 2,
+            timeInterval: 1000,
+          },
+          (updatedPosition) => {
+            const updatedHeading = updatedPosition.coords.heading;
+            setCurrentLocation((current) => ({
+              lng: updatedPosition.coords.longitude,
+              lat: updatedPosition.coords.latitude,
+              heading: updatedHeading != null && updatedHeading >= 0 ? updatedHeading : current?.heading,
+            }));
+          },
+        )
+          .then((subscription) => { positionSubscriptionRef.current = subscription; })
+          .catch(() => {});
+
+        headingSubscriptionRef.current?.remove();
+        void Location.watchHeadingAsync((value) => {
+          const heading = value.trueHeading >= 0 ? value.trueHeading : value.magHeading;
+          if (!Number.isFinite(heading) || heading < 0) return;
+          setCurrentLocation((current) => current ? { ...current, heading } : current);
+        })
+          .then((subscription) => { headingSubscriptionRef.current = subscription; })
+          .catch(() => {});
+      }
+    } catch {
+      nav.showToast(t('discover.locationFailed'));
+    } finally {
+      setLocating(false);
+    }
+  }, [currentLocation, locating, nav, t]);
 
 
 
@@ -688,7 +826,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
               pointerEvents="none"
             />
           </>
-        ) : (
+        ) : active || keepMapWarm ? (
         <Globe
           theme={theme}
           size={globeSize}
@@ -698,11 +836,13 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
           })}
           activePoiId={activeRepId}
           mapStyle={mapStyle}
-          mapLocale={resolved}
           showMapLabels={mapLabelsVisible}
           cameraAction={journeyMapCameraAction}
           focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : undefined}
-          onCameraGestureStart={nav.pointInfo?.kind === 'journey' ? () => setJourneyMapAtRouteFrame(false) : undefined}
+          onCameraGestureStart={() => {
+            if (nav.pointInfo?.kind === 'journey') setJourneyMapAtRouteFrame(false);
+            else setMapAtCurrentLocation(false);
+          }}
           focusCoords={focusCoords}
           focusSegments={journeyMapDetailsVisible || routeEditorGroupKey ? focusSegments : []}
           focusBoundaries={journeyMapDetailsVisible || routeEditorGroupKey ? displayedFocusBoundaries : []}
@@ -723,7 +863,12 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
           center={nav.pointInfo ? (() => {
             const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
             return { lon, lat };
-          })() : undefined}
+          })() : currentLocation ? { lon: currentLocation.lng, lat: currentLocation.lat } : undefined}
+          pin={active ? currentLocation : null}
+          followUserLocation={active && !nav.pointInfo && mapAtCurrentLocation}
+          onUserLocationChange={([lng, lat]) => {
+            setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
+          }}
           onPoiPress={(id) => {
             const group = repIdToGroup.get(id);
             if (!group) return;
@@ -742,10 +887,10 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
           }}
           onBackgroundPress={() => sheetRef.current?.dismiss()}
         />
-        )}
+        ) : null}
       </View>
 
-      {/* subtabs */}
+      {/* Discover keeps its original route / journey map modes. */}
       {!nav.pointInfo ? (
       <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>
         <Glass theme={chromeTheme} radius={16} intensity={30}>
@@ -758,7 +903,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
               return (
                 <Press
                   key={tab.id}
-                  onPress={() => nav.setSubTab(tab.id as any)}
+                  onPress={() => nav.setSubTab(tab.id as 'explore' | 'memory')}
                   style={{
                     paddingHorizontal: 20,
                     height: 30,
@@ -782,14 +927,14 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
       {/* top-right chrome */}
       {!nav.pointInfo ? (
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
-        <GlassIconBtn theme={chromeTheme} onPress={() => nav.openSearch()}>
+        <MapToolButton theme={chromeTheme} size={40} onPress={() => nav.openSearch()} accessibilityLabel={t('search.placeholder')}>
           <Icon name="search" color={chromeTheme.text} size={19} />
-        </GlassIconBtn>
-        <GlassIconBtn theme={chromeTheme} onPress={() => nav.showToast(t('discover.toastNorth'))}>
+        </MapToolButton>
+        <MapToolButton theme={chromeTheme} size={40} onPress={() => nav.showToast(t('discover.toastNorth'))} accessibilityLabel={t('discover.toastNorth')}>
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="compassN" color={chromeTheme.text} size={22} />
           </View>
-        </GlassIconBtn>
+        </MapToolButton>
       </View>
       ) : nav.pointInfo.kind === 'journey' ? (
         <>
@@ -893,18 +1038,24 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
 
       {!nav.pointInfo ? (
         <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56, gap: 10 }}>
-          <GlassIconBtn
+          <MapToolButton
             theme={chromeTheme}
             size={44}
-            strong
             onPress={() => setMapStylePickerOpen((value) => !value)}
             accessibilityLabel={t('journey.map.layerTitle')}
           >
             <Icon name="layers" color={mapStylePickerOpen ? chromeTheme.accent : chromeTheme.text} size={20} />
-          </GlassIconBtn>
-          <GlassIconBtn theme={chromeTheme} size={44} strong onPress={() => nav.showToast(t('discover.toastLocate'))}>
-            <Icon name="locate" color={chromeTheme.accent} size={21} />
-          </GlassIconBtn>
+          </MapToolButton>
+          <MapToolButton
+            theme={chromeTheme}
+            size={44}
+            onPress={locateCurrentPosition}
+            accessibilityLabel={t('discover.toastLocate')}
+          >
+            {locating
+              ? <ActivityIndicator size="small" color={chromeTheme.accent} />
+              : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={21} />}
+          </MapToolButton>
         </View>
       ) : null}
 
@@ -1044,7 +1195,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
         )}
       </TrailSheet>
       )}
-      {mapStylePickerOpen && (journeyMapFull || !nav.pointInfo) ? (
+      {mapStylePickerVisible ? (
         <MapStylePickerSheet
           theme={theme}
           title={t('journey.map.layerTitle')}
@@ -1053,7 +1204,7 @@ export function DiscoverScreen({ theme, externalOverlayOpen = false }: { theme: 
             { id: 'standard', label: t('journey.map.layerStandard') },
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
-          value={mapStyle === 'light' ? 'standard' : mapStyle}
+          value={mapStyle}
           detailsTitle={t('journey.map.displayTitle')}
           details={(journeyMapFull ? [
             {

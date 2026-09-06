@@ -67,7 +67,6 @@ export interface Theme {
   trailFaint: string;
   dotCore: string;
   dotRing: string;
-  mapLightPreset: 'dawn' | 'day' | 'dusk' | 'night';
 }
 
 export function makeTheme(mode: Mode, accent?: string): Theme {
@@ -107,7 +106,6 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       trailFaint: 'rgba(255,255,255,0.35)',
       dotCore: '#FFFFFF',
       dotRing: a,
-      mapLightPreset: 'night',
     };
   }
   return {
@@ -144,6 +142,5 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     trailFaint: 'rgba(0,0,0,0.35)',
     dotCore: '#FFFFFF',
     dotRing: a,
-    mapLightPreset: 'day',
   };
 }

@@ -16,9 +16,13 @@ begin
     raise exception 'JOURNEY_INVITE_AUTH_REQUIRED';
   end if;
 
-  select journey_id into target_journey_id
-  from journey_shares
-  where slug = invite_slug and code = invite_code and active = true
+  select js.journey_id into target_journey_id
+  from journey_shares js
+  join journeys j on j.id = js.journey_id
+  where js.slug = invite_slug
+    and js.code = invite_code
+    and js.active = true
+    and j.deleted_at is null
   limit 1;
 
   if target_journey_id is null then

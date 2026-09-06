@@ -108,12 +108,12 @@ function JourneyRangeMonth({
                       borderBottomLeftRadius: weekIndex === 0 ? radius.pill : 0,
                       borderTopRightRadius: weekIndex === 6 ? radius.pill : 0,
                       borderBottomRightRadius: weekIndex === 6 ? radius.pill : 0,
-                      backgroundColor: theme.accentSofter,
+                      backgroundColor: theme.accent,
                     }}
                   />
                 ) : null}
                 <View style={{ width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: isStart || isEnd ? theme.accent : 'transparent' }}>
-                  <Text style={{ fontSize: 16.5, fontWeight: isStart || isEnd ? '700' : '600', color: isStart || isEnd ? '#FFFFFF' : inRange ? theme.accent : theme.text }}>{date.getDate()}</Text>
+                  <Text style={{ fontSize: 16.5, fontWeight: isStart || isEnd ? '700' : '600', color: inRange ? '#FFFFFF' : theme.text }}>{date.getDate()}</Text>
                   {isToday && !inRange ? <View style={{ position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: radius.pill, backgroundColor: theme.accent }} /> : null}
                 </View>
               </View>

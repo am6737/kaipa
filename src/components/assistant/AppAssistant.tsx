@@ -15,7 +15,7 @@ import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, resolveAgentRun, sendAgentTurn, undoAgentRun, type AgentApproval, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
 import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
@@ -30,8 +30,6 @@ type Turn = {
   role: 'user' | 'assistant';
   text: string;
   quickReplies?: AgentQuickReply[];
-  runId?: string;
-  approvals?: AgentApproval[];
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
@@ -140,6 +138,10 @@ type ResearchStep = {
   emphasis?: boolean;
 };
 
+function activityFingerprint(activities: AgentRunActivity[]) {
+  return JSON.stringify(activities.map(({ toolName, status, arguments: args, output }) => ({ toolName, status, args, output })));
+}
+
 function searchReports(output: unknown) {
   if (!output || typeof output !== 'object' || !('sources' in output) || !Array.isArray(output.sources)) return [];
   return output.sources.flatMap((value) => {
@@ -152,6 +154,41 @@ function searchReports(output: unknown) {
       resultCount: Number(report.resultCount || 0),
     }];
   });
+}
+
+function completedJourneyTrackLabel(output: unknown, t: ReturnType<typeof useI18n>['t']) {
+  if (!output || typeof output !== 'object') return undefined;
+  const result = output as Record<string, unknown>;
+  if ('hasTrack' in result) {
+    if (!result.hasTrack) return undefined;
+    const distance = String(result.distance || '').trim()
+      || (Number.isFinite(Number(result.totalKm)) ? `${Number(result.totalKm).toFixed(Number(result.totalKm) >= 10 ? 1 : 2)} km` : '');
+    const ascent = String(result.ascent || '').trim().replace(/^\+/, '');
+    if (distance && ascent) return t('agent.research.journeyTrackLoadedStats', { distance, ascent });
+    if (distance) return t('agent.research.journeyTrackLoadedDistance', { distance });
+    return t('agent.research.journeyTrackLoaded');
+  }
+  const journey = result.journey && typeof result.journey === 'object'
+    ? result.journey as Record<string, unknown>
+    : undefined;
+  const trackSummary = result.trackSummary && typeof result.trackSummary === 'object'
+    ? result.trackSummary as Record<string, unknown>
+    : undefined;
+  const totalKm = Number(trackSummary?.totalKm);
+  const hasTrack = Boolean(
+    trackSummary
+    || journey?.track_file_url
+    || journey?.track_file_name
+    || (Array.isArray(journey?.track_coords) && journey.track_coords.length > 1),
+  );
+  if (!hasTrack) return undefined;
+
+  const distance = String(journey?.dist || '').trim()
+    || (Number.isFinite(totalKm) ? `${totalKm.toFixed(totalKm >= 10 ? 1 : 2)} km` : '');
+  const ascent = String(journey?.asc_ || '').trim().replace(/^\+/, '');
+  if (distance && ascent) return t('agent.research.journeyTrackLoadedStats', { distance, ascent });
+  if (distance) return t('agent.research.journeyTrackLoadedDistance', { distance });
+  return t('agent.research.journeyTrackLoaded');
 }
 
 function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI18n>['t']): ResearchStep[] {
@@ -189,6 +226,10 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       }));
       return [searchStep, ...queryStep, ...providerSteps];
     }
+    if (activity.toolName === 'get_journey_details' && activity.status === 'completed') {
+      const trackLabel = completedJourneyTrackLabel(activity.output, t);
+      if (trackLabel) return [{ key, status: activity.status, text: trackLabel }];
+    }
     const stepKeys: Record<string, Record<AgentRunActivity['status'], TKey>> = {
       get_app_context: { running: 'agent.research.step.context.running', completed: 'agent.research.step.context.completed', failed: 'agent.research.step.context.failed' },
       search_journeys: { running: 'agent.research.step.journeys.running', completed: 'agent.research.step.journeys.completed', failed: 'agent.research.step.journeys.failed' },
@@ -208,6 +249,30 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
     const keys = stepKeys[activity.toolName];
     return keys ? [{ key, status: activity.status, text: t(keys[activity.status]) }] : [];
   });
+}
+
+function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeof useI18n>['t']) {
+  const lastActivity = activities.at(-1);
+  if (!lastActivity) return t('agent.research.preparing');
+
+  const phaseKeys: Partial<Record<string, TKey>> = {
+    get_app_context: 'agent.research.phase.analyzingJourney',
+    search_journeys: 'agent.research.phase.analyzingJourney',
+    get_journey_details: 'agent.research.phase.analyzingJourney',
+    search_routes: 'agent.research.phase.comparingRoutes',
+    search_travel_web: 'agent.research.phase.buildingItinerary',
+    create_journey: 'agent.research.phase.buildingItinerary',
+    list_gear: 'agent.research.phase.matchingGear',
+    add_itinerary_items: 'agent.research.phase.reviewingItinerary',
+    set_journey_map_location: 'agent.research.phase.reviewingItinerary',
+    set_itinerary_group_endpoints: 'agent.research.phase.reviewingItinerary',
+    add_packing_items: 'agent.research.phase.reviewingPacking',
+    add_gear: 'agent.research.phase.reviewingChanges',
+    delete_itinerary_items: 'agent.research.phase.reviewingChanges',
+    delete_packing_items: 'agent.research.phase.reviewingChanges',
+    undo_last_agent_changes: 'agent.research.phase.reviewingChanges',
+  };
+  return t(phaseKeys[lastActivity.toolName] || 'agent.research.phase.organizingResults');
 }
 
 function sourceLabel(source: string, t: ReturnType<typeof useI18n>['t']) {
@@ -275,12 +340,64 @@ function PendingAttachments({ theme, attachments, onRemove }: { theme: Theme; at
   );
 }
 
+function LoadingDots({ color }: { color: string }) {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(Animated.timing(progress, {
+      toValue: 1,
+      duration: 1050,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }));
+    animation.start();
+    return () => animation.stop();
+  }, [progress]);
+
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.loadingDots}>
+      {[0, 1, 2].map((index) => {
+        const start = Math.max(0.01, index * 0.18);
+        const peak = start + 0.16;
+        const end = start + 0.32;
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.loadingDot,
+              {
+                backgroundColor: color,
+                opacity: progress.interpolate({
+                  inputRange: [0, start, peak, end, 1],
+                  outputRange: [0.3, 0.3, 1, 0.3, 0.3],
+                }),
+                transform: [{
+                  scale: progress.interpolate({
+                    inputRange: [0, start, peak, end, 1],
+                    outputRange: [0.8, 0.8, 1.15, 0.8, 0.8],
+                  }),
+                }],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 function ResearchActivity({ theme, activities, running }: { theme: Theme; activities: AgentRunActivity[]; running: boolean }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(running);
   const arrowProgress = useRef(new Animated.Value(running ? 1 : 0)).current;
   const steps = researchSteps(activities, t);
-  const visibleSteps = steps.length ? steps : [{ key: 'preparing', status: 'running' as const, text: t('agent.research.preparing') }];
+  const hasRunningStep = steps.some((step) => step.status === 'running');
+  const visibleSteps: ResearchStep[] = steps.length
+    ? [
+        ...steps,
+        ...(running && !hasRunningStep ? [{ key: 'active_phase', status: 'running' as const, text: activePlanningPhase(activities, t) }] : []),
+      ]
+    : [{ key: 'preparing', status: 'running', text: t('agent.research.preparing') }];
   const toggleExpanded = () => {
     const next = !expanded;
     arrowProgress.stopAnimation();
@@ -322,7 +439,7 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
       {expanded ? visibleSteps.map((step) => (
         <View key={step.key} style={styles.researchLine}>
           {step.status === 'running'
-            ? <Clock3 size={14} color={theme.text3} strokeWidth={2} />
+            ? <LoadingDots color={step.emphasis ? theme.text : theme.text3} />
             : step.status === 'completed'
             ? <Check size={14} color={theme.text3} strokeWidth={2} />
             : <X size={14} color={theme.text3} strokeWidth={2} />}
@@ -364,7 +481,7 @@ function SourcesStrip({ theme, sources, title }: { theme: Theme; sources: AgentS
   );
 }
 
-function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; preview: AgentPlanPreview; openLabel: string; onOpen: () => void }) {
+function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; preview: AgentPlanPreview; openLabel: string; onOpen: (journeyId: string) => void }) {
   const { resolved } = useI18n();
   return (
     <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }] }>
@@ -388,9 +505,9 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
           </View>
         ))}
       </View>
-      <Press onPress={onOpen} accessibilityRole="button" style={styles.openPlan}>
+      <Press onPress={() => onOpen(preview.journeyId)} accessibilityRole="button" accessibilityLabel={openLabel} style={styles.viewJourney}>
         <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
-        <Text style={[styles.openPlanText, { color: theme.text }]}>{openLabel}</Text>
+        <Text style={[styles.viewJourneyText, { color: theme.text }]}>{openLabel}</Text>
       </Press>
     </View>
   );
@@ -411,8 +528,8 @@ function threadJourney(thread: AgentThreadSummary) {
   return Array.isArray(thread.journeys) ? thread.journeys[0] : thread.journeys;
 }
 
-function historyTurns(history: AgentHistoryResponse, approvalIntro: string): Turn[] {
-  const restored: Turn[] = history.messages.map((message) => ({
+function historyTurns(history: AgentHistoryResponse): Turn[] {
+  return history.messages.map((message) => ({
     id: message.id,
     role: message.role,
     text: message.content,
@@ -424,28 +541,12 @@ function historyTurns(history: AgentHistoryResponse, approvalIntro: string): Tur
     undoAction: message.ui?.undoAction,
     createJourneyFlow: message.ui?.createJourneyFlow,
   }));
-  if (history.pendingRun) {
-    restored.push({
-      id: `pending_${history.pendingRun.id}`,
-      role: 'assistant',
-      text: approvalIntro,
-      runId: history.pendingRun.id,
-      approvals: history.pendingRun.pending_approvals || [],
-    });
-  }
-  return restored;
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, approvals, sources, planPreview, activities, attachments, undoAction, createJourneyFlow }) => ({
-    role, text, quickReplies, approvals, sources, planPreview, activities, attachments, undoAction, createJourneyFlow,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow }) => ({
+    role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow,
   })));
-}
-
-function retainPendingApprovalSelection(current: Set<string>, approvals: AgentApproval[]) {
-  const pendingCallIds = new Set(approvals.map((approval) => approval.callId));
-  const retained = new Set([...current].filter((callId) => pendingCallIds.has(callId)));
-  return retained.size === current.size ? current : retained;
 }
 
 const VOICE_BAR_HEIGHTS = [5, 6, 8, 12, 7, 11, 15, 8, 6, 10, 14, 7, 11, 17, 9, 6, 12, 18, 8, 14, 7, 11, 16, 9, 6, 12, 8, 11, 7, 6, 5] as const;
@@ -524,10 +625,12 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, onClose, onClearPrompt, onOpenJourney }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
+  initialDisplayPrompt?: string;
+  autoSubmitInitialPrompt?: boolean;
   currentJourneyId?: string;
   onClose: () => void;
   onClearPrompt: () => void;
@@ -544,6 +647,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   const voiceTouchStartYRef = useRef(0);
   const voiceInitialInputRef = useRef('');
   const voiceSendOnEndRef = useRef(false);
+  const pendingAutoSubmitRef = useRef<string | undefined>(undefined);
+  const pendingAutoDisplayRef = useRef<string | undefined>(undefined);
+  const restoredScopeRef = useRef<string | undefined>(undefined);
   const [input, setInput] = useState('');
   const [attachmentTrayOpen, setAttachmentTrayOpen] = useState(false);
   const [attachmentTrayMounted, setAttachmentTrayMounted] = useState(false);
@@ -564,11 +670,8 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   const [runActivities, setRunActivities] = useState<AgentRunActivity[]>([]);
   const runActivitiesRef = useRef<AgentRunActivity[]>([]);
   const [restoring, setRestoring] = useState(false);
-  const [resolvingRunId, setResolvingRunId] = useState<string>();
-  const [resolvingAction, setResolvingAction] = useState<'execute' | 'reject'>();
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
   const [undoingRunId, setUndoingRunId] = useState<string>();
-  const [selectedApprovals, setSelectedApprovals] = useState<Set<string>>(new Set());
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string>();
@@ -623,7 +726,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     inputRef.current?.focus();
   };
   const handleIdleInputLongPress = () => {
-    if (loading || resolvingRunId || voiceActive) return;
+    if (loading || voiceActive) return;
     voiceLongPressTriggeredRef.current = true;
     voiceHoldingRef.current = true;
     voiceInitialInputRef.current = input;
@@ -655,7 +758,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   };
   const handleIdleInputTouchEnd = () => finishHeldVoiceInput(false);
   const handleIdleInputTouchCancel = () => finishHeldVoiceInput(true);
-  const activeJourneyId = currentJourneyId || threadJourneyId;
+  const activeJourneyId = threadJourneyId;
   const currentJourney = useMemo(
     () => data.journeys.find((journey) => journey.id === activeJourneyId),
     [activeJourneyId, data.journeys],
@@ -672,12 +775,6 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
       { text: t('agent.journeySuggestion.stay', { name: currentJourney.name }), icon: TentTree },
     ];
   }, [currentJourney, t]);
-  const planStarterReplies = useMemo<AgentQuickReply[]>(() => [
-    { label: t('agent.planQuickReply.sanya'), message: t('agent.planQuickReply.sanyaMessage') },
-    { label: t('agent.planQuickReply.beijing'), message: t('agent.planQuickReply.beijingMessage') },
-    { label: t('agent.planQuickReply.yunnan'), message: t('agent.planQuickReply.yunnanMessage') },
-  ], [t]);
-
   const chooseTrackForPlan = async (preset?: { message: string; intent?: AgentIntent }) => {
     if (trackPicking || loading || attachmentUploading) return;
     const pending = preset || trackPrompt;
@@ -744,8 +841,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
       try {
         const result = await getAgentRunActivity(activeRunId);
         if (active) {
+          const changed = activityFingerprint(runActivitiesRef.current) !== activityFingerprint(result.activities);
           runActivitiesRef.current = result.activities;
-          setRunActivities(result.activities);
+          if (changed) setRunActivities(result.activities);
         }
       } catch {
         // Older deployments do not expose run activity; keep the generic state.
@@ -757,7 +855,15 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   }, [activeRunId, visible]);
 
   useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(timer);
+  }, [loading, runActivities]);
+
+  useEffect(() => {
     if (!visible) {
+      pendingAutoSubmitRef.current = undefined;
+      pendingAutoDisplayRef.current = undefined;
       voiceHoldingRef.current = false;
       voiceCancellingRef.current = false;
       voiceSendOnEndRef.current = false;
@@ -771,39 +877,49 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
       return;
     }
     let active = true;
-    setRestoring(true);
-    setThreadId(undefined);
-    setThreadTitle('');
-    setThreadJourneyId(currentJourneyId);
-    setTurns([]);
-    setSelectedApprovals(new Set());
-    setInput('');
-    setAttachmentTrayOpen(false);
-    setSelectedAttachments([]);
+    const autoSubmitPrompt = autoSubmitInitialPrompt ? initialPrompt : undefined;
+    const autoDisplayPrompt = autoSubmitInitialPrompt ? initialDisplayPrompt : undefined;
+    pendingAutoSubmitRef.current = undefined;
+    pendingAutoDisplayRef.current = undefined;
     const key = storageKey(data.userId, currentJourneyId);
+    const scope = `${data.userId}:${currentJourneyId || 'global'}`;
+    const canReuseCurrentView = restoredScopeRef.current === scope;
+    setRestoring(!canReuseCurrentView);
+    if (!canReuseCurrentView) {
+      setThreadId(undefined);
+      setThreadTitle('');
+      setThreadJourneyId(currentJourneyId);
+      setTurns([]);
+      setInput('');
+      setAttachmentTrayOpen(false);
+      setSelectedAttachments([]);
+    }
     const restore = async () => {
       try {
-        let savedThreadId: string | undefined;
-        if (currentJourneyId) {
-          try {
-            const result = await getJourneyAgentThread(currentJourneyId);
-            savedThreadId = result.threadId || undefined;
-          } catch {
-            // Keep compatibility while an older app-agent function is still deployed.
-            const result = await getAgentThreads();
-            savedThreadId = result.threads.find((thread) => thread.current_journey_id === currentJourneyId)?.id;
-          }
-        } else {
-          savedThreadId = (await AsyncStorage.getItem(key)) || undefined;
+        let savedThreadId = (await AsyncStorage.getItem(key)) || undefined;
+        if (currentJourneyId && !savedThreadId) {
+          const result = await getJourneyAgentThread(currentJourneyId);
+          savedThreadId = result.threadId || undefined;
         }
         if (!active) return;
         if (!savedThreadId) {
-          if (initialPrompt) setInput(initialPrompt);
+          restoredScopeRef.current = scope;
+          if (initialPrompt && !autoSubmitInitialPrompt) setInput(initialPrompt);
           return;
         }
-        const history = await getAgentHistory(savedThreadId);
+        let resolvedThreadId: string = savedThreadId;
+        let history: AgentHistoryResponse;
+        try {
+          history = await getAgentHistory(resolvedThreadId);
+        } catch (error) {
+          if (!currentJourneyId) throw error;
+          const result = await getJourneyAgentThread(currentJourneyId);
+          if (!result.threadId || result.threadId === resolvedThreadId) throw error;
+          resolvedThreadId = result.threadId;
+          history = await getAgentHistory(resolvedThreadId);
+        }
         if (!active) return;
-        const restoredJourneyId = currentJourneyId || history.thread.current_journey_id || undefined;
+        const restoredJourneyId = history.thread.current_journey_id || currentJourneyId || undefined;
         setThreadJourneyId(restoredJourneyId);
         const restored: Turn[] = history.messages.map((message) => ({
           id: message.id,
@@ -817,29 +933,29 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
           undoAction: message.ui?.undoAction,
           createJourneyFlow: message.ui?.createJourneyFlow,
         }));
-        if (history.pendingRun) {
-          const approvals = history.pendingRun.pending_approvals || [];
-          restored.push({ id: `pending_${history.pendingRun.id}`, role: 'assistant', text: t('agent.approvalIntro'), runId: history.pendingRun.id, approvals });
-          setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
-        }
         if (!active) return;
-        setThreadId(savedThreadId);
+        setThreadId(resolvedThreadId);
         setThreadTitle(history.thread.title);
         setTurns(restored);
-        await AsyncStorage.setItem(key, savedThreadId);
+        restoredScopeRef.current = scope;
+        await AsyncStorage.setItem(key, resolvedThreadId);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
       } catch (error) {
         console.warn('[AppAgent] history restore failed', error);
         void AsyncStorage.removeItem(key);
-        if (active) {
+        if (active && !canReuseCurrentView) {
           setThreadId(undefined);
           setThreadTitle('');
           setTurns([]);
-          if (initialPrompt) setInput(initialPrompt);
+          if (initialPrompt && !autoSubmitInitialPrompt) setInput(initialPrompt);
         }
       } finally {
-        if (initialPrompt) onClearPrompt();
-        if (active) setRestoring(false);
+        if (active) {
+          pendingAutoSubmitRef.current = autoSubmitPrompt;
+          pendingAutoDisplayRef.current = autoDisplayPrompt;
+          if (initialPrompt && !autoSubmitPrompt) onClearPrompt();
+          setRestoring(false);
+        }
       }
     };
     void restore();
@@ -847,36 +963,20 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   }, [currentJourneyId, data.userId, t, visible]);
 
   useEffect(() => {
-    if (!visible || !threadId || loading || resolvingRunId || restoring) return;
+    if (!visible || !threadId || loading || restoring) return;
     let active = true;
     const syncHistory = async () => {
       try {
-        if (currentJourneyId) {
-          const currentThread = await getJourneyAgentThread(currentJourneyId);
-          if (!active) return;
-          if (currentThread.threadId && currentThread.threadId !== threadId) {
-            setThreadId(currentThread.threadId);
-            return;
-          }
-        }
         const history = await getAgentHistory(threadId);
         if (!active) return;
-        const synchronized = historyTurns(history, t('agent.approvalIntro'));
+        const synchronized = historyTurns(history);
         setTurns((current) => (
           synchronizedTurnFingerprint(current) === synchronizedTurnFingerprint(synchronized)
             ? current
             : synchronized
         ));
         setThreadTitle(history.thread.title);
-        setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || undefined);
-        if (history.pendingRun) {
-          setSelectedApprovals((current) => retainPendingApprovalSelection(
-            current,
-            history.pendingRun?.pending_approvals || [],
-          ));
-        } else {
-          setSelectedApprovals((current) => current.size ? new Set() : current);
-        }
+        setThreadJourneyId(history.thread.current_journey_id || undefined);
       } catch (error) {
         console.warn('[AppAgent] history sync failed', error);
       }
@@ -884,7 +984,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     void syncHistory();
     const timer = setInterval(() => void syncHistory(), 2500);
     return () => { active = false; clearInterval(timer); };
-  }, [currentJourneyId, loading, resolvingRunId, restoring, t, threadId, visible]);
+  }, [loading, restoring, threadId, visible]);
 
   const completedActivitiesFor = async (response: AgentTurnResponse) => {
     try {
@@ -899,27 +999,22 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   const appendResponse = (response: AgentTurnResponse, createdThreadTitle?: string, activities = response.ui?.activities) => {
     setThreadId(response.threadId);
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
-    void AsyncStorage.setItem(storageKey(data.userId, currentJourneyId), response.threadId);
+    void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    if (response.status === 'pending_approval') {
-      const approvals = response.approvals || [];
-      setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
-      setTurns((current) => [...current, { id: `pending_${response.runId}_${Date.now()}`, role: 'assistant', text: t('agent.approvalIntro'), runId: response.runId, approvals, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities }]);
-    } else {
-      setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
-    }
+    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
-  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[]) => {
+  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string) => {
     const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
     const typedMessage = (preset ?? input).trim();
     const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
-    if (!message || loading || resolvingRunId || attachmentUploading || (trackPicking && !attachmentOverride)) return;
+    const visibleMessage = displayMessage?.trim() || message;
+    if (!message || loading || attachmentUploading || (trackPicking && !attachmentOverride)) return;
     const pendingHasTrackAttachment = pendingAttachments.some((attachment) => isTrackAttachmentName(attachment.name) || isTrackAttachmentName(attachment.uri));
     const lastTrackPromptTurn = [...turns].reverse().find(isTrackPromptTurn);
     const activeTrackPrompt = trackPrompt || (lastTrackPromptTurn ? trackPromptFromTurn(lastTrackPromptTurn) : undefined);
-    if (!attachmentOverride && !pendingHasTrackAttachment && wantsTrackUploadReply(message)) {
+    if (!skipTrackPrompt && !attachmentOverride && !pendingHasTrackAttachment && wantsTrackUploadReply(message)) {
       console.log('[AppAgent] intercepting track upload text without attachment; opening picker');
       void chooseTrackForPlan(activeTrackPrompt || {
         message: turns
@@ -952,7 +1047,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
         size: attachment.size,
         url: await uploadAgentAttachment(attachment.uri, data.userId, attachment.name, attachment.mimeType),
       })));
-      setTurns((current) => [...current, { id: `u_${Date.now()}`, role: 'user', text: message, attachments }]);
+      setTurns((current) => [...current, { id: `u_${Date.now()}`, role: 'user', text: visibleMessage, attachments }]);
       setInput('');
       setSelectedAttachments([]);
       setAttachmentTrayOpen(false);
@@ -962,12 +1057,12 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
       runActivitiesRef.current = [];
       setRunActivities([]);
       const creatingThread = !threadId;
-      const response = await sendAgentTurn({ message, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, ...localAgentTimeContext() });
+      const response = await sendAgentTurn({ message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, ...localAgentTimeContext() });
       const changedJourneyData = Boolean(response.ui?.undoAction)
         || response.ui?.activities?.some((activity) => activity.toolName === 'undo_last_agent_changes' && activity.status === 'completed');
-      if (response.status === 'completed' && changedJourneyData) await refetchWrittenJourney();
+      if (changedJourneyData) await refetchWrittenJourney();
       const completedActivities = await completedActivitiesFor(response);
-      appendResponse(response, creatingThread ? message.slice(0, 36) : undefined, completedActivities);
+      appendResponse(response, creatingThread ? visibleMessage.slice(0, 36) : undefined, completedActivities);
     } catch (error) {
       console.warn('[AppAgent] turn failed', error);
       if (requestStarted) {
@@ -985,38 +1080,28 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
   };
 
   useEffect(() => {
+    if (!visible || restoring || loading || attachmentUploading || trackPicking) return;
+    const prompt = pendingAutoSubmitRef.current;
+    if (!prompt) return;
+    const displayPrompt = pendingAutoDisplayRef.current;
+    pendingAutoSubmitRef.current = undefined;
+    pendingAutoDisplayRef.current = undefined;
+    onClearPrompt();
+    void submit(prompt, 'plan_journey', true, undefined, displayPrompt);
+  }, [attachmentUploading, loading, restoring, trackPicking, visible]);
+
+  useEffect(() => {
     if (!voiceSendOnEndRef.current || voiceActive) return;
     voiceSendOnEndRef.current = false;
     const message = input.trim();
     if (message && message !== voiceInitialInputRef.current.trim()) void submit(message);
   }, [input, voiceActive, voiceHolding]);
 
-  const resolve = async (turn: Turn, rejectAll = false) => {
-    if (!turn.runId || !turn.approvals?.length || resolvingRunId) return;
-    setResolvingRunId(turn.runId);
-    setResolvingAction(rejectAll ? 'reject' : 'execute');
-    try {
-      const decisions = turn.approvals.map((approval) => ({ callId: approval.callId, approved: !rejectAll && selectedApprovals.has(approval.callId) }));
-      const response = await resolveAgentRun({ runId: turn.runId, decisions, currentJourneyId: activeJourneyId });
-      setTurns((current) => current.filter((item) => item.id !== turn.id));
-      await refetchWrittenJourney();
-      const completedActivities = await completedActivitiesFor(response);
-      appendResponse(response, undefined, completedActivities);
-    } catch (error) {
-      console.warn('[AppAgent] approval failed', error);
-      setTurns((current) => [...current, { id: `e_${Date.now()}`, role: 'assistant', text: t('agent.executeError') }]);
-    } finally {
-      setResolvingRunId(undefined);
-      setResolvingAction(undefined);
-    }
-  };
-
   const newChat = () => {
     setThreadId(undefined);
     setThreadTitle('');
     setThreadJourneyId(currentJourneyId);
     setTurns([]);
-    setSelectedApprovals(new Set());
     setInput('');
     setAttachmentTrayOpen(false);
     setSelectedAttachments([]);
@@ -1030,9 +1115,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setThreadsLoading(true);
     try {
       const result = await getAgentThreads();
-      setThreads(currentJourneyId
-        ? result.threads.filter((thread) => thread.current_journey_id === currentJourneyId).slice(0, 1)
-        : result.threads);
+      setThreads(result.threads);
     } catch (error) {
       console.warn('[AppAgent] thread list failed', error);
       setThreads([]);
@@ -1049,21 +1132,16 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     setThreadsLoading(true);
     try {
       const history = await getAgentHistory(thread.id);
-      const restored: Turn[] = historyTurns(history, t('agent.approvalIntro'));
-      if (history.pendingRun) {
-        const approvals = history.pendingRun.pending_approvals || [];
-        setSelectedApprovals(new Set(approvals.filter((approval) => !approval.destructive).map((approval) => approval.callId)));
-      } else {
-        setSelectedApprovals(new Set());
-      }
+      const restored: Turn[] = historyTurns(history);
+      const selectedJourneyId = history.thread.current_journey_id || thread.current_journey_id || undefined;
       setThreadId(thread.id);
       setThreadTitle(history.thread.title);
-      setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || thread.current_journey_id || undefined);
+      setThreadJourneyId(selectedJourneyId);
       setTurns(restored);
       setInput('');
       setAttachmentTrayOpen(false);
       setSelectedAttachments([]);
-      await AsyncStorage.setItem(storageKey(data.userId, currentJourneyId), thread.id);
+      await AsyncStorage.setItem(storageKey(data.userId, selectedJourneyId), thread.id);
       setThreadSheetOpen(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
     } catch (error) {
@@ -1084,7 +1162,6 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
         setThreadTitle('');
         setThreadJourneyId(currentJourneyId);
         setTurns([]);
-        setSelectedApprovals(new Set());
         setInput('');
         setAttachmentTrayOpen(false);
         setSelectedAttachments([]);
@@ -1138,14 +1215,6 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     });
   }, [attachmentTrayOpen, attachmentTrayProgress]);
 
-  const toggleApproval = (callId: string) => {
-    setSelectedApprovals((current) => {
-      const next = new Set(current);
-      if (next.has(callId)) next.delete(callId); else next.add(callId);
-      return next;
-    });
-  };
-
   const copyTurn = async (turn: Turn) => {
     await Clipboard.setStringAsync(turn.text);
     setCopiedTurnId(turn.id);
@@ -1189,14 +1258,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
     return { message, intent: undefined };
   };
 
-  const quickRepliesForTurn = (turn: Turn, index: number) => {
+  const quickRepliesForTurn = (turn: Turn) => {
     if (isTrackPromptTurn(turn)) return [];
-    if (turn.quickReplies?.length) return turn.quickReplies;
-    const isPlanStarter = index === turns.length - 1
-      && turns.length <= 2
-      && turn.role === 'assistant'
-      && threadTitle === t('agent.suggestion.plan');
-    return isPlanStarter ? planStarterReplies : [];
+    return turn.quickReplies || [];
   };
 
   return (
@@ -1267,7 +1331,6 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
               {turn.role === 'assistant' && turn.activities?.length ? <ResearchActivity theme={theme} activities={turn.activities} running={false} /> : null}
               <View style={[
                 turn.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                turn.approvals?.length ? styles.approvalIntroBubble : null,
                 turn.role === 'user' ? { backgroundColor: theme.accentSoft } : null,
               ]}>
                 {turn.attachments?.length ? <MessageAttachments theme={theme} attachments={turn.attachments} /> : null}
@@ -1276,39 +1339,39 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
               {trackActionPromptForTurn(turn, turnIndex) ? (
                 <View style={styles.quickReplies}>
                   <Press
-                    disabled={loading || Boolean(resolvingRunId) || trackPicking}
+                    disabled={loading || trackPicking}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: loading || Boolean(resolvingRunId) || trackPicking, busy: trackPicking }}
+                    accessibilityState={{ disabled: loading || trackPicking, busy: trackPicking }}
                     onPress={() => {
                       const prompt = trackActionPromptForTurn(turn, turnIndex);
                       if (prompt) void chooseTrackForPlan(prompt);
                     }}
-                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || Boolean(resolvingRunId) || trackPicking) && styles.quickReplyDisabled]}
+                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || trackPicking) && styles.quickReplyDisabled]}
                   >
                     {trackPicking ? <ActivityIndicator size="small" color={theme.text} /> : null}
                     <Text style={[styles.quickReplyText, { color: theme.text }]}>上传轨迹</Text>
                   </Press>
                   <Press
-                    disabled={loading || Boolean(resolvingRunId) || trackPicking}
+                    disabled={loading || trackPicking}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: loading || Boolean(resolvingRunId) || trackPicking }}
+                    accessibilityState={{ disabled: loading || trackPicking }}
                     onPress={() => {
                       const prompt = trackActionPromptForTurn(turn, turnIndex);
                       if (prompt) continuePlanWithoutTrack(prompt);
                     }}
-                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || Boolean(resolvingRunId) || trackPicking) && styles.quickReplyDisabled]}
+                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || trackPicking) && styles.quickReplyDisabled]}
                   >
                     <Text style={[styles.quickReplyText, { color: theme.text }]}>暂不上传</Text>
                   </Press>
                 </View>
               ) : null}
-              {quickRepliesForTurn(turn, turnIndex).length ? (
+              {quickRepliesForTurn(turn).length ? (
                 <View style={styles.quickReplies}>
-                  {quickRepliesForTurn(turn, turnIndex).map((reply) => {
+                  {quickRepliesForTurn(turn).map((reply) => {
                     const inlineTrackPrompt = trackPromptFromTurn(turn) || trackPrompt || undefined;
                     const isTrackUploadReply = reply.action === 'upload_track' || wantsTrackUploadReply(reply.message) || wantsTrackUploadReply(reply.label);
                     const isSkipTrackReply = reply.action === 'skip_track' || Boolean(inlineTrackPrompt && wantsNoTrackReply(reply.message));
-                    const disabled = loading || Boolean(resolvingRunId) || trackPicking;
+                    const disabled = loading || trackPicking;
                     return (
                       <Press
                         key={`${turn.id}_${reply.message}`}
@@ -1329,51 +1392,7 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
                 </View>
               ) : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
-              {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.openPlan')} onOpen={onClose} /> : null}
-              {turn.approvals?.length ? (
-                <View style={[styles.proposal, { backgroundColor: theme.surfaceTop }]}>
-                  <Text style={[styles.proposalTitle, { color: theme.text }]}>{t('agent.proposal')}</Text>
-                  <View style={styles.actionList}>
-                    {turn.approvals.map((approval) => {
-                      const selected = selectedApprovals.has(approval.callId);
-                      return (
-                        <Press
-                          key={approval.callId}
-                          onPress={() => toggleApproval(approval.callId)}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: selected }}
-                          style={styles.actionRow}
-                        >
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[type.cardTitle, { color: approval.destructive ? theme.danger : theme.text }]}>{approval.title}</Text>
-                            <Text style={[styles.actionDetail, { color: theme.text2 }]}>{approval.detail}</Text>
-                          </View>
-                          <View style={[styles.checkbox, { backgroundColor: selected ? theme.text : theme.fieldSurface }]}>
-                            {selected ? <Check size={14} color={theme.featureSurface} strokeWidth={3} /> : null}
-                          </View>
-                        </Press>
-                      );
-                    })}
-                  </View>
-                  <Press
-                    disabled={resolvingRunId === turn.runId || selectedApprovals.size === 0}
-                    onPress={() => void resolve(turn)}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: resolvingRunId === turn.runId || selectedApprovals.size === 0 }}
-                    style={[styles.execute, { backgroundColor: selectedApprovals.size ? theme.text : theme.fieldSurface }]}
-                  >
-                    {resolvingRunId === turn.runId && resolvingAction === 'execute' ? <ActivityIndicator color={theme.featureSurface} /> : null}
-                    <Text style={[styles.executeText, { color: selectedApprovals.size ? theme.featureSurface : theme.text3 }]}>
-                      {t('agent.confirmSelected', { count: selectedApprovals.size })}
-                    </Text>
-                  </Press>
-                  <Press disabled={resolvingRunId === turn.runId} onPress={() => void resolve(turn, true)} style={styles.reject}>
-                    {resolvingRunId === turn.runId && resolvingAction === 'reject'
-                      ? <ActivityIndicator color={theme.text2} />
-                      : <Text style={[type.body, { color: theme.text2, fontWeight: '700' }]}>{t('agent.rejectAll')}</Text>}
-                  </Press>
-                </View>
-              ) : null}
+              {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} /> : null}
               {turn.role === 'assistant' ? (
                 <View style={styles.messageActions}>
                   <Press
@@ -1446,9 +1465,9 @@ export function AppAssistant({ theme, visible, initialPrompt, currentJourneyId, 
               </View>
               <Press
                 pointerEvents={voiceHolding ? 'none' : 'auto'}
-                disabled={loading || attachmentUploading || Boolean(resolvingRunId)}
+                disabled={loading || attachmentUploading}
                 accessibilityLabel={voiceActive ? t('agent.stopVoiceInput') : canSend ? t('agent.send') : t('agent.voiceInput')}
-                accessibilityState={{ disabled: loading || attachmentUploading || Boolean(resolvingRunId), selected: voiceActive }}
+                accessibilityState={{ disabled: loading || attachmentUploading, selected: voiceActive }}
                 onPress={voiceActive ? speech.stop : canSend ? () => void submit() : startVoiceInput}
                 style={[styles.composerAction, (canSend || voiceActive) && { backgroundColor: theme.accent }, voiceHolding && styles.voiceActionHidden]}
               >
@@ -1618,7 +1637,6 @@ const styles = StyleSheet.create({
   messageAttachmentName: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 17, fontWeight: '600', letterSpacing: 0 },
   messageMeasure: { opacity: 0 },
   messageInput: { padding: 0, textAlignVertical: 'top' },
-  approvalIntroBubble: { maxWidth: '100%', paddingHorizontal: 0, paddingVertical: 0, borderRadius: 0 },
   quickReplies: { alignItems: 'flex-start', gap: space.xs, marginTop: space.sm },
   quickReply: { minHeight: 44, maxWidth: '92%', borderRadius: radius.pill, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   quickReplyDisabled: { opacity: 0.65 },
@@ -1639,26 +1657,19 @@ const styles = StyleSheet.create({
   planItem: { marginTop: space.xs, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   planTime: { width: 78, fontSize: 12, lineHeight: 18, fontWeight: '600', letterSpacing: 0 },
   planItemText: { flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 19, letterSpacing: 0 },
-  openPlan: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  openPlanText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  viewJourney: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  viewJourneyText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
   copyAction: { alignSelf: 'flex-start', minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.xxs, marginTop: space.xs },
   messageActions: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   copyText: { fontSize: 13, lineHeight: 17, letterSpacing: 0 },
-  proposal: { marginTop: space.lg, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.08)' },
-  proposalTitle: { fontSize: 17, lineHeight: 22, fontWeight: '800', letterSpacing: 0 },
-  actionList: { marginTop: space.sm },
-  actionRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm },
-  actionDetail: { marginTop: space.xxs, fontSize: 12.5, lineHeight: 17, letterSpacing: 0 },
-  checkbox: { width: 24, height: 24, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
-  execute: { height: 52, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, marginTop: space.md },
-  executeText: { fontSize: 16, lineHeight: 21, fontWeight: '800', letterSpacing: 0 },
-  reject: { height: 42, alignItems: 'center', justifyContent: 'center', marginTop: space.xxs },
   researchProgress: { alignSelf: 'stretch', marginBottom: space.xl, paddingVertical: space.sm },
   researchHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   researchTitle: { fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
   researchLine: { minHeight: 26, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
   researchLineTitle: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  loadingDots: { width: 14, height: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },
   composerWrap: { paddingHorizontal: space.lg },
   pendingAttachmentsWrap: { paddingHorizontal: space.lg, paddingTop: space.sm },

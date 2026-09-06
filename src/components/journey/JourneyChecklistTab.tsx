@@ -187,7 +187,7 @@ function JourneyChecklistTabComponent({
           return {
             ...item,
             weightKg: item.weightKg ?? linkedGearItem?.w,
-            carryStatus: linkedGearItem ? itemStatus(linkedGearItem) : 'packed',
+            carryStatus: item.carryStatus ?? (linkedGearItem ? itemStatus(linkedGearItem) : 'packed'),
             inGearLibrary: linkedGearItem != null,
           };
         })
@@ -383,8 +383,9 @@ function JourneyChecklistTabComponent({
                     w: journeyItem.weightKg ?? 0,
                     p: 0,
                     qty: journeyItem.quantity,
+                    attrs: journeyItem.attrs,
                     note: journeyItem.note,
-                    status: 'packed',
+                    status: journeyItem.carryStatus ?? 'packed',
                   }));
                 if (saved?.id == null) return;
                 await controller.updateItem(journeyItem.id, {
@@ -394,6 +395,9 @@ function JourneyChecklistTabComponent({
                   categoryName: categories.find((candidate) => candidate.id === saved.cat)?.name ?? journeyItem.categoryName,
                   categoryColor: categories.find((candidate) => candidate.id === saved.cat)?.color ?? journeyItem.categoryColor,
                   weightKg: saved.w,
+                  weightEstimated: false,
+                  carryStatus: itemStatus(saved),
+                  attrs: saved.attrs,
                 });
                 setSelectedItem(null);
                 nav.showToast(t(exactMatch ? 'journey.packing.gearLinked' : 'journey.packing.gearAdded'));
@@ -917,6 +921,9 @@ function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, o
           }}
         >
           <Text style={[type.caption, { color: theme.text2 }]}>{item.quantity > 1 ? `×${item.quantity}` : t('journey.packing.oneItem')}</Text>
+          {item.attrs?.slice(0, 2).map(([key, value]) => (
+            <Text key={`${key}:${value}`} numberOfLines={1} style={[type.caption, { maxWidth: 140, color: theme.text2 }]}>{`${key} ${value}`}</Text>
+          ))}
           {item.weightKg != null ? <Text style={[type.caption, { color: theme.text2 }]}>{fmtWeight(item.weightKg * item.quantity, weightUnit, true)}</Text> : null}
           {isShared && carrier ? (
             <View
@@ -1504,6 +1511,8 @@ function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightU
         categoryColor: item ? catMap.get(item.cat)?.color : undefined,
         quantity: override?.qty ?? item?.qty ?? 1,
         weightKg: item?.w,
+        carryStatus: override?.status ?? (item ? itemStatus(item) : 'packed'),
+        attrs: item?.attrs,
         note: item?.note,
       };
     });
@@ -1518,6 +1527,8 @@ function PackingSourcePicker({ theme, mode, sets, gearItems, categories, weightU
           categoryColor: catMap.get(item.cat)?.color,
           quantity: item.qty ?? 1,
           weightKg: item.w,
+          carryStatus: itemStatus(item),
+          attrs: item.attrs,
           note: item.note,
         }))
       : (selectedTemplate?.items ?? []);
@@ -2147,7 +2158,7 @@ function circleControl(theme: Theme) {
   };
 }
 
-function PackingItemSheet({ theme, item, gearItem, categories, isShared, editable, companions, currentCompanionId, weightUnit, onClose, onOpenGearDetail, onSave, onAddToGearLibrary, onDelete }: { theme: Theme; item: JourneyPackingItem; gearItem?: GearItem; categories: GearCat[]; isShared: boolean; editable: boolean; companions: JourneyPackingController['companions']; currentCompanionId: number; weightUnit: WeightUnit; onClose: () => void; onOpenGearDetail: (gearItemId: number) => void; onSave: (patch: Partial<Pick<JourneyPackingItem, 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'note' | 'packed' | 'carrierCompanionId'>>) => Promise<void>; onAddToGearLibrary: (item: JourneyPackingItem) => Promise<void>; onDelete: () => Promise<void> }) {
+function PackingItemSheet({ theme, item, gearItem, categories, isShared, editable, companions, currentCompanionId, weightUnit, onClose, onOpenGearDetail, onSave, onAddToGearLibrary, onDelete }: { theme: Theme; item: JourneyPackingItem; gearItem?: GearItem; categories: GearCat[]; isShared: boolean; editable: boolean; companions: JourneyPackingController['companions']; currentCompanionId: number; weightUnit: WeightUnit; onClose: () => void; onOpenGearDetail: (gearItemId: number) => void; onSave: (patch: Partial<Pick<JourneyPackingItem, 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'weightEstimated' | 'attrs' | 'note' | 'packed' | 'carrierCompanionId'>>) => Promise<void>; onAddToGearLibrary: (item: JourneyPackingItem) => Promise<void>; onDelete: () => Promise<void> }) {
   const { t } = useI18n();
   const [carrierOpen, setCarrierOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -2157,6 +2168,9 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
   const [categoryColor, setCategoryColor] = useState(item.categoryColor);
   const [quantity, setQuantity] = useState(item.quantity);
   const [totalWeight, setTotalWeight] = useState(item.weightKg == null ? '' : String(Number((item.weightKg * item.quantity).toFixed(4))));
+  const [weightEstimated, setWeightEstimated] = useState(item.weightEstimated);
+  const [attrs, setAttrs] = useState<[string, string][]>((item.attrs || []).map(([key, value]) => [key, value]));
+  const [note, setNote] = useState(item.note ?? '');
   const carrier = companions.find((companion, index) => (companion.id ?? -(index + 1)) === item.carrierCompanionId);
   const parsedTotalWeight = totalWeight.trim() && Number.isFinite(Number(totalWeight)) ? Math.max(0, Number(totalWeight)) : undefined;
   const displayWeight = parsedTotalWeight == null ? undefined : splitWeight(parsedTotalWeight, weightUnit, true);
@@ -2169,18 +2183,25 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
       categoryColor: item.categoryColor,
       quantity: item.quantity,
       weightKg: item.weightKg,
+      weightEstimated: item.weightEstimated,
+      attrs: item.attrs,
+      note: item.note,
     }),
   );
 
-  const persistDraft = async (override: Partial<Pick<JourneyPackingItem, 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'note'>> = {}) => {
+  const persistDraft = async (override: Partial<Pick<JourneyPackingItem, 'name' | 'categoryName' | 'categoryColor' | 'quantity' | 'weightKg' | 'weightEstimated' | 'attrs' | 'note'>> = {}) => {
     const nextQuantity = override.quantity ?? quantity;
     const nextCategoryName = Object.prototype.hasOwnProperty.call(override, 'categoryName') ? override.categoryName : categoryName.trim() || undefined;
+    const nextAttrs = (override.attrs ?? attrs).map(([key, value]) => [key.trim(), value.trim()] as [string, string]).filter(([key, value]) => key && value);
     const patch = {
       name: override.name ?? name.trim(),
       categoryName: nextCategoryName,
       categoryColor: nextCategoryName ? (Object.prototype.hasOwnProperty.call(override, 'categoryColor') ? override.categoryColor : categoryColor) : undefined,
       quantity: nextQuantity,
       weightKg: Object.prototype.hasOwnProperty.call(override, 'weightKg') ? override.weightKg : parsedTotalWeight == null ? undefined : parsedTotalWeight / Math.max(1, nextQuantity),
+      weightEstimated: Object.prototype.hasOwnProperty.call(override, 'weightEstimated') ? override.weightEstimated : weightEstimated,
+      attrs: nextAttrs,
+      note: Object.prototype.hasOwnProperty.call(override, 'note') ? override.note : note.trim(),
     };
     if (!editable || !patch.name) return;
     const signature = JSON.stringify(patch);
@@ -2200,7 +2221,7 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
       void persistDraft();
     }, 280);
     return () => clearTimeout(timer);
-  }, [editable, name, categoryName, categoryColor, quantity, totalWeight]);
+  }, [editable, name, categoryName, categoryColor, quantity, totalWeight, weightEstimated, attrs, note]);
 
   const closeWithFlush = () => {
     void persistDraft();
@@ -2218,7 +2239,9 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
         categoryColor,
         quantity,
         weightKg: parsedTotalWeight == null ? undefined : parsedTotalWeight / Math.max(1, quantity),
-        note: item.note,
+        weightEstimated,
+        attrs: attrs.map(([key, value]) => [key.trim(), value.trim()] as [string, string]).filter(([key, value]) => key && value),
+        note: note.trim() || undefined,
       });
     } finally {
       setGearActionSaving(false);
@@ -2265,7 +2288,7 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
           )}
 
           <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
-            <PackingMetricTile theme={theme} label={t('gear.spec.totalWeight')}>
+            <PackingMetricTile theme={theme} label={`${t('gear.spec.totalWeight')}${weightEstimated ? ` · ${t('journey.packing.estimated')}` : ''}`}>
               {editable ? (
                 <View
                   style={{
@@ -2276,7 +2299,10 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
                 >
                   <TextInput
                     value={totalWeight}
-                    onChangeText={setTotalWeight}
+                    onChangeText={(value) => {
+                      setTotalWeight(value);
+                      setWeightEstimated(false);
+                    }}
                     placeholder="0.0"
                     placeholderTextColor={theme.text3}
                     keyboardType="decimal-pad"
@@ -2514,6 +2540,55 @@ function PackingItemSheet({ theme, item, gearItem, categories, isShared, editabl
               </Press>
             </View>
           ) : null}
+
+          <View style={{ marginTop: space.xl }}>
+            <View style={{ minHeight: 36, flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={[type.body, { flex: 1, color: theme.text2 }]}>{t('gear.section.customAttrs')}</Text>
+              {editable ? (
+                <Press
+                  onPress={() => setAttrs((current) => [...current, ['', '']])}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('gear.editor.addAttr')}
+                  style={{ width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+                >
+                  <Icon name="plus" color={theme.accent} size={15} />
+                </Press>
+              ) : null}
+            </View>
+            {attrs.length ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs }}>
+                {attrs.map(([key, value], index) => (
+                  <View key={index} style={{ flexGrow: 1, flexBasis: '46%', minWidth: 140, minHeight: 76, padding: space.md, paddingRight: editable ? space.xl : space.md, borderRadius: radius.card, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+                    {editable ? (
+                      <>
+                        <Press onPress={() => setAttrs((current) => current.filter((_, attrIndex) => attrIndex !== index))} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('common.delete')} style={{ position: 'absolute', right: space.xs, top: space.xs, zIndex: 1, padding: space.xxs }}>
+                          <Icon name="close" color={theme.text3} size={13} />
+                        </Press>
+                        <TextInput value={key} onChangeText={(nextKey) => setAttrs((current) => current.map((entry, attrIndex) => attrIndex === index ? [nextKey, entry[1]] : entry))} placeholder={t('gear.editor.attrNamePlaceholder')} placeholderTextColor={theme.text3} style={[type.body, { padding: 0, color: theme.text2 }]} />
+                        <TextInput value={value} onChangeText={(nextValue) => setAttrs((current) => current.map((entry, attrIndex) => attrIndex === index ? [entry[0], nextValue] : entry))} placeholder={t('gear.editor.attrValuePlaceholder')} placeholderTextColor={theme.text3} multiline style={[type.cardTitle, { marginTop: space.xs, padding: 0, color: theme.text }]} />
+                      </>
+                    ) : (
+                      <>
+                        <Text style={[type.body, { color: theme.text2 }]}>{key}</Text>
+                        <Text style={[type.cardTitle, { marginTop: space.xs, color: theme.text }]}>{value}</Text>
+                      </>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ) : !editable ? (
+              <Text style={[type.body, { marginTop: space.xs, color: theme.text3 }]}>{t('journey.packing.noDetails')}</Text>
+            ) : null}
+          </View>
+
+          <View style={{ marginTop: space.xl }}>
+            <Text style={[type.body, { color: theme.text2 }]}>{t('journey.packing.note')}</Text>
+            {editable ? (
+              <TextInput value={note} onChangeText={setNote} placeholder={t('journey.packing.notePlaceholder')} placeholderTextColor={theme.text3} multiline textAlignVertical="top" style={[type.body, { minHeight: 84, marginTop: space.xs, padding: space.md, borderRadius: radius.control, color: theme.text, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }]} />
+            ) : (
+              <Text style={[type.body, { marginTop: space.xs, color: note ? theme.text : theme.text3 }]}>{note || t('journey.packing.noNote')}</Text>
+            )}
+          </View>
 
           <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.lg }}>
             {gearItem?.id != null ? (

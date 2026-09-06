@@ -33,7 +33,7 @@ Supabase Edge Function. Its Web Service key must remain server-side:
 
 ```bash
 supabase secrets set AMAP_WEB_KEY=YOUR_WEB_SERVICE_KEY
-supabase functions deploy map-search
+infra/supabase/deploy-functions.sh map-search
 ```
 
 Do not create an `EXPO_PUBLIC_AMAP_WEB_KEY`; every `EXPO_PUBLIC_` variable is

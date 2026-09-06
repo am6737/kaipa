@@ -142,9 +142,12 @@ repls={
 for a,b in repls.items(): s=s.replace(a,b)
 compose.write_text(s)
 
-# AI and product-link preview credentials are server-only. Keep the values in
+# Map, AI, and product-link preview credentials are server-only. Keep the values in
 # the generated runtime .env and expose only these names to the Edge Runtime.
 s=compose.read_text()
+map_env='''      # map-search: server-side AMap Web Service credential
+      AMAP_WEB_KEY: "${AMAP_WEB_KEY:-}"
+'''
 ai_env='''      # app-agent：服务端模型凭证与 OpenAI 兼容端点
       KAIPA_AI_API_KEY: "${KAIPA_AI_API_KEY:-}"
       KAIPA_AI_BASE_URL: "${KAIPA_AI_BASE_URL:-https://ai.dootask.com/v1}"
@@ -171,11 +174,13 @@ gear_env='''      # gear-link-preview：淘宝/天猫、京东开放平台服务
       JD_API_METHOD: "${JD_API_METHOD:-}"
       GEAR_LINK_ALLOWED_HOSTS: "${GEAR_LINK_ALLOWED_HOSTS:-}"
 '''
-if 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s:
+if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s:
     marker='      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"\n'
     if marker not in s:
         raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
     missing=''
+    if 'AMAP_WEB_KEY:' not in s:
+        missing+=map_env
     if 'KAIPA_AI_API_KEY:' not in s:
         missing+=ai_env
     else:
@@ -240,6 +245,7 @@ def configured(name: str, fallback: str = '') -> str:
     return os.environ.get(name, existing_env.get(name, fallback))
 
 agent_env={
+ 'AMAP_WEB_KEY': configured('AMAP_WEB_KEY'),
  'KAIPA_AI_API_KEY': configured('KAIPA_AI_API_KEY'),
  'KAIPA_AI_BASE_URL': configured('KAIPA_AI_BASE_URL', 'https://ai.dootask.com/v1'),
  'KAIPA_AI_MODEL': configured('KAIPA_AI_MODEL', 'gpt-5.6-sol'),
@@ -313,6 +319,8 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-categories-per-user.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-category-delete-to-uncategorized.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/account-deletion.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-agent-thread-cascade.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260904170000_journey_complete_versions.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

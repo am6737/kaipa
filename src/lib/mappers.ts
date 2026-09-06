@@ -95,6 +95,7 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
     routeShowPhotos: j.route_show_photos ?? true,
     routeShowTimeline: j.route_show_timeline ?? true,
     photoUris: j.photo_uris,
+    deletedAt: j.deleted_at ?? undefined,
   };
 }
 

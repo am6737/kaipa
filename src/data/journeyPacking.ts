@@ -1,4 +1,5 @@
 import type { Companion } from './pois';
+import type { GearCarryStatus } from './gear';
 
 export type JourneyPackingListKind = 'personal' | 'shared';
 export type JourneyPackingSourceType = 'gear' | 'gearSet' | 'recommendedTemplate' | 'custom';
@@ -21,6 +22,9 @@ export interface JourneyPackingItem {
   categoryColor?: string;
   quantity: number;
   weightKg?: number;
+  weightEstimated?: boolean;
+  carryStatus?: GearCarryStatus;
+  attrs?: [string, string][];
   note?: string;
   packed: boolean;
   carrierCompanionId?: number;
@@ -40,6 +44,9 @@ export interface JourneyPackingItemInput {
   categoryColor?: string;
   quantity?: number;
   weightKg?: number;
+  weightEstimated?: boolean;
+  carryStatus?: GearCarryStatus;
+  attrs?: [string, string][];
   note?: string;
 }
 

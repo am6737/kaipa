@@ -26,6 +26,7 @@
     "expo-blur": "~56.0.3",
     "expo-camera": "~56.0.8",
     "expo-clipboard": "~56.0.4",
+    "expo-constants": "~56.0.18",
     "expo-dev-client": "~56.0.20",
     "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.6",
@@ -73,6 +74,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "deploy:functions": "infra/supabase/deploy-functions.sh",
+    "db:migrate:self-hosted": "infra/supabase/apply-migration.sh",
+    "eval:app-agent:packing": "node --experimental-strip-types --env-file=.env scripts/evaluate-app-agent-packing.mjs",
     "postinstall": "patch-package"
   },
   "private": true

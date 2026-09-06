@@ -8,15 +8,6 @@ export type AgentContext = {
   allowUndatedJourney?: boolean;
 };
 
-export type PendingApproval = {
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  title: string;
-  detail: string;
-  destructive?: boolean;
-};
-
 export type AgentQuickReply = {
   label: string;
   message: string;
@@ -77,9 +68,8 @@ export type AgentIntent = 'plan_journey';
 export type AgentResponse = {
   threadId: string;
   runId: string;
-  status: 'completed' | 'pending_approval';
+  status: 'completed';
   message?: string;
   quickReplies?: AgentQuickReply[];
-  approvals?: PendingApproval[];
   ui?: AgentMessageUi;
 };

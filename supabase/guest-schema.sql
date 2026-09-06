@@ -16,8 +16,28 @@ create table if not exists journey_shares (
 alter table journey_shares enable row level security;
 create policy "shares_owner" on journey_shares for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create or replace function public.is_journey_shared_active(target_journey_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from journeys j
+    join journey_shares js on js.journey_id = j.id
+    where j.id = target_journey_id
+      and j.deleted_at is null
+      and js.active = true
+  );
+$$;
+revoke all on function public.is_journey_shared_active(text) from public;
+grant execute on function public.is_journey_shared_active(text) to anon, authenticated;
+
 create policy "shares_anon_select" on journey_shares for select to anon
-  using (active = true);
+  using (active = true and public.is_journey_shared_active(journey_id));
 
 -- ─── shared_moments ─────────────────────────────────────────────────────────
 -- Photos/notes uploaded by guests (or app users) via the web link.
@@ -36,11 +56,11 @@ create table if not exists shared_moments (
 );
 alter table shared_moments enable row level security;
 create policy "moments_anon_select" on shared_moments for select to anon
-  using (share_id in (select id from journey_shares where active = true));
+  using (public.is_journey_shared_active(journey_id) and share_id in (select id from journey_shares where active = true));
 create policy "moments_anon_insert" on shared_moments for insert to anon
-  with check (share_id in (select id from journey_shares where active = true));
+  with check (public.is_journey_shared_active(journey_id) and share_id in (select id from journey_shares where active = true));
 create policy "moments_anon_delete" on shared_moments for delete to anon
-  using (share_id in (select id from journey_shares where active = true));
+  using (public.is_journey_shared_active(journey_id) and share_id in (select id from journey_shares where active = true));
 create policy "moments_owner_all" on shared_moments for all to authenticated
   using (journey_id in (select id from journeys where user_id = auth.uid()));
 
@@ -48,16 +68,16 @@ create policy "moments_owner_all" on shared_moments for all to authenticated
 -- Guests need journey metadata, companion roster, and host profile.
 
 create policy "journeys_anon_via_share" on journeys for select to anon
-  using (id in (select journey_id from journey_shares where active = true));
+  using (public.is_journey_shared_active(id));
 
 create policy "companions_anon_via_share" on companions for select to anon
-  using (journey_id in (select journey_id from journey_shares where active = true));
+  using (public.is_journey_shared_active(journey_id));
 
 create policy "profiles_anon_via_share" on profiles for select to anon
   using (id in (select user_id from journey_shares where active = true));
 
 create policy "inspo_anon_via_share" on inspo_media for select to anon
-  using (journey_id in (select journey_id from journey_shares where active = true));
+  using (public.is_journey_shared_active(journey_id));
 
 -- ─── storage bucket ─────────────────────────────────────────────────────────
 -- Create the shared-moments bucket if it doesn't exist.
@@ -91,9 +111,13 @@ begin
     raise exception 'JOURNEY_INVITE_AUTH_REQUIRED';
   end if;
 
-  select journey_id into target_journey_id
-  from journey_shares
-  where slug = invite_slug and code = invite_code and active = true
+  select js.journey_id into target_journey_id
+  from journey_shares js
+  join journeys j on j.id = js.journey_id
+  where js.slug = invite_slug
+    and js.code = invite_code
+    and js.active = true
+    and j.deleted_at is null
   limit 1;
 
   if target_journey_id is null then

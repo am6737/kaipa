@@ -30,26 +30,56 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   mapStyle = 'standard',
   showLabels = true,
   interactive = true,
+  showUserLocation = false,
+  followUserLocation = false,
   markers = [],
   polylines = [],
   onPress,
+  onUserLocationChange,
   onCameraChange,
   onGestureStart,
 }, ref) {
   const mapRef = useRef<MapView>(null);
   const fitted = useRef(false);
+  const programmaticUntil = useRef(0);
+  const mapReady = useRef(false);
+  const hasLayout = useRef(false);
+  const pendingCameraAction = useRef<(() => void) | null>(null);
+
+  const markProgrammaticMove = (duration: number) => {
+    programmaticUntil.current = Date.now() + duration + 180;
+  };
+
+  const flushCameraAction = () => {
+    if (!mapReady.current || !hasLayout.current || !pendingCameraAction.current) return;
+    const action = pendingCameraAction.current;
+    pendingCameraAction.current = null;
+    requestAnimationFrame(action);
+  };
+
+  const runWhenMapIsUsable = (action: () => void) => {
+    pendingCameraAction.current = action;
+    flushCameraAction();
+  };
 
   useImperativeHandle(ref, () => ({
     fitCoordinates: (coordinates, edgePadding, duration = 600) => {
       if (!coordinates.length) return;
-      mapRef.current?.fitToCoordinates(coordinates.map(point), { edgePadding: padding(edgePadding), animated: duration > 0 });
+      markProgrammaticMove(duration);
+      runWhenMapIsUsable(() => {
+        mapRef.current?.fitToCoordinates(coordinates.map(point), { edgePadding: padding(edgePadding), animated: duration > 0 });
+      });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500) => {
-      mapRef.current?.animateToRegion(region(coordinate, zoom), duration);
+      markProgrammaticMove(duration);
+      runWhenMapIsUsable(() => mapRef.current?.animateToRegion(region(coordinate, zoom), duration));
     },
     resetNorth: () => {
-      void mapRef.current?.getCamera().then((camera) => {
-        mapRef.current?.animateCamera({ ...camera, heading: 0, pitch: 0 }, { duration: 360 });
+      markProgrammaticMove(360);
+      runWhenMapIsUsable(() => {
+        void mapRef.current?.getCamera().then((camera) => {
+          mapRef.current?.animateCamera({ ...camera, heading: 0, pitch: 0 }, { duration: 360 });
+        });
       });
     },
   }), []);
@@ -59,6 +89,11 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     <MapView
       ref={mapRef}
       style={style}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        hasLayout.current = width > 0 && height > 0;
+        flushCameraAction();
+      }}
       mapType={mapType}
       initialRegion={region(initialCenter, initialZoom)}
       showsCompass={false}
@@ -66,20 +101,36 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       showsBuildings={mapStyle !== 'terrain'}
       showsPointsOfInterests={showLabels}
       showsTraffic={false}
+      showsUserLocation={showUserLocation}
+      followsUserLocation={followUserLocation}
       scrollEnabled={interactive}
       zoomEnabled={interactive}
       rotateEnabled={interactive}
       pitchEnabled={interactive}
       onMapReady={() => {
-        if (fitted.current || !initialFitCoordinates?.length) return;
-        fitted.current = true;
-        mapRef.current?.fitToCoordinates(initialFitCoordinates.map(point), { edgePadding: padding(initialPadding), animated: false });
+        mapReady.current = true;
+        if (!fitted.current && initialFitCoordinates?.length) {
+          fitted.current = true;
+          markProgrammaticMove(0);
+          pendingCameraAction.current = () => {
+            mapRef.current?.fitToCoordinates(initialFitCoordinates.map(point), { edgePadding: padding(initialPadding), animated: false });
+          };
+        }
+        flushCameraAction();
       }}
       onPress={(event) => onPress?.([event.nativeEvent.coordinate.longitude, event.nativeEvent.coordinate.latitude])}
+      onUserLocationChange={(event) => {
+        const coordinate = event.nativeEvent.coordinate;
+        if (!coordinate) return;
+        onUserLocationChange?.([coordinate.longitude, coordinate.latitude]);
+      }}
       onPanDrag={onGestureStart ? () => onGestureStart() : undefined}
-      onRegionChangeComplete={onCameraChange ? () => {
-        void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));
-      } : undefined}
+      onRegionChangeComplete={() => {
+        if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
+        if (onCameraChange) {
+          void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));
+        }
+      }}
     >
       {polylines.map((line) => (
         <Polyline

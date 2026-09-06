@@ -9,7 +9,7 @@ import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
 
-const TABS: MainTab[] = ['gear', 'discover', 'me'];
+const TABS: MainTab[] = ['discover', 'journey', 'gear', 'me'];
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
@@ -100,18 +100,21 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   bar: {
-    width: 208,
+    flex: 1,
     height: 52,
     flexDirection: 'row',
-    padding: space.xxs,
+    paddingVertical: space.xxs,
+    paddingHorizontal: space.sm,
     borderRadius: radius.pill,
     borderWidth: 1.5,
   },
   row: {
-    width: 336,
+    width: '100%',
+    maxWidth: 400,
+    paddingHorizontal: space.xl,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 76,
+    gap: space.lg,
   },
   assistant: {
     width: 52,

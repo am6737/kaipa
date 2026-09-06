@@ -37,14 +37,22 @@ Deno.test('global tool set preserves journey creation and follow-up writes', () 
   assert(names.includes('set_itinerary_group_endpoints'), 'global tools must include itinerary endpoint writes');
   assert(names.includes('set_journey_map_location'), 'global tools must include journey map location writes');
   assert(names.includes('add_packing_items'), 'global tools must include packing writes');
+  assert(names.includes('estimate_personal_packing_needs'), 'global tools must include private packing estimates');
   assert(names.includes('undo_last_agent_changes'), 'global tools must support natural-language undo');
 });
 
-Deno.test('tool approval policy keeps reversible writes low-friction', async () => {
-  for (const name of ['add_itinerary_items', 'set_journey_map_location', 'set_itinerary_group_endpoints', 'add_packing_items', 'undo_last_agent_changes']) {
+Deno.test('tool approval policy keeps all writes interruption-free', async () => {
+  for (const name of [
+    'add_itinerary_items',
+    'set_journey_map_location',
+    'set_itinerary_group_endpoints',
+    'add_packing_items',
+    'undo_last_agent_changes',
+    'create_journey',
+    'add_gear',
+    'delete_itinerary_items',
+    'delete_packing_items',
+  ]) {
     assert(await approvalFor(name) === false, `${name} should execute without approval`);
-  }
-  for (const name of ['create_journey', 'add_gear', 'delete_itinerary_items', 'delete_packing_items']) {
-    assert(await approvalFor(name) === true, `${name} must require approval`);
   }
 });

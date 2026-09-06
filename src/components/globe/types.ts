@@ -16,12 +16,11 @@ export interface GlobePoi {
   label?: string;
 }
 
-export type GlobeMapStyle = 'standard' | 'light' | 'satellite';
+export type GlobeMapStyle = 'standard' | 'satellite';
 
-export type GlobeCameraAction = {
-  type: 'fitRoute' | 'resetNorth';
-  revision: number;
-};
+export type GlobeCameraAction =
+  | { type: 'fitRoute' | 'resetNorth'; revision: number }
+  | { type: 'locate'; revision: number; coordinate: [number, number] };
 
 
 export interface GlobeRouteBoundary {
@@ -67,11 +66,13 @@ export interface GlobeProps {
   /** switch the itinerary tab when a route endpoint label is pressed */
   onRouteBoundaryPress?: (groupKey: string) => void;
   /** show the current-location pin at this coordinate */
-  pin?: { lng: number; lat: number } | null;
+  pin?: { lng: number; lat: number; heading?: number } | null;
+  /** keep the native map camera centered as the current location updates */
+  followUserLocation?: boolean;
+  /** reports the native map SDK's current user coordinate */
+  onUserLocationChange?: (coordinate: [number, number]) => void;
   /** base-map presentation used by the platform-native renderer */
   mapStyle?: GlobeMapStyle;
-  /** app language used by classic-style label expressions */
-  mapLocale?: 'zh' | 'en';
   /** hide ordinary place/road/POI labels while keeping the journey route */
   showMapLabels?: boolean;
   /** imperatively re-frame the journey route or restore north-up orientation */

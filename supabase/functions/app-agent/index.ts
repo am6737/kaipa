@@ -5,7 +5,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
 import { SupabaseAgentSession } from './session.ts';
 import { bindRunClient, releaseRunClient } from './tools.ts';
-import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentPlanPreview, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource, PendingApproval } from './types.ts';
+import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentPlanPreview, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
 import { canonicalJourneyDay } from './journey-days.ts';
 import { itineraryMinutes } from './itinerary-time.ts';
 
@@ -49,71 +49,6 @@ function bearerToken(req: Request) {
   return scheme?.toLowerCase() === 'bearer' ? token : '';
 }
 
-function parseArguments(value?: string): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function approvalSummary(toolName: string, args: Record<string, unknown>) {
-  if (toolName === 'add_gear') return { title: `添加装备「${String(args.name || '')}」`, detail: `${Number(args.quantity || 1)} 件` };
-  if (toolName === 'create_journey') {
-    const detail = [
-      `${Number(args.days || 1)} 天`,
-      String(args.region || ''),
-      args.plannedDate ? String(args.plannedDate) : '',
-      args.trackAttachmentName ? `轨迹 ${String(args.trackAttachmentName)}` : '',
-    ].filter(Boolean).join('  ·  ');
-    return { title: `创建旅程「${String(args.name || '')}」`, detail };
-  }
-  if (toolName === 'add_itinerary_items') return { title: '写入旅程行程', detail: `新增 ${Array.isArray(args.items) ? args.items.length : 0} 项安排` };
-  if (toolName === 'set_itinerary_group_endpoints') {
-    const endpoints = Array.isArray(args.endpoints) ? args.endpoints : [];
-    const labels = endpoints.flatMap((endpoint) => {
-      if (!endpoint || typeof endpoint !== 'object' || !('day' in endpoint)) return [];
-      const location = 'locationName' in endpoint && endpoint.locationName ? String(endpoint.locationName) : '';
-      const distance = 'endDistanceKm' in endpoint && Number.isFinite(Number(endpoint.endDistanceKm))
-        ? `${Number(endpoint.endDistanceKm).toFixed(1)} km`
-        : '';
-      const endpointLabel = [location, distance].filter(Boolean).join(' · ');
-      return [`${String(endpoint.day)}${endpointLabel ? `：${endpointLabel}` : ''}`];
-    });
-    return { title: '设置行程组终点', detail: labels.length ? labels.join('、') : `设置 ${endpoints.length} 个终点` };
-  }
-  if (toolName === 'add_packing_items') return { title: '写入装备清单', detail: `新增 ${Array.isArray(args.items) ? args.items.length : 0} 件装备` };
-  if (toolName === 'delete_itinerary_items') {
-    const items = Array.isArray(args.items) ? args.items : [];
-    const labels = items.flatMap((item) => item && typeof item === 'object' && 'title' in item ? [String(item.title)] : []);
-    const detail = `${labels.slice(0, 4).join('、')}${labels.length > 4 ? ` 等 ${labels.length} 项` : ''}`;
-    return { title: `删除 ${items.length} 项行程安排`, detail: detail || '此操作无法撤销', destructive: true };
-  }
-  if (toolName === 'delete_packing_items') {
-    const items = Array.isArray(args.items) ? args.items : [];
-    const labels = items.flatMap((item) => item && typeof item === 'object' && 'name' in item ? [String(item.name)] : []);
-    const detail = `${labels.slice(0, 4).join('、')}${labels.length > 4 ? ` 等 ${labels.length} 项` : ''}`;
-    return { title: `删除 ${items.length} 项清单物品`, detail: detail || '此操作无法撤销', destructive: true };
-  }
-  return { title: `执行 ${toolName}`, detail: '此操作会修改你的数据' };
-}
-
-function toApprovals(interruptions: any[]): PendingApproval[] {
-  return interruptions.map((item) => {
-    const toolName = item.name || item.toolName || 'unknown_tool';
-    const args = parseArguments(item.arguments);
-    const summary = approvalSummary(toolName, args);
-    return {
-      callId: item.callId || item.rawItem?.callId || item.rawItem?.call_id || '',
-      toolName,
-      arguments: args,
-      ...summary,
-    };
-  }).filter((item) => item.callId);
-}
-
 function normalizeQuickReplies(value: unknown): AgentQuickReply[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -121,7 +56,7 @@ function normalizeQuickReplies(value: unknown): AgentQuickReply[] {
     const record = item as Record<string, unknown>;
     const label = typeof record.label === 'string' ? record.label.trim().slice(0, 24) : '';
     const message = typeof record.message === 'string' ? record.message.trim().slice(0, 200) : '';
-    const action = record.action === 'upload_track' || record.action === 'skip_track' ? record.action : undefined;
+    const action: AgentQuickReply['action'] = record.action === 'upload_track' || record.action === 'skip_track' ? record.action : undefined;
     return label && message ? [{ label, message, action }] : [];
   }).slice(0, 4);
 }
@@ -145,22 +80,6 @@ function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickR
     return { text, quickReplies: [] };
   }
   return { text: value == null ? '' : String(value), quickReplies: [] };
-}
-
-function fallbackQuickReplies(intent: AgentIntent | undefined, locale: 'zh' | 'en' | undefined): AgentQuickReply[] {
-  if (intent !== 'plan_journey') return [];
-  if (locale === 'en') {
-    return [
-      { label: 'Sanya', message: 'I want to visit Sanya for a relaxing coastal trip.' },
-      { label: 'Beijing', message: 'I want to visit Beijing and combine city sights with an outdoor route.' },
-      { label: 'Yunnan', message: 'I want to visit Yunnan, with scenery and light hiking as priorities.' },
-    ];
-  }
-  return [
-    { label: '我想去三亚', message: '我想去三亚，以轻松的滨海旅行为主。' },
-    { label: '我想去北京', message: '我想去北京，希望结合城市游览和户外路线。' },
-    { label: '我想去云南', message: '我想去云南，优先安排自然风景和轻徒步。' },
-  ];
 }
 
 function validClientRunId(value?: string) {
@@ -422,7 +341,7 @@ async function latestCreateJourneyFlow(client: any, threadId: string): Promise<C
   // and recover the original create-journey request from recent user messages.
   const inferredStep = inferredFlowStepFromAssistant(String(latest?.content || ''));
   if (!inferredStep) return null;
-  const original = messages.find((message) => message.role === 'user' && shouldStartCreateJourneyFlow(String(message.content || ''), undefined));
+  const original = messages.find((message: { role?: string; content?: unknown }) => message.role === 'user' && shouldStartCreateJourneyFlow(String(message.content || ''), undefined));
   return original ? { step: inferredStep, originalMessage: String(original.content || '').trim() } : null;
 }
 
@@ -540,7 +459,7 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   const journeyId = typeof itineraryArgs?.journeyId === 'string' ? itineraryArgs.journeyId : undefined;
   const items = Array.isArray(itineraryArgs?.items) ? itineraryArgs.items : [];
   if (journeyId && items.length) {
-    const journey = await client.from('journeys').select('id,name,planned_date,date,total_days').eq('id', journeyId).maybeSingle();
+    const journey = await client.from('journeys').select('id,name,planned_date,date,total_days').eq('id', journeyId).is('deleted_at', null).maybeSingle();
     if (journey.error) throw journey.error;
     if (journey.data) {
       const grouped = new Map<string, Array<{ title: string; timeStart?: number; timeEnd?: number }>>();
@@ -568,9 +487,23 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
     toolName: call.tool_name,
     status: call.status,
     arguments: call.arguments || {},
-    // Search output includes result and provider counts used by the client. Other
-    // tool payloads can contain large private records and are not message UI.
-    output: call.tool_name === 'search_travel_web' ? call.output : undefined,
+    // Only expose the small fields required by progress UI. Full tool payloads
+    // can contain private or very large journey records.
+    output: call.tool_name === 'search_travel_web'
+      ? call.output
+      : call.tool_name === 'get_journey_details' && call.output && typeof call.output === 'object'
+      ? {
+          hasTrack: Boolean(
+            call.output.trackSummary
+            || call.output.journey?.track_file_url
+            || call.output.journey?.track_file_name
+            || (Array.isArray(call.output.journey?.track_coords) && call.output.journey.track_coords.length > 1)
+          ),
+          distance: typeof call.output.journey?.dist === 'string' ? call.output.journey.dist : undefined,
+          ascent: typeof call.output.journey?.asc_ === 'string' ? call.output.journey.asc_ : undefined,
+          totalKm: typeof call.output.trackSummary?.totalKm === 'number' ? call.output.trackSummary.totalKm : undefined,
+        }
+      : undefined,
   }));
 
   return {
@@ -608,11 +541,12 @@ Deno.serve(async (req) => {
     activeUserId = user.id;
 
     const body = await req.json().catch(() => ({})) as {
-      action?: 'turn' | 'resolve' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo';
+      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo';
       threadId?: string;
       runId?: string;
       clientRunId?: string;
       message?: string;
+      displayMessage?: string;
       currentJourneyId?: string;
       intent?: AgentIntent;
       locale?: 'zh' | 'en';
@@ -621,17 +555,22 @@ Deno.serve(async (req) => {
       clientLocalTime?: string;
       clientTimeZone?: string;
       clientTimestamp?: string;
-      decisions?: Array<{ callId: string; approved: boolean }>;
     };
 
     if (body.action === 'threads') {
       const threads = await client
         .from('agent_threads')
-        .select('id,title,current_journey_id,created_at,updated_at,journeys(name,photo_uris)')
+        .select('id,title,current_journey_id,created_at,updated_at,journeys(name,photo_uris,deleted_at)')
         .order('updated_at', { ascending: false })
         .limit(50);
       if (threads.error) throw threads.error;
-      return json({ threads: threads.data || [] });
+      return json({
+        threads: (threads.data || []).filter((thread: any) => {
+          if (!thread.current_journey_id) return true;
+          const journey = Array.isArray(thread.journeys) ? thread.journeys[0] : thread.journeys;
+          return Boolean(journey && !journey.deleted_at);
+        }),
+      });
     }
 
     if (body.action === 'journey_thread') {
@@ -685,67 +624,20 @@ Deno.serve(async (req) => {
 
     if (body.action === 'history') {
       if (!body.threadId) return json({ messages: [] });
-      const [thread, messages, pending] = await Promise.all([
+      const [thread, messages] = await Promise.all([
         client.from('agent_threads').select('id,title,current_journey_id').eq('id', body.threadId).maybeSingle(),
         client.from('agent_messages').select('id,role,content,ui,created_at').eq('thread_id', body.threadId).order('created_at'),
-        client.from('agent_runs').select('id,status,pending_approvals').eq('thread_id', body.threadId).eq('status', 'pending_approval').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       ]);
       if (thread.error) throw thread.error;
       if (!thread.data) return json({ error: { code: 'thread_not_found', message: '对话不存在' } }, 404);
       if (messages.error) throw messages.error;
-      if (pending.error) throw pending.error;
-      return json({ thread: thread.data, messages: messages.data || [], pendingRun: pending.data || null });
+      return json({ thread: thread.data, messages: messages.data || [] });
     }
 
     const runtime = createAgentRuntime(agentModelConfig(), Boolean(body.currentJourneyId));
 
-    if (body.action === 'resolve') {
-      if (!body.runId || !body.decisions?.length) return json({ error: { code: 'invalid_request', message: '审批请求无效' } }, 400);
-      const runRecord = await client.from('agent_runs').select('*').eq('id', body.runId).eq('status', 'pending_approval').single();
-      if (runRecord.error || !runRecord.data?.state) return json({ error: { code: 'run_not_found', message: '待审批操作已失效' } }, 404);
-      activeRunId = body.runId;
-      activeThreadId = runRecord.data.thread_id;
-      const context: AgentContext = { userId: user.id, threadId: runRecord.data.thread_id, runId: body.runId, currentJourneyId: body.currentJourneyId };
-      bindRunClient(body.runId, client);
-      const runContext = new runtime.RunContext(context);
-      const state = await runtime.RunState.fromStringWithContext(runtime.agent, runRecord.data.state, runContext, { contextStrategy: 'replace' });
-      const interruptions = state.getInterruptions();
-      const decisions = new Map(body.decisions.map((decision) => [decision.callId, decision.approved]));
-      for (const interruption of interruptions) {
-        const callId = (interruption.rawItem as { callId?: string })?.callId;
-        if (!callId || !decisions.has(callId)) return json({ error: { code: 'decision_required', message: '请处理全部待确认操作' } }, 400);
-        if (decisions.get(callId)) state.approve(interruption);
-        else state.reject(interruption, { message: '用户拒绝了这项数据修改。' });
-      }
-      const previousDecisions = Array.isArray(runRecord.data.approval_decisions) ? runRecord.data.approval_decisions : [];
-      const claimed = await client.from('agent_runs')
-        .update({ status: 'running', approval_decisions: [...previousDecisions, ...body.decisions], pending_approvals: [], updated_at: new Date().toISOString() })
-        .eq('id', body.runId)
-        .eq('status', 'pending_approval')
-        .select('id')
-        .maybeSingle();
-      if (claimed.error) throw claimed.error;
-      if (!claimed.data) return json({ error: { code: 'run_already_resolved', message: '这组操作已经处理，请刷新对话' } }, 409);
-      const session = new SupabaseAgentSession(client, context.threadId, user.id);
-      shouldPersistFailure = true;
-      const result = await runtime.runner.run(runtime.agent, state, { session, maxTurns: 12, toolExecution: { preApprovalInputGuardrails: true } });
-      const approvals = toApprovals(result.interruptions || []);
-      if (approvals.length) {
-        const serialized = result.state.toString();
-        await client.from('agent_runs').update({ status: 'pending_approval', state: serialized, pending_approvals: approvals, updated_at: new Date().toISOString() }).eq('id', body.runId);
-        const ui = await messageUiForRun(client, body.runId, []);
-        return json({ threadId: context.threadId, runId: body.runId, status: 'pending_approval', approvals, ui } satisfies AgentResponse);
-      }
-      const output = finalMessage(result.finalOutput);
-      const message = output.text || '操作已完成。';
-      const ui = await messageUiForRun(client, body.runId, output.quickReplies);
-      const finalized = await client.rpc('finalize_agent_run', { target_run_id: body.runId, assistant_message: message, message_ui: ui });
-      if (finalized.error) throw finalized.error;
-      shouldPersistFailure = false;
-      return json({ threadId: context.threadId, runId: body.runId, status: 'completed', message, quickReplies: output.quickReplies, ui } satisfies AgentResponse);
-    }
-
     if (body.action !== 'turn' || !body.message?.trim()) return json({ error: { code: 'message_required', message: '请输入内容' } }, 400);
+    const displayMessage = body.displayMessage?.trim() || body.message.trim();
     let threadId = body.threadId;
     if (body.currentJourneyId) {
       const existing = await client
@@ -767,14 +659,12 @@ Deno.serve(async (req) => {
       if (body.currentJourneyId && thread.data.current_journey_id && thread.data.current_journey_id !== body.currentJourneyId) {
         return json({ error: { code: 'journey_thread_mismatch', message: '该会话属于另一个旅程' } }, 409);
       }
-      const pending = await client.from('agent_runs').select('id').eq('thread_id', threadId).eq('status', 'pending_approval').limit(1).maybeSingle();
-      if (pending.data) return json({ error: { code: 'approval_pending', message: '请先处理待确认操作' } }, 409);
       if (body.currentJourneyId) {
         const updated = await client.from('agent_threads').update({ current_journey_id: body.currentJourneyId }).eq('id', threadId);
         if (updated.error) throw updated.error;
       }
     } else {
-      const created = await client.from('agent_threads').insert({ user_id: user.id, current_journey_id: body.currentJourneyId || null, title: body.message.trim().slice(0, 36) }).select('id').single();
+      const created = await client.from('agent_threads').insert({ user_id: user.id, current_journey_id: body.currentJourneyId || null, title: displayMessage.slice(0, 36) }).select('id').single();
       if (created.error) throw created.error;
       threadId = created.data.id;
     }
@@ -784,7 +674,7 @@ Deno.serve(async (req) => {
     const attachments = validAttachments(body.attachments, user.id);
     const existingFlow = body.currentJourneyId ? null : await latestCreateJourneyFlow(client, threadId);
     const effectiveMessage = existingFlow ? mergeFlowMessage(existingFlow, body.message.trim()) : body.message.trim();
-    const flowActive = Boolean(existingFlow) || shouldStartCreateJourneyFlow(effectiveMessage, body.intent);
+    const flowActive = !body.currentJourneyId && (Boolean(existingFlow) || shouldStartCreateJourneyFlow(effectiveMessage, body.intent));
 
     if (flowActive) {
       const preflight = journeyCreationPreflight(effectiveMessage, body.locale, body.intent);
@@ -793,7 +683,7 @@ Deno.serve(async (req) => {
           client,
           threadId,
           user.id,
-          body.message.trim(),
+          displayMessage,
           preflight.message,
           preflight.quickReplies,
           { step: preflight.kind, originalMessage: effectiveMessage },
@@ -813,7 +703,7 @@ Deno.serve(async (req) => {
           client,
           threadId,
           user.id,
-          body.message.trim(),
+          displayMessage,
           message,
           quickReplies,
           { step: 'ask_track', originalMessage: effectiveMessage.replace(/[，,]?\s*(上传轨迹|使用轨迹|有轨迹|upload track|use track)\s*$/i, '') },
@@ -836,13 +726,19 @@ Deno.serve(async (req) => {
       allowUndatedJourney: explicitlyAllowsUndatedJourney(effectiveMessage),
     };
     bindRunClient(runId, client);
+    const discardedApprovals = await client.from('agent_runs').update({
+      status: 'failed',
+      error: 'Approval flow removed',
+      updated_at: new Date().toISOString(),
+    }).eq('thread_id', threadId).eq('status', 'pending_approval');
+    if (discardedApprovals.error) throw discardedApprovals.error;
     const createdRun = await client.from('agent_runs').insert({ id: runId, thread_id: threadId, user_id: user.id, status: 'running', agent_version: AGENT_VERSION }).select('id').single();
     if (createdRun.error) throw createdRun.error;
     const userMessage = await client.from('agent_messages').insert({
       thread_id: threadId,
       user_id: user.id,
       role: 'user',
-      content: body.message.trim(),
+      content: displayMessage,
       ui: attachments.length ? { attachments } : {},
     });
     if (userMessage.error) throw userMessage.error;
@@ -871,16 +767,8 @@ Deno.serve(async (req) => {
           ],
         }]
       : userInputText;
-    const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns: 12, toolExecution: { preApprovalInputGuardrails: true } });
-    const approvals = toApprovals(result.interruptions || []);
-    if (approvals.length) {
-      const serialized = result.state.toString();
-      await client.from('agent_runs').update({ status: 'pending_approval', state: serialized, pending_approvals: approvals, updated_at: new Date().toISOString() }).eq('id', runId);
-      const ui = await messageUiForRun(client, runId, []);
-      return json({ threadId, runId, status: 'pending_approval', approvals, ui } satisfies AgentResponse);
-    }
+    const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns: 12 });
     const output = finalMessage(result.finalOutput);
-    if (!output.quickReplies.length) output.quickReplies = fallbackQuickReplies(body.intent, body.locale);
     const message = output.text || '我已经处理好了。';
     const ui = await messageUiForRun(client, runId, output.quickReplies);
     const finalized = await client.rpc('finalize_agent_run', { target_run_id: runId, assistant_message: message, message_ui: ui });

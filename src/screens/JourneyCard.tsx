@@ -32,7 +32,9 @@ import { AppCard, AppIconButton, AppSectionHeader, layout, radius, space, type }
 import { Glass } from '../components/Glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { ChevronRight, History } from 'lucide-react-native';
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
+import { useJourneyVersionSummary } from '../hooks/useJourneyVersions';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -909,6 +911,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [momentFilter, setMomentFilter] = useState<MomentFilter>('all');
   const [momentAuthorFilter, setMomentAuthorFilter] = useState<string | null>(null);
   const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
+  const versionSummary = useJourneyVersionSummary(isJourney ? poi.id : undefined);
 
   const addMomentAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
     const items = await Promise.all(
@@ -1775,6 +1778,35 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             </AppCard>
                 </>
               )}
+
+              {!planEditorOpen ? <Press
+                onPress={() => nav.openJourneyHistory(poi)}
+                accessibilityRole="button"
+                accessibilityLabel={t('journey.version.open')}
+                style={{
+                  minHeight: 64,
+                  marginTop: space.xxl,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.card,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.sm,
+                  backgroundColor: theme.surface,
+                }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                  <History color={theme.text2} size={18} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[type.body, { color: theme.text, fontWeight: '700' }]}>{t('journey.version.open')}</Text>
+                  <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: 2 }]}>
+                    {versionSummary
+                      ? t('journey.version.latestSummary', { number: versionSummary.versionNumber })
+                      : t('journey.version.openDescription')}
+                  </Text>
+                </View>
+                <ChevronRight color={theme.text3} size={18} />
+              </Press> : null}
 
             {poi.desc ? (
               <>

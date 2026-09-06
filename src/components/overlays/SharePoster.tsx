@@ -154,7 +154,7 @@ function ChecklistSection({
       const displayItem: PosterPackingItem = {
         ...item,
         resolvedWeightKg: item.weightKg ?? linkedGearItem?.w,
-        carryStatus: linkedGearItem ? itemStatus(linkedGearItem) : 'packed',
+        carryStatus: item.carryStatus ?? (linkedGearItem ? itemStatus(linkedGearItem) : 'packed'),
       };
       allItems.push(displayItem);
       const category = item.categoryName?.trim() || t('gear.uncategorized');

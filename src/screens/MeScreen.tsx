@@ -30,6 +30,8 @@ import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettings
 import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
+import { PlanningProfilePage } from '../components/me/PlanningProfilePage';
+import { JourneyTrashPage } from '../components/journey/JourneyTrashPage';
 import { AppActionDialog, AppCard, AppSectionHeader, layout, motion, radius, space, type } from '../design-system';
 import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from '../lib/journeyInvite';
@@ -40,7 +42,9 @@ type MePage =
   | { type: 'settings' }
   | { type: 'journeys' }
   | { type: 'favorites' }
+  | { type: 'trash' }
   | { type: 'account' }
+  | { type: 'planningProfile' }
   | { type: 'edit'; field: MeEditField }
   | { type: 'notif' }
   | { type: 'inbox' }
@@ -288,8 +292,7 @@ function CollectionMap({ theme, points, compact = false, onPointPress }: { theme
         size={compact ? Math.min(width * 0.52, 190) : Math.min(width * 0.86, 360)}
         pois={pois}
         center={center}
-        mapStyle="light"
-        mapLocale={resolved}
+        mapStyle="standard"
         showMapLabels
         onPoiPress={onPointPress ? (id) => {
           const point = points.find((item) => item.id === id);
@@ -759,10 +762,11 @@ export function MeScreen({ theme }: { theme: Theme }) {
   const appearanceProgress = useSharedValue(0);
 
   // Hide the floating tab bar whenever a sub-page is pushed.
+  const setTabBarHidden = nav.setTabBarHidden;
   useEffect(() => {
-    nav.setTabBarHidden(stack.length > 0);
-  }, [stack.length, nav]);
-  useEffect(() => () => nav.setTabBarHidden(false), [nav]);
+    setTabBarHidden('me', stack.length > 0);
+  }, [setTabBarHidden, stack.length]);
+  useEffect(() => () => setTabBarHidden('me', false), [setTabBarHidden]);
 
   const showToast = nav.showToast;
   const saveEdit = async (field: MeEditField, val: string) => {
@@ -858,7 +862,8 @@ export function MeScreen({ theme }: { theme: Theme }) {
             >
               <AppSectionHeader theme={theme} text={t('me.account')} marginTop={space.lg} />
               <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} last />
+                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} />
+                <SettingsRow theme={theme} icon="compass" label={t('planningProfile.title')} detail={t('planningProfile.summary')} onPress={() => push({ type: 'planningProfile' })} last />
               </AppCard>
 
               <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
@@ -883,7 +888,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
 
             <View
               pointerEvents="box-none"
-              style={{ position: 'absolute', top: insets.top + space.xs, left: layout.pagePadding, right: layout.pagePadding, height: layout.topBarHeight, justifyContent: 'center' }}
+              style={{ position: 'absolute', top: insets.top, left: layout.pagePadding, right: layout.pagePadding, height: layout.topBarHeight, justifyContent: 'center' }}
             >
               <Press
                 onPress={pop}
@@ -930,6 +935,8 @@ export function MeScreen({ theme }: { theme: Theme }) {
             }}
           />
         );
+      case 'trash':
+        return <JourneyTrashPage theme={theme} onBack={pop} />;
       case 'account':
         return (
           <AccountPage
@@ -940,6 +947,8 @@ export function MeScreen({ theme }: { theme: Theme }) {
             showToast={showToast}
           />
         );
+      case 'planningProfile':
+        return <PlanningProfilePage theme={theme} onBack={pop} />;
       case 'edit':
         return <EditFieldPage theme={theme} field={pg.field} onBack={pop} onSave={(v) => saveEdit(pg.field, v)} />;
       case 'notif':
@@ -1047,6 +1056,16 @@ export function MeScreen({ theme }: { theme: Theme }) {
         <View style={{ gap: space.md }}>
           <ProfileShortcut theme={theme} title={t('me.myJourneys')} detail={t('me.journeySummary', { count: data.journeys.length })} items={data.journeys} emptyLabel={t('me.journeyPreviewEmpty')} mapPreview onPress={() => push({ type: 'journeys' })} />
           <ProfileShortcut theme={theme} title={t('me.myFavorites')} detail={t('me.savedSummary', { count: favoriteRoutes })} items={savedRoutes} emptyLabel={t('me.savedPreviewEmpty')} mapPreview onPress={() => push({ type: 'favorites' })} />
+          <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
+            <SettingsRow
+              theme={theme}
+              icon="trash"
+              label={t('journeyHome.trash.title')}
+              detail={t('me.trashSummary', { count: data.trashedJourneys.length })}
+              onPress={() => push({ type: 'trash' })}
+              last
+            />
+          </AppCard>
         </View>
 
       </ScrollView>

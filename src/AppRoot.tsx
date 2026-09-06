@@ -14,6 +14,7 @@ import { upgradeCurrentAnonymousSession } from './lib/auth';
 import { uploadMedia } from './lib/storage';
 import { AuthFlow } from './screens/AuthFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
+import { JourneyScreen } from './screens/JourneyScreen';
 import { GearScreen } from './screens/GearScreen';
 import { MeScreen } from './screens/MeScreen';
 import { BottomTabs } from './components/BottomTabs';
@@ -29,19 +30,24 @@ import { HostShareSheet } from './components/overlays/HostShareSheet';
 import { NearbyJoinSheet } from './components/overlays/NearbyJoinSheet';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
 import { JourneyShareSheet } from './components/overlays/JourneyShareSheet';
+import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHistoryPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
 import { AppAssistant } from './components/assistant/AppAssistant';
+import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
+import { joinJourneyByInvite } from './lib/journeyInvite';
 
 function AppShell() {
   const theme = useTheme();
   const { t } = useI18n();
   const nav = useNav();
-  const { userId, journeys } = useData();
+  const data = useData();
+  const { userId, journeys } = data;
   const [trackLoading, setTrackLoading] = useState(false);
   const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
+  const [discoverOverlayOpen, setDiscoverOverlayOpen] = useState(false);
 
   useEffect(() => {
     if (!assistantReturnJourneyId || nav.pointInfo || nav.assistantOpen) return;
@@ -87,8 +93,22 @@ function AppShell() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={[StyleSheet.absoluteFill, nav.mainTab !== 'discover' && !detailOpen && hidden]}>
-        <DiscoverScreen theme={theme} externalOverlayOpen={Boolean(sharePosterPoi)} />
+      <View
+        pointerEvents={nav.mainTab === 'discover' || detailOpen ? 'auto' : 'none'}
+        accessibilityElementsHidden={nav.mainTab === 'journey' && !detailOpen}
+        importantForAccessibility={nav.mainTab === 'journey' && !detailOpen ? 'no-hide-descendants' : 'auto'}
+        style={[StyleSheet.absoluteFill, !['discover', 'journey'].includes(nav.mainTab) && !detailOpen && hidden]}
+      >
+        <DiscoverScreen
+          theme={theme}
+          active={nav.mainTab === 'discover' || detailOpen}
+          keepMapWarm={nav.mainTab === 'journey' && !detailOpen}
+          externalOverlayOpen={Boolean(sharePosterPoi)}
+          onBlockingOverlayChange={setDiscoverOverlayOpen}
+        />
+      </View>
+      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'journey' || detailOpen) && hidden]}>
+        <JourneyScreen theme={theme} />
       </View>
       <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'gear' || detailOpen) && hidden]}>
         <GearScreen theme={theme} />
@@ -98,7 +118,7 @@ function AppShell() {
       </View>
       <BottomTabs
         theme={theme}
-        hidden={sheetUp || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi}
+        hidden={sheetUp || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi}
         onOpenAssistant={() => nav.openAssistant()}
       />
 
@@ -186,6 +206,46 @@ function AppShell() {
             nav.openPoint(saved);
             return true;
           }}
+          onSmartPlan={async (poi, prompt) => {
+            const saved = await nav.addJoinedJourney(poi);
+            if (!saved) {
+              nav.showToast(t('appShell.toastJourneyCreateFailed'));
+              return false;
+            }
+            nav.closeNewJourney();
+            nav.showToast(t('appShell.toastJourneyCreated'));
+            nav.openAssistant(
+              prompt,
+              saved.id,
+              true,
+              t(poi.trackFileUrl || (poi.trackCoords?.length ?? 0) > 1
+                ? 'journeyEdit.form.smartPlanTrackRequest'
+                : 'journeyEdit.form.smartPlanRequest', {
+                name: saved.name,
+                count: saved.totalDays || poi.totalDays || 1,
+              }),
+            );
+            return true;
+          }}
+        />
+      )}
+      {nav.journeyInviteScannerOpen && (
+        <QrLoginScannerPage
+          theme={theme}
+          journeyOnly
+          onBack={() => nav.closeJourneyInviteScanner()}
+          onApproved={() => {
+            nav.closeJourneyInviteScanner();
+            nav.showToast(t('qrLogin.approvedToast'));
+          }}
+          onJourneyInvite={async (invite) => {
+            const journey = await joinJourneyByInvite(invite);
+            await data.refetchJourneys();
+            nav.closeJourneyInviteScanner();
+            nav.setMainTab('journey');
+            nav.openPoint(journey);
+            nav.showToast(t('qrLogin.journeyJoined', { name: journey.name }));
+          }}
         />
       )}
       {nav.elevFull && <ElevationFull theme={theme} info={nav.elevFull.info} isMine={nav.elevFull.isMine} onClose={() => nav.closeElevation()} />}
@@ -209,6 +269,13 @@ function AppShell() {
           poi={nav.merged(nav.journeySettings)}
           onClose={() => nav.closeJourneySettings()}
           onToast={(message) => nav.showToast(message)}
+        />
+      )}
+      {nav.journeyHistory && (
+        <JourneyVersionHistoryPage
+          theme={theme}
+          poi={nav.journeyHistory}
+          onBack={() => nav.closeJourneyHistory()}
         />
       )}
       {nav.liveShare && (
@@ -279,15 +346,23 @@ function AppShell() {
         theme={theme}
         visible={nav.assistantOpen}
         initialPrompt={nav.assistantPrompt}
+        initialDisplayPrompt={nav.assistantDisplayPrompt}
+        autoSubmitInitialPrompt={nav.assistantAutoSubmit}
         currentJourneyId={nav.assistantJourneyId}
         onClearPrompt={() => nav.clearAssistantPrompt()}
         onClose={() => nav.closeAssistant()}
-        onOpenJourney={(journeyId) => {
-          const journey = journeys.find((item) => item.id === journeyId);
-          if (!journey) return;
+        onOpenJourney={async (journeyId) => {
+          let journey = journeys.find((item) => item.id === journeyId);
+          if (!journey) {
+            const refreshedJourneys = await data.refetchJourneys();
+            journey = refreshedJourneys.find((item) => item.id === journeyId);
+          }
+          if (!journey) {
+            nav.showToast(t('agent.journeyUnavailable'));
+            return;
+          }
           setAssistantReturnJourneyId(journeyId);
           nav.closeAssistant();
-          nav.setMainTab('discover');
           nav.setSubTab('memory');
           nav.openPoint(journey);
         }}

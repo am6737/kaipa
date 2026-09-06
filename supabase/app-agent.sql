@@ -3,12 +3,12 @@
 create table if not exists agent_threads (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
-  current_journey_id text references journeys(id) on delete set null,
+  current_journey_id text references journeys(id) on delete cascade,
   title text not null default '新对话',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-alter table agent_threads add column if not exists current_journey_id text references journeys(id) on delete set null;
+alter table agent_threads add column if not exists current_journey_id text references journeys(id) on delete cascade;
 
 create table if not exists agent_session_items (
   id bigint generated always as identity primary key,
@@ -35,10 +35,7 @@ create table if not exists agent_runs (
   id uuid primary key,
   thread_id uuid not null references agent_threads(id) on delete cascade,
   user_id uuid not null references profiles(id) on delete cascade,
-  status text not null check (status in ('running', 'pending_approval', 'completed', 'failed')),
-  state text,
-  pending_approvals jsonb not null default '[]'::jsonb,
-  approval_decisions jsonb not null default '[]'::jsonb,
+  status text not null check (status in ('running', 'completed', 'failed')),
   final_output text,
   error text,
   agent_version text not null,
@@ -47,7 +44,7 @@ create table if not exists agent_runs (
 );
 create index if not exists agent_runs_thread_idx on agent_runs(thread_id, created_at desc);
 create unique index if not exists agent_runs_thread_active_unique
-  on agent_runs(thread_id) where status in ('running', 'pending_approval');
+  on agent_runs(thread_id) where status = 'running';
 
 create table if not exists agent_tool_calls (
   id uuid primary key default gen_random_uuid(),
@@ -75,7 +72,20 @@ alter table agent_tool_calls enable row level security;
 
 drop policy if exists "agent_threads_own" on agent_threads;
 create policy "agent_threads_own" on agent_threads for all to authenticated
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
+  using (
+    user_id = auth.uid()
+    and (
+      current_journey_id is null
+      or exists (select 1 from journeys j where j.id = current_journey_id and j.deleted_at is null)
+    )
+  )
+  with check (
+    user_id = auth.uid()
+    and (
+      current_journey_id is null
+      or exists (select 1 from journeys j where j.id = current_journey_id and j.deleted_at is null)
+    )
+  );
 
 drop policy if exists "agent_session_items_own" on agent_session_items;
 create policy "agent_session_items_own" on agent_session_items for all to authenticated
@@ -146,8 +156,7 @@ begin
   if not found then raise exception 'Agent run is not active'; end if;
 
   update agent_runs
-  set status = 'completed', state = null, final_output = assistant_message,
-      pending_approvals = '[]'::jsonb, updated_at = now()
+  set status = 'completed', final_output = assistant_message, updated_at = now()
   where id = target_run_id;
   insert into agent_messages (thread_id, user_id, role, content, ui)
   values (run_record.thread_id, run_record.user_id, 'assistant', assistant_message, coalesce(message_ui, '{}'::jsonb));
