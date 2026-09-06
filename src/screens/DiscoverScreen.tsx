@@ -735,13 +735,11 @@ export function DiscoverScreen({
         lat: coordinate[1],
         heading: positionHeading != null && positionHeading >= 0 ? positionHeading : undefined,
       });
-      if (!NATIVE_MAP_ENABLED) {
-        setJourneyMapCameraAction((current) => ({
-          type: 'locate',
-          coordinate,
-          revision: (current?.revision ?? 0) + 1,
-        }));
-      }
+      setJourneyMapCameraAction((current) => ({
+        type: 'locate',
+        coordinate,
+        revision: (current?.revision ?? 0) + 1,
+      }));
       setMapAtCurrentLocation(true);
       if (approximateLocation) nav.showToast(t('discover.locationApproximate'));
 
