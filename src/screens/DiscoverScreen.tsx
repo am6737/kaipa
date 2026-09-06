@@ -31,6 +31,7 @@ import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBo
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
+import { gcj02ToWgs84 } from '../lib/coordinates';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -727,9 +728,23 @@ export function DiscoverScreen({
       const approximateLocation = permission.ios?.accuracy === 'reduced'
         || permission.android?.accuracy === 'coarse';
 
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      const coordinate: [number, number] = [position.coords.longitude, position.coords.latitude];
-      const positionHeading = position.coords.heading;
+      let coordinate: [number, number];
+      let positionHeading: number | null | undefined;
+      if (Platform.OS === 'android' && NATIVE_MAP_ENABLED) {
+        // Use AMap's own location result so the camera and native blue dot share
+        // the same source and coordinate system.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { ExpoGaodeMapModule } = require('expo-gaode-map') as typeof import('expo-gaode-map');
+        const position = await ExpoGaodeMapModule.getCurrentLocation();
+        const rawCoordinate: [number, number] = [position.longitude, position.latitude];
+        const coordType = (position as { coordType?: 'GCJ02' | 'WGS84' }).coordType;
+        coordinate = coordType === 'WGS84' ? rawCoordinate : gcj02ToWgs84(rawCoordinate);
+        positionHeading = position.heading;
+      } else {
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+        coordinate = [position.coords.longitude, position.coords.latitude];
+        positionHeading = position.coords.heading;
+      }
       setCurrentLocation({
         lng: coordinate[0],
         lat: coordinate[1],
