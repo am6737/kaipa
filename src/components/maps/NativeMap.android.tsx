@@ -26,14 +26,6 @@ function ensureAmapReady(module: typeof import('expo-gaode-map')): boolean {
     });
     // The config plugin writes the build-only key to AndroidManifest.xml.
     module.ExpoGaodeMapModule.initSDK({});
-    // AMap's terrain engine is process-wide, not a per-view map type. Enable it
-    // before the first MapView and keep it on for every standard/satellite map.
-    if (typeof module.ExpoGaodeMapModule.setTerrainEnable === 'function') {
-      module.ExpoGaodeMapModule.setTerrainEnable(true);
-    } else {
-      // Older development/OTA binaries can still display the ordinary map.
-      console.warn('[Kaipa map] Terrain bridge unavailable; rebuild the Android app to enable terrain.');
-    }
     amapInitialized = true;
     return true;
   } catch {
@@ -118,7 +110,9 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
 
   const nativeMapType = mapStyle === 'satellite'
     ? MapType.Satellite
-    : MapType.Standard;
+    : mapStyle === 'terrain'
+      ? MapType.Navi
+      : MapType.Standard;
 
   return (
     <View
