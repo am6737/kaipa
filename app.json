@@ -8,12 +8,14 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.hitosea.letsgo",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Kaipa 需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。"
       }
     },
     "android": {
-      "package": "com.t1137.kaipa",
+      "package": "com.hitosea.letsgo",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

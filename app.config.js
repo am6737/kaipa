@@ -1,5 +1,9 @@
 // Native maps use Apple MapKit on iOS and AMap on Android. Native map screens
 // require a development build; Expo Go/web keep the existing SVG fallback.
+//
+// App 标识（app.json）：iOS bundleIdentifier 与 Android package 都是
+// com.hitosea.letsgo。注意高德 Android key 按「包名 + SHA1」注册，换包名必须
+// 去高德控制台重新注册 key，并把新 key 写进 EXPO_PUBLIC_AMAP_ANDROID_KEY。
 
 module.exports = ({ config }) => ({
   ...config,
@@ -60,5 +64,8 @@ module.exports = ({ config }) => ({
     'expo-font',
     'expo-localization',
     'expo-sharing',
+    'expo-image',
+    'expo-video',
+    'expo-apple-authentication',
   ],
 });

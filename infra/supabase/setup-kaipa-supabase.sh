@@ -142,6 +142,26 @@ repls={
 for a,b in repls.items(): s=s.replace(a,b)
 compose.write_text(s)
 
+# Sign in with Apple（iOS 原生 ID token 流程）。CLIENT_ID 是逗号分隔的 audience 白名单：
+# com.hitosea.letsgo 对应正式包 / dev build 的 bundleIdentifier，host.exp.Exponent 对应
+# Expo Go 调试。模板里残留的是 yibai 的 com.hitosea.moments100，必须改写，否则真机登录会
+# 因 audience 不匹配被拒。
+s=compose.read_text()
+apple_client_id='GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,host.exp.Exponent"'
+s=s.replace('GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.moments100"', apple_client_id)
+if apple_client_id not in s:
+    raise SystemExit('Could not normalize GOTRUE_EXTERNAL_APPLE_CLIENT_ID in docker-compose.yml')
+# Edge Function 侧的 Apple 撤销（注销换码用）默认值同样别指向 yibai。
+s=s.replace('APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-com.hitosea.moments100}"', 'APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-com.hitosea.letsgo}"')
+# 校验 ID token 时 GoTrue 要在运行时拉取 Apple 的 OIDC discovery 与签名密钥；Docker 内嵌
+# DNS 对外部域名解析偶发失败，显式指定宿主解析器。
+if 'AUTH_DNS_SERVER' not in s:
+    auth_marker='    container_name: kaipa-supabase-auth\n'
+    if auth_marker not in s:
+        raise SystemExit('Could not find the auth service in docker-compose.yml')
+    s=s.replace(auth_marker, auth_marker+'    # Apple ID token 校验需要在运行时拉取 Apple 的 OIDC 与签名密钥。\n    dns:\n      - ${AUTH_DNS_SERVER:-192.168.100.200}\n', 1)
+compose.write_text(s)
+
 # Map, AI, and product-link preview credentials are server-only. Keep the values in
 # the generated runtime .env and expose only these names to the Edge Runtime.
 s=compose.read_text()
@@ -174,7 +194,12 @@ gear_env='''      # gear-link-preview：淘宝/天猫、京东开放平台服务
       JD_API_METHOD: "${JD_API_METHOD:-}"
       GEAR_LINK_ALLOWED_HOSTS: "${GEAR_LINK_ALLOWED_HOSTS:-}"
 '''
-if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s:
+transport_env='''      # Production-only flight offers; never expose these to the App
+      AMADEUS_CLIENT_ID: "${AMADEUS_CLIENT_ID:-}"
+      AMADEUS_CLIENT_SECRET: "${AMADEUS_CLIENT_SECRET:-}"
+      AMADEUS_ENVIRONMENT: "${AMADEUS_ENVIRONMENT:-}"
+'''
+if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s or 'AMADEUS_CLIENT_ID:' not in s:
     marker='      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"\n'
     if marker not in s:
         raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
@@ -195,6 +220,8 @@ if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:'
 '''
     if 'TAOBAO_APP_KEY:' not in s:
         missing+=gear_env
+    if 'AMADEUS_CLIENT_ID:' not in s:
+        missing+=transport_env
     s=s.replace(marker, marker+missing, 1)
 s='\n'.join(line for line in s.splitlines() if 'SMART_PLAN_PROVIDERS:' not in line and 'SMART_PLAN_DEFAULT_PROVIDER:' not in line)+'\n'
 compose.write_text(s)
@@ -204,10 +231,8 @@ compose.write_text(s)
 router=runtime/'volumes/functions/main/index.ts'
 if router.exists():
     router_source=router.read_text()
-    router_source=router_source.replace(
-        'const workerTimeoutMs = 1 * 60 * 1000',
-        'const workerTimeoutMs = 3 * 60 * 1000',
-    )
+    router_source=router_source.replace('const workerTimeoutMs = 1 * 60 * 1000', 'const workerTimeoutMs = 5 * 60 * 1000')
+    router_source=router_source.replace('const workerTimeoutMs = 3 * 60 * 1000', 'const workerTimeoutMs = 5 * 60 * 1000')
     router.write_text(router_source)
 
 def b64url(data: bytes): return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
@@ -255,6 +280,9 @@ agent_env={
  'TRAVEL_SEARCH_MAX_RESULTS': configured('TRAVEL_SEARCH_MAX_RESULTS', '10'),
  'MEDIACRAWLER_SEARCH_URL': configured('MEDIACRAWLER_SEARCH_URL'),
  'MEDIACRAWLER_API_KEY': configured('MEDIACRAWLER_API_KEY'),
+ 'AMADEUS_CLIENT_ID': configured('AMADEUS_CLIENT_ID'),
+ 'AMADEUS_CLIENT_SECRET': configured('AMADEUS_CLIENT_SECRET'),
+ 'AMADEUS_ENVIRONMENT': configured('AMADEUS_ENVIRONMENT'),
 }
 out=[]; seen=set()
 for line in env.read_text().splitlines():
@@ -309,7 +337,6 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/schema.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/guest-schema.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/kaipa-storage.sql"
-  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/track-source-files.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-timeline-groups.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/timeline-route-segments.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-participant-permissions.sql"
@@ -321,6 +348,17 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/account-deletion.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-agent-thread-cascade.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260904170000_journey_complete_versions.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260906120000_journey_version_retention.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260906130000_group_agent_journey_versions.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260907130000_agent_background_jobs.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260907150000_agent_clarification_receipts.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260907180000_agent_context_revisions.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260907181000_agent_atomic_writes.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260907190000_agent_schedule_edits.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908040000_agent_task_harness.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908120000_agent_packing_drafts.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908130000_fix_agent_track_summary.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260916120000_tracks_library.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,
@@ -346,6 +384,7 @@ values ('$TEST_USER_ID', split_part('$TEST_EMAIL', '@', 1), '')
 on conflict (id) do nothing;
 SQL
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/seed.sql"
+  KAIPA_SUPABASE_RUNTIME_DIR="$RUNTIME_DIR" bash "$ROOT/infra/supabase/deploy-agent-worker.sh"
 fi
 
 echo "Kaipa Supabase runtime created: $RUNTIME_DIR"
