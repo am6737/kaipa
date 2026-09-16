@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { File as FSFile } from 'expo-file-system';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
-import Mapbox, { MapView, Camera, ShapeSource, LineLayer, MarkerView, Atmosphere, StyleImport } from '@rnmapbox/maps';
 import { Theme } from '../../theme/theme';
 import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
@@ -23,6 +22,9 @@ import { useI18n, TKey, TVars } from '../../i18n';
 import { formatDuration } from '../../lib/time';
 import { useData } from '../../data/DataContext';
 import { uploadMedia } from '../../lib/storage';
+import { TrackMap } from './TrackMap';
+import { NativeMap, type NativeMapHandle } from '../maps/NativeMap';
+import { reverseJourneyLocation, searchJourneyLocations } from '../../lib/amapGeocoding';
 
 type TFn = (key: TKey, vars?: TVars) => string;
 interface Track {
@@ -55,17 +57,9 @@ function fmtCoord(lat: number, lon: number): string {
 }
 
 async function reverseGeocode(lat: number, lon: number): Promise<string> {
-  if (!MAPBOX_TOKEN) return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
   try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}&language=zh&limit=1&types=place,locality,district,region`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const f = json.features?.[0];
-    if (!f) return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
-    const ctx = f.context as any[] | undefined;
-    const region = ctx?.find((c: any) => c.id?.startsWith('region'))?.text;
-    const place = f.text || '';
-    return region && region !== place ? `${region} · ${place}` : place || f.place_name || '';
+    const location = await reverseJourneyLocation(lon, lat, 'zh');
+    return location.region || location.name;
   } catch {
     return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
   }
@@ -194,21 +188,11 @@ function iniOf(n: string): string {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Track-shape preview — real Mapbox map with route polyline
+// Track-shape preview
 // ──────────────────────────────────────────────────────────────
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN || '';
-let _mbTokenSet = false;
-function ensureMapboxToken() {
-  if (!_mbTokenSet && MAPBOX_TOKEN) {
-    Mapbox.setAccessToken(MAPBOX_TOKEN);
-    _mbTokenSet = true;
-  }
-}
-const STANDARD_STYLE = 'mapbox://styles/mapbox/standard';
 
 function UTTrackMap({ stats, theme, height = 200 }: { stats: TrackStats; theme: Theme; height?: number }) {
   const { t } = useI18n();
-  ensureMapboxToken();
 
   const pts = stats.points;
   const stride = Math.max(1, Math.floor(pts.length / 500));
@@ -218,62 +202,9 @@ function UTTrackMap({ stats, theme, height = 200 }: { stats: TrackStats; theme: 
     coords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
   }
 
-  const routeGeoJSON: GeoJSON.FeatureCollection = {
-    type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'LineString', coordinates: coords },
-    }],
-  };
-
-  const { minLat, maxLat, minLon, maxLon } = stats.bbox;
-  const padDeg = Math.max((maxLat - minLat), (maxLon - minLon)) * 0.15;
-  const bounds = {
-    ne: [maxLon + padDeg, maxLat + padDeg] as [number, number],
-    sw: [minLon - padDeg, minLat - padDeg] as [number, number],
-  };
-
-  const s = pts[0];
-  const e = pts[pts.length - 1];
-
-  if (!MAPBOX_TOKEN) {
-    return (
-      <View style={{ height, borderRadius: 18, overflow: 'hidden', backgroundColor: theme.dark ? '#16181a' : '#e8edee', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontSize: 12, color: theme.text3 }}>Map unavailable</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={{ borderRadius: 18, overflow: 'hidden', height, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-      <MapView
-        style={{ flex: 1 }}
-        styleURL={STANDARD_STYLE}
-        scrollEnabled={false}
-        zoomEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        scaleBarEnabled={false}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={false}
-      >
-        <Camera defaultSettings={{ bounds: { ...bounds, paddingLeft: 28, paddingRight: 28, paddingTop: 28, paddingBottom: 28 } }} />
-        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: false, showTransitLabels: false } as any} />
-
-        <ShapeSource id="track-route" shape={routeGeoJSON}>
-          <LineLayer id="track-route-shadow" style={{ lineColor: theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)', lineWidth: 6, lineBlur: 3, lineCap: 'round', lineJoin: 'round', lineTranslate: [0, 1.5] }} />
-          <LineLayer id="track-route-line" style={{ lineColor: theme.accent, lineWidth: 3.5, lineCap: 'round', lineJoin: 'round' }} />
-        </ShapeSource>
-
-        <MarkerView coordinate={[s.lon, s.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#fff' }} />
-        </MarkerView>
-        <MarkerView coordinate={[e.lon, e.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: theme.danger, borderWidth: 2.5, borderColor: '#fff' }} />
-        </MarkerView>
-      </MapView>
+      <TrackMap coords={coords} theme={theme} fill rounded={false} showLegend={false} accent={theme.accent} />
 
       <View style={{ position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -298,7 +229,6 @@ function UTTrackMap({ stats, theme, height = 200 }: { stats: TrackStats; theme: 
 function TrackMapFull({ stats, theme, onClose }: { stats: TrackStats; theme: Theme; onClose: () => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  ensureMapboxToken();
 
   const pts = stats.points;
   const stride = Math.max(1, Math.floor(pts.length / 800));
@@ -308,49 +238,18 @@ function TrackMapFull({ stats, theme, onClose }: { stats: TrackStats; theme: The
     coords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
   }
 
-  const routeGeoJSON: GeoJSON.FeatureCollection = {
-    type: 'FeatureCollection',
-    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
-  };
-
-  const { minLat, maxLat, minLon, maxLon } = stats.bbox;
-  const padDeg = Math.max((maxLat - minLat), (maxLon - minLon)) * 0.12;
-  const bounds = {
-    ne: [maxLon + padDeg, maxLat + padDeg] as [number, number],
-    sw: [minLon - padDeg, minLat - padDeg] as [number, number],
-  };
-  const s = pts[0];
-  const e = pts[pts.length - 1];
-
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 300 }]}>
-      <MapView
-        style={StyleSheet.absoluteFill}
-        styleURL={STANDARD_STYLE}
-        scaleBarEnabled={false}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={false}
-        rotateEnabled
-        zoomEnabled
-        scrollEnabled
-        pitchEnabled
-      >
-        <Camera defaultSettings={{ bounds: { ...bounds, paddingLeft: 40, paddingRight: 40, paddingTop: insets.top + 70, paddingBottom: insets.bottom + 100 } }} />
-        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: true, showTransitLabels: true } as any} />
-
-        <ShapeSource id="full-track-route" shape={routeGeoJSON}>
-          <LineLayer id="full-track-shadow" style={{ lineColor: theme.dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)', lineWidth: 7, lineBlur: 3, lineCap: 'round', lineJoin: 'round', lineTranslate: [0, 2] }} />
-          <LineLayer id="full-track-line" style={{ lineColor: theme.accent, lineWidth: 4, lineCap: 'round', lineJoin: 'round' }} />
-        </ShapeSource>
-
-        <MarkerView coordinate={[s.lon, s.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#34C759', borderWidth: 3, borderColor: '#fff' }} />
-        </MarkerView>
-        <MarkerView coordinate={[e.lon, e.lat]} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: theme.danger, borderWidth: 3, borderColor: '#fff' }} />
-        </MarkerView>
-      </MapView>
+      <TrackMap
+        coords={coords}
+        theme={theme}
+        fill
+        rounded={false}
+        showLegend={false}
+        accent={theme.accent}
+        interactive
+        routePadding={[insets.top + 70, 40, insets.bottom + 100, 40]}
+      />
 
       {/* top bar */}
       <View style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -849,14 +748,13 @@ function RJDateSheet({ theme, date, field, onPick, onClose }: { theme: Theme; da
   );
 }
 
-// Map location picker — real Mapbox map with search
+// Map location picker
 interface GeoResult { label: string; sub: string; lat: number; lon: number }
 
 function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPick: (label: string, lat: number, lon: number) => void; onClose: () => void; center?: { lat: number; lon: number } | null }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  ensureMapboxToken();
-  const camRef = useRef<any>(null);
+  const camRef = useRef<NativeMapHandle>(null);
   const inputRef = useRef<TextInput>(null);
   const [pin, setPin] = useState<{ lat: number; lon: number; label: string } | null>(null);
   const [query, setQuery] = useState('');
@@ -869,7 +767,7 @@ function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPi
   const initZoom = center ? 10 : 3.5;
 
   const flyTo = useCallback((lon: number, lat: number, zoom = 12) => {
-    camRef.current?.setCamera({ centerCoordinate: [lon, lat], zoomLevel: zoom, animationDuration: 600 });
+    camRef.current?.moveCamera([lon, lat], zoom, 600);
   }, []);
 
   const search = useCallback((q: string) => {
@@ -878,14 +776,12 @@ function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPi
     debounce.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&language=zh,en&limit=5&types=country,region,place,district,locality,neighborhood,poi`;
-        const res = await fetch(url);
-        const json = await res.json();
-        const items: GeoResult[] = (json.features || []).map((f: any) => ({
-          label: f.text || f.place_name,
-          sub: f.place_name || '',
-          lon: f.center[0],
-          lat: f.center[1],
+        const locations = await searchJourneyLocations(q, 'zh');
+        const items: GeoResult[] = locations.slice(0, 5).map((location) => ({
+          label: location.name,
+          sub: location.address,
+          lon: location.lng,
+          lat: location.lat,
         }));
         setResults(items);
       } catch { setResults([]); }
@@ -903,59 +799,38 @@ function RJMapPickSheet({ theme, onPick, onClose, center }: { theme: Theme; onPi
     flyTo(r.lon, r.lat);
   };
 
-  const onMapPress = async (e: any) => {
+  const onMapPress = async ([lon, lat]: [number, number]) => {
     inputRef.current?.blur();
-    const coords = e?.geometry?.coordinates;
-    if (!coords || coords.length < 2) return;
-    const lat = coords[1];
-    const lon = coords[0];
     setPin({ lat, lon, label: '...' });
     setResults([]);
     const label = await reverseGeocode(lat, lon);
     setPin((p) => p && Math.abs(p.lat - lat) < 0.0001 ? { ...p, label } : p);
   };
 
-  if (!MAPBOX_TOKEN) {
-    return (
-      <NJBottomSheet theme={theme} onClose={onClose} full>
-        <View style={{ padding: 40, alignItems: 'center' }}>
-          <Text style={{ color: theme.text3 }}>Map unavailable</Text>
-        </View>
-      </NJBottomSheet>
-    );
-  }
-
   const cardBg = theme.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.95)';
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, zIndex: 250 }]}>
-      <MapView
+      <NativeMap
+        ref={camRef}
         style={StyleSheet.absoluteFill}
-        styleURL={STANDARD_STYLE}
-        scaleBarEnabled={false}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={false}
-        rotateEnabled
-        zoomEnabled
-        scrollEnabled
-        pitchEnabled={false}
+        initialCenter={[initLon, initLat]}
+        initialZoom={initZoom}
         onPress={onMapPress}
-      >
-        <Camera ref={camRef} defaultSettings={{ centerCoordinate: [initLon, initLat], zoomLevel: initZoom }} />
-        <StyleImport id="basemap" existing config={{ lightPreset: theme.mapLightPreset, showPlaceLabels: true, showRoadLabels: true, showPointOfInterestLabels: true, showTransitLabels: true } as any} />
-
-        {pin && (
-          <MarkerView coordinate={[pin.lon, pin.lat]} anchor={{ x: 0.5, y: 1 }} allowOverlap>
+        markers={pin ? [{
+          id: 'record-location-pin',
+          coordinate: [pin.lon, pin.lat],
+          anchor: { x: 0.5, y: 1 },
+          content: (
             <View style={{ alignItems: 'center' }}>
               <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff' }}>
                 <Icon name="pin" color="#fff" size={14} />
               </View>
               <View style={{ width: 3, height: 8, backgroundColor: theme.accent, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 }} />
             </View>
-          </MarkerView>
-        )}
-      </MapView>
+          ),
+        }] : []}
+      />
 
       {/* top: back + search bar + confirm */}
       <View style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12 }}>

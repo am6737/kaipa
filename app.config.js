@@ -1,15 +1,9 @@
-// app.config.js — extends app.json and injects the Mapbox config plugin.
+// Native maps use Apple MapKit on iOS and AMap on Android. Native map screens
+// require a development build; Expo Go/web keep the existing SVG fallback.
 //
-// @rnmapbox/maps needs two tokens:
-//   • A PUBLIC access token (pk.…) read at runtime from EXPO_PUBLIC_MAPBOX_TOKEN
-//     (see .env). This is what draws the map/globe tiles.
-//   • A SECRET download token (sk.…) used ONLY at native build time to fetch the
-//     Mapbox iOS SDK from their private Maven/CocoaPods. Put it in
-//     MAPBOX_DOWNLOAD_TOKEN (never commit it). Leaving it empty is fine until you
-//     run `npx expo run:ios` / build with EAS.
-//
-// The globe requires a native dev build — it does NOT run in Expo Go. Without a
-// token the app falls back to a stylized SVG globe so everything still runs.
+// App 标识（app.json）：iOS bundleIdentifier 与 Android package 都是
+// com.hitosea.letsgo。注意高德 Android key 按「包名 + SHA1」注册，换包名必须
+// 去高德控制台重新注册 key，并把新 key 写进 EXPO_PUBLIC_AMAP_ANDROID_KEY。
 
 module.exports = ({ config }) => ({
   ...config,
@@ -24,15 +18,17 @@ module.exports = ({ config }) => ({
   },
   plugins: [
     [
-      '@rnmapbox/maps',
+      'expo-gaode-map',
       {
-        RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN || '',
+        androidKey: process.env.AMAP_ANDROID_KEY || process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '',
+        enableLocation: true,
+        locationDescription: 'Kaipa 需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
       },
     ],
     [
       'expo-location',
       {
-        locationWhenInUsePermission: 'Kaipa 需要访问你的位置，以便将当前位置设为旅程地点。',
+        locationWhenInUsePermission: 'Kaipa 需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
       },
     ],
     [
@@ -41,6 +37,13 @@ module.exports = ({ config }) => ({
         photosPermission: 'Kaipa 需要访问你的相册，以便选择装备图片或把照片和视频加入旅程瞬间。',
         cameraPermission: 'Kaipa 需要使用相机，以便拍摄装备图片或旅程照片和视频。',
         microphonePermission: 'Kaipa 在录制视频时需要使用麦克风。',
+      },
+    ],
+    [
+      'expo-media-library',
+      {
+        photosPermission: 'Kaipa 需要访问你的相册，以便在 AI 对话中展示和选择最近照片。',
+        granularPermissions: ['photo'],
       },
     ],
     [
@@ -61,5 +64,8 @@ module.exports = ({ config }) => ({
     'expo-font',
     'expo-localization',
     'expo-sharing',
+    'expo-image',
+    'expo-video',
+    'expo-apple-authentication',
   ],
 });

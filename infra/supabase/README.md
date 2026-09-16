@@ -64,3 +64,30 @@ infra/supabase/setup-kaipa-supabase.sh
 
 Do not point both apps at the same Supabase URL unless they are intentionally
 sharing Auth, `profiles`, Storage, and database tables.
+
+## Deploy changes
+
+This checkout is self-hosted only. Do not run `supabase link`,
+`supabase functions deploy`, or `supabase db push` here.
+
+Deploy one Edge Function:
+
+```bash
+infra/supabase/deploy-functions.sh app-agent
+```
+
+Deploy all repository Edge Functions:
+
+```bash
+infra/supabase/deploy-functions.sh
+```
+
+The deploy script refuses to run when this checkout is linked to Supabase Cloud
+or when the App and runtime URLs differ. It syncs into the Docker bind mount,
+restarts the Edge Runtime, and checks every deployed route through port `8010`.
+
+Apply one SQL migration to the self-hosted database:
+
+```bash
+infra/supabase/apply-migration.sh supabase/migrations/<migration>.sql
+```

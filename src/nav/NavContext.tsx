@@ -1,12 +1,13 @@
 // NavContext.tsx — central UI/navigation state, mirroring the prototype's `nav`
-// object: which tab + subtab is active, the selected POI, the bottom sheet, live
+// object: which tab + discover subtab is active, the selected POI, the bottom
+// sheet, live
 // journey edits (favourites / removals), and every full-screen
 // overlay. Screens read this via useNav().
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
 
-export type MainTab = 'discover' | 'gear' | 'me';
+export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type SubTab = 'explore' | 'memory';
 
 export type JourneyPatch = Partial<Poi>;
@@ -56,6 +57,7 @@ export interface NavValue {
   patchCurrent: (patch: JourneyPatch) => void;
   removeJourney: () => void;
   removeJourneys: (ids: string[]) => void;
+  clearRemovedJourney: (id: string) => void;
   toggleFav: () => void;
   merged: (p: Poi) => Poi;
 
@@ -77,6 +79,10 @@ export interface NavValue {
   newJourneyPreset: Poi | null;
   openNewJourney: (preset?: Poi) => void;
   closeNewJourney: () => void;
+
+  journeyInviteScannerOpen: boolean;
+  openJourneyInviteScanner: () => void;
+  closeJourneyInviteScanner: () => void;
 
   elevFull: OverlayCfg | null;
   openElevation: (c: OverlayCfg) => void;
@@ -100,6 +106,11 @@ export interface NavValue {
   journeySettings: Poi | null;
   openJourneySettings: (p: Poi) => void;
   closeJourneySettings: () => void;
+
+  journeyHistory: Poi | null;
+  openJourneyHistory: (p: Poi) => void;
+  closeJourneyHistory: () => void;
+  syncJourney: (p: Poi) => void;
 
   // 现场分享 (offline live share) host control sheet
   liveShare: Poi | null;
@@ -135,8 +146,10 @@ export interface NavValue {
   // Global in-app agent. Feature pages may provide a prompt and current journey.
   assistantOpen: boolean;
   assistantPrompt?: string;
+  assistantDisplayPrompt?: string;
   assistantJourneyId?: string;
-  openAssistant: (prompt?: string, journeyId?: string) => void;
+  assistantAutoSubmit: boolean;
+  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string) => void;
   clearAssistantPrompt: () => void;
   closeAssistant: () => void;
 
@@ -147,7 +160,7 @@ export interface NavValue {
   // hide the floating tab bar while a full-screen pushed page is open
   // (e.g. the 我 screen's 账户与登录 / 消息中心 sub-pages).
   tabBarHidden: boolean;
-  setTabBarHidden: (v: boolean) => void;
+  setTabBarHidden: (source: string, hidden: boolean) => void;
 
   auth: { signOut: () => void; deleteAccount: () => Promise<void> };
 }
@@ -183,11 +196,13 @@ export function NavProvider({
   const [addRouteOpen, setAddRouteOpen] = useState(false);
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
+  const [journeyInviteScannerOpen, setJourneyInviteScannerOpen] = useState(false);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
   const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null>(null);
   const [editJourney, setEditJourney] = useState<Poi | null>(null);
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
+  const [journeyHistory, setJourneyHistory] = useState<Poi | null>(null);
   const [liveShare, setLiveShare] = useState<Poi | null>(null);
   const [nearbyJoinOpen, setNearbyJoinOpen] = useState(false);
   const [manageCompanions, setManageCompanions] = useState<{ poi: Poi; initialAction?: 'invite' } | null>(null);
@@ -197,19 +212,34 @@ export function NavProvider({
   const [searchOpen, setSearchOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantPrompt, setAssistantPrompt] = useState<string>();
+  const [assistantDisplayPrompt, setAssistantDisplayPrompt] = useState<string>();
   const [assistantJourneyId, setAssistantJourneyId] = useState<string>();
+  const [assistantAutoSubmit, setAssistantAutoSubmit] = useState(false);
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
-  const [tabBarHidden, setTabBarHidden] = useState(false);
+  const [tabBarHiddenSources, setTabBarHiddenSources] = useState<Set<string>>(() => new Set());
+  const setTabBarHidden = useCallback((source: string, hidden: boolean) => {
+    setTabBarHiddenSources((current) => {
+      const alreadyHidden = current.has(source);
+      if (alreadyHidden === hidden) return current;
+      const next = new Set(current);
+      if (hidden) next.add(source);
+      else next.delete(source);
+      return next;
+    });
+  }, []);
+  const tabBarHidden = tabBarHiddenSources.size > 0;
 
   const blockingOverlayOpen = Boolean(
     actionSheet ||
     addRouteOpen ||
     newJourneyOpen ||
+    journeyInviteScannerOpen ||
     elevFull ||
     photoWall ||
     timelineAdd ||
     editJourney ||
     journeySettings ||
+    journeyHistory ||
     liveShare ||
     nearbyJoinOpen ||
     manageCompanions ||
@@ -232,11 +262,13 @@ export function NavProvider({
     setAddRouteOpen(false);
     setNewJourneyOpen(false);
     setNewJourneyPreset(null);
+    setJourneyInviteScannerOpen(false);
     setElevFull(null);
     setPhotoWall(null);
     setTimelineAdd(null);
     setEditJourney(null);
     setJourneySettings(null);
+    setJourneyHistory(null);
     setLiveShare(null);
     setNearbyJoinOpen(false);
     setManageCompanions(null);
@@ -244,7 +276,9 @@ export function NavProvider({
     setSearchOpen(false);
     setAssistantOpen(false);
     setAssistantPrompt(undefined);
+    setAssistantDisplayPrompt(undefined);
     setAssistantJourneyId(undefined);
+    setAssistantAutoSubmit(false);
   };
 
   const setMainTab = (t: MainTab) => {
@@ -281,8 +315,10 @@ export function NavProvider({
     const cur = pointInfo;
     const id = cur?.id;
     if (id) {
-      setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
-      db?.deleteJourney?.(id);
+      const operation = db?.deleteJourney?.(id);
+      void operation?.then(() => {
+        setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
+      }).catch(() => {});
     }
     setActionSheet(null);
     setEditJourney(null);
@@ -291,8 +327,12 @@ export function NavProvider({
     setSheetOpen(false);
   };
   const removeBatch = (ids: string[]) => {
-    setRemovedIds((s) => [...s, ...ids.filter((id) => !s.includes(id))]);
-    ids.forEach((id) => db?.deleteJourney?.(id));
+    ids.forEach((id) => {
+      const operation = db?.deleteJourney?.(id);
+      void operation?.then(() => {
+        setRemovedIds((current) => current.includes(id) ? current : [...current, id]);
+      }).catch(() => {});
+    });
   };
 
   const value = useMemo<NavValue>(
@@ -333,6 +373,7 @@ export function NavProvider({
       patchCurrent,
       removeJourney: removeCurrent,
       removeJourneys: removeBatch,
+      clearRemovedJourney: (id) => setRemovedIds((current) => current.filter((removedId) => removedId !== id)),
       toggleFav: () => {
         const cur = pointInfo;
         const newFav = !(cur && cur.fav);
@@ -357,6 +398,9 @@ export function NavProvider({
         setNewJourneyOpen(false);
         setNewJourneyPreset(null);
       },
+      journeyInviteScannerOpen,
+      openJourneyInviteScanner: () => setJourneyInviteScannerOpen(true),
+      closeJourneyInviteScanner: () => setJourneyInviteScannerOpen(false),
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
@@ -373,6 +417,20 @@ export function NavProvider({
       journeySettings,
       openJourneySettings: (p) => setJourneySettings(merged(p)),
       closeJourneySettings: () => setJourneySettings(null),
+      journeyHistory,
+      openJourneyHistory: (p) => setJourneyHistory(merged(p)),
+      closeJourneyHistory: () => setJourneyHistory(null),
+      syncJourney: (p) => {
+        setJourneyPatch((current) => {
+          if (!current[p.id]) return current;
+          const next = { ...current };
+          delete next[p.id];
+          return next;
+        });
+        setPointInfo((current) => current?.id === p.id ? p : current);
+        setJourneySettings((current) => current?.id === p.id ? p : current);
+        setJourneyHistory((current) => current?.id === p.id ? p : current);
+      },
       liveShare,
       openLiveShare: (p) => setLiveShare(merged(p)),
       closeLiveShare: () => setLiveShare(null),
@@ -390,17 +448,27 @@ export function NavProvider({
       closeSearch: () => setSearchOpen(false),
       assistantOpen,
       assistantPrompt,
+      assistantDisplayPrompt,
       assistantJourneyId,
-      openAssistant: (prompt, journeyId) => {
+      assistantAutoSubmit,
+      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt) => {
         setAssistantPrompt(prompt);
+        setAssistantDisplayPrompt(displayPrompt);
         setAssistantJourneyId(journeyId);
+        setAssistantAutoSubmit(autoSubmit);
         setAssistantOpen(true);
       },
-      clearAssistantPrompt: () => setAssistantPrompt(undefined),
+      clearAssistantPrompt: () => {
+        setAssistantPrompt(undefined);
+        setAssistantDisplayPrompt(undefined);
+        setAssistantAutoSubmit(false);
+      },
       closeAssistant: () => {
         setAssistantOpen(false);
         setAssistantPrompt(undefined);
+        setAssistantDisplayPrompt(undefined);
         setAssistantJourneyId(undefined);
+        setAssistantAutoSubmit(false);
       },
       savedRoutes,
       extraJourneys,
@@ -435,11 +503,13 @@ export function NavProvider({
       addRouteOpen,
       newJourneyOpen,
       newJourneyPreset,
+      journeyInviteScannerOpen,
       elevFull,
       photoWall,
       timelineAdd,
       editJourney,
       journeySettings,
+      journeyHistory,
       liveShare,
       nearbyJoinOpen,
       manageCompanions,
@@ -447,7 +517,9 @@ export function NavProvider({
       searchOpen,
       assistantOpen,
       assistantPrompt,
+      assistantDisplayPrompt,
       assistantJourneyId,
+      assistantAutoSubmit,
       savedRoutes,
       extraJourneys,
       toast,

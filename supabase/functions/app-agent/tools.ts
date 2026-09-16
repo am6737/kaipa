@@ -8,12 +8,32 @@ import { aggregateTravelSearch } from './search/aggregate.ts';
 import { createTravelSearchProviders, travelSearchNumberSetting } from './search/registry.ts';
 import { resolveJourneyDay } from './journey-days.ts';
 import { itineraryMinutes } from './itinerary-time.ts';
+import { itineraryValidationError, validIsoDate, validateItineraryItems } from './itinerary-validation.ts';
+import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, packingWaterMixError, requiresMixedWaterPlan, validatePackingItems } from './packing-validation.ts';
+import { missingPackingCoverage, packingCoverageError, requiresFullPackingPlan } from './packing-coverage.ts';
+import type { PackingPlanProfile } from './packing-coverage.ts';
+import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
 import { endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters } from './route-endpoints.ts';
+import { buildAgentTrackData, computeTrackStats, isTrackFilename, parseTrackBytes, snapTrackWaypoints } from './track.ts';
 
 declare const Deno: { env: { get(name: string): string | undefined } };
 
 type Client = any;
 type RunContext = { context: AgentContext };
+type UndoableResult<T> = { __undoable: true; value: T; undo: Record<string, unknown> };
+type JourneyMapLocation = { name: string; region: string; coord: string; lng: number; lat: number };
+type UploadedTrackData = {
+  name?: string;
+  fileUrl: string;
+  fileName: string;
+  trackCoords: [number, number][];
+  trackElevation: { km: number; ele: number }[] | null;
+  trackDurationMs: number | null;
+  trackWaypoints: { name: string; km: number }[] | null;
+  dist: string;
+  asc: string | null;
+  start: { lng: number; lat: number };
+};
 
 const requestClients = new Map<string, Client>();
 const travelSearches = new Map<string, Promise<unknown>>();
@@ -36,6 +56,39 @@ function contextFor(runContext?: RunContext): AgentContext {
   return runContext.context;
 }
 
+
+function looksLikeJourneyPlanRequest(message: string) {
+  return /(创建|规划|安排|计划|做|生成).{0,12}(旅程|行程|路线|徒步|旅行|露营|登山)|帮我.{0,20}(旅程|行程|路线|徒步|旅行|露营|登山)/i.test(message);
+}
+
+function hasConcreteOrOpenJourneyDate(message: string) {
+  return /(今天|明天|后天|大后天|本周|这周|下周|下个月|周[一二三四五六日天末]|星期[一二三四五六日天]|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]|日期\s*(未定|待定)|待定|暂定|稍后补)/i.test(message);
+}
+
+function hasJourneyDuration(message: string) {
+  return /(\d+|[一二两三四五六七八九十半]+)\s*(天|日|晚|夜)|day|days|night|nights/i.test(message);
+}
+
+function explicitlyAllowsUndatedJourney(message: string) {
+  return /(日期|时间|出发|哪天).{0,6}(未定|待定|暂定|稍后补|以后补)|先.{0,6}(未定|待定)|待定日期|日期待定|date\s*(tbd|unknown|later)/i.test(message);
+}
+
+
+function journeyCreationBasicsMissing(context: AgentContext) {
+  const text = context.originalUserMessage?.trim() || '';
+  if (!text) return false;
+  const createLike = looksLikeJourneyPlanRequest(text);
+  if (!createLike) return false;
+  const hasDate = hasConcreteOrOpenJourneyDate(text) || explicitlyAllowsUndatedJourney(text);
+  return !hasDate || !hasJourneyDuration(text);
+}
+
+function assertJourneyCreationBasicsReady(context: AgentContext) {
+  if (journeyCreationBasicsMissing(context)) {
+    throw new Error('创建旅程前必须先补齐出发日期和天数；不要先查询路线、搜索攻略或创建旅程。');
+  }
+}
+
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -50,7 +103,143 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function mutate<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T>): Promise<T> {
+function undoable<T>(value: T, undo: Record<string, unknown>): UndoableResult<T> {
+  return { __undoable: true, value, undo };
+}
+
+function isUndoableResult<T>(value: T | UndoableResult<T>): value is UndoableResult<T> {
+  return Boolean(value && typeof value === 'object' && '__undoable' in value && value.__undoable === true);
+}
+
+function coordinateLabel(lng: number, lat: number): string {
+  const latDir = lat >= 0 ? 'N' : 'S';
+  const lngDir = lng >= 0 ? 'E' : 'W';
+  return `${Math.abs(lat).toFixed(5)} ${latDir}  ${Math.abs(lng).toFixed(5)} ${lngDir}`;
+}
+
+function amapWebKey() {
+  return (Deno.env.get('AMAP_WEB_KEY') || '').trim();
+}
+
+function wgs84ToGcj02(lng: number, lat: number): [number, number] {
+  if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return [lng, lat];
+  const pi = Math.PI;
+  const axis = 6378245;
+  const eccentricity = 0.006693421622965943;
+  const x = lng - 105;
+  const y = lat - 35;
+  let dLat = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  dLat += ((20 * Math.sin(6 * x * pi) + 20 * Math.sin(2 * x * pi)) * 2) / 3;
+  dLat += ((20 * Math.sin(y * pi) + 40 * Math.sin((y / 3) * pi)) * 2) / 3;
+  dLat += ((160 * Math.sin((y / 12) * pi) + 320 * Math.sin((y * pi) / 30)) * 2) / 3;
+  let dLng = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  dLng += ((20 * Math.sin(6 * x * pi) + 20 * Math.sin(2 * x * pi)) * 2) / 3;
+  dLng += ((20 * Math.sin(x * pi) + 40 * Math.sin((x / 3) * pi)) * 2) / 3;
+  dLng += ((150 * Math.sin((x / 12) * pi) + 300 * Math.sin((x / 30) * pi)) * 2) / 3;
+  const radLat = (lat / 180) * pi;
+  let magic = Math.sin(radLat);
+  magic = 1 - eccentricity * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / (((axis * (1 - eccentricity)) / (magic * sqrtMagic)) * pi);
+  dLng = (dLng * 180) / ((axis / sqrtMagic) * Math.cos(radLat) * pi);
+  return [lng + dLng, lat + dLat];
+}
+
+function gcj02ToWgs84(lng: number, lat: number): [number, number] {
+  let estimate: [number, number] = [lng, lat];
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const converted = wgs84ToGcj02(estimate[0], estimate[1]);
+    estimate = [estimate[0] + lng - converted[0], estimate[1] + lat - converted[1]];
+  }
+  return estimate;
+}
+
+async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Promise<JourneyMapLocation> {
+  const key = amapWebKey();
+  if (!key) throw new Error('地图定位服务暂不可用');
+  const params = new URLSearchParams({
+    key,
+    keywords: query,
+    offset: '1',
+    page: '1',
+    extensions: 'base',
+    citylimit: 'false',
+    language: language.startsWith('en') ? 'en' : 'zh_cn',
+  });
+  const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`);
+  if (!response.ok) throw new Error('地图定位服务暂不可用');
+  const json = await response.json() as { status?: string; pois?: any[] };
+  const poi = json.status === '1' ? json.pois?.[0] : null;
+  const [gcjLng, gcjLat] = String(poi?.location || '').split(',').map(Number);
+  if (!Number.isFinite(gcjLng) || !Number.isFinite(gcjLat)) throw new Error(`没有找到「${query}」的地图坐标`);
+  const [lng, lat] = gcj02ToWgs84(gcjLng, gcjLat);
+  const name = poi.name || query;
+  const parentValue = poi.cityname || poi.adname || poi.pname || '';
+  const parent = Array.isArray(parentValue) ? parentValue.filter(Boolean).join('') : parentValue;
+  const regionParts = [name, parent].filter((part, index, parts) => part && parts.indexOf(part) === index);
+  return {
+    name,
+    region: regionParts.slice(0, 2).join(' · ') || name,
+    coord: coordinateLabel(lng, lat),
+    lng,
+    lat,
+  };
+}
+
+async function maybeGeocodeJourneyMapLocation(query: string | undefined): Promise<JourneyMapLocation | null> {
+  const cleaned = query?.trim();
+  if (!cleaned) return null;
+  try {
+    return await geocodeJourneyMapLocation(cleaned);
+  } catch (error) {
+    console.warn('Could not geocode journey location', error);
+    return null;
+  }
+}
+
+async function uploadedTrackForRun(client: Client, context: AgentContext, requestedName?: string): Promise<UploadedTrackData | null> {
+  const message = await client
+    .from('agent_messages')
+    .select('ui')
+    .eq('thread_id', context.threadId)
+    .eq('user_id', context.userId)
+    .eq('role', 'user')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (message.error) throw message.error;
+  const attachments = Array.isArray(message.data?.ui?.attachments) ? message.data.ui.attachments : [];
+  const normalizedRequested = requestedName?.trim().toLocaleLowerCase();
+  const trackAttachment = attachments.find((attachment: any) => {
+    const name = typeof attachment?.name === 'string' ? attachment.name : '';
+    if (!isTrackFilename(name)) return false;
+    return !normalizedRequested || name.toLocaleLowerCase() === normalizedRequested;
+  }) || null;
+  if (!trackAttachment) return null;
+  const response = await fetch(trackAttachment.url);
+  if (!response.ok) throw new Error('无法读取上传的轨迹文件');
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > 15 * 1024 * 1024) throw new Error('轨迹文件过大，请上传 15MB 以内的 GPX/KML/KMZ');
+  const parsed = await parseTrackBytes(bytes, trackAttachment.name);
+  const stats = computeTrackStats(parsed.points);
+  if (!stats) throw new Error('轨迹点不足，无法创建带轨迹的旅程');
+  const track = buildAgentTrackData(stats);
+  const start = stats.points[0];
+  return {
+    name: parsed.name,
+    fileUrl: trackAttachment.url,
+    fileName: trackAttachment.name,
+    trackCoords: track.trackCoords,
+    trackElevation: track.trackElevation,
+    trackDurationMs: track.trackDurationMs,
+    trackWaypoints: snapTrackWaypoints(parsed.waypoints, stats),
+    dist: track.dist,
+    asc: track.asc,
+    start: { lng: start.lon, lat: start.lat },
+  };
+}
+
+async function mutate<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T | UndoableResult<T>>): Promise<T> {
   const client = clientFor(runContext);
   const context = contextFor(runContext);
   const argumentsHash = await sha256(stable(args));
@@ -73,8 +262,10 @@ async function mutate<T>(toolName: string, args: unknown, runContext: RunContext
   if (recorded.error) throw recorded.error;
 
   try {
-    const output = await operation(client, context);
-    const saved = await client.from('agent_tool_calls').update({ status: 'completed', output, updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
+    const operationResult = await operation(client, context);
+    const output = isUndoableResult(operationResult) ? operationResult.value : operationResult;
+    const undoPayload = isUndoableResult(operationResult) ? operationResult.undo : null;
+    const saved = await client.from('agent_tool_calls').update({ status: 'completed', output, undo_payload: undoPayload, updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
     if (saved.error) throw saved.error;
     return output;
   } catch (error) {
@@ -91,12 +282,37 @@ const itineraryItem = z.object({
 });
 
 const packingItem = z.object({
-  name: z.string().min(1).max(120),
-  categoryName: z.string().max(60).optional(),
-  quantity: z.number().int().min(1).max(99).default(1),
-  weightKg: z.number().min(0).max(100).optional(),
-  note: z.string().max(300).optional(),
+  name: z.string().min(1).max(120).describe('可直接购买、准备和勾选的简短品名。不得使用“饮用水、路餐、食物、充电宝、急救包、个人药品、换洗衣物”等泛称，也不要把容量、重量或常识属性写进名称'),
+  attributes: z.array(z.object({
+    name: z.string().min(1).max(24).describe('字段名，例如容量、接口、单份净重、温标或 R 值'),
+    value: z.string().min(1).max(60).describe('字段值'),
+  })).max(6).optional().describe('仅填写会改变购买选择或安全性能的关键自定义字段；不要填写可调亮度、带帽檐、防紫外线、独立包装、中号等常识或非必要细节'),
+  categoryName: z.string().max(60).optional().describe('物品所属类别，例如饮水、食物、医疗或电子'),
+  quantity: z.number().int().min(1).max(99).default(1).describe('需要携带的实际件数；相同规格物品用此字段表示数量'),
+  weightKg: z.number().positive().max(100).describe('单件实际携带重量（千克），必须写入重量字段；食品包装克重等购买规格可同时保留在 attributes 中'),
+  weightEstimated: z.boolean().describe('没有确切型号或实测重量时为 true，有真实重量依据时为 false'),
+  carryStatus: z.enum(['packed', 'worn', 'consumable']).describe('重量归属：背包内固定装备用 packed，行进时穿在身上或脚上的衣物鞋帽用 worn，途中会消耗的食品、饮水和燃料用 consumable'),
+  estimatedEnergyKcalPerUnit: z.number().positive().max(3000).optional().describe('仅食品填写的内部单份热量估算，只用于检查路餐数量，不会展示或写入清单'),
 });
+
+const packingPlanProfile = z.object({
+  accommodation: z.enum(['day_trip', 'indoors', 'camping', 'unknown']).describe('当天往返、室内住宿、露营或未知'),
+  waterRefill: z.enum(['none', 'treated', 'natural', 'unknown']).describe('无补给、可靠处理水源、需净化的天然水源或未知'),
+  mealPreparation: z.enum(['no_cook', 'cook', 'provided', 'unknown']).describe('无需烹饪、自行开火、住宿或商家提供、未知'),
+  conditions: z.array(z.enum(['hot', 'cold', 'wet', 'snow', 'high_altitude'])).max(5).optional(),
+});
+
+async function loadPersonalPlanningNeeds(client: Client, context: AgentContext, journeyId: string, plan: PackingPlanProfile) {
+  const [profile, journey, itinerary] = await Promise.all([
+    client.from('user_planning_profiles').select('height_cm,weight_kg,age_years,dietary_restrictions').eq('user_id', context.userId).maybeSingle(),
+    client.from('journeys').select('id,days,total_days,dist,asc_,track_duration_ms').eq('id', journeyId).is('deleted_at', null).single(),
+    client.from('timeline_rows').select('day,time_mins,time_end_mins').eq('journey_id', journeyId),
+  ]);
+  if (profile.error) throw profile.error;
+  if (journey.error) throw journey.error;
+  if (itinerary.error) throw itinerary.error;
+  return estimatePersonalPackingNeeds(normalizePlanningProfile(profile.data), journey.data, itinerary.data || [], plan);
+}
 
 const itineraryDeletionTarget = z.object({
   id: z.string().min(1).max(100),
@@ -129,6 +345,16 @@ async function assertDeleteContext(client: Client, context: AgentContext, journe
   if (!readCurrentJourney) throw new Error('删除前必须重新读取当前旅程详情');
 }
 
+async function assertJourneyWriteAccess(client: Client, context: AgentContext, journeyId: string, permission: 'editTimeline' | 'editChecklist') {
+  const journey = await client.from('journeys').select('id,user_id,participant_permissions').eq('id', journeyId).is('deleted_at', null).single();
+  if (journey.error) throw journey.error;
+  if (journey.data.user_id === context.userId) return;
+  const member = await client.from('companions').select('id').eq('journey_id', journeyId).eq('user_id', context.userId).limit(1).maybeSingle();
+  if (member.error) throw member.error;
+  const permissions = journey.data.participant_permissions as Record<string, unknown> | null;
+  if (!member.data || permissions?.[permission] !== true) throw new Error('你没有修改这个旅程的权限');
+}
+
 export const getAppContext = tool({
   name: 'get_app_context',
   description: 'Read the journey currently open in the app. Always use this first when the user says current journey or this journey; its currentJourneyId is authoritative.',
@@ -143,14 +369,14 @@ export const searchJourneys = tool({
   execute: async ({ query }, runContext) => mutate('search_journeys', { query }, runContext as RunContext, async (client) => {
     const columns = 'id,name,region,planned_date,date,days,total_days,dist,asc_,diff,desc';
     if (!query?.trim()) {
-      const { data, error } = await client.from('journeys').select(columns).order('created_at', { ascending: false }).limit(30);
+      const { data, error } = await client.from('journeys').select(columns).is('deleted_at', null).order('created_at', { ascending: false }).limit(30);
       if (error) throw error;
       return data || [];
     }
     const pattern = `%${query.trim()}%`;
     const [byName, byRegion] = await Promise.all([
-      client.from('journeys').select(columns).ilike('name', pattern).limit(30),
-      client.from('journeys').select(columns).ilike('region', pattern).limit(30),
+      client.from('journeys').select(columns).is('deleted_at', null).ilike('name', pattern).limit(30),
+      client.from('journeys').select(columns).is('deleted_at', null).ilike('region', pattern).limit(30),
     ]);
     if (byName.error) throw byName.error;
     if (byRegion.error) throw byRegion.error;
@@ -162,7 +388,8 @@ export const searchRoutes = tool({
   name: 'search_routes',
   description: 'Search route catalog by route name or region when planning a journey.',
   parameters: z.object({ query: z.string().min(1).max(80) }),
-  execute: async ({ query }, runContext) => mutate('search_routes', { query }, runContext as RunContext, async (client) => {
+  execute: async ({ query }, runContext) => mutate('search_routes', { query }, runContext as RunContext, async (client, context) => {
+    assertJourneyCreationBasicsReady(context);
     const columns = 'id,name,region,dist,asc_,diff,desc,track_duration_ms,track_waypoints';
     const pattern = `%${query.trim()}%`;
     const [byName, byRegion] = await Promise.all([
@@ -195,10 +422,10 @@ export const getJourneyDetails = tool({
   parameters: z.object({ journeyId: z.string().min(1).max(100) }),
   execute: async ({ journeyId }, runContext) => mutate('get_journey_details', { journeyId }, runContext as RunContext, async (client) => {
     const [journey, timeline, groups, lists] = await Promise.all([
-      client.from('journeys').select('*').eq('id', journeyId).single(),
+      client.from('journeys').select('*').eq('id', journeyId).is('deleted_at', null).single(),
       client.from('timeline_rows').select('id,title,day,time_mins,time_end_mins,checked').eq('journey_id', journeyId).order('sort_order'),
       client.from('timeline_groups').select('name,sort_order,route_end_meters,route_location_name').eq('journey_id', journeyId).eq('deleted', false).order('sort_order'),
-      client.from('journey_packing_lists').select('id,kind,journey_packing_items(id,name,category_name,quantity,weight_kg,note,packed)').eq('journey_id', journeyId),
+      client.from('journey_packing_lists').select('id,kind,journey_packing_items(id,name,category_name,quantity,weight_kg,weight_estimated,attrs,note,packed)').eq('journey_id', journeyId),
     ]);
     if (journey.error) throw journey.error;
     if (timeline.error) throw timeline.error;
@@ -213,6 +440,18 @@ export const getJourneyDetails = tool({
   }),
 });
 
+export const estimatePersonalPacking = tool({
+  name: 'estimate_personal_packing_needs',
+  description: 'Privately estimate practical food, water and carrying needs for the current user before generating a full packing list. The result is internal planning context: use it to choose concrete item quantities, but do not quote body measurements, calories, confidence, formulas or calculations unless the user explicitly asks. Always call after get_journey_details and before add_packing_items for a full plan. Missing profile fields are allowed and must not trigger follow-up questions.',
+  parameters: z.object({
+    journeyId: z.string().min(1).max(100),
+    planProfile: packingPlanProfile.describe('本次旅程已知的住宿、补水、餐食与环境条件；未知项使用 unknown'),
+  }),
+  execute: async (args, runContext) => mutate('estimate_personal_packing_needs', args, runContext as RunContext, async (client, context) => (
+    loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+  )),
+});
+
 export const searchTravelWeb = tool({
   name: 'search_travel_web',
   description: 'Search configured live travel sources for current facts, places, destination guides, and community inspiration. Each result identifies its source and reliability; critical facts must rely on web or official links rather than community posts.',
@@ -223,7 +462,8 @@ export const searchTravelWeb = tool({
     const context = contextFor(runContext as RunContext);
     const activeSearch = travelSearches.get(context.runId);
     if (activeSearch) return activeSearch;
-    const search = mutate('search_travel_web', { query }, runContext as RunContext, async () => {
+    const search = mutate('search_travel_web', { query }, runContext as RunContext, async (_client, context) => {
+      assertJourneyCreationBasicsReady(context);
       const getEnv = (name: string) => Deno.env.get(name);
       const providers = createTravelSearchProviders(getEnv);
       const hasCrawlerSource = providers.some((provider) => provider.source === 'xhs' || provider.source === 'douyin');
@@ -251,7 +491,6 @@ export const addGear = tool({
     status: z.enum(['packed', 'worn', 'consumable', 'optional']).default('packed'),
     note: z.string().max(500).optional(),
   }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('add_gear', args, runContext as RunContext, async (client, context) => {
     const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: args.categoryId || null, weight: args.weightKg, price: args.priceCny, qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
     if (error) throw error;
@@ -266,24 +505,37 @@ export const createJourney = tool({
     name: z.string().min(1).max(120),
     region: z.string().max(120).default(''),
     routeId: z.string().max(100).optional(),
-    plannedDate: z.string().max(40).optional(),
+    trackAttachmentName: z.string().max(160).optional().describe('Name of an uploaded GPX/KML/KMZ attachment to use as this journey track'),
+    plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('出发日期，必须是 YYYY-MM-DD'),
     days: z.number().int().min(1).max(30).default(1),
     description: z.string().max(1000).optional(),
   }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('create_journey', args, runContext as RunContext, async (client, context) => {
+    assertJourneyCreationBasicsReady(context);
+    if (!args.plannedDate?.trim() && !context.allowUndatedJourney) {
+      throw new Error('创建旅程前需要先询问用户出发日期；只有用户明确说日期待定/稍后补日期，才能创建未定日期旅程。');
+    }
+    if (args.plannedDate && !validIsoDate(args.plannedDate)) {
+      throw new Error('出发日期不是有效的 YYYY-MM-DD 日历日期，请修正后重新调用 create_journey。');
+    }
     const routeResult = args.routeId ? await client.from('routes').select('*').eq('id', args.routeId).maybeSingle() : { data: null, error: null };
     if (routeResult.error) throw routeResult.error;
     const route = routeResult.data;
+    const uploadedTrack = route ? null : await uploadedTrackForRun(client, context, args.trackAttachmentName);
+    const resolvedLocation = route || uploadedTrack ? null : await maybeGeocodeJourneyMapLocation(args.region || args.name);
     const id = `j_${crypto.randomUUID()}`;
+    const startLocation = uploadedTrack?.start;
     const inserted = await client.from('journeys').insert({
-      id, user_id: context.userId, route_id: route?.id || null, name: args.name, region: args.region || route?.region || '',
-      coord: route?.coord || '', lng: route?.lng || 0, lat: route?.lat || 0, dist: route?.dist || '', asc_: route?.asc_ || '',
+      id, user_id: context.userId, route_id: route?.id || null, name: args.name, region: args.region || route?.region || resolvedLocation?.region || uploadedTrack?.name || '',
+      coord: route?.coord || resolvedLocation?.coord || (startLocation ? coordinateLabel(startLocation.lng, startLocation.lat) : ''),
+      lng: route?.lng || resolvedLocation?.lng || startLocation?.lng || 0,
+      lat: route?.lat || resolvedLocation?.lat || startLocation?.lat || 0,
+      dist: route?.dist || uploadedTrack?.dist || '', asc_: route?.asc_ || uploadedTrack?.asc || '',
       diff: route?.diff || null, tone: route?.tone || 'forest', desc: args.description || route?.desc || null,
       date: args.plannedDate || null, planned_date: args.plannedDate || null, days: `${args.days} 天`, total_days: args.days,
-      track_coords: route?.track_coords || null, track_elevation: route?.track_elevation || null,
-      track_duration_ms: route?.track_duration_ms || null, track_waypoints: route?.track_waypoints || null,
-      photo_uris: route?.photo_uris || null,
+      track_coords: route?.track_coords || uploadedTrack?.trackCoords || null, track_elevation: route?.track_elevation || uploadedTrack?.trackElevation || null,
+      track_duration_ms: route?.track_duration_ms || uploadedTrack?.trackDurationMs || null, track_waypoints: route?.track_waypoints || uploadedTrack?.trackWaypoints || null,
+      track_file_url: route?.track_file_url || uploadedTrack?.fileUrl || null, track_file_name: route?.track_file_name || uploadedTrack?.fileName || null,
     }).select('id,name,region,planned_date,total_days').single();
     if (inserted.error) throw inserted.error;
     const profile = await client.from('profiles').select('nick,display_name').eq('id', context.userId).single();
@@ -301,16 +553,16 @@ export const createJourney = tool({
 
 export const addItinerary = tool({
   name: 'add_itinerary_items',
-  description: 'Add a reviewed itinerary to an existing journey. Read journey details first and avoid duplicates.',
+  description: 'Add an executable itinerary to an existing journey. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
   parameters: z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80) }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('add_itinerary_items', args, runContext as RunContext, async (client, context) => {
-    const ownership = await client.from('journeys').select('id').eq('id', args.journeyId).single();
-    if (ownership.error) throw ownership.error;
-    const [existingRows, existingGroups] = await Promise.all([
-      client.from('timeline_rows').select('id,day').eq('journey_id', args.journeyId),
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
+    const [journey, existingRows, existingGroups] = await Promise.all([
+      client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
+      client.from('timeline_rows').select('id,day,title').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name').eq('journey_id', args.journeyId),
     ]);
+    if (journey.error) throw journey.error;
     if (existingRows.error) throw existingRows.error;
     if (existingGroups.error) throw existingGroups.error;
     const existingNames = [...new Set([
@@ -318,28 +570,85 @@ export const addItinerary = tool({
       ...(existingRows.data || []).map((row: { day: string }) => row.day),
     ].filter(Boolean))];
     const normalizedItems = args.items.map((item) => ({ ...item, day: resolveJourneyDay(item.day, existingNames) }));
-    const rows = normalizedItems.map((item, index) => ({
+    const validationIssues = validateItineraryItems(normalizedItems, journey.data.total_days || undefined);
+    if (validationIssues.length) throw new Error(itineraryValidationError(validationIssues));
+    const existingKeys = new Set((existingRows.data || []).map((row: { day: string; title: string }) => `${resolveJourneyDay(row.day, existingNames).toLocaleLowerCase()}\u0000${row.title.trim().toLocaleLowerCase()}`));
+    const uniqueItems = normalizedItems.filter((item) => !existingKeys.has(`${item.day.toLocaleLowerCase()}\u0000${item.title.trim().toLocaleLowerCase()}`));
+    if (!uniqueItems.length) return { journeyId: args.journeyId, added: 0, skippedDuplicates: args.items.length };
+    const rows = uniqueItems.map((item, index) => ({
       id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
       title: item.title, day: item.day,
       time_mins: itineraryMinutes(item.timeStart) ?? null,
       time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
       is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
     }));
-    const inserted = await client.from('timeline_rows').insert(rows);
-    if (inserted.error) throw inserted.error;
-    const groups = [...new Set(normalizedItems.map((item) => item.day))].map((name, index) => ({ journey_id: args.journeyId, user_id: context.userId, name, deleted: false, sort_order: index, updated_at: new Date().toISOString() }));
-    const grouped = await client.from('timeline_groups').upsert(groups, { onConflict: 'journey_id,name' });
-    if (grouped.error) throw grouped.error;
-    return { journeyId: args.journeyId, added: rows.length };
+    const groupNames = [...new Set(uniqueItems.map((item) => item.day))];
+    const createdGroupNames = groupNames.filter((name) => !existingNames.includes(name));
+    const groups = createdGroupNames.map((name, index) => ({
+      journey_id: args.journeyId,
+      user_id: context.userId,
+      name,
+      deleted: false,
+      sort_order: existingNames.length + index,
+      updated_at: new Date().toISOString(),
+    }));
+    const applied = await client.rpc('apply_agent_itinerary', { p_itinerary_rows: rows, p_itinerary_groups: groups });
+    if (applied.error) throw applied.error;
+    return undoable(
+      { journeyId: args.journeyId, added: rows.length, skippedDuplicates: args.items.length - rows.length },
+      { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames },
+    );
+  }),
+});
+
+
+export const setJourneyMapLocation = tool({
+  name: 'set_journey_map_location',
+  description: 'Set the journey card/map GPS location from a real place search. Use this when an AI-planned journey has no map location, default 0/0 coordinates, or the user asks to fix the journey map position. Prefer the destination, route start, main scenic area, or most specific place from the itinerary as the query.',
+  parameters: z.object({
+    journeyId: z.string().min(1).max(100),
+    query: z.string().min(1).max(160).describe('Place name to geocode, for example 武功山金顶, 桂林老寨山, or 杭州西湖'),
+    region: z.string().min(1).max(120).optional().describe('Optional display region to save instead of the geocoding result'),
+  }),
+  execute: async (args, runContext) => mutate('set_journey_map_location', args, runContext as RunContext, async (client, context) => {
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
+    const current = await client.from('journeys').select('id,name,region,coord,lng,lat').eq('id', args.journeyId).single();
+    if (current.error) throw current.error;
+    const location = await geocodeJourneyMapLocation(args.query);
+    const patch = {
+      region: args.region?.trim() || current.data.region || location.region,
+      coord: location.coord,
+      lng: location.lng,
+      lat: location.lat,
+      updated_at: new Date().toISOString(),
+    };
+    const saved = await client.from('journeys').update(patch).eq('id', args.journeyId).select('id,name,region,coord,lng,lat').single();
+    if (saved.error) throw saved.error;
+    return undoable(
+      { journeyId: args.journeyId, location: saved.data },
+      { kind: 'set_journey_map_location', journeyId: args.journeyId, previous: current.data, applied: saved.data },
+    );
   }),
 });
 
 export const addPackingItems = tool({
   name: 'add_packing_items',
-  description: 'Add reviewed recommendations to a journey packing list. Solo journeys use the current user\'s personal list; group journeys use the shared list. Read journey details and gear first; avoid duplicates.',
-  parameters: z.object({ journeyId: z.string().min(1).max(100), items: z.array(packingItem).min(1).max(100) }),
-  needsApproval: true,
+  description: 'Add purchase-ready, itemized recommendations to a journey packing list. Use mode=full with planProfile for a complete plan and mode=incremental only for a few user-requested additions. Use short names, put decisive purchasing or safety specifications in attributes, and per-unit carried weight in weightKg. For a multi-hour or full-day hike without refills that needs roughly 2L or more, prefer a practical mix such as one 1.2L/1.5L bottle plus one or more 500ml/550ml bottles; adjust the total for duration and conditions, and do not force this mix for short trips, refill routes, or a user-chosen hydration reservoir. A full plan must cover the scenario requirements enforced by validation. Split kits and meals into individual contents, but omit redundant comfort items and self-evident qualifiers. Solo journeys use the current user\'s personal list; group journeys use the shared list. Read journey details and gear first; avoid duplicates.',
+  parameters: z.object({
+    journeyId: z.string().min(1).max(100),
+    mode: z.enum(['full', 'incremental']).describe('生成或补齐整份清单时使用 full；仅按用户要求增加少量指定物品时使用 incremental'),
+    planProfile: packingPlanProfile.optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
+    items: z.array(packingItem).min(1).max(100),
+  }),
   execute: async (args, runContext) => mutate('add_packing_items', args, runContext as RunContext, async (client, context) => {
+    if (requiresFullPackingPlan(context.originalUserMessage || '') && args.mode !== 'full') {
+      throw new Error('用户要求生成完整装备清单，必须使用 mode=full 并提交 planProfile。');
+    }
+    if (args.mode === 'full' && !args.planProfile) {
+      throw new Error('mode=full 时必须提交 planProfile，未知条件请明确填写 unknown。');
+    }
+    const validationIssues = validatePackingItems(args.items);
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editChecklist');
     const companions = await client.from('companions').select('id,user_id,is_self').eq('journey_id', args.journeyId).order('sort_order');
     if (companions.error) throw companions.error;
     const soloOwner = companions.data?.length === 1
@@ -351,23 +660,84 @@ export const addPackingItems = tool({
     listQuery = kind === 'personal' ? listQuery.eq('owner_companion_id', ownerCompanionId) : listQuery.is('owner_companion_id', null);
     let list = await listQuery.maybeSingle();
     if (list.error) throw list.error;
+    const createdList = !list.data;
+    const existing = list.data
+      ? await client.from('journey_packing_items').select('name,category_name,quantity,attrs').eq('list_id', list.data.id)
+      : { data: [], error: null };
+    if (existing.error) throw existing.error;
+    const prepared = args.items.map((item) => ({ ...item, displayName: packingItemDisplayName(item) }));
+    const personalNeeds = args.mode === 'full' && args.planProfile
+      ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+      : undefined;
+    const existingHasFood = (existing.data || []).some((item: { name: string; category_name?: string; quantity: number }) => isPlanningFoodItem({
+      name: item.name,
+      categoryName: item.category_name,
+      quantity: item.quantity,
+    }));
+    const nutritionError = personalNeeds && !existingHasFood
+      ? nutritionPlanError(args.items, personalNeeds.recommendation.carriedFoodEnergyKcal)
+      : undefined;
+    const dietaryError = personalNeeds
+      ? dietaryConflictError(personalNeeds.personalization.dietaryRestrictions, args.items)
+      : undefined;
+    const coverageGaps = args.mode === 'full' && args.planProfile
+      ? missingPackingCoverage([
+        ...(existing.data || []).map((item: { name: string; category_name?: string; quantity: number; attrs?: [string, string][] }) => ({
+          name: item.name,
+          categoryName: item.category_name,
+          quantity: item.quantity,
+          attributes: item.attrs?.map(([name, value]) => ({ name, value })),
+        })),
+        ...args.items,
+      ], args.planProfile)
+      : [];
+    const waterMixError = args.mode === 'full' && args.planProfile && requiresMixedWaterPlan(context.originalUserMessage || '', args.planProfile.waterRefill)
+      ? packingWaterMixError([
+        ...(existing.data || []).map((item: { name: string; quantity: number; attrs?: [string, string][] }) => ({ name: item.name, quantity: item.quantity, attributes: item.attrs?.map(([name, value]) => ({ name, value })) })),
+        ...args.items,
+      ])
+      : undefined;
+    if (validationIssues.length || coverageGaps.length || waterMixError || nutritionError || dietaryError) {
+      const errors = [
+        validationIssues.length ? packingValidationError(validationIssues) : '',
+        coverageGaps.length ? packingCoverageError(coverageGaps) : '',
+        waterMixError || '',
+        nutritionError || '',
+        dietaryError || '',
+      ].filter(Boolean);
+      throw new Error(errors.join('\n'));
+    }
     if (!list.data) {
       list = await client.from('journey_packing_lists').insert({ journey_id: args.journeyId, kind, owner_companion_id: ownerCompanionId, created_by: context.userId }).select('id').single();
       if (list.error) throw list.error;
     }
-    const existing = await client.from('journey_packing_items').select('name').eq('list_id', list.data.id);
-    if (existing.error) throw existing.error;
-    const names = new Set((existing.data || []).map((row: { name: string }) => row.name.trim().toLocaleLowerCase()));
-    const unique = args.items.filter((item) => !names.has(item.name.trim().toLocaleLowerCase()));
+    const identities = new Set((existing.data || []).map((row: { name: string; quantity: number; attrs?: [string, string][] }) => packingItemIdentityKey({
+      name: row.name,
+      quantity: row.quantity,
+      attributes: row.attrs?.map(([name, value]) => ({ name, value })),
+    })));
+    const unique = prepared.filter((item) => {
+      const key = packingItemIdentityKey(item);
+      if (identities.has(key)) return false;
+      identities.add(key);
+      return true;
+    });
+    let itemIds: string[] = [];
     if (unique.length) {
       const inserted = await client.from('journey_packing_items').insert(unique.map((item, index) => ({
-        list_id: list.data.id, source_type: 'custom', name: item.name, category_name: item.categoryName || null,
-        quantity: item.quantity, weight_kg: item.weightKg && item.weightKg > 0 ? item.weightKg : null,
-        note: item.note || null, packed: false, sort_order: (existing.data?.length || 0) + index,
-      })));
+        list_id: list.data.id, source_type: 'custom', name: item.displayName, category_name: item.categoryName || null,
+        quantity: item.quantity, weight_kg: item.weightKg, weight_estimated: item.weightEstimated, carry_status: item.carryStatus,
+        attrs: item.attributes?.map((attribute) => [attribute.name.trim(), attribute.value.trim()]) || null,
+        note: null,
+        packed: false, sort_order: (existing.data?.length || 0) + index,
+      }))).select('id');
       if (inserted.error) throw inserted.error;
+      itemIds = (inserted.data || []).map((item: { id: string }) => item.id);
     }
-    return { journeyId: args.journeyId, listKind: kind, ownerCompanionId, added: unique.length, skippedDuplicates: args.items.length - unique.length };
+    const value = { journeyId: args.journeyId, listKind: kind, ownerCompanionId, added: unique.length, skippedDuplicates: args.items.length - unique.length };
+    return itemIds.length
+      ? undoable(value, { kind: 'add_packing_items', journeyId: args.journeyId, listId: list.data.id, itemIds, createdList })
+      : value;
   }),
 });
 
@@ -378,11 +748,11 @@ export const setItineraryGroupEndpoints = tool({
     journeyId: z.string().min(1).max(100),
     endpoints: z.array(itineraryGroupEndpoint).min(1).max(30),
   }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('set_itinerary_group_endpoints', args, runContext as RunContext, async (client, context) => {
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
       client.from('journeys').select('id,track_coords').eq('id', args.journeyId).single(),
-      client.from('timeline_groups').select('name,sort_order,route_end_meters,deleted').eq('journey_id', args.journeyId).order('sort_order'),
+      client.from('timeline_groups').select('name,sort_order,route_end_meters,route_end_lng,route_end_lat,route_end_track_index,route_end_track_fraction,route_end_source,route_location_name,deleted').eq('journey_id', args.journeyId).order('sort_order'),
       client.from('timeline_rows').select('day,sort_order').eq('journey_id', args.journeyId).order('sort_order'),
     ]);
     if (journeyResult.error) throw journeyResult.error;
@@ -421,7 +791,7 @@ export const setItineraryGroupEndpoints = tool({
     }
 
     const sortOrders = new Map(activeGroups.map((group: { name: string; sort_order: number }) => [group.name, group.sort_order]));
-    const saved = await client.from('timeline_groups').upsert(normalized.map((endpoint) => ({
+    const endpointRows = normalized.map((endpoint) => ({
       journey_id: args.journeyId,
       user_id: context.userId,
       name: endpoint.day,
@@ -435,13 +805,50 @@ export const setItineraryGroupEndpoints = tool({
       route_end_source: endpoint.locationName ? 'waypoint' : 'distance',
       route_location_name: endpoint.locationName || null,
       updated_at: new Date().toISOString(),
-    })), { onConflict: 'journey_id,name' });
+    }));
+    const saved = await client.from('timeline_groups').upsert(endpointRows, { onConflict: 'journey_id,name' });
     if (saved.error) throw saved.error;
-    return {
+    const value = {
       journeyId: args.journeyId,
       updated: normalized.length,
       endpoints: normalized.map((endpoint) => ({ day: endpoint.day, endDistanceKm: endpoint.position.distanceMeters / 1000, locationName: endpoint.locationName })),
     };
+    const changedNames = new Set(normalized.map((endpoint) => endpoint.day));
+    const previous = activeGroups.filter((group: { name: string }) => changedNames.has(group.name));
+    const applied = endpointRows.map(({ name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name }) => ({
+      name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name,
+    }));
+    return undoable(value, { kind: 'set_itinerary_group_endpoints', journeyId: args.journeyId, previous, applied });
+  }),
+});
+
+export const undoLastAgentChanges = tool({
+  name: 'undo_last_agent_changes',
+  description: 'Undo the most recent reversible changes made by this assistant in the current conversation. Use only when the user explicitly asks to undo, revert, or take back the previous assistant changes.',
+  parameters: z.object({}),
+  execute: async (args, runContext) => mutate('undo_last_agent_changes', args, runContext as RunContext, async (client, context) => {
+    if (!context.canUndoPreviousChanges) throw new Error('只有用户明确要求时才能撤销之前的更改');
+    const recentRuns = await client.from('agent_runs')
+      .select('id')
+      .eq('thread_id', context.threadId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (recentRuns.error) throw recentRuns.error;
+    const runIds = (recentRuns.data || []).map((run: { id: string }) => run.id);
+    if (!runIds.length) throw new Error('当前对话没有可撤销的更改');
+    const reversibleCalls = await client.from('agent_tool_calls')
+      .select('run_id')
+      .in('run_id', runIds)
+      .not('undo_payload', 'is', null)
+      .is('undone_at', null);
+    if (reversibleCalls.error) throw reversibleCalls.error;
+    const reversibleRunIds = new Set((reversibleCalls.data || []).map((call: { run_id: string }) => call.run_id));
+    const targetRunId = runIds.find((runId: string) => reversibleRunIds.has(runId));
+    if (!targetRunId) throw new Error('当前对话没有可撤销的更改');
+    const undone = await client.rpc('undo_agent_run', { target_run_id: targetRunId });
+    if (undone.error) throw undone.error;
+    return undone.data;
   }),
 });
 
@@ -452,7 +859,6 @@ export const deleteItineraryItems = tool({
     journeyId: z.string().min(1).max(100),
     items: z.array(itineraryDeletionTarget).min(1).max(200),
   }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('delete_itinerary_items', args, runContext as RunContext, async (client, context) => {
     await assertDeleteContext(client, context, args.journeyId);
     const requested = args.items.map((item) => ({ id: item.id, label: item.title }));
@@ -475,7 +881,6 @@ export const deletePackingItems = tool({
     journeyId: z.string().min(1).max(100),
     items: z.array(packingDeletionTarget).min(1).max(200),
   }),
-  needsApproval: true,
   execute: async (args, runContext) => mutate('delete_packing_items', args, runContext as RunContext, async (client, context) => {
     await assertDeleteContext(client, context, args.journeyId);
     const requested = args.items.map((item) => ({ id: item.id, label: item.name }));
@@ -496,8 +901,8 @@ export const deletePackingItems = tool({
   }),
 });
 
-export const kaipaAllTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, searchTravelWeb, addGear, createJourney, addItinerary, setItineraryGroupEndpoints, addPackingItems, deleteItineraryItems, deletePackingItems];
+export const kaipaAllTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaGlobalTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, searchTravelWeb, addGear, createJourney, addItinerary, setItineraryGroupEndpoints, addPackingItems, deleteItineraryItems, deletePackingItems];
+export const kaipaGlobalTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaJourneyTools = [getAppContext, getJourneyDetails, addItinerary, setItineraryGroupEndpoints, addPackingItems, deleteItineraryItems, deletePackingItems, listGear, searchTravelWeb, searchJourneys, searchRoutes, addGear, createJourney];
+export const kaipaJourneyTools = [getAppContext, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchTravelWeb, searchJourneys, searchRoutes, addGear, createJourney];

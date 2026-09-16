@@ -67,8 +67,6 @@ export interface Theme {
   trailFaint: string;
   dotCore: string;
   dotRing: string;
-  mapStyleURL: string;
-  mapLightPreset: 'dawn' | 'day' | 'dusk' | 'night';
 }
 
 export function makeTheme(mode: Mode, accent?: string): Theme {
@@ -108,8 +106,6 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       trailFaint: 'rgba(255,255,255,0.35)',
       dotCore: '#FFFFFF',
       dotRing: a,
-      mapStyleURL: 'mapbox://styles/mapbox/dark-v11',
-      mapLightPreset: 'night',
     };
   }
   return {
@@ -146,7 +142,5 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     trailFaint: 'rgba(0,0,0,0.35)',
     dotCore: '#FFFFFF',
     dotRing: a,
-    mapStyleURL: 'mapbox://styles/mapbox/light-v11',
-    mapLightPreset: 'day',
   };
 }

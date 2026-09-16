@@ -7,6 +7,7 @@ const MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
   heic: 'image/heic', webp: 'image/webp', gif: 'image/gif',
   mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v',
+  gpx: 'application/gpx+xml', kml: 'application/vnd.google-earth.kml+xml', kmz: 'application/vnd.google-earth.kmz',
 };
 
 function extFromUri(uri: string): string {
@@ -39,6 +40,27 @@ export async function uploadMedia(
   const { error } = await supabase.storage
     .from(BUCKET)
     .upload(storagePath, buffer, { contentType, upsert: false });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
+export async function uploadAgentAttachment(
+  localUri: string,
+  userId: string,
+  name: string,
+  mimeType: string,
+): Promise<string> {
+  const ext = (name.match(/\.([a-z0-9]{1,10})$/i)?.[1] || extFromUri(localUri) || 'bin').toLowerCase();
+  const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
+  const storagePath = `assistant/${userId}/${filename}`;
+  const inlineBytes = dataUriBytes(localUri);
+  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buffer, { contentType: mimeType || MIME[ext] || 'application/octet-stream', upsert: false });
   if (error) throw error;
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);

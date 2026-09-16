@@ -36,6 +36,9 @@ create table if not exists journey_packing_items (
   category_color text,
   quantity integer not null default 1 check (quantity > 0),
   weight_kg numeric,
+  weight_estimated boolean,
+  carry_status text check (carry_status in ('packed', 'worn', 'consumable', 'optional')),
+  attrs jsonb,
   note text,
   packed boolean not null default false,
   carrier_companion_id integer references companions(id) on delete set null,
@@ -44,12 +47,16 @@ create table if not exists journey_packing_items (
   updated_at timestamptz not null default now()
 );
 
+alter table journey_packing_items add column if not exists weight_estimated boolean;
+alter table journey_packing_items add column if not exists carry_status text check (carry_status in ('packed', 'worn', 'consumable', 'optional'));
+alter table journey_packing_items add column if not exists attrs jsonb;
+
 create index if not exists journey_packing_items_list_idx on journey_packing_items(list_id);
 
 create or replace function public.is_journey_member(target_journey_id text)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
-    select 1 from journeys j where j.id = target_journey_id and (
+    select 1 from journeys j where j.id = target_journey_id and j.deleted_at is null and (
       j.user_id = auth.uid() or exists (
         select 1 from companions c where c.journey_id = target_journey_id and c.user_id = auth.uid()
       )
@@ -172,7 +179,7 @@ create index if not exists companions_user_id_idx on companions(user_id);
 
 drop policy if exists "journeys_member_select" on journeys;
 create policy "journeys_member_select" on journeys for select to authenticated
-  using (public.is_journey_member(id));
+  using (deleted_at is null and public.is_journey_member(id));
 
 drop policy if exists "companions_member_select" on companions;
 create policy "companions_member_select" on companions for select to authenticated

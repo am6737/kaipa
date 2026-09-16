@@ -11,9 +11,19 @@ supabase secrets set \
   KAIPA_AI_API_KEY=... \
   KAIPA_AI_BASE_URL=https://ai.dootask.com/v1 \
   KAIPA_AI_MODEL=gpt-5.6-sol \
+  AMAP_WEB_KEY=... \
   TRAVEL_SEARCH_SOURCES=tavily \
   TAVILY_API_KEY=...
 ```
+
+`AMAP_WEB_KEY` is also used by the separate authenticated `map-search` function
+for client place search and reverse geocoding. Deploy it after setting secrets:
+
+```bash
+infra/supabase/deploy-functions.sh map-search
+```
+
+Never expose this key through an `EXPO_PUBLIC_` environment variable.
 
 If the project already has `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`, the
 agent uses those when `KAIPA_AI_API_KEY` is absent. In that case the base URL
@@ -108,7 +118,7 @@ Do not expose the separate MediaCrawler WebUI API to the public internet.
 Deploy after updating the function:
 
 ```bash
-supabase functions deploy app-agent
+infra/supabase/deploy-functions.sh app-agent
 ```
 
 When every enabled source is absent or unavailable, `search_travel_web` returns
@@ -124,3 +134,12 @@ The client passes a run UUID and polls `run_activity` while planning. Completed
 assistant messages persist a compact `activities` summary alongside `sources`
 and `planPreview` in `agent_messages.ui`, so the work log, research citations,
 and itinerary preview survive conversation reloads.
+
+Writes execute without interrupting the conversation. A completed run containing
+reversible writes exposes one persistent "undo changes" action. Undo runs all
+inverse operations in reverse order inside one database transaction. Deletions
+execute directly but still require the current journey context and exact item IDs.
+
+Apply `supabase/app-agent.sql` before deploying a function version that exposes
+undo. The file is idempotent and adds the undo metadata plus the transactional
+apply, finalize, and undo RPCs used by the Edge Function.

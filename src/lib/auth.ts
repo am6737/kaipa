@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
+import { Platform } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { supabase, supabaseAnonKey, supabaseUrl } from './supabase';
 
 export async function signInWithEmail(email: string, password: string) {
@@ -92,6 +95,71 @@ export async function upgradeCurrentAnonymousSession() {
     if (error) return { data: null, error };
   }
   return completeGuestAccount(supabase);
+}
+
+// ── Apple 登录（iOS 原生 ID token 流程）───────────────────────────────────────
+// raw nonce 自己留着，SHA-256 后交给 Apple 写进 identityToken 的 nonce 声明，
+// Supabase 侧用 raw nonce 校验。仅在 iOS 上可用（其它平台入口不展示）。
+const APPLE_CANCELED = 'ERR_REQUEST_CANCELED';
+
+function toHex(bytes: Uint8Array) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function firstGlyph(name: string) {
+  return Array.from(name)[0] ?? '';
+}
+
+// Apple 只在「首次授权」返回姓名，之后拿不到，所以拿到就写进资料（尽力而为，失败不影响登录）。
+async function applyAppleName(fullName: AppleAuthentication.AppleAuthenticationFullName | null) {
+  if (!fullName) return;
+  try {
+    const name = AppleAuthentication.formatFullName(fullName).trim();
+    if (!name) return;
+    const { data } = await supabase.auth.getUser();
+    const userId = data.user?.id;
+    if (!userId) return;
+    await supabase.auth.updateUser({ data: { nickname: name, display_name: name } });
+    await supabase.from('profiles').update({ nick: name, display_name: name, avatar_ini: firstGlyph(name) }).eq('id', userId);
+  } catch {
+    // 资料补齐失败不阻断登录。
+  }
+}
+
+export async function isAppleSignInAvailable() {
+  if (Platform.OS !== 'ios') return false;
+  try {
+    return await AppleAuthentication.isAvailableAsync();
+  } catch {
+    return false;
+  }
+}
+
+export function isAppleSignInCanceled(error: unknown) {
+  return (error as { code?: string } | null)?.code === APPLE_CANCELED;
+}
+
+export async function signInWithApple() {
+  const rawNonce = toHex(Crypto.getRandomBytes(32));
+  const nonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+
+  let credential: AppleAuthentication.AppleAuthenticationCredential;
+  try {
+    credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+      nonce,
+    });
+  } catch (error) {
+    // 用户取消时 error.code === 'ERR_REQUEST_CANCELED'，原样返回给 UI 决定是否提示。
+    return { data: null, error: error instanceof Error ? error : new Error('Apple 登录失败') };
+  }
+
+  const identityToken = credential.identityToken;
+  if (!identityToken) return { data: null, error: new Error('Apple 未返回 identityToken') };
+
+  const result = await supabase.auth.signInWithIdToken({ provider: 'apple', token: identityToken, nonce: rawNonce });
+  if (!result.error) await applyAppleName(credential.fullName);
+  return result;
 }
 
 export async function signOut() {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { supabase } from "../lib/supabase";
 import { toJourneyPoi } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
@@ -9,10 +10,11 @@ const has = (obj: object, key: keyof Poi) =>
 
 export function useJourneys(userId: string | undefined) {
   const [journeys, setJourneys] = useState<Poi[]>([]);
+  const [trashedJourneys, setTrashedJourneys] = useState<Poi[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchJourneys = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) return [];
     let { data, error } = await supabase
       .from("journeys")
       .select(
@@ -22,7 +24,22 @@ export function useJourneys(userId: string | undefined) {
       `,
       )
       .eq("user_id", userId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
+
+    // Keep older deployments readable until the trash migration is applied.
+    if (error?.message.includes("deleted_at")) {
+      const legacy = await supabase
+        .from("journeys")
+        .select(`
+          *,
+          companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+        `)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      data = legacy.data;
+      error = legacy.error;
+    }
 
     // Keep journey/map data available while an older database is still waiting
     // for supabase/companion-avatar-url.sql. PostgREST rejects the entire nested
@@ -42,6 +59,7 @@ export function useJourneys(userId: string | undefined) {
         `,
         )
         .eq("user_id", userId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       data = fallback.data;
       error = fallback.error;
@@ -74,6 +92,7 @@ export function useJourneys(userId: string | undefined) {
           `,
           )
           .in("id", joinedIds)
+          .is("deleted_at", null)
           .order("created_at", { ascending: false });
         if (
           joinedRes.error &&
@@ -89,6 +108,7 @@ export function useJourneys(userId: string | undefined) {
             `,
             )
             .in("id", joinedIds)
+            .is("deleted_at", null)
             .order("created_at", { ascending: false });
         }
         if (!joinedRes.error)
@@ -98,17 +118,84 @@ export function useJourneys(userId: string | undefined) {
           }));
       }
     }
-    setJourneys(
-      [...ownedRows, ...joinedRows].map((j: any) =>
-        toJourneyPoi({ ...j, asc: j.asc_ }),
-      ),
+    const nextJourneys = [...ownedRows, ...joinedRows].map((j: any) =>
+      toJourneyPoi({ ...j, asc: j.asc_ }, undefined, userId),
     );
+    let trashedResult = await supabase
+      .from("journeys")
+      .select(`
+        *,
+        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+      `)
+      .eq("user_id", userId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false });
+    if (
+      trashedResult.error &&
+      (trashedResult.error.message.includes("avatar_url") ||
+        trashedResult.error.message.includes("user_id"))
+    ) {
+      trashedResult = await supabase
+        .from("journeys")
+        .select(`
+          *,
+          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+        `)
+        .eq("user_id", userId)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false });
+    }
+    if (trashedResult.error) {
+      if (!trashedResult.error.message.includes("deleted_at")) {
+        console.warn("[useJourneys] trash fetch error:", trashedResult.error.message);
+      }
+      setTrashedJourneys([]);
+    } else {
+      setTrashedJourneys(
+        (trashedResult.data ?? []).map((journey: any) =>
+          toJourneyPoi({ ...journey, asc: journey.asc_, mine: true }, undefined, userId),
+        ),
+      );
+    }
+    setJourneys(nextJourneys);
     setLoading(false);
+    return nextJourneys;
   }, [userId]);
 
   useEffect(() => {
     fetchJourneys();
   }, [fetchJourneys]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void fetchJourneys(); }, 120);
+    };
+    const channel = supabase
+      .channel(`journey-data:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "journeys" },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "companions" },
+        scheduleRefresh,
+      )
+      .subscribe();
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") scheduleRefresh();
+    });
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      appStateSubscription.remove();
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchJourneys, userId]);
 
   const createJourney = async (poi: Partial<Poi>) => {
     if (!userId) return null;
@@ -209,7 +296,7 @@ export function useJourneys(userId: string | undefined) {
       if (companionRes.data) savedCompanions = companionRes.data;
     }
 
-    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions });
+    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions }, undefined, userId);
     setJourneys((prev) => [newPoi, ...prev]);
     return newPoi;
   };
@@ -354,8 +441,51 @@ export function useJourneys(userId: string | undefined) {
     );
   };
   const deleteJourney = async (id: string) => {
-    await supabase.from("journeys").delete().eq("id", id);
+    const deletedAt = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("journeys")
+      .update({ deleted_at: deletedAt, updated_at: deletedAt })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("JOURNEY_TRASH_FORBIDDEN");
+    const trashed = journeys.find((journey) => journey.id === id);
     setJourneys((prev) => prev.filter((j) => j.id !== id));
+    if (trashed) setTrashedJourneys((prev) => [{ ...trashed, deletedAt }, ...prev]);
+  };
+
+  const restoreJourney = async (id: string) => {
+    const { data, error } = await supabase
+      .from("journeys")
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("JOURNEY_RESTORE_FORBIDDEN");
+    const restored = trashedJourneys.find((journey) => journey.id === id);
+    setTrashedJourneys((prev) => prev.filter((journey) => journey.id !== id));
+    if (restored) {
+      const { deletedAt: _deletedAt, ...activeJourney } = restored;
+      setJourneys((prev) => [activeJourney, ...prev]);
+    }
+  };
+
+  const permanentlyDeleteJourney = async (id: string) => {
+    const { data, error } = await supabase
+      .from("journeys")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId)
+      .not("deleted_at", "is", null)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("JOURNEY_DELETE_FORBIDDEN");
+    setTrashedJourneys((prev) => prev.filter((journey) => journey.id !== id));
   };
 
   const toggleFav = async (id: string, current: boolean) => {
@@ -367,10 +497,13 @@ export function useJourneys(userId: string | undefined) {
 
   return {
     journeys,
+    trashedJourneys,
     loading,
     createJourney,
     updateJourney,
     deleteJourney,
+    restoreJourney,
+    permanentlyDeleteJourney,
     toggleFav,
     refetch: fetchJourneys,
   };

@@ -28,11 +28,13 @@ import { JourneyTrackUploadSheet } from '../components/overlays/JourneyTrackUplo
 import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangePicker';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
-import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
+import { AppCard, AppIconButton, AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { Glass } from '../components/Glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { ChevronRight, History } from 'lucide-react-native';
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
+import { useJourneyVersionSummary } from '../hooks/useJourneyVersions';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -883,11 +885,12 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18 }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18 }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories } = useData();
   const isJourney = poi.kind === 'journey';
+  const momentFilterAnchorRef = useRef<View>(null);
   const isMine = isJourney;
   const momentAuthor = useMemo(() => {
     const host = isJourney ? poi.companionList?.find((c) => c.self) || poi.companionList?.find((c) => c.host) : undefined;
@@ -908,6 +911,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [momentFilter, setMomentFilter] = useState<MomentFilter>('all');
   const [momentAuthorFilter, setMomentAuthorFilter] = useState<string | null>(null);
   const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
+  const versionSummary = useJourneyVersionSummary(isJourney ? poi.id : undefined);
 
   const addMomentAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
     const items = await Promise.all(
@@ -1775,6 +1779,35 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 </>
               )}
 
+              {!planEditorOpen ? <Press
+                onPress={() => nav.openJourneyHistory(poi)}
+                accessibilityRole="button"
+                accessibilityLabel={t('journey.version.open')}
+                style={{
+                  minHeight: 64,
+                  marginTop: space.xxl,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.card,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.sm,
+                  backgroundColor: theme.surface,
+                }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+                  <History color={theme.text2} size={18} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[type.body, { color: theme.text, fontWeight: '700' }]}>{t('journey.version.open')}</Text>
+                  <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: 2 }]}>
+                    {versionSummary
+                      ? t('journey.version.latestSummary', { number: versionSummary.versionNumber })
+                      : t('journey.version.openDescription')}
+                  </Text>
+                </View>
+                <ChevronRight color={theme.text3} size={18} />
+              </Press> : null}
+
             {poi.desc ? (
               <>
                 <AppSectionHeader theme={theme} text={t('journey.section.about')} variant="title" marginTop={space.xxl} />
@@ -1871,6 +1904,44 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         {/* 瞬间 moments — a consistent two-column photo wall. */}
         {activeSeg === 'moments' ? (
           <View>
+            {allPhotos.length > 0 ? (
+              <View
+                style={{
+                  minHeight: 36,
+                  marginBottom: space.sm,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: space.md,
+                }}
+              >
+                <Text style={[type.caption, { flex: 1, color: theme.text3, fontFamily: MONO, fontWeight: '700' }]}>
+                  {t('journey.moments.countPhotos', { count: filteredPhotos.length })}
+                </Text>
+                {!momentSelectionMode ? (
+                  <View ref={momentFilterAnchorRef} collapsable={false}>
+                    <AppIconButton
+                      theme={theme}
+                      name="filter"
+                      size={36}
+                      noShadow
+                      active={activeMomentFilterCount > 0}
+                      onPress={() => {
+                        const anchor = momentFilterAnchorRef.current;
+                        if (!anchor) {
+                          onMomentFilterMenuOpenChange?.(true);
+                          return;
+                        }
+                        anchor.measureInWindow((x, y, width, height) => {
+                          onMomentFilterMenuOpenChange?.(true, { x, y, width, height });
+                        });
+                      }}
+                      accessibilityLabel={t('journey.moments.filterTitle')}
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
             {inspo.loading ? (
               <MomentsSkeleton theme={theme} />
             ) : allPhotos.length > 0 ? (
@@ -1924,20 +1995,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                     </Press>
                   </AppCard>
                 )}
-                <Text
-                  style={[
-                    type.caption,
-                    {
-                      marginTop: space.xs,
-                      color: theme.text3,
-                      fontFamily: MONO,
-                      fontWeight: '700',
-                      textAlign: 'center',
-                    },
-                  ]}
-                >
-                  {t('journey.moments.countPhotos', { count: filteredPhotos.length })}
-                </Text>
               </View>
             ) : (
               <AppCard

@@ -13,7 +13,7 @@ import { CircleBtn } from '../CircleBtn';
 import { Icon } from '../Icon';
 import { radius, space, type } from '../../design-system';
 import { MapStylePickerSheet } from '../MapStylePickerSheet';
-import { MapStyleId, TrackMap, TrackMapHandle, TrackMapWaypoint, ensureMapboxToken } from './TrackMap';
+import { MapStyleId, TrackMap, TrackMapHandle, TrackMapWaypoint, ensureNativeMapReady } from './TrackMap';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const INITIAL_WAYPOINT_RENDER_COUNT = 32;
@@ -137,7 +137,6 @@ function FullscreenTrackMap({
   const summarySurface = theme.dark ? 'rgba(20,20,22,0.90)' : 'rgba(255,255,255,0.94)';
   const layerOptions: { id: MapStyleId; label: string }[] = [
     { id: 'standard', label: t('journey.map.layerStandard') },
-    { id: 'terrain', label: t('journey.map.layerTerrain') },
     { id: 'satellite', label: t('journey.map.layerSatellite') },
   ];
 
@@ -293,7 +292,7 @@ export function TrackDetailContent({
   const insets = useSafeAreaInsets();
   const nav = useNav();
   const { t } = useI18n();
-  ensureMapboxToken();
+  ensureNativeMapReady();
 
   const series = useMemo(() => buildElevation(info), [info.id, info.trackElevation]);
   const coords = info.trackCoords || [];
@@ -412,7 +411,7 @@ export function TrackDetailContent({
   const syncSelectionToParent = (safeIdx: number, force = false) => {
     if (!onSelectionChange) return;
     const now = Date.now();
-    // Updating the Mapbox scrub marker above is expensive; keep the chart local
+    // Updating the native scrub marker above is expensive; keep the chart local
     // at frame rate and sync the map at a lower cadence while dragging.
     if (!force && now - lastParentSyncAt.current < 96) return;
     lastParentSyncAt.current = now;

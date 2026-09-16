@@ -5,6 +5,8 @@ import { useGear } from '../hooks/useGear';
 import { useNotifications } from '../hooks/useNotifications';
 import { useProfile } from '../hooks/useProfile';
 import type { UserProfile } from '../hooks/useProfile';
+import { usePlanningProfile } from '../hooks/usePlanningProfile';
+import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
 import type { Poi } from './pois';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
@@ -14,16 +16,22 @@ export interface DataValue {
   profile: UserProfile;
   updateProfile: (field: string, value: string) => Promise<void>;
   updateAvatar: (localUri: string) => Promise<void>;
+  planningProfile: UserPlanningProfile;
+  planningProfileLoading: boolean;
+  savePlanningProfile: (profile: UserPlanningProfile) => Promise<void>;
   routes: Poi[];
   routesLoading: boolean;
   journeys: Poi[];
+  trashedJourneys: Poi[];
   journeysLoading: boolean;
   createJourney: (poi: Partial<Poi>) => Promise<Poi | null>;
   updateJourney: (id: string, patch: Partial<Poi>) => Promise<void>;
   updateRoute: (id: string, patch: Partial<Poi>) => Promise<void>;
   deleteJourney: (id: string) => Promise<void>;
+  restoreJourney: (id: string) => Promise<void>;
+  permanentlyDeleteJourney: (id: string) => Promise<void>;
   toggleFav: (id: string, current: boolean) => Promise<void>;
-  refetchJourneys: () => Promise<void>;
+  refetchJourneys: () => Promise<Poi[]>;
   refetchRoutes: () => Promise<void>;
   cats: GearCat[];
   items: GearItem[];
@@ -50,8 +58,8 @@ const DataContext = createContext<DataValue | null>(null);
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
   const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes(userId);
   const {
-    journeys, loading: journeysLoading,
-    createJourney, updateJourney, deleteJourney, toggleFav,
+    journeys, trashedJourneys, loading: journeysLoading,
+    createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav,
     refetch: refetchJourneys,
   } = useJourneys(userId);
   const {
@@ -65,6 +73,9 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     profile, updateProfile, updateAvatar,
   } = useProfile(userId);
   const {
+    planningProfile, loading: planningProfileLoading, savePlanningProfile,
+  } = usePlanningProfile(userId);
+  const {
     list: notifList, unread: notifUnread,
     markRead: markNotifRead, markAllRead: markAllNotifsRead,
   } = useNotifications(userId);
@@ -72,8 +83,9 @@ export function DataProvider({ userId, children }: { userId: string; children: R
   const value: DataValue = {
     userId,
     profile, updateProfile, updateAvatar,
+    planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
-    journeys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, toggleFav, refetchJourneys, refetchRoutes,
+    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav, refetchJourneys, refetchRoutes,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,

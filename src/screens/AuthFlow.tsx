@@ -1,11 +1,13 @@
 // AuthFlow.tsx — Kaipa 登录 / 注册流程，遵循当前应用设计系统。
-// MVP 阶段（不含实时 GPS）。支持 手机号 / 邮箱 / 微信 / Apple / Google 五种方式。
+// MVP 阶段（不含实时 GPS）。当前启用 手机号 / 邮箱 / Apple 三种方式，
+// Apple 走 iOS 原生 Sign in with Apple（仅 iOS 展示，见 AuthMoreSheet），
+// 微信与 Google 入口暂时隐藏（尚未接入）。
 // Auth gate: 未登录显示这里，登录成功 onSuccess()。
 //
 // Entry (邮箱+密码) → CTA / 协议 / 切换登录注册 / 忘记密码 / 底部三按钮
 //   ├─ 找回账号  : 账号 → 验证码 → 设新密码 → 完成
 //   ├─ 游客登录  : onSuccess()
-//   └─ 更多方式  : 手机号(→验证码) / 微信 / Apple / Google
+//   └─ 更多方式  : 手机号(→验证码) / Apple
 // 协议·隐私 全屏文档页可从任意输入步骤打开。
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -25,6 +27,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { ChevronLeft, RotateCw } from 'lucide-react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
@@ -32,7 +35,7 @@ import { elevAccent, shadow } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
 import { layout, motion, radius, space, type } from '../design-system';
 import { useI18n, TKey } from '../i18n';
-import { signInWithEmail, signUpWithEmail, signInAnonymously } from '../lib/auth';
+import { signInWithEmail, signUpWithEmail, signInAnonymously, signInWithApple, isAppleSignInAvailable, isAppleSignInCanceled } from '../lib/auth';
 import { WeChatIcon } from '../components/WeChatIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload, getQrLoginStatus } from '../lib/qrLogin';
@@ -71,11 +74,6 @@ const EyeOff = ({ c }: { c: string }) => (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-  </Svg>
-);
-const BackArrow = ({ c }: { c: string }) => (
-  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-    <Path d="M20 12H5M12 19l-7-7 7-7" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 const ChevDownSmall = ({ c }: { c: string }) => (
@@ -417,7 +415,7 @@ function AuthBack({ t, top, onPress }: { t: Theme; top: number; onPress: () => v
         justifyContent: 'center',
       }}
     >
-      <BackArrow c={t.text} />
+      <ChevronLeft color={t.text} size={25} strokeWidth={2.2} />
     </Press>
   );
 }
@@ -530,8 +528,9 @@ function AuthDocPage({ t, doc, onBack }: { t: Theme; doc: DocId; onBack: () => v
   const insets = useSafeAreaInsets();
   const x = useSlideIn();
   const d = AUTH_DOCS[doc];
+  // 页面底色与吸顶返回栏同色（浅色为纯白、深色为纯黑），滚动时栏体与正文不出现色差。
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.bg, zIndex: 95, transform: [{ translateX: x }] }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: t.featureSurface, zIndex: 95, transform: [{ translateX: x }] }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} stickyHeaderIndices={[0]} showsVerticalScrollIndicator={false}>
         {/* sticky frost header */}
         <View style={{ paddingTop: insets.top, overflow: 'hidden' }}>
@@ -539,12 +538,12 @@ function AuthDocPage({ t, doc, onBack }: { t: Theme; doc: DocId; onBack: () => v
           <View
             style={[
               StyleSheet.absoluteFill,
-              { backgroundColor: t.dark ? 'rgba(20,20,22,0.72)' : 'rgba(255,255,255,0.72)', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.hairline },
+              { backgroundColor: t.dark ? 'rgba(0,0,0,0.72)' : 'rgba(255,255,255,0.72)', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.hairline },
             ]}
           />
           <View style={{ height: 52, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14 }}>
             <Press onPress={onBack} style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
-              <BackArrow c={t.text} />
+              <ChevronLeft color={t.text} size={25} strokeWidth={2.2} />
             </Press>
             <Text style={{ fontSize: 17, fontWeight: '700', color: t.text }}>{tr(d.titleKey)}</Text>
           </View>
@@ -570,7 +569,7 @@ function AuthDocPage({ t, doc, onBack }: { t: Theme; doc: DocId; onBack: () => v
 }
 
 // ── "更多登录方式" bottom sheet ───────────────────────────────────────────────
-function AuthMoreSheet({ t, onPick, onClose }: { t: Theme; onPick: (id: 'email' | SocialId) => void; onClose: () => void }) {
+function AuthMoreSheet({ t, appleAvailable, onPick, onClose }: { t: Theme; appleAvailable: boolean; onPick: (id: 'email' | SocialId) => void; onClose: () => void }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
@@ -584,19 +583,11 @@ function AuthMoreSheet({ t, onPick, onClose }: { t: Theme; onPick: (id: 'email' 
   }, [slide]);
   const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
 
+  // 微信 / Google 登录入口暂时隐藏（尚未接入，恢复时把对应项加回列表即可）；
+  // Apple 走系统原生面板，仅在 iOS 且系统支持时出现。
   const items: { id: 'email' | SocialId; label: string; icon: React.ReactNode }[] = [
     { id: 'email', label: tr('auth.emailHint'), icon: <Mail c={t.text} /> },
-    {
-      id: 'wechat',
-      label: '微信',
-      icon: (
-        <View style={{ width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#07C160' }}>
-          <WeChatIcon size={26} color="#FFFFFF" />
-        </View>
-      ),
-    },
-    { id: 'apple', label: 'Apple', icon: <AppleGlyph c={t.text} /> },
-    { id: 'google', label: 'Google', icon: <GoogleGlyph /> },
+    ...(appleAvailable ? [{ id: 'apple' as const, label: 'Apple', icon: <AppleGlyph c={t.text} /> }] : []),
   ];
 
   return (
@@ -675,7 +666,9 @@ function AuthSocialOverlay({ t, kind }: { t: Theme; kind: SocialId }) {
         </View>
         {socialIcon(t, kind)}
       </View>
-      <Text style={{ fontSize: 14.5, fontWeight: '600', color: t.text, marginTop: 18 }}>{tr('auth.social.connecting', { name: label })}</Text>
+      <Text style={{ fontSize: 14.5, fontWeight: '600', color: t.text, marginTop: 18 }}>
+        {kind === 'apple' ? tr('auth.social.appleConnecting') : tr('auth.social.connecting', { name: label })}
+      </Text>
     </View>
   );
 }
@@ -950,12 +943,11 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const { t: tr } = useI18n();
   const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
-  const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'signingIn' | 'expired' | 'error'>('generating');
+  const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'confirmed' | 'signingIn' | 'expired' | 'error'>('generating');
   const [error, setError] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(300);
   const slide = useSlideIn();
   const qrReveal = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
   const statusProgress = useRef(new Animated.Value(0)).current;
   const consumedRef = useRef(false);
 
@@ -994,19 +986,8 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, request]);
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    if (phase === 'waiting') loop.start();
-    return () => loop.stop();
-  }, [phase, pulse]);
-
-  useEffect(() => {
     Animated.timing(statusProgress, {
-      toValue: phase === 'scanned' || phase === 'signingIn' ? 1 : 0,
+      toValue: phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn' ? 1 : 0,
       duration: motion.standard,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -1014,7 +995,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, statusProgress]);
 
   useEffect(() => {
-    if (!request || phase !== 'waiting') return;
+    if (!request || (phase !== 'waiting' && phase !== 'scanned')) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1022,9 +1003,17 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
       try {
         const status = await getQrLoginStatus(request);
         if (cancelled) return;
+        if (status === 'scanned') {
+          if (phase !== 'scanned') {
+            setPhase('scanned');
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          }
+          timer = setTimeout(poll, 700);
+          return;
+        }
         if (status === 'approved' && !consumedRef.current) {
           consumedRef.current = true;
-          setPhase('scanned');
+          setPhase('confirmed');
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           return;
         }
@@ -1049,7 +1038,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   }, [phase, request, tr]);
 
   useEffect(() => {
-    if (!request || phase !== 'scanned') return;
+    if (!request || phase !== 'confirmed') return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (cancelled) return;
@@ -1072,22 +1061,17 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
 
   const qrValue = request ? encodeQrLoginPayload(request) : '';
   const qrScale = qrReveal.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
-  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.34, 0] });
   const statusTranslate = statusProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = String(secondsLeft % 60).padStart(2, '0');
-  const active = phase === 'waiting' || phase === 'scanned' || phase === 'signingIn';
 
   const statusLabel = phase === 'scanned'
     ? tr('qrLogin.scanned')
-    : phase === 'signingIn'
-      ? tr('qrLogin.signingIn')
-      : phase === 'expired'
-        ? tr('qrLogin.expired')
-        : phase === 'error'
-          ? error
-          : tr('qrLogin.waiting');
+    : phase === 'confirmed'
+      ? tr('qrLogin.confirmed')
+      : phase === 'signingIn'
+        ? tr('qrLogin.signingIn')
+        : error;
 
   return (
     <Animated.View style={{ flex: 1, backgroundColor: t.featureSurface, transform: [{ translateX: slide }] }}>
@@ -1099,21 +1083,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
         <StepTitle t={t} title={tr('qrLogin.title')} sub={tr('qrLogin.subtitle')} />
         <View style={{ flex: 1, minHeight: 390, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 276, height: 276, alignItems: 'center', justifyContent: 'center' }}>
-            {phase === 'waiting' ? (
-              <Animated.View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  width: 264,
-                  height: 264,
-                  borderRadius: radius.feature + 6,
-                  borderWidth: 2,
-                  borderColor: t.accent,
-                  opacity: pulseOpacity,
-                  transform: [{ scale: pulseScale }],
-                }}
-              />
-            ) : null}
             <View
               style={{
                 width: 254,
@@ -1122,8 +1091,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: '#fff',
-                borderWidth: 1,
-                borderColor: active ? t.accentSoft : t.hairline,
                 overflow: 'hidden',
                 boxShadow: t.dark ? '0 18px 44px rgba(0,0,0,0.34)' : '0 18px 44px rgba(0,0,0,0.08)',
               }}
@@ -1143,31 +1110,60 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
                 </View>
               )}
 
-              {request && (phase === 'scanned' || phase === 'signingIn' || phase === 'expired') ? (
+              {request && (phase === 'scanned' || phase === 'confirmed' || phase === 'signingIn') ? (
                 <Animated.View
                   style={[
                     StyleSheet.absoluteFill,
                     {
                       alignItems: 'center',
                       justifyContent: 'center',
-                      backgroundColor: phase === 'expired' ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.92)',
-                      opacity: phase === 'expired' ? 1 : statusProgress,
-                      transform: phase === 'expired' ? undefined : [{ translateY: statusTranslate }],
+                      backgroundColor: 'rgba(255,255,255,0.92)',
+                      opacity: statusProgress,
+                      transform: [{ translateY: statusTranslate }],
                     },
                   ]}
                 >
                   {phase === 'scanned' ? (
+                    <View style={{ width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: t.accentSofter }}>
+                      <QrGlyph c={t.accent} />
+                    </View>
+                  ) : phase === 'confirmed' ? (
                     <View style={{ width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: t.accent }}>
                       <CheckBig />
                     </View>
                   ) : phase === 'signingIn' ? (
                     <Spinner size={30} color={t.accent} track={t.accentSofter} width={2.5} />
-                  ) : (
-                    <QrGlyph c={t.text3} />
-                  )}
-                  <Text style={{ color: phase === 'expired' ? t.text2 : t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
-                  {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
+                  ) : null}
+                  <Text style={{ color: t.text, fontSize: 16, fontWeight: '800', marginTop: space.md }}>{statusLabel}</Text>
+                  {phase === 'scanned' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.scanConfirmOnPhone')}</Text> : null}
+                  {phase === 'confirmed' ? <Text style={{ color: t.text2, fontSize: 12.5, marginTop: space.xs }}>{tr('qrLogin.confirmedOnPhone')}</Text> : null}
                 </Animated.View>
+              ) : null}
+
+              {request && phase === 'expired' ? (
+                <Press
+                  onPress={() => void createRequest()}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('qrLogin.refresh')}
+                  style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
+                >
+                  <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
+                  <View
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 28,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: t.controlSurface,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: t.hairline,
+                      ...shadow(0.14, 18, 5),
+                    }}
+                  >
+                    <RotateCw size={23} color={t.text} strokeWidth={2} />
+                  </View>
+                </Press>
               ) : null}
             </View>
           </View>
@@ -1175,37 +1171,27 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
           <View style={{ minHeight: 80, alignItems: 'center', justifyContent: 'center', marginTop: space.md }}>
             {phase === 'waiting' ? (
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} />
-                  <Text style={{ color: t.text, fontSize: 14, fontWeight: '700' }}>{tr('qrLogin.waiting')}</Text>
-                </View>
-                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: space.sm }}>{tr('qrLogin.openScannerHint')}</Text>
+                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
                 <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresIn', { time: `${minutes}:${seconds}` })}</Text>
               </>
-            ) : phase === 'expired' || phase === 'error' ? (
-              <Text style={{ color: phase === 'error' ? t.danger : t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
+            ) : phase === 'error' ? (
+              <Text style={{ color: t.danger, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             ) : phase === 'generating' ? null : (
-              <Text style={{ color: t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
+              phase === 'expired' ? null : <Text style={{ color: t.text2, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             )}
           </View>
         </View>
 
-        <Press
-          onPress={() => void createRequest()}
-          disabled={phase === 'generating' || phase === 'scanned' || phase === 'signingIn'}
-          style={{
-            minHeight: 48,
-            paddingHorizontal: space.xl,
-            borderRadius: radius.pill,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: phase === 'expired' || phase === 'error' ? t.accent : 'transparent',
-          }}
-        >
-          <Text style={{ color: phase === 'expired' || phase === 'error' ? '#fff' : t.accent, fontSize: 14, fontWeight: '700' }}>
-            {phase === 'generating' ? tr('qrLogin.generating') : tr('qrLogin.refresh')}
-          </Text>
-        </Press>
+        {phase === 'error' ? (
+          <Press
+            onPress={() => void createRequest()}
+            accessibilityRole="button"
+            accessibilityLabel={tr('qrLogin.refresh')}
+            style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <RotateCw size={22} color={t.accent} strokeWidth={2} />
+          </Press>
+        ) : null}
       </ScrollView>
     </Animated.View>
   );
@@ -1256,6 +1242,17 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   const [social, setSocial] = useState<SocialId | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [doc, setDoc] = useState<DocId | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void isAppleSignInAvailable().then((available) => {
+      if (alive) setAppleAvailable(available);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const flashAgree = () => { setFlash(true); setTimeout(() => setFlash(false), 450); };
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
@@ -1276,6 +1273,8 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
       return tr('auth.error.weakPassword');
     if (m.includes('fetch') || m.includes('network') || m.includes('timeout') || m.includes('econnrefused'))
       return tr('auth.error.networkError');
+    if (m.includes('apple') || m.includes('id_token') || m.includes('id token') || m.includes('audience') || m.includes('nonce'))
+      return tr('auth.error.appleFailed');
     return tr('auth.error.unknown');
   };
   const onPrimary = async () => {
@@ -1288,10 +1287,25 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     if (error) { setAuthError(friendlyError(error.message)); return; }
   };
   const onVerify = () => { setBusy(true); setTimeout(() => onSuccess(), 700); };
-  const onSocial = (id: SocialId) => {
+  const onSocial = async (id: SocialId) => {
     if (!agree) { flashAgree(); return; }
-    setSocial(id);
-    setTimeout(() => onSuccess(), 1300);
+    if (busy) return;
+    if (id !== 'apple') {
+      // 微信 / Google 尚未接入，保留原有占位动画（入口已隐藏）。
+      setSocial(id);
+      setTimeout(() => onSuccess(), 1300);
+      return;
+    }
+    setAuthError('');
+    setSocial('apple');
+    setBusy(true);
+    const { error } = await signInWithApple();
+    setBusy(false);
+    // 成功时不收起覆盖层：会话落库后 AppRoot 的 onAuthStateChange 会切走登录页，覆盖层随之卸载。
+    if (!error) return;
+    setSocial(null);
+    if (isAppleSignInCanceled(error)) return; // 用户主动取消，不提示
+    setAuthError(friendlyError(error.message));
   };
   const onGuest = async () => {
     if (!agree) { flashAgree(); return; }
@@ -1414,11 +1428,12 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
         {moreOpen && (
           <AuthMoreSheet
             t={t}
+            appleAvailable={appleAvailable}
             onClose={() => setMoreOpen(false)}
             onPick={(id) => {
               setMoreOpen(false);
               if (id === 'email') setEmailOpen(true);
-              else onSocial(id);
+              else void onSocial(id);
             }}
           />
         )}

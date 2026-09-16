@@ -7,7 +7,7 @@
 
 ```bash
 supabase secrets set KAIPA_AI_API_KEY=...
-supabase functions deploy gear-image-recognition
+infra/supabase/deploy-functions.sh gear-image-recognition
 ```
 
 默认请求 `https://ai.dootask.com/v1/chat/completions`，模型为

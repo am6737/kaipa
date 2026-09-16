@@ -122,13 +122,15 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
   const pendingSetItemAdded = useRef<((item: GearItem) => void) | null>(null);
   // The standalone Gear tab owns tab-bar visibility. Embedded full-screen entries
   // sit above an already-open journey detail and must not mutate its navigation chrome.
+  const fullScreenPageOpen = pageStack.length > 0 || setEditor != null || itemEditor != null || catEditor != null || addChoose;
+  const setTabBarHidden = nav.setTabBarHidden;
   useEffect(() => {
-    if (!onExit) nav.setTabBarHidden(pageStack.length > 0);
-  }, [onExit, pageStack.length, nav]);
+    if (!onExit) setTabBarHidden('gear', fullScreenPageOpen);
+  }, [fullScreenPageOpen, onExit, setTabBarHidden]);
   useEffect(() => {
     if (onExit) return;
-    return () => nav.setTabBarHidden(false);
-  }, [nav, onExit]);
+    return () => setTabBarHidden('gear', false);
+  }, [onExit, setTabBarHidden]);
 
   useEffect(() => {
     if (nav.gearItemRequestId == null) return;

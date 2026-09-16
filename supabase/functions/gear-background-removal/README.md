@@ -6,7 +6,7 @@
 
 ```bash
 supabase secrets set REMOVE_BG_API_KEY=...
-supabase functions deploy gear-background-removal
+infra/supabase/deploy-functions.sh gear-background-removal
 ```
 
 部署时保留 Supabase 默认 JWT 校验，不要使用 `--no-verify-jwt`。

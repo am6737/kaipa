@@ -92,7 +92,7 @@ supabase secrets set GEAR_LINK_ALLOWED_HOSTS='www.example.com,shop.example.org'
 ## 部署
 
 ```bash
-supabase functions deploy gear-link-preview
+infra/supabase/deploy-functions.sh gear-link-preview
 ```
 
 部署后使用登录用户的 Supabase JWT 调用。不要使用 `--no-verify-jwt`。

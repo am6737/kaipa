@@ -40,6 +40,9 @@ interface Props {
   borderless?: boolean;
   /** Optional animated value mirroring the sheet body's vertical scroll offset. */
   bodyScrollY?: Animated.Value;
+  /** Optional control row rendered immediately above the sheet surface. */
+  topAccessory?: React.ReactNode;
+  topAccessoryHeight?: number;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -66,16 +69,19 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     backgroundColor,
     borderless = false,
     bodyScrollY,
+    topAccessory,
+    topAccessoryHeight = 0,
   },
   ref
 ) {
   const insets = useSafeAreaInsets();
   const bottomPad = 24 + insets.bottom; // clear the home indicator (sheet reaches bottom)
   const maxH = snapHeights[snapHeights.length - 1];
+  const accessoryHeight = topAccessory ? topAccessoryHeight : 0;
   // translateY measured from fully-open (translateY = maxH - currentHeight)
   const yFor = (h: number) => maxH - h;
   // fully off-screen (below the visible area) — the closed / dismissed position
-  const hiddenY = maxH + bottomOffset + 20;
+  const hiddenY = maxH + accessoryHeight + bottomOffset + 20;
   const openY = yFor(snapHeights[initialIndex]);
   const [index, setIndex] = useState(initialIndex);
   const translateY = useRef(new Animated.Value(hiddenY)).current;
@@ -271,7 +277,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           left: 0,
           right: 0,
           bottom: bottomOffset,
-          height: maxH,
+          height: maxH + accessoryHeight,
           transform: [{ translateY }],
         },
         containerStyle,
@@ -279,8 +285,12 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     >
       <View
         style={[
-          StyleSheet.absoluteFill,
           {
+            position: 'absolute',
+            left: 0,
+            top: accessoryHeight,
+            right: 0,
+            bottom: 0,
             backgroundColor: compact ? 'transparent' : backgroundColor || theme.surfaceTop,
             borderTopLeftRadius: compact ? 0 : 26,
             borderTopRightRadius: compact ? 0 : 26,
@@ -290,6 +300,12 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         ]}
       />
 
+      {topAccessory && accessoryHeight > 0 ? (
+        <View style={{ position: 'absolute', left: 0, top: 0, right: 0, height: accessoryHeight }}>
+          {topAccessory}
+        </View>
+      ) : null}
+
       {compact ? (
         // full-bleed card — the whole thing is draggable (swipe down anywhere to
         // dismiss). The hero fills the very top; rounded corners clip it. The
@@ -297,7 +313,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         // drag is driven by Gesture Handler so it cooperates with the scroll view
         // on Android too (see sheetBodyGesture above).
         <GestureDetector gesture={sheetBodyGesture}>
-          <View style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }]}>
+          <View style={{ position: 'absolute', left: 0, top: accessoryHeight, right: 0, bottom: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }}>
             <AnimatedGHScrollView
               ref={scrollRef}
               scrollEnabled={compactCanScroll}
@@ -330,7 +346,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           </View>
         </GestureDetector>
       ) : (
-        <>
+        <View style={{ position: 'absolute', left: 0, top: accessoryHeight, right: 0, bottom: 0 }}>
           {/* draggable header */}
           <View {...panResponder.panHandlers} style={{ paddingTop: 8 }}>
             <View
@@ -365,7 +381,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               </AnimatedGHScrollView>
             </GestureDetector>
           </View>
-        </>
+        </View>
       )}
     </Animated.View>
   );
