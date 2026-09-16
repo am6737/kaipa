@@ -1297,11 +1297,11 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
       return;
     }
     setAuthError('');
-    setSocial('apple');
     setBusy(true);
-    const { error } = await signInWithApple();
+    // 原生卡片弹出期间不显示加载层（卡片自带遮罩与反馈），卡片收起拿到凭证后再显示「正在连接」。
+    const { error } = await signInWithApple(() => setSocial('apple'));
     setBusy(false);
-    // 成功时不收起覆盖层：会话落库后 AppRoot 的 onAuthStateChange 会切走登录页，覆盖层随之卸载。
+    // 成功时保持覆盖层：会话落库后 AppRoot 的 onAuthStateChange 会切走登录页，覆盖层随之卸载。
     if (!error) return;
     setSocial(null);
     if (isAppleSignInCanceled(error)) return; // 用户主动取消，不提示

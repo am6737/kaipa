@@ -139,7 +139,9 @@ export function isAppleSignInCanceled(error: unknown) {
   return (error as { code?: string } | null)?.code === APPLE_CANCELED;
 }
 
-export async function signInWithApple() {
+// onAuthorized 在原生面板收起、拿到凭证后调用：面板展示期间 JS 收不到任何事件，
+// UI 借此在卡片消失后恢复「正在连接」态（展示期间不显示加载层）。
+export async function signInWithApple(onAuthorized?: () => void) {
   const rawNonce = toHex(Crypto.getRandomBytes(32));
   const nonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
 
@@ -156,6 +158,7 @@ export async function signInWithApple() {
 
   const identityToken = credential.identityToken;
   if (!identityToken) return { data: null, error: new Error('Apple 未返回 identityToken') };
+  onAuthorized?.();
 
   const result = await supabase.auth.signInWithIdToken({ provider: 'apple', token: identityToken, nonce: rawNonce });
   if (!result.error) await applyAppleName(credential.fullName);
