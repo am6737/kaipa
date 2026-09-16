@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "kaipa",
-    "slug": "kaipa",
+    "slug": "letsgo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,10 +9,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hitosea.letsgo",
+      "appleTeamId": "G365J5PZA2",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Kaipa 需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。"
-      }
+        "NSPhotoLibraryUsageDescription": "Kaipa 需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。",
+        "NSSpeechRecognitionUsageDescription": "Kaipa 需要使用系统语音识别，以便将你的语音转换为文字。",
+        "NSMicrophoneUsageDescription": "Kaipa 需要使用麦克风，以便将你的语音转换为文字。",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "userInterfaceStyle": "automatic"
     },
     "android": {
       "package": "com.hitosea.letsgo",
@@ -26,6 +31,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e0f3f88f-2637-4fd0-87d6-6b4eb32011fb"
+      }
+    },
+    "owner": "hitosea"
   }
 }
