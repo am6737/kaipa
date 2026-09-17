@@ -26,6 +26,14 @@ export function toRoutePoi(r: any): Poi {
     tone: r.tone,
     desc: r.desc,
     photoUris: r.photo_uris,
+    trackCoords: r.track_coords ?? undefined,
+    trackElevation: r.track_elevation ?? undefined,
+    trackDurationMs: r.track_duration_ms ?? undefined,
+    trackWaypoints: r.track_waypoints ?? undefined,
+    trackFileUrl: r.track_file_url ?? undefined,
+    trackFileName: r.track_file_name ?? undefined,
+    bestMonths: r.best_months ?? undefined,
+    seasonNote: r.season_note ?? undefined,
   };
 }
 

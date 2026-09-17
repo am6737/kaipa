@@ -82,6 +82,8 @@ create table if not exists routes (
   reviews         int4,
   tone            text not null,
   "desc"          text,
+  best_months     int4[],
+  season_note     text,
   track_coords    jsonb,
   track_elevation jsonb,
   track_duration_ms int8,
@@ -125,6 +127,15 @@ grant execute on function public.account_storage_paths(uuid) to service_role;
 
 -- migration: add columns/policies to existing routes tables (safe to re-run)
 do $$ begin
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_coords') then
+    alter table routes add column track_coords jsonb;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_elevation') then
+    alter table routes add column track_elevation jsonb;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_duration_ms') then
+    alter table routes add column track_duration_ms int8;
+  end if;
   if not exists (select 1 from information_schema.columns where table_name='routes' and column_name='track_waypoints') then
     alter table routes add column track_waypoints jsonb;
   end if;
