@@ -12,12 +12,14 @@ create table if not exists profiles (
   avatar_color text default '#FF5C3A',
   avatar_url  text,
   gear_weight_unit text not null default 'kg' check (gear_weight_unit in ('kg','g','oz','lb')),
+  onboarded_at  timestamptz,
   created_at  timestamptz default now()
 );
 alter table profiles add column if not exists nick text not null default '';
 alter table profiles add column if not exists username text not null default '';
 alter table profiles add column if not exists bio text not null default '';
 alter table profiles add column if not exists avatar_url text;
+alter table profiles add column if not exists onboarded_at timestamptz;
 alter table profiles enable row level security;
 create policy "profiles_select" on profiles for select to authenticated using (true);
 create policy "profiles_update" on profiles for update to authenticated using (id = auth.uid());

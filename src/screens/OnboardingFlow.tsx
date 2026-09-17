@@ -76,32 +76,35 @@ function OptionalField({
 export function OnboardingGate({ theme, children }: { theme: Theme; children: React.ReactNode }) {
   const data = useData();
   const [checking, setChecking] = useState(true);
-  const [complete, setComplete] = useState(false);
 
+  // 完成标记以服务端 profiles.onboarded_at 为准，跟随账号而不是设备。旧版把
+  // 标记存在本机 AsyncStorage 里，这里只做一次回填（读到旧标记就写库），
+  // 回填失败不影响本次登录：最多再走一遍引导。
   useEffect(() => {
     let active = true;
-    setChecking(true);
+    if (data.profileLoading) return;
+    if (data.profile.onboardedAt) {
+      setChecking(false);
+      return;
+    }
     AsyncStorage.getItem(`${STORAGE_PREFIX}${data.userId}`)
-      .then((value) => {
-        if (active) setComplete(value === 'complete');
+      .then(async (value) => {
+        if (active && value === 'complete') await data.completeOnboarding();
       })
-      .catch(() => {
-        if (active) setComplete(false);
-      })
+      .catch(() => {})
       .finally(() => {
         if (active) setChecking(false);
       });
     return () => { active = false; };
-  }, [data.userId]);
+  }, [data.userId, data.profileLoading, data.profile.onboardedAt, data.completeOnboarding]);
 
   if (checking || data.profileLoading || data.planningProfileLoading) {
     return <View style={[styles.loading, { backgroundColor: theme.bg }]}><ActivityIndicator color={theme.accent} /></View>;
   }
-  if (complete) return <>{children}</>;
+  if (data.profile.onboardedAt) return <>{children}</>;
 
   const finish = async () => {
-    await AsyncStorage.setItem(`${STORAGE_PREFIX}${data.userId}`, 'complete');
-    setComplete(true);
+    await data.completeOnboarding();
   };
   return <OnboardingFlow theme={theme} onFinish={finish} />;
 }

@@ -18,6 +18,7 @@ export interface DataValue {
   profile: UserProfile;
   profileLoading: boolean;
   updateProfile: (field: string, value: string) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
   updateAvatar: (localUri: string) => Promise<void>;
   planningProfile: UserPlanningProfile;
   planningProfileLoading: boolean;
@@ -85,7 +86,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     refetch: refetchGear,
   } = useGear(userId);
   const {
-    profile, loading: profileLoading, updateProfile, updateAvatar,
+    profile, loading: profileLoading, updateProfile, completeOnboarding, updateAvatar,
   } = useProfile(userId);
   const {
     planningProfile, loading: planningProfileLoading, savePlanningProfile,
@@ -108,7 +109,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
 
   const value: DataValue = {
     userId,
-    profile, profileLoading, updateProfile, updateAvatar,
+    profile, profileLoading, updateProfile, completeOnboarding, updateAvatar,
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
     tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,

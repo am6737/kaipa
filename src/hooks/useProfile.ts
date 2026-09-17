@@ -20,6 +20,7 @@ export interface UserProfile {
   uid: string;
   createdAt: string;
   gearWeightUnit: WeightUnit;
+  onboardedAt: string;
 }
 
 const EMPTY: UserProfile = {
@@ -32,6 +33,7 @@ const EMPTY: UserProfile = {
   uid: '',
   createdAt: '',
   gearWeightUnit: 'kg',
+  onboardedAt: '',
 };
 
 export function useProfile(userId: string | undefined) {
@@ -42,7 +44,7 @@ export function useProfile(userId: string | undefined) {
     if (!userId) return;
 
     const [{ data: row }, { data: { user } }] = await Promise.all([
-      supabase.from('profiles').select('display_name, nick, username, bio, avatar_url, created_at, gear_weight_unit').eq('id', userId).single(),
+      supabase.from('profiles').select('display_name, nick, username, bio, avatar_url, created_at, gear_weight_unit, onboarded_at').eq('id', userId).single(),
       supabase.auth.getUser(),
     ]);
 
@@ -57,6 +59,7 @@ export function useProfile(userId: string | undefined) {
       uid: userId,
       createdAt: row?.created_at || '',
       gearWeightUnit: (row?.gear_weight_unit || 'kg') as WeightUnit,
+      onboardedAt: row?.onboarded_at || '',
     });
     setLoading(false);
   }, [userId]);
@@ -90,6 +93,15 @@ export function useProfile(userId: string | undefined) {
     setProfile((p) => ({ ...p, [field]: value }));
   }, [userId]);
 
+  // 引导完成标记写库，跨设备、跨登录方式跟随账号（null 表示还没走完引导）。
+  const completeOnboarding = useCallback(async () => {
+    if (!userId) return;
+    const onboardedAt = new Date().toISOString();
+    const { error } = await supabase.from('profiles').update({ onboarded_at: onboardedAt }).eq('id', userId);
+    if (error) throw error;
+    setProfile((current) => ({ ...current, onboardedAt }));
+  }, [userId]);
+
   const updateAvatar = useCallback(async (localUri: string) => {
     if (!userId) return;
 
@@ -105,5 +117,5 @@ export function useProfile(userId: string | undefined) {
     setProfile((current) => ({ ...current, avatarUrl }));
   }, [userId]);
 
-  return { profile, loading, updateProfile, updateAvatar, refetch: fetch };
+  return { profile, loading, updateProfile, completeOnboarding, updateAvatar, refetch: fetch };
 }
