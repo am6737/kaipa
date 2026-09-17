@@ -1,4 +1,4 @@
-import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, packingWaterMixError, requiresMixedWaterPlan, validatePackingItems } from './packing-validation.ts';
+import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems } from './packing-validation.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -19,6 +19,9 @@ Deno.test('packing validation accepts actionable specifications', () => {
     { name: '瓶装矿泉水', attributes: [{ name: '容量', value: '1.5L/瓶' }], quantity: 2 },
     { name: '能量棒', attributes: [{ name: '单份净重', value: '50g/根' }], quantity: 4 },
     { name: 'USB-C 充电宝', attributes: [{ name: '容量', value: '20000mAh' }, { name: '快充', value: 'PD' }], quantity: 1 },
+    { name: '移动电源', attributes: [{ name: '容量', value: '10000mAh' }], quantity: 1 },
+    { name: '全麦面包', attributes: [{ name: '单份净重', value: '80g/袋' }], quantity: 2 },
+    { name: '葡萄干', attributes: [{ name: '单份净重', value: '50g/袋' }], quantity: 2 },
     { name: '无菌纱布片', quantity: 4 },
     { name: '水泡贴', quantity: 4 },
     { name: '中空纤维滤水器', attributes: [{ name: '接口', value: '软水袋接口' }], quantity: 1 },
@@ -57,6 +60,19 @@ Deno.test('packing validation keeps carried weight out of equipment titles', () 
   assert(issues.every((issue) => issue.message.includes('weightKg')), 'weight issues should point to the structured field');
 });
 
+Deno.test('peanut butter packaging mass can coexist with structured carried weight', () => {
+  const item = {
+    name: '花生酱', quantity: 2, weightKg: 0.21,
+    attributes: [{ name: '单份净重', value: '200g' }],
+  };
+  const issues = validatePackingItems([item]);
+  assert(issues.length === 0, packingValidationError(issues));
+
+  const missingPortion = validatePackingItems([{ ...item, attributes: [] }]);
+  assert(missingPortion.length === 1 && missingPortion[0].message.includes('单份克重'),
+    'Carried weight must not replace the food packaging specification');
+});
+
 Deno.test('packing validation rejects redundant common-sense attributes', () => {
   const issues = validatePackingItems([
     { name: '头灯', attributes: [{ name: '亮度', value: '可调节' }], quantity: 1 },
@@ -84,14 +100,18 @@ Deno.test('packing identity distinguishes same-name capacity variants', () => {
   );
 });
 
-Deno.test('packing water mix requires large and small bottled water', () => {
-  const mixed = [
-    { name: '瓶装矿泉水', attributes: [{ name: '容量', value: '1.5L/瓶' }], quantity: 1 },
-    { name: '瓶装矿泉水', attributes: [{ name: '容量', value: '550ml/瓶' }], quantity: 2 },
-  ];
-  assert(!packingWaterMixError(mixed), 'expected practical mixed bottled water to pass');
-  assert(Boolean(packingWaterMixError([{ name: '瓶装水', attributes: [{ name: '容量', value: '500ml/瓶' }], quantity: 3 }])), 'small bottles alone should not satisfy the mixed strategy');
-  assert(requiresMixedWaterPlan('预计徒步 8 小时，全程无补水', 'none'), 'long no-refill hike should require a mix');
-  assert(!requiresMixedWaterPlan('徒步 2 小时，全程无补水', 'none'), 'short hike should not require a mix');
-  assert(!requiresMixedWaterPlan('全天徒步，沿途可补水', 'treated'), 'refill route should not require a mix');
+Deno.test('water validation checks item structure without prescribing volume or bottle mix', () => {
+  for (const capacity of ['350ml', '750ml', '1.25L']) {
+    for (const quantity of [1, 4, 6]) {
+      const issues = validatePackingItems([{ name: '瓶装矿泉水', attributes: [{ name: '容量', value: capacity }], quantity }]);
+      assert(issues.length === 0, 'Valid water items must not be rejected for quantity or bottle selection');
+    }
+  }
+});
+
+Deno.test('pure bottled water is not mistaken for a purification device', () => {
+  const issues = validatePackingItems([{ name: '瓶装纯净水', quantity: 1, attributes: [{ name: '单份净重', value: '1.5kg' }] }]);
+  if (!issues.some(issue => issue.message.includes('容量'))) throw new Error('Pure water still bypasses capacity validation');
+  const device = validatePackingItems([{ name: '净水壶', quantity: 1 }]);
+  if (device.some(issue => issue.message.includes('容量'))) throw new Error('Treatment device was mistaken for carried water');
 });

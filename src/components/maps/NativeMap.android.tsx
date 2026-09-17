@@ -56,6 +56,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onPress,
   onUserLocationChange,
   onCameraChange,
+  onZoomChange,
   onGestureStart,
 }, ref) {
   const mapRef = useRef<MapViewRef>(null);
@@ -161,7 +162,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       }}
       onMapPress={(event) => {
         const { longitude, latitude } = event.nativeEvent;
-        onGestureStart?.();
         onPress?.(gcj02ToWgs84([longitude, latitude]));
       }}
       onLocation={(event) => {
@@ -170,6 +170,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       }}
       onCameraMove={(event) => {
         const camera = event.nativeEvent.cameraPosition;
+        if (typeof camera.zoom === 'number') onZoomChange?.(camera.zoom);
         if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
         onCameraChange?.(camera.bearing || 0, camera.tilt || 0);
       }}

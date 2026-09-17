@@ -10,7 +10,7 @@ export async function refetchJourneyInspo(journeyId: string) {
   await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
 }
 
-export function useInspo(journeyId: string | undefined, userId: string | undefined) {
+export function useInspo(journeyId: string | undefined, userId: string | undefined, previewRows?: Record<string, unknown>[]) {
   const [media, setMedia] = useState<InspoMedia[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
@@ -32,6 +32,12 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
 
   useEffect(() => {
     let active = true;
+
+    if (previewRows) {
+      setMedia(previewRows.map(toInspoMedia));
+      setLoading(false);
+      return () => { active = false; };
+    }
 
     if (!journeyId || !userId) {
       setMedia([]);
@@ -67,7 +73,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
       journeyRefreshers!.delete(fetchMedia);
       if (!journeyRefreshers!.size) refreshers.delete(journeyId);
     };
-  }, [journeyId, userId]);
+  }, [journeyId, userId, previewRows]);
 
   // Single upload (used for camera captures). Placeholder is handled by caller.
   const add = async (m: Omit<InspoMedia, 'id'>) => {

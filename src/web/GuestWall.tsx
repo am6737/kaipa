@@ -342,7 +342,6 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
           theme={theme}
           moments={lightbox.list}
           index={lightbox.index}
-          durationMs={journey.track_duration_ms ?? undefined}
           onIndexChange={(i) => setLightbox((prev) => prev ? { ...prev, index: i } : null)}
           onClose={() => setLightbox(null)}
           onDelete={handleDelete}

@@ -96,9 +96,15 @@ alter table routes
   add constraint routes_created_by_fkey
   foreign key (created_by) references profiles(id) on delete set null;
 create policy "routes_select" on routes for select to authenticated using (true);
-create policy "routes_insert" on routes for insert to authenticated with check (true);
+-- Route catalog records are published data. Client users may read them, but
+-- must not be able to rewrite other users' routes or inject catalog entries.
+drop policy if exists "routes_insert" on routes;
 drop policy if exists "routes_update" on routes;
-create policy "routes_update" on routes for update to authenticated using (true) with check (true);
+create policy "routes_insert_owner" on routes for insert to authenticated
+  with check (created_by = auth.uid());
+create policy "routes_update_owner" on routes for update to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
 
 create or replace function public.account_storage_paths(account_id uuid)
 returns table(path text)
@@ -472,6 +478,16 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 grant execute on function public.is_journey_member(text) to authenticated;
+
+drop policy if exists "timeline_rows_member_select" on public.timeline_rows;
+create policy "timeline_rows_member_select" on public.timeline_rows
+  for select to authenticated
+  using (public.is_journey_member(journey_id));
+
+drop policy if exists "timeline_groups_member_select" on public.timeline_groups;
+create policy "timeline_groups_member_select" on public.timeline_groups
+  for select to authenticated
+  using (public.is_journey_member(journey_id));
 
 alter table journey_packing_lists enable row level security;
 alter table journey_packing_items enable row level security;
@@ -1035,4 +1051,111 @@ $$;
 
 revoke all on function public.restore_journey_version(uuid) from public, anon;
 grant execute on function public.restore_journey_version(uuid) to authenticated;
+
+create or replace function public.trim_journey_versions()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.journey_versions version
+  where version.journey_id = new.journey_id
+    and version.id in (
+      select older.id
+      from public.journey_versions older
+      where older.journey_id = new.journey_id
+      order by older.version_number desc
+      offset 10
+    );
+  return new;
+end;
+$$;
+
+drop trigger if exists journey_versions_trim_history on public.journey_versions;
+create trigger journey_versions_trim_history
+  after insert on public.journey_versions
+  for each row execute function public.trim_journey_versions();
 -- END journey version history
+
+-- BEGIN agent task harness
+-- Interpreted scope is worker-owned. Clients can inspect but cannot widen it.
+create table if not exists public.agent_task_states (
+  run_id uuid primary key references public.agent_runs(id) on delete cascade,
+  thread_id uuid not null references public.agent_threads(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  state jsonb not null check (jsonb_typeof(state) = 'object'),
+  created_at timestamptz not null default now()
+);
+create index if not exists agent_task_states_thread_idx on public.agent_task_states(thread_id, created_at desc);
+alter table public.agent_task_states enable row level security;
+revoke all on public.agent_task_states from public, anon, authenticated;
+grant select on public.agent_task_states to authenticated;
+grant all on public.agent_task_states to service_role;
+drop policy if exists agent_task_states_read on public.agent_task_states;
+create policy agent_task_states_read on public.agent_task_states for select to authenticated
+  using (user_id = auth.uid());
+
+-- Task outcome, user-visible answer and run completion settle together.
+create or replace function public.finalize_agent_run(target_run_id uuid, assistant_message text, message_ui jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare r agent_runs%rowtype; target_journey text;
+begin
+  select * into r from agent_runs where id = target_run_id and user_id = auth.uid() and status = 'running' for update;
+  if not found then raise exception 'Agent run is not active'; end if;
+  if nullif(trim(assistant_message), '') is null or jsonb_typeof(message_ui) <> 'object' then
+    raise exception 'Invalid agent result';
+  end if;
+  select current_journey_id into target_journey from agent_threads where id = r.thread_id;
+  if message_ui ? 'taskOutcome' then
+    update agent_task_states set state = state || jsonb_build_object(
+      'outcome', message_ui->'taskOutcome', 'journeyId', target_journey)
+      where run_id = r.id and user_id = r.user_id;
+    if not found then raise exception 'Task state is missing'; end if;
+  end if;
+  update agent_runs set status = 'completed', final_output = assistant_message, updated_at = now() where id = r.id;
+  insert into agent_messages(thread_id, user_id, role, content, ui)
+    values(r.thread_id, r.user_id, 'assistant', assistant_message, message_ui || jsonb_build_object('requestId', r.id));
+  update agent_threads set updated_at = now() where id = r.thread_id;
+end;
+$$;
+revoke all on function public.finalize_agent_run(uuid, text, jsonb) from public, anon;
+grant execute on function public.finalize_agent_run(uuid, text, jsonb) to authenticated;
+-- END agent task harness
+
+-- BEGIN durable packing drafts and per-response metrics
+create table if not exists public.agent_packing_drafts (
+  run_id uuid primary key references public.agent_runs(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  revision integer not null check (revision > 0),
+  state jsonb not null check (jsonb_typeof(state) = 'object' and (state->>'revision')::integer = revision),
+  last_edit text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.agent_packing_drafts enable row level security;
+revoke all on public.agent_packing_drafts from public, anon, authenticated;
+grant select on public.agent_packing_drafts to authenticated;
+grant all on public.agent_packing_drafts to service_role;
+drop policy if exists agent_packing_drafts_read on public.agent_packing_drafts;
+create policy agent_packing_drafts_read on public.agent_packing_drafts for select to authenticated using (user_id = auth.uid());
+
+create table if not exists public.agent_model_metrics (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid not null references public.agent_runs(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  stage text not null,
+  model text not null,
+  duration_ms integer not null check (duration_ms >= 0),
+  success boolean not null,
+  usage jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists agent_model_metrics_run_idx on public.agent_model_metrics(run_id);
+alter table public.agent_model_metrics enable row level security;
+revoke all on public.agent_model_metrics from public, anon, authenticated;
+grant select on public.agent_model_metrics to authenticated;
+grant all on public.agent_model_metrics to service_role;
+drop policy if exists agent_model_metrics_read on public.agent_model_metrics;
+create policy agent_model_metrics_read on public.agent_model_metrics for select to authenticated using (user_id = auth.uid());
+-- END durable packing drafts and per-response metrics

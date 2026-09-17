@@ -30,7 +30,13 @@ function cleanXml(text: string) {
 
 export function extractKmlFromKmz(bytes: Uint8Array): string | null {
   try {
-    const files = unzipSync(bytes);
+    let totalSize = 0;
+    const files = unzipSync(bytes, { filter: (entry) => {
+      if (!/\.kml$/i.test(entry.name)) return false;
+      totalSize += entry.originalSize;
+      if (totalSize > 15 * 1024 * 1024) throw new Error('KMZ contents exceed limit');
+      return true;
+    } });
     const entry = Object.entries(files).find(([name]) => /(^|\/)doc\.kml$/i.test(name))
       || Object.entries(files).find(([name]) => /\.kml$/i.test(name));
     return entry ? strFromU8(entry[1]) : null;
@@ -185,13 +191,15 @@ export function computeTrackStats(points: TrackPoint[]): TrackStats | null {
 export function buildAgentTrackData(stats: TrackStats) {
   const pts = stats.points;
   const stride = Math.max(1, Math.floor(pts.length / 500));
-  const trackCoords: [number, number][] = [];
-  for (let index = 0; index < pts.length; index += stride) trackCoords.push([pts[index].lon, pts[index].lat]);
-  const end = pts[pts.length - 1];
-  if (trackCoords[trackCoords.length - 1][0] !== end.lon || trackCoords[trackCoords.length - 1][1] !== end.lat) trackCoords.push([end.lon, end.lat]);
+  // Keep the measurement geometry intact. Only the elevation chart is downsampled.
+  const trackCoords: [number, number][] = pts.map(point => [point.lon, point.lat]);
   const trackElevation = stats.hasEle
     ? pts.flatMap((point, index) => index % stride === 0 && Number.isFinite(point.ele) ? [{ km: stats.cum[index] / 1000, ele: point.ele }] : [])
     : null;
+  const end = pts[pts.length - 1];
+  if (trackElevation && Number.isFinite(end.ele) && trackElevation.at(-1)?.km !== stats.distM / 1000) {
+    trackElevation.push({ km: stats.distM / 1000, ele: end.ele });
+  }
   const dist = stats.distM >= 1000 ? `${(stats.distM / 1000).toFixed(stats.distM >= 10000 ? 1 : 2)} km` : `${Math.round(stats.distM)} m`;
   const asc = stats.hasEle ? `+${stats.ascent} m` : null;
   return { trackCoords, trackElevation, trackDurationMs: stats.hasTime ? stats.durationMs : null, dist, asc };
@@ -199,7 +207,7 @@ export function buildAgentTrackData(stats: TrackStats) {
 
 export function snapTrackWaypoints(waypoints: TrackWaypoint[] | undefined, stats: TrackStats) {
   if (!waypoints?.length) return null;
-  return waypoints.map((waypoint) => {
+  return waypoints.filter(waypoint => waypoint.name.trim()).map((waypoint) => {
     let bestIndex = 0;
     let bestDist = Infinity;
     for (let index = 0; index < stats.points.length; index += 1) {
@@ -209,6 +217,12 @@ export function snapTrackWaypoints(waypoints: TrackWaypoint[] | undefined, stats
         bestIndex = index;
       }
     }
-    return { name: waypoint.name, km: stats.cum[bestIndex] / 1000 };
+    const preceding = stats.points.slice(0, bestIndex + 1);
+    return { name: waypoint.name, km: stats.cum[bestIndex] / 1000,
+      distanceFromTrackMeters: bestDist,
+      elevationMeters: Number.isFinite(stats.points[bestIndex].ele) ? stats.points[bestIndex].ele : null,
+      cumulativeAscentMeters: stats.hasEle ? computeTrackStats(preceding)?.ascent ?? 0 : null,
+      cumulativeDescentMeters: stats.hasEle ? computeTrackStats([...preceding].reverse())?.ascent ?? 0 : null,
+    };
   }).sort((a, b) => a.km - b.km);
 }

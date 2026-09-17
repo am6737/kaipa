@@ -1,9 +1,11 @@
 import { supabase } from './supabase';
+import { withAgentDeadline } from './agentRecovery';
 
 export interface AgentQuickReply {
   label: string;
   message: string;
-  action?: 'upload_track' | 'skip_track';
+  action?: 'upload_track' | 'skip_track' | 'retry_run' | 'supplement_plan' | 'request_location';
+  runId?: string;
 }
 
 export interface AgentSource {
@@ -38,6 +40,8 @@ export interface AgentUndoAction {
 }
 
 export interface AgentMessageUi {
+  travelContext?: import('../../supabase/functions/app-agent/travel-context').TravelContext | null;
+  requestId?: string;
   quickReplies?: AgentQuickReply[];
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
@@ -60,7 +64,7 @@ export type AgentIntent = 'plan_journey';
 export interface AgentTurnResponse {
   threadId: string;
   runId: string;
-  status: 'completed';
+  status: 'completed' | 'running' | 'failed';
   message?: string;
   quickReplies?: AgentQuickReply[];
   ui?: AgentMessageUi;
@@ -77,6 +81,11 @@ export interface AgentHistoryMessage {
 export interface AgentHistoryResponse {
   thread: { id: string; title: string; current_journey_id: string | null };
   messages: AgentHistoryMessage[];
+  activeRun?: {
+    id: string;
+    status: 'running';
+    activities: AgentRunActivity[];
+  };
 }
 
 export interface AgentThreadSummary {
@@ -89,29 +98,22 @@ export interface AgentThreadSummary {
 }
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke<T>('app-agent', { body });
+  const { data, error } = await withAgentDeadline((signal) => supabase.functions.invoke<T>('app-agent', { body, signal }));
   if (error) throw new Error(error.message || 'App agent request failed');
   if (!data) throw new Error('App agent returned no data');
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 
 export function getAgentHistory(threadId: string) {
-  return Promise.all([
-    supabase.from('agent_threads').select('id,title,current_journey_id').eq('id', threadId).maybeSingle(),
-    supabase.from('agent_messages').select('id,role,content,ui,created_at').eq('thread_id', threadId).order('created_at'),
-  ]).then(([thread, messages]) => {
-    if (thread.error) throw thread.error;
-    if (!thread.data) throw new Error('Conversation not found');
-    if (messages.error) throw messages.error;
-    return {
-      thread: thread.data,
-      messages: (messages.data || []) as AgentHistoryMessage[],
-    };
-  });
+  return invoke<AgentHistoryResponse>({ action: 'history', threadId });
+}
+
+export function retryAgentRun(runId: string) {
+  return invoke<AgentTurnResponse>({ action: 'retry_run', runId });
 }
 
 export async function getAgentThreads() {
@@ -132,26 +134,31 @@ export async function getAgentThreads() {
 }
 
 export async function getJourneyAgentThread(journeyId: string) {
-  const result = await supabase
+  const result = await withAgentDeadline(async (signal) => supabase
     .from('agent_threads')
     .select('id')
     .eq('current_journey_id', journeyId)
     .order('updated_at', { ascending: false })
     .limit(1)
-    .maybeSingle();
+    .abortSignal(signal)
+    .maybeSingle());
   if (result.error) throw result.error;
   return { threadId: result.data?.id || null };
 }
 
 export async function getAgentRunActivity(runId: string) {
-  const result = await supabase
-    .from('agent_tool_calls')
-    .select('tool_name,status,arguments,output,created_at')
-    .eq('run_id', runId)
-    .order('created_at');
-  if (result.error) throw result.error;
+  const [run, calls] = await withAgentDeadline(async (signal) => Promise.all([
+    supabase.from('agent_runs').select('status,thread_id,created_at,execution_mode').eq('id', runId).abortSignal(signal).maybeSingle(),
+    supabase.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at').eq('run_id', runId).order('created_at').abortSignal(signal),
+  ]));
+  if (run.error) throw run.error;
+  if (calls.error) throw calls.error;
   return {
-    activities: (result.data || []).map((activity) => ({
+    status: run.data?.status as 'running' | 'completed' | 'failed' | undefined,
+    threadId: run.data?.thread_id as string | undefined,
+    createdAt: run.data?.created_at as string | undefined,
+    executionMode: run.data?.execution_mode as string | undefined,
+    activities: (calls.data || []).map((activity) => ({
       toolName: activity.tool_name,
       status: activity.status,
       arguments: activity.arguments || {},

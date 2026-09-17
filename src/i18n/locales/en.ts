@@ -1854,6 +1854,20 @@ export const en: SameShape<typeof zh> = {
       apply: "Apply to a journey",
       export: "Export GPX",
       delete: "Delete track",
+      import: "Import tracks",
+      select: "Select tracks",
+      exportZip: "Export zip",
+    },
+    import: {
+      progress: "Importing {count} tracks",
+      done: "Imported {count} tracks",
+      partial: "Import finished: {ok} added, {failed} failed",
+      unusable: "None of those files is a track file",
+      webHint: "The web build cannot read local files — import tracks in the app.",
+    },
+    export: {
+      done: "Exported {count} tracks",
+      failed: "Export failed",
     },
     rename: {
       title: "Rename track",
@@ -1865,7 +1879,6 @@ export const en: SameShape<typeof zh> = {
       empty: "You have no journey to apply this to yet.",
       done: "Applied to “{name}”",
       alreadyThere: "“{name}” already uses this track",
-      failed: "Could not apply. Please try again.",
     },
     toast: {
       deleted: "Deleted {count} tracks",

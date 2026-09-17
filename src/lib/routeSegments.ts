@@ -35,7 +35,8 @@ export const JOURNEY_SEGMENT_COLORS = [
   '#D9A21B',
 ] as const;
 
-const EARTH_RADIUS_METERS = 6_371_008.8;
+// Match GPX ingestion and the Edge Function's route-distance calculation.
+const EARTH_RADIUS_METERS = 6_371_000;
 const toRadians = (degrees: number) => degrees * Math.PI / 180;
 
 export function distanceMeters(a: Coordinate, b: Coordinate): number {

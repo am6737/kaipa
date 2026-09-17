@@ -68,8 +68,8 @@ export function JourneyPlanCard({
   const status = journeyStatus(journey);
   const coverUri = journey.photoUris?.[0];
   const companion = journey.companionList?.[0];
-  const date = journey.plannedDate || journey.date || t('journeyHome.dateUnset');
-  const duration = journey.totalDays ? t('journeyEdit.meta.days', { count: journey.totalDays }) : undefined;
+  const date = journey.plannedDate || journey.date || t('journeyEdit.time.datePending');
+  const duration = journey.totalDays ? t('journeyEdit.meta.days', { count: journey.totalDays }) : journey.days || undefined;
   const statusVisible = showStatus && (status === 'planned' || status === 'active');
   const distanceValue = Number.parseFloat(journey.dist || '');
   const ascentValue = Number.parseFloat(journey.asc || '');

@@ -1,6 +1,6 @@
 // theme.ts — theme builder for kaipa (ported from prototype theme.jsx).
 // Appearance mode: 'system' | 'light' | 'dark' (system resolved at runtime).
-// Accent color: any hex; 6 curated presets exposed for the 我 page picker.
+// Accent color: any hex; curated presets exposed for the 我 page picker.
 //
 // CSS-only values from the prototype (box-shadow / radial-gradient strings) are
 // re-expressed as React-Native-friendly primitives: gradient *stops* (arrays)
@@ -15,6 +15,7 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { id: 'green', color: '#2EB85C', name: '绿色' },
   { id: 'orange', color: '#FF9500', name: '橙色' },
   { id: 'pink', color: '#FF375F', name: '粉色' },
+  { id: 'black', color: '#000000', name: '黑色' },
 ];
 
 export function hexToRgb(hex: string): [number, number, number] {
@@ -70,7 +71,11 @@ export interface Theme {
 }
 
 export function makeTheme(mode: Mode, accent?: string): Theme {
-  const a = accent || '#0A84FF';
+  const selectedAccent = accent || '#0A84FF';
+  // Keep black accents visible on dark surfaces while retaining white button labels.
+  const a = mode === 'dark' && hexToRgb(selectedAccent).every((channel) => channel === 0)
+    ? '#767676'
+    : selectedAccent;
   if (mode === 'dark') {
     return {
       name: '黑',

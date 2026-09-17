@@ -47,6 +47,9 @@ export function createMediaCrawlerProvider(args: {
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
         const detail = typeof payload?.detail === 'string' ? payload.detail.trim().slice(0, 240) : '';
+        if (detail.startsWith('verification_required:')) {
+          return { available: false, results: [], errorCode: 'verification_required', error: `${args.source} requires manual browser verification. Stop requests; do not change keywords or bypass verification.` };
+        }
         throw new Error(`${args.source} search failed (${response.status})${detail ? `: ${detail}` : ''}`);
       }
       const payload = await response.json() as Record<string, unknown>;
@@ -63,7 +66,7 @@ export function createMediaCrawlerProvider(args: {
         if (!title || !url || !/^https?:\/\//i.test(url)) return [];
         return [{
           source: args.source,
-          kind: args.source === 'xhs' ? 'guide' as const : 'video' as const,
+          kind: args.source === 'xhs' || item.contentType === 'image_gallery' ? 'guide' as const : 'video' as const,
           reliability: 'community' as const,
           title: title.slice(0, 180),
           url,

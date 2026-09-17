@@ -8,10 +8,10 @@ import {
   Animated,
   Keyboard,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Theme } from '../theme/theme';
-import { MONO } from '../theme/fonts';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { useI18n } from '../i18n';
@@ -20,6 +20,7 @@ import { EXPLORE_POIS } from '../data/pois';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import { PoiRow } from '../components/ListRow';
+import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
 
 const RECENT_KEY = 'kaipa_recent_search_v1';
 const MAX_RECENT = 8;
@@ -53,6 +54,7 @@ export function SearchScreen({ theme }: { theme: Theme }) {
 
   const [q, setQ] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
+  const [showAllHot, setShowAllHot] = useState(false);
 
   useEffect(() => {
     readRecent().then(setRecent);
@@ -92,8 +94,8 @@ export function SearchScreen({ theme }: { theme: Theme }) {
   const hasHits = routeHits.length > 0 || journeyHits.length > 0;
 
   const hot = useMemo(
-    () => [...EXPLORE_POIS].sort((a, b) => (b.reviews || 0) - (a.reviews || 0)).slice(0, 5),
-    [],
+    () => [...EXPLORE_POIS].sort((a, b) => (b.reviews || 0) - (a.reviews || 0)).slice(0, showAllHot ? 8 : 4),
+    [showAllHot],
   );
 
   const pick = useCallback((item: Poi) => {
@@ -117,30 +119,69 @@ export function SearchScreen({ theme }: { theme: Theme }) {
   }, [q]);
 
   const groupLabel = (label: string, count?: number) => (
-    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, paddingHorizontal: 8, paddingTop: 18, paddingBottom: 8 }}>
-      <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 1, textTransform: 'uppercase' }}>
-        {label}
-      </Text>
-      {count != null && (
-        <Text style={{ fontFamily: MONO, fontSize: 10, color: theme.text3 }}>{count}</Text>
+    <AppSectionHeader
+      theme={theme}
+      text={label}
+      marginTop={space.lg}
+      trailing={count != null ? <Text style={[type.caption, { color: theme.text3 }]}>{count}</Text> : undefined}
+    />
+  );
+
+  const hotRow = (poi: Poi) => (
+    <Press
+      key={poi.id}
+      onPress={() => pick(poi)}
+      accessibilityRole="button"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: 96,
+        paddingVertical: space.sm,
+      }}
+    >
+      {poi.photoUris?.[0] ? (
+        <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={{ width: 108, height: 80, borderRadius: radius.control }} />
+      ) : (
+        <View style={{ width: 108, height: 80, borderRadius: radius.control, backgroundColor: theme.fieldSurface }} />
       )}
-    </View>
+      <View style={{ flex: 1, minWidth: 0, marginLeft: space.sm }}>
+        <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text, lineHeight: 21 }]}>{poi.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.xs }}>
+          <Icon name="pin" color={theme.text3} size={14} />
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{poi.region}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: 3 }}>
+          <Icon name="route" color={theme.text3} size={14} />
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{poi.dist}</Text>
+        </View>
+      </View>
+    </Press>
   );
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, opacity: fadeAnim, zIndex: 200 }]}>
-      {/* Search bar */}
-      <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: theme.groupedBg, opacity: fadeAnim, zIndex: 200 }]}>
+      {/* Search header */}
+      <View style={{ paddingTop: insets.top + space.sm, paddingHorizontal: space.md, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Press
+          onPress={close}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back')}
+          style={{ width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Icon name="chevronL" color={theme.text} size={28} strokeWidth={1.9} />
+        </Press>
         <View
           style={{
             flex: 1,
-            height: 40,
-            borderRadius: 13,
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+            height: layout.fieldHeight,
+            borderRadius: layout.fieldHeight / 2,
+            backgroundColor: theme.featureSurface,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: theme.fieldBorder,
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 8,
-            paddingHorizontal: 12,
+            gap: space.xs,
+            paddingHorizontal: space.md,
           }}
         >
           <Icon name="search" color={theme.text3} size={17} />
@@ -153,7 +194,7 @@ export function SearchScreen({ theme }: { theme: Theme }) {
             placeholderTextColor={theme.text3}
             returnKeyType="search"
             autoCorrect={false}
-            style={{ flex: 1, fontSize: 14.5, color: theme.text, padding: 0, minWidth: 0 }}
+            style={{ flex: 1, height: layout.fieldHeight, fontSize: 15, lineHeight: 21, color: theme.text, paddingVertical: 0, paddingHorizontal: 0, minWidth: 0, textAlignVertical: 'center' }}
           />
           {q.length > 0 && (
             <Press onPress={() => setQ('')} style={{
@@ -165,88 +206,83 @@ export function SearchScreen({ theme }: { theme: Theme }) {
             </Press>
           )}
         </View>
-        <Press onPress={close} style={{ paddingVertical: 4, paddingHorizontal: 2 }}>
-          <Text style={{ fontSize: 14.5, fontWeight: '500', color: theme.accent }}>{t('common.cancel')}</Text>
-        </Press>
       </View>
 
       {/* Content */}
       <ScrollView
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingHorizontal: space.md, paddingBottom: Math.max(insets.bottom, space.xl) }}
       >
         {!query ? (
           <>
             {recent.length > 0 && (
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 18, paddingBottom: 10 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: theme.text2, letterSpacing: 1, textTransform: 'uppercase' }}>
-                    {t('search.recent')}
-                  </Text>
-                  <Press onPress={() => { clearRecent(); setRecent([]); }}>
-                    <Text style={{ fontSize: 12, color: theme.text3 }}>{t('search.clear')}</Text>
-                  </Press>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 4 }}>
-                  {recent.map((s) => (
-                    <Press key={s} onPress={() => setQ(s)} style={{
-                      paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999,
-                      backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)',
-                    }}>
-                      <Text style={{ fontSize: 13, fontWeight: '500', color: theme.text }}>{s}</Text>
+                <AppSectionHeader
+                  theme={theme}
+                  text={t('search.recent')}
+                  marginTop={space.sm}
+                  trailing={
+                    <Press onPress={() => { clearRecent(); setRecent([]); }} hitSlop={8}>
+                      <Text style={[type.caption, { color: theme.accent, fontWeight: '600' }]}>{t('search.clear')}</Text>
                     </Press>
-                  ))}
-                </View>
+                  }
+                />
+                <AppCard theme={theme} style={{ padding: space.sm, borderRadius: radius.card }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+                    {recent.map((s) => (
+                      <Press key={s} onPress={() => setQ(s)} style={{ minHeight: 34, paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, justifyContent: 'center' }}>
+                        <Text style={[type.body, { fontSize: 13, color: theme.text }]}>{s}</Text>
+                      </Press>
+                    ))}
+                  </View>
+                </AppCard>
               </>
             )}
-            {groupLabel(t('search.hot'))}
-            {hot.map((r) => (
-              <PoiRow key={r.id} theme={theme} poi={r} onPress={() => pick(r)} />
-            ))}
+            <AppCard theme={theme} style={{ marginTop: space.lg, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.sm, borderRadius: radius.feature }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.xs }}>
+                <Text style={[type.sectionTitle, { color: theme.text }]}>{t('search.hot')}</Text>
+                {EXPLORE_POIS.length > 4 ? (
+                  <Press onPress={() => setShowAllHot((value) => !value)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                    <Text style={[type.body, { color: theme.text3, fontWeight: '600' }]}>{showAllHot ? t('search.collapse') : t('search.more')}</Text>
+                    <Icon name={showAllHot ? 'chevronDown' : 'chevronR'} color={theme.text3} size={17} />
+                  </Press>
+                ) : null}
+              </View>
+              {hot.map(hotRow)}
+            </AppCard>
           </>
         ) : hasHits ? (
           <>
             {routeHits.length > 0 && (
               <>
                 {groupLabel(t('search.routes'), routeHits.length)}
-                {routeHits.map((r) => (
-                  <PoiRow key={r.id} theme={theme} poi={r} onPress={() => pick(r)} />
-                ))}
+                <AppCard theme={theme} style={{ paddingHorizontal: space.sm, paddingVertical: space.xs }}>
+                  {routeHits.map((r) => <PoiRow key={r.id} theme={theme} poi={r} onPress={() => pick(r)} />)}
+                </AppCard>
               </>
             )}
             {journeyHits.length > 0 && (
               <>
                 {groupLabel(t('search.journeys'), journeyHits.length)}
-                {journeyHits.map((m) => (
-                  <PoiRow key={m.id} theme={theme} poi={m} onPress={() => pick(m)} />
-                ))}
+                <AppCard theme={theme} style={{ paddingHorizontal: space.sm, paddingVertical: space.xs }}>
+                  {journeyHits.map((m) => <PoiRow key={m.id} theme={theme} poi={m} onPress={() => pick(m)} />)}
+                </AppCard>
               </>
             )}
           </>
         ) : (
-          <View style={{ alignItems: 'center', paddingTop: 70, paddingHorizontal: 24, gap: 8 }}>
-            <Icon name="search" color={theme.text3} size={30} />
-            <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text, marginTop: 4, textAlign: 'center' }}>
-              {t('search.noResult', { query: q.trim() })}
-            </Text>
-            <Text style={{ fontSize: 12.5, color: theme.text2, lineHeight: 20, textAlign: 'center' }}>
-              {t('search.noResultHint')}
-            </Text>
-            <Press
-              onPress={() => { close(); setTimeout(() => nav.openAddRoute(), 300); }}
-              style={{
-                marginTop: 12,
-                paddingVertical: 11,
-                paddingHorizontal: 22,
-                borderRadius: 999,
-                backgroundColor: theme.accent,
-              }}
-            >
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: '#fff' }}>
-                {t('search.uploadTrack')}
-              </Text>
-            </Press>
+          <View style={{ paddingTop: space.xxxl, paddingHorizontal: space.sm }}>
+            <AppCard theme={theme} style={{ alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.xxxl }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSoft }}>
+                <Icon name="search" color={theme.accent} size={25} />
+              </View>
+              <Text style={[type.cardTitle, { color: theme.text, marginTop: space.md, textAlign: 'center' }]}>{t('search.noResult', { query: q.trim() })}</Text>
+              <Text style={[type.body, { color: theme.text2, lineHeight: 21, textAlign: 'center', marginTop: space.xs }]}>{t('search.noResultHint')}</Text>
+              <Press onPress={() => { close(); setTimeout(() => nav.openAddRoute(), 300); }} style={{ minHeight: 44, marginTop: space.lg, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={[type.body, { fontWeight: '700', color: '#fff' }]}>{t('search.uploadTrack')}</Text>
+              </Press>
+            </AppCard>
           </View>
         )}
       </ScrollView>

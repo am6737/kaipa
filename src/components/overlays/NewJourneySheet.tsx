@@ -32,16 +32,17 @@ import { useI18n, TKey, TVars } from '../../i18n';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
 import { TrackMap } from './TrackMap';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
+import { journeySchedulePatch } from '../../lib/journeySchedule';
 import {
   locationFromPoi,
   reverseJourneyLocation,
   searchJourneyLocations,
   type JourneyLocationValue,
 } from '../../lib/amapGeocoding';
-import { parseTrack, computeStats, buildTrackData } from '../../lib/trackParser';
-import { extractKmlFromKmz } from '../../lib/kmz';
-import { uploadMedia } from '../../lib/storage';
+import { buildTrackData } from '../../lib/trackParser';
+import { buildTrackDraft, parseTrackFile, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
 import { AssistantMark } from '../assistant/AssistantMark';
+import { isValidMapCoordinate } from '../maps/types';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
 
@@ -130,7 +131,8 @@ function njDayLabel(target: Date, ref: Date, t: TFn): string {
 function njFormatDateTime(d: Date, ref: Date, t: TFn): string {
   return `${njDayLabel(d, ref, t)} · ${njFormatTime(d)}`;
 }
-function njDurationLabel(mins: number, t: TFn): string {
+function njDurationLabel(mins: number | undefined, t: TFn): string {
+  if (mins == null) return t('journeyEdit.time.daysPending');
   if (mins < 60) return t('journeyEdit.duration.minutes', { count: mins });
   if (mins < 60 * 24) {
     const h = mins / 60;
@@ -140,20 +142,11 @@ function njDurationLabel(mins: number, t: TFn): string {
   return t('journeyEdit.duration.days', { count: Number.isInteger(days) ? days : days.toFixed(1) });
 }
 
-const NJ_DEFAULT_DURATION = 60 * 24; // 24h
-const NJ_PRESET_DEFAULT_DURATION = 60 * 24; // route-first planning uses the shared day-range picker
-
 function njInitialPlannedStart(): Date {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   d.setHours(7, 30, 0, 0);
   return d;
-}
-
-function njPresetDuration(preset?: Poi | null): number {
-  if (!preset?.trackDurationMs || preset.trackDurationMs <= 0) return NJ_PRESET_DEFAULT_DURATION;
-  const days = Math.max(1, Math.ceil(preset.trackDurationMs / (24 * 60 * 60 * 1000)));
-  return days * 24 * 60;
 }
 
 // Quick-duration chips. Labels are i18n keys resolved at render (rules of hooks).
@@ -557,10 +550,8 @@ function NJStepSuccess({ theme, route, tripName, durationMins }: { theme: Theme;
 // ──────────────────────────────────────────────────────────────
 // Build the journey Poi created by the flow
 // ──────────────────────────────────────────────────────────────
-function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number, flexibleDates: boolean, t: TFn): Poi {
-  const totalDays = Math.max(1, Math.ceil(durationMins / (60 * 24)));
-  const m = startDt.getMonth() + 1;
-  const d = startDt.getDate();
+function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number | undefined, flexibleDates: boolean, t: TFn): Poi {
+  const totalDays = durationMins == null ? undefined : Math.max(1, Math.ceil(durationMins / (60 * 24)));
   const lng = route.lng ?? 104.0;
   const lat = route.lat ?? 35.0;
   const base: Poi = {
@@ -575,24 +566,14 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     asc: route.asc,
     diff: route.diff as Poi['diff'],
     tone: (route.tone as Poi['tone']) || 'rock',
-    days: t('journeyEdit.meta.days', { count: totalDays }),
-    totalDays,
+    ...journeySchedulePatch({ start: startDt, totalDays, flexible: flexibleDates }, totalDays == null ? '' : t('journeyEdit.meta.days', { count: totalDays })),
     companions: 0,
     companionList: [SELF],
     mine: true,
     fav: false,
     desc: '',
     routeId: route.routeId,
-    trackCoords: route.trackCoords,
-    trackElevation: route.trackElevation,
-    trackDurationMs: route.trackDurationMs,
-    trackWaypoints: route.trackWaypoints,
   };
-  if (!flexibleDates) {
-    base.plannedDate = t('journeyEdit.meta.plannedDate', { month: m, day: d });
-    base.date = t('journeyEdit.meta.yearMonth', { year: startDt.getFullYear(), month: m });
-    base.countdown = Math.max(0, njDayDiff(startDt, njRoundedNow()));
-  }
   return base;
 }
 
@@ -632,40 +613,58 @@ function NJPresetPlanner({
   flexibleDates,
   onOpenTimePicker,
   onClose,
-  onCreate,
+  creatingMode,
+  onManualPlan,
+  onSmartPlan,
 }: {
   theme: Theme;
   route: NJRoute;
   tripName: string;
   setTripName: (value: string) => void;
   startDt: Date;
-  durationMins: number;
+  durationMins: number | undefined;
   flexibleDates: boolean;
   onOpenTimePicker: () => void;
   onClose: () => void;
-  onCreate: () => void;
+  creatingMode: 'manual' | 'smart' | null;
+  onManualPlan: () => void;
+  onSmartPlan: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const plannerHeight = Math.min(Math.max(height * 0.37, 318), 350);
+  // The planner has the same two core fields as the create form plus two CTAs;
+  // keep enough sheet height for both controls without clipping the footer.
+  const plannerHeight = Math.min(Math.max(height * 0.44, 370), 430);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(Math.max(0, event.endCoordinates.height));
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
   const mapCoords = useMemo<[number, number][]>(() => {
-    if (route.trackCoords?.length) return route.trackCoords;
-    if (Number.isFinite(route.lng) && Number.isFinite(route.lat)) return [[route.lng as number, route.lat as number]];
+    const trackCoords = route.trackCoords?.filter(isValidMapCoordinate) ?? [];
+    if (trackCoords.length) return trackCoords;
+    const routeCoordinate: [number, number] = [route.lng ?? Number.NaN, route.lat ?? Number.NaN];
+    if (isValidMapCoordinate(routeCoordinate)) return [routeCoordinate];
     return [];
   }, [route.lat, route.lng, route.trackCoords]);
   const hasMapLocation = mapCoords.length > 0;
-  const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][startDt.getDay()] as 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
-  const plannedDate = t('journeyEdit.planner.dateSummary', {
-    month: startDt.getMonth() + 1,
-    day: startDt.getDate(),
-    weekday: t(`journeyEdit.weekday.${dayKey}`),
-  });
   const routeMetrics = [route.dist, route.asc ? `↑ ${(route.asc || '').replace('+', '')}` : ''].filter(Boolean);
+  const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
+  const nameValid = tripName.trim().length > 0;
+  const visiblePlannerHeight = plannerHeight + keyboardHeight;
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface }]}>
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: height - plannerHeight + radius.feature, overflow: 'hidden' }}>
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: Math.max(0, height - visiblePlannerHeight + radius.feature), overflow: 'hidden' }}>
         {hasMapLocation ? (
           <TrackMap
             fill
@@ -703,40 +702,63 @@ function NJPresetPlanner({
         ) : null}
       </View>
 
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: plannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.fieldBorder }}>
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: visiblePlannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.fieldBorder }}>
+        <Pressable
+          onPress={Keyboard.dismiss}
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
         <View style={{ width: 38, height: 4, borderRadius: radius.pill, alignSelf: 'center', marginTop: space.sm, backgroundColor: theme.progressTrack }} />
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: 96 }}>
+        <View style={{ paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.md }}>
           <View>
-            <Text style={{ ...type.eyebrow, color: theme.text2, marginBottom: space.xs }}>{t('journeyEdit.details.nameLabel')}</Text>
-            <TextInput
-              value={tripName}
-              onChangeText={setTripName}
-              placeholder={t('journeyEdit.details.namePlaceholder')}
-              placeholderTextColor={theme.text3}
-              maxLength={32}
-              selectTextOnFocus
-              style={{ height: 50, paddingHorizontal: space.md, borderRadius: radius.card, backgroundColor: theme.featureSurface, color: theme.text, ...type.cardTitle }}
-            />
+            <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.nameQuestion')}</Text>
+            <View style={{ height: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+              <TextInput
+                value={tripName}
+                onChangeText={setTripName}
+                maxLength={32}
+                multiline
+                numberOfLines={2}
+                placeholder={t('journeyEdit.details.namePlaceholder')}
+                placeholderTextColor={theme.text3}
+                style={{ width: '100%', height: 48, padding: 0, paddingRight: 28, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: '600', textAlignVertical: 'top' }}
+              />
+              <View style={{ height: 17, marginTop: space.xxs, justifyContent: 'center' }}>
+                <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{route.region}</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={{ marginTop: space.md }}>
-            <Text style={{ ...type.eyebrow, color: theme.text2, marginBottom: space.xs }}>{t('journeyEdit.details.timeLabel')}</Text>
-            <Press onPress={onOpenTimePicker} accessibilityRole="button" style={{ minHeight: 58, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm, borderRadius: radius.card, backgroundColor: theme.featureSurface }}>
-              <Icon name="calendar" color={theme.text2} size={18} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text numberOfLines={1} style={{ ...type.cardTitle, color: theme.text }}>{flexibleDates ? njDurationLabel(durationMins, t) : plannedDate}</Text>
-                {!flexibleDates ? <Text numberOfLines={1} style={{ ...type.caption, color: theme.text2, marginTop: 2 }}>{njDurationLabel(durationMins, t)}</Text> : null}
+          <View style={{ marginTop: layout.sectionGap }}>
+            <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whenTitle')}</Text>
+            <Press onPress={onOpenTimePicker} accessibilityRole="button" accessibilityLabel={t('journeyEdit.form.whenTitle')} style={{ height: 52, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="calendar" color={theme.text} size={18} strokeWidth={1.9} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 15.5, fontWeight: '700', color: theme.text }}>
+                  {totalDays == null ? t('journeyEdit.time.decideLater') : flexibleDates ? t('journeyEdit.form.durationDays', { count: totalDays }) : journeyDateSummary(startDt, durationMins, resolved)}
+                </Text>
+                {!flexibleDates && totalDays != null ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('journeyEdit.form.durationDays', { count: totalDays })}</Text> : null}
               </View>
               <Icon name="chevronR" color={theme.text3} size={15} />
             </Press>
           </View>
-        </ScrollView>
+        </View>
 
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 68 + Math.max(insets.bottom, space.md), backgroundColor: theme.groupedBg }} />
-        <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: Math.max(insets.bottom, space.md) }}>
-          <Press onPress={onCreate} accessibilityRole="button" accessibilityLabel={t('journeyEdit.planner.create')} style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}>
-            <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('journeyEdit.planner.create')}</Text>
-          </Press>
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: keyboardHeight, height: 68 + Math.max(insets.bottom, space.md), backgroundColor: theme.groupedBg }} />
+        <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) }}>
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onManualPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+              {creatingMode === 'manual' ? <ActivityIndicator color={theme.text} /> : null}
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : t('journeyEdit.form.manualPlan')}</Text>
+            </Press>
+            <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
+              {creatingMode === 'smart' ? <ActivityIndicator color="#FFFFFF" /> : <AssistantMark color={nameValid ? '#FFFFFF' : theme.text3} accentColor={nameValid ? '#FFFFFF' : theme.text3} size={18} />}
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? '#FFFFFF' : theme.text3 }}>{creatingMode === 'smart' ? t('journeyEdit.form.planning') : t('journeyEdit.form.smartPlan')}</Text>
+            </Press>
+          </View>
         </View>
       </View>
     </View>
@@ -813,8 +835,8 @@ function JourneyRoutePicker({ theme, selected, onClose, onSelect }: { theme: The
   );
 }
 
-function journeyDateSummary(start: Date, durationMins: number, locale: 'zh' | 'en') {
-  const totalDays = Math.max(1, Math.round(durationMins / (24 * 60)));
+function journeyDateSummary(start: Date, durationMins: number | undefined, locale: 'zh' | 'en') {
+  const totalDays = Math.max(1, Math.round((durationMins ?? 24 * 60) / (24 * 60)));
   const end = new Date(start);
   end.setDate(end.getDate() + totalDays - 1);
   const formatter = new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
@@ -832,7 +854,7 @@ function journeyDateSummary(start: Date, durationMins: number, locale: 'zh' | 'e
 // ──────────────────────────────────────────────────────────────
 export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onSmartPlan: (poi: Poi, prompt: string) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
   const { t, resolved } = useI18n();
-  const { userId } = useData();
+  const { userId, createTrack } = useData();
   const insets = useSafeAreaInsets();
   const presetRoute = useMemo(() => (preset ? presetToRoute(preset) : null), [preset]);
   const blankRoute = useMemo<NJRoute>(() => ({
@@ -849,12 +871,16 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const [route, setRoute] = useState<NJRoute>(() => presetRoute || blankRoute);
   const [tripName, setTripName] = useState('');
   const [startDt, setStartDt] = useState<Date>(() => preset ? njInitialPlannedStart() : njRoundedNow());
-  const [durationMins, setDurationMins] = useState(() => (preset ? njPresetDuration(preset) : NJ_DEFAULT_DURATION));
-  const [flexibleDates, setFlexibleDates] = useState(() => Boolean(preset && !preset.plannedDate && !preset.date && (preset.days || preset.totalDays)));
+  const [durationMins, setDurationMins] = useState<number | undefined>();
+  const [flexibleDates, setFlexibleDates] = useState(true);
   const [timeOpen, setTimeOpen] = useState(false);
+  const openTimePicker = () => {
+    Keyboard.dismiss();
+    setTimeOpen(true);
+  };
   const [creatingMode, setCreatingMode] = useState<'manual' | 'smart' | null>(null);
   const [trackBusy, setTrackBusy] = useState(false);
-  const [trackSource, setTrackSource] = useState<{ uri: string; fileName: string } | null>(null);
+  const [trackSource, setTrackSource] = useState<{ uri: string; fileName: string; fileSize?: number; parsed: ParsedTrackFile } | null>(null);
   const [locationResults, setLocationResults] = useState<JourneyLocationValue[]>([]);
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationSearchFailed, setLocationSearchFailed] = useState(false);
@@ -863,8 +889,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const nameInit = useRef(false);
   useEffect(() => {
     if (!route.custom && !nameInit.current && !tripName) {
-      const datePart = t('journeyEdit.meta.monthDay', { month: startDt.getMonth() + 1, day: startDt.getDate() });
-      setTripName(`${datePart} ${route.name}`);
+      setTripName(route.name);
       nameInit.current = true;
     }
   }, [route, startDt, t, tripName]);
@@ -911,7 +936,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   }, [presetRoute, resolved, route.lat, route.lng, selectedLocation?.name, trackSource, tripName]);
 
   const nameValid = tripName.trim().length > 0;
-  const totalDays = Math.max(1, Math.round(durationMins / (24 * 60)));
+  const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
   const submit = async (mode: 'manual' | 'smart') => {
     if (!nameValid || creatingMode) return;
     setCreatingMode(mode);
@@ -921,10 +946,12 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     const poi = buildJourney(effectiveRoute, tripName, startDt, durationMins, flexibleDates, t);
     if (trackSource && userId) {
       try {
-        poi.trackFileUrl = await uploadMedia(trackSource.uri, userId, poi.id);
-        poi.trackFileName = trackSource.fileName;
+        // The track row has to exist before the journey can point at it.
+        const track = await createTrack(await buildTrackDraft(trackSource.parsed, { userId, sourceUri: trackSource.uri, fileSize: trackSource.fileSize }));
+        if (!track) throw new Error('TRACK_INSERT_FAILED');
+        poi.trackId = track.id;
       } catch (error) {
-        console.warn('[NewJourney] track upload failed:', error);
+        console.warn('[NewJourney] track import failed:', error);
         onToast(t('journeyEdit.form.trackUploadFailed'));
         setCreatingMode(null);
         return;
@@ -933,7 +960,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     const prompt = t('journeyEdit.form.smartPrompt', {
       name: tripName.trim(),
       dates: flexibleDates ? t('journeyHome.dateUnset') : journeyDateSummary(startDt, durationMins, resolved),
-      count: totalDays,
+      duration: totalDays == null ? t('journeyEdit.form.durationUnknownPrompt') : t('journeyEdit.form.durationDays', { count: totalDays }),
       track: trackSource ? `${trackSource.fileName} ${route.dist} ${route.asc}` : t('journeyEdit.form.noTrack'),
     });
     const created = mode === 'smart' ? await onSmartPlan(poi, prompt) : await onCreate(poi);
@@ -953,24 +980,10 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         return;
       }
       setTrackBusy(true);
-      let text: string;
-      let parseName = fileName;
-      if (extension === 'kmz') {
-        const buffer = await file.arrayBuffer();
-        const kml = extractKmlFromKmz(new Uint8Array(buffer));
-        if (!kml) throw new Error('KMZ_PARSE_FAILED');
-        text = kml;
-        parseName = fileName.replace(/\.kmz$/i, '.kml');
-      } else {
-        text = await file.text();
-      }
-      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-      const parsed = parseTrack(text, parseName, t as (key: string, vars?: Record<string, string | number>) => string);
-      if (parsed.error || !parsed.points) throw new Error(parsed.error || 'TRACK_PARSE_FAILED');
-      const stats = computeStats(parsed.points);
-      if (!stats) throw new Error('TRACK_PARSE_FAILED');
-      const track = buildTrackData(stats);
+      const parsed = await parseTrackFile(file, t);
+      const stats = parsed.stats;
       const start = stats.points[0];
+      const preview = buildTrackData(stats);
       let boundLocation = selectedLocation;
       if (!boundLocation) {
         let trackLocation: JourneyLocationValue;
@@ -1002,13 +1015,17 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         lng: boundLocation.lng,
         lat: boundLocation.lat,
         coord: boundLocation.coord,
-        ...track,
-        asc: track.asc || current.asc,
+        dist: preview.dist,
+        asc: preview.asc || current.asc,
+        trackCoords: preview.trackCoords,
+        trackElevation: preview.trackElevation,
+        trackDurationMs: preview.trackDurationMs,
+        trackWaypoints: parsed.waypoints,
       }));
-      setTrackSource({ uri: file.uri, fileName });
+      setTrackSource({ uri: file.uri, fileName: parsed.fileName, fileSize: file.size, parsed });
     } catch (error) {
       console.warn('[NewJourney] track parse failed:', error);
-      onToast(t('record.track.errParse'));
+      onToast(t(error instanceof TrackFileError ? error.messageKey : 'record.track.errParse'));
     } finally {
       setTrackBusy(false);
     }
@@ -1025,19 +1042,22 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
           startDt={startDt}
           durationMins={durationMins}
           flexibleDates={flexibleDates}
-          onOpenTimePicker={() => setTimeOpen(true)}
+          onOpenTimePicker={openTimePicker}
           onClose={onClose}
-          onCreate={() => void submit('manual')}
+          creatingMode={creatingMode}
+          onManualPlan={() => void submit('manual')}
+          onSmartPlan={() => void submit('smart')}
         />
         {timeOpen && (
           <JourneyDateRangePicker
+            presentation="inline"
             theme={theme}
             initialStart={startDt}
-            initialDurationDays={Math.max(1, Math.round(durationMins / (24 * 60)))}
+            initialDurationDays={totalDays}
             initialFlexible={flexibleDates}
             onApply={({ start, totalDays, flexible }) => {
               setStartDt(start);
-              setDurationMins(totalDays * 24 * 60);
+              setDurationMins(totalDays == null ? undefined : totalDays * 24 * 60);
               setFlexibleDates(flexible);
             }}
             onClose={() => setTimeOpen(false)}
@@ -1141,15 +1161,15 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
 
           <View style={{ marginTop: layout.sectionGap }}>
             <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whenTitle')}</Text>
-            <Press onPress={() => setTimeOpen(true)} accessibilityRole="button" style={{ height: 52, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <Press onPress={openTimePicker} accessibilityRole="button" accessibilityLabel={t('journeyEdit.form.whenTitle')} style={{ height: 52, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="calendar" color={theme.text} size={18} strokeWidth={1.9} />
               </View>
               <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
                 <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 15.5, fontWeight: '700', color: theme.text }}>
-                  {flexibleDates ? t('journeyEdit.form.durationDays', { count: totalDays }) : journeyDateSummary(startDt, durationMins, resolved)}
+                  {totalDays == null ? t('journeyEdit.time.decideLater') : flexibleDates ? t('journeyEdit.form.durationDays', { count: totalDays }) : journeyDateSummary(startDt, durationMins, resolved)}
                 </Text>
-                {!flexibleDates ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('journeyEdit.form.durationDays', { count: totalDays })}</Text> : null}
+                {!flexibleDates && totalDays != null ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('journeyEdit.form.durationDays', { count: totalDays })}</Text> : null}
               </View>
               <Icon name="chevronR" color={theme.text3} size={15} />
             </Press>
@@ -1216,13 +1236,14 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
 
       {timeOpen && (
         <JourneyDateRangePicker
+          presentation="inline"
           theme={theme}
           initialStart={startDt}
           initialDurationDays={totalDays}
           initialFlexible={flexibleDates}
           onApply={({ start, totalDays: nextTotalDays, flexible }) => {
             setStartDt(start);
-            setDurationMins(nextTotalDays * 24 * 60);
+            setDurationMins(nextTotalDays == null ? undefined : nextTotalDays * 24 * 60);
             setFlexibleDates(flexible);
           }}
           onClose={() => setTimeOpen(false)}

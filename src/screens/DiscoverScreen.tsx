@@ -20,17 +20,20 @@ import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { KPState, KPSkeletonLine } from '../components/State';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
-import { AppProgressBar, radius, space, type } from '../design-system';
+import { AppActionDialog, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
-import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { Avatar } from '../components/Avatar';
-import type { JourneyChecklistFilterMenuController, JourneyChecklistFilterMenuOption } from '../components/journey/JourneyChecklistTab';
-import { useTimeline } from '../hooks/useTimeline';
+import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
+import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { buildJourneyRouteSegments, distanceMeters, JOURNEY_SEGMENT_COLORS, measureTrack, positionAtDistance, type TrackPosition } from '../lib/routeSegments';
 import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBoundarySheet';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
+import { RotateCcw, Search } from 'lucide-react-native';
+import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
+import { refetchJourneyInspo } from '../hooks/useInspo';
+import { refetchJourneyPacking } from '../hooks/useJourneyPacking';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -122,49 +125,6 @@ function JourneyFooterActionLabel({
   );
 }
 
-function JourneyChecklistFilterOptionRow({
-  theme,
-  option,
-  selected,
-  onPress,
-}: {
-  theme: Theme;
-  option: JourneyChecklistFilterMenuOption;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <Press
-      scaleTo={1}
-      opacityTo={0.68}
-      onPress={onPress}
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      style={{ minHeight: 66, marginBottom: space.xxs, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-    >
-      {option.kind === 'companion' ? (
-        <ParticipantAvatar theme={theme} uri={option.avatarUrl} size={32} />
-      ) : (
-        <View style={{ width: 32, height: 32, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-          <Icon name={option.kind === 'shared' ? 'people' : 'user'} color={theme.text2} size={16} />
-        </View>
-      )}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: selected ? '700' : '500' }]}>{option.label}</Text>
-        <Text style={[type.caption, { color: selected ? theme.text2 : theme.text3, marginTop: 2 }]}>
-          {t('journey.packing.progress', { ready: option.ready, total: option.total })}
-        </Text>
-        <View style={{ marginTop: space.xs }}>
-          <AppProgressBar theme={theme} value={option.total ? (option.ready / option.total) * 100 : 0} height={3} color={selected ? theme.accent : theme.text3} />
-        </View>
-      </View>
-      <View style={{ width: 16, alignItems: 'center', justifyContent: 'center' }}>
-        {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
-      </View>
-    </Press>
-  );
-}
 
 function num(s: string) {
   const m = s.replace(/,/g, '').match(/[\d.]+/);
@@ -214,7 +174,8 @@ export function DiscoverScreen({
 }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
-  const { routes, journeys, userId } = useData();
+  const data = useData();
+  const { routes, journeys, userId } = data;
   const chipLabel = (id: string) =>
     t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
@@ -269,24 +230,26 @@ export function DiscoverScreen({
   const [selectedChecklistItemIds, setSelectedChecklistItemIds] = useState<Set<string>>(() => new Set());
   const [visibleChecklistItemIds, setVisibleChecklistItemIds] = useState<string[]>([]);
   const [checklistCanEdit, setChecklistCanEdit] = useState(true);
-  const [checklistFilterAnchor, setChecklistFilterAnchor] = useState<FilterMenuAnchor>();
+  const [versionRestoreDialogOpen, setVersionRestoreDialogOpen] = useState(false);
+  const [versionRestoring, setVersionRestoring] = useState(false);
   const [checklistFilterMenuOpen, setChecklistFilterMenuOpen] = useState(false);
-  const checklistFilterArrowProgress = React.useRef(new Animated.Value(0)).current;
-  const setChecklistFilterMenuVisible = useCallback((open: boolean, anchor?: FilterMenuAnchor) => {
-    if (anchor) setChecklistFilterAnchor(anchor);
-    // Start the native animation before updating React state. The journey detail
-    // tree is relatively large, so waiting for its render made the menu feel late.
-    checklistFilterArrowProgress.stopAnimation();
-    Animated.timing(checklistFilterArrowProgress, {
+  const checklistPickerProgress = React.useRef(new Animated.Value(0)).current;
+  const checklistPickerTarget = React.useRef(false);
+  const animateChecklistPicker = useCallback((open: boolean) => {
+    if (checklistPickerTarget.current === open) return;
+    checklistPickerTarget.current = open;
+    checklistPickerProgress.stopAnimation();
+    Animated.timing(checklistPickerProgress, {
       toValue: open ? 1 : 0,
-      duration: open ? 140 : 90,
-      easing: open
-        ? Easing.bezier(0.16, 1, 0.3, 1)
-        : Easing.in(Easing.cubic),
+      duration: motion.standard,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+  }, [checklistPickerProgress]);
+  const setChecklistFilterMenuVisible = useCallback((open: boolean) => {
+    animateChecklistPicker(open);
     setChecklistFilterMenuOpen(open);
-  }, [checklistFilterArrowProgress]);
+  }, [animateChecklistPicker]);
   const [momentFilterAnchor, setMomentFilterAnchor] = useState<FilterMenuAnchor>();
   const [momentFilterMenuOpen, setMomentFilterMenuOpen] = useState(false);
   const momentFilterMenuProgress = React.useRef(new Animated.Value(0)).current;
@@ -307,7 +270,52 @@ export function DiscoverScreen({
   const [timelineSelectionMode, setTimelineSelectionMode] = useState(false);
   const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
   const focusedJourneyId = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.id : undefined;
-  const focusedTimeline = useTimeline(focusedJourneyId, userId);
+  const versionTimelinePreview = useMemo(
+    () => nav.journeyVersionPreview
+      ? { rows: nav.journeyVersionPreview.version.snapshot.timelineRows, groups: nav.journeyVersionPreview.version.snapshot.timelineGroups }
+      : undefined,
+    [nav.journeyVersionPreview],
+  );
+  const focusedTimeline = useTimeline(focusedJourneyId, userId, versionTimelinePreview);
+  React.useEffect(() => {
+    if (!nav.journeyVersionPreview) return;
+    setPlanEditorOpen(false);
+    setSelectedPlanDays(new Set());
+    setTimelineSelectionMode(false);
+    setSelectedTimelineItemIds(new Set());
+    setMomentSelectionMode(false);
+    setSelectedMomentIds(new Set());
+    setChecklistSelectionMode(false);
+    setSelectedChecklistItemIds(new Set());
+  }, [nav.journeyVersionPreview?.version.id]);
+
+  const restorePreviewVersion = async () => {
+    const preview = nav.journeyVersionPreview;
+    if (!preview || versionRestoring) return;
+    setVersionRestoring(true);
+    try {
+      await restoreJourneyVersion(preview.version.id);
+      const [refreshedJourneys] = await Promise.all([
+        data.refetchJourneys(),
+        refetchJourneyTimeline(preview.poi.id),
+        refetchJourneyInspo(preview.poi.id),
+        refetchJourneyPacking(preview.poi.id),
+      ]);
+      const restored = refreshedJourneys.find((journey) => journey.id === preview.poi.id);
+      if (restored) {
+        nav.syncJourney(restored);
+        nav.completeJourneyVersionPreview(restored);
+      } else {
+        nav.completeJourneyVersionPreview(preview.sourcePoi);
+      }
+      setVersionRestoreDialogOpen(false);
+      nav.showToast(t('journey.version.restoreSuccess'));
+    } catch {
+      nav.showToast(t('journey.version.restoreFailed'));
+    } finally {
+      setVersionRestoring(false);
+    }
+  };
   const handleSelectedJourneyDayChange = useCallback((day?: string) => {
     setSelectedJourneyDay(day);
     if (!day) {
@@ -330,7 +338,8 @@ export function DiscoverScreen({
       setVisibleMomentIds([]);
     }
     if (tab !== 'checklist') {
-      checklistFilterArrowProgress.setValue(0);
+      checklistPickerTarget.current = false;
+      checklistPickerProgress.setValue(0);
       setChecklistFilterMenuOpen(false);
       setChecklistSelectionMode(false);
       setSelectedChecklistItemIds(new Set());
@@ -373,13 +382,14 @@ export function DiscoverScreen({
     setSelectedChecklistItemIds(new Set());
     setVisibleChecklistItemIds([]);
     setChecklistCanEdit(true);
-    checklistFilterArrowProgress.setValue(0);
+    checklistPickerTarget.current = false;
+    checklistPickerProgress.setValue(0);
     setChecklistFilterMenuOpen(false);
     setAvailableJourneyDays([]);
     setTimelineSelectionMode(false);
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
-  }, [checklistFilterArrowProgress, focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
+  }, [focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
 
   React.useEffect(() => () => {
     headingSubscriptionRef.current?.remove();
@@ -829,6 +839,7 @@ export function DiscoverScreen({
           showMapLabels={mapLabelsVisible}
           cameraAction={journeyMapCameraAction}
           focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : undefined}
+          autoFrameRoute={nav.pointInfo?.kind !== 'journey' || journeyMapAtRouteFrame}
           onCameraGestureStart={() => {
             if (nav.pointInfo?.kind === 'journey') setJourneyMapAtRouteFrame(false);
             else setMapAtCurrentLocation(false);
@@ -917,14 +928,14 @@ export function DiscoverScreen({
       {/* top-right chrome */}
       {!nav.pointInfo ? (
       <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
-        <MapToolButton theme={chromeTheme} size={40} onPress={() => nav.openSearch()} accessibilityLabel={t('search.placeholder')}>
-          <Icon name="search" color={chromeTheme.text} size={19} />
-        </MapToolButton>
-        <MapToolButton theme={chromeTheme} size={40} onPress={() => nav.showToast(t('discover.toastNorth'))} accessibilityLabel={t('discover.toastNorth')}>
-          <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="compassN" color={chromeTheme.text} size={22} />
-          </View>
-        </MapToolButton>
+        <Press
+          accessibilityRole="button"
+          accessibilityLabel={t('search.placeholder')}
+          onPress={() => nav.openSearch()}
+          style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Search color={chromeTheme.text} size={25} strokeWidth={2.2} />
+        </Press>
       </View>
       ) : nav.pointInfo.kind === 'journey' ? (
         <>
@@ -935,6 +946,7 @@ export function DiscoverScreen({
               hitSlop={6}
               onPress={() => {
                 if (routeEditorGroupKey) closeRouteEditor();
+                else if (nav.journeyVersionPreview) nav.closeJourneyVersionPreview();
                 else sheetRef.current?.dismiss();
               }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
@@ -942,7 +954,7 @@ export function DiscoverScreen({
               <Icon name="chevronL" color={journeyChromeColor} size={27} />
             </Press>
           </View>
-          <View style={{ position: 'absolute', top: insets.top + 5, right: 13, flexDirection: 'row' }}>
+          {!nav.journeyVersionPreview ? <View style={{ position: 'absolute', top: insets.top + 5, right: 13, flexDirection: 'row' }}>
             <Press
               accessibilityRole="button"
               accessibilityLabel={t('common.share')}
@@ -964,7 +976,7 @@ export function DiscoverScreen({
             >
               <Icon name="gearSettings" color={journeyChromeColor} size={25} />
             </Press>
-          </View>
+          </View> : null}
         </>
       ) : null}
 
@@ -1092,6 +1104,8 @@ export function DiscoverScreen({
                 poi={nav.pointInfo}
                 embedded
                 externalPlanEditorControls
+                readOnly={Boolean(nav.journeyVersionPreview)}
+                versionSnapshot={nav.journeyVersionPreview?.version.snapshot}
                 planEditorOpen={planEditorOpen}
                 onPlanEditorOpenChange={(open) => {
                   setPlanEditorOpen(open);
@@ -1111,6 +1125,8 @@ export function DiscoverScreen({
                 checklistDeleteActionRef={checklistDeleteActionRef}
                 checklistFilterActionRef={checklistFilterActionRef}
                 checklistFilterMenuRef={checklistFilterMenuRef}
+                checklistFilterMenuOpen={checklistFilterMenuOpen}
+                checklistPickerProgress={checklistPickerProgress}
                 checklistToggleAllActionRef={checklistToggleAllActionRef}
                 onChecklistFilterMenuOpenChange={setChecklistFilterMenuVisible}
                 checklistSelectionMode={checklistSelectionMode}
@@ -1366,96 +1382,15 @@ export function DiscoverScreen({
         </Modal>
       ) : null}
       {selectedJourneyTab === 'checklist' && checklistFilterMenuRef.current ? (
-        <Modal
+        <JourneyChecklistPickerSheet
+          theme={theme}
+          controller={checklistFilterMenuRef.current}
           visible={checklistFilterMenuOpen}
-          transparent
-          statusBarTranslucent
-          animationType="none"
-          onRequestClose={() => setChecklistFilterMenuVisible(false)}
-        >
-          <View style={{ flex: 1 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('common.close')}
-              onPress={() => setChecklistFilterMenuVisible(false)}
-              style={StyleSheet.absoluteFill}
-            />
-            <Animated.View
-              renderToHardwareTextureAndroid
-              shouldRasterizeIOS
-              style={{
-                position: 'absolute',
-                ...anchoredFilterMenuStyle(checklistFilterAnchor, width, height, insets.top, insets.bottom, 264, 420),
-                width: 264,
-                padding: space.sm,
-                borderRadius: radius.feature,
-                backgroundColor: Platform.OS === 'android' ? (theme.dark ? '#202024' : '#FFFFFF') : theme.surfaceTop,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.fieldBorder,
-                boxShadow: theme.dark ? '0px 10px 28px rgba(0,0,0,0.34)' : '0px 10px 28px rgba(0,0,0,0.12)',
-                opacity: checklistFilterArrowProgress,
-                transform: [
-                  {
-                    translateY: checklistFilterArrowProgress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [6, 0],
-                    }),
-                  },
-                  {
-                    scale: checklistFilterArrowProgress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.975, 1],
-                    }),
-                  },
-                ],
-              }}
-            >
-            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled contentContainerStyle={{ paddingTop: space.xs, paddingBottom: space.xxs }}>
-              {checklistFilterMenuRef.current.options.some((option) => option.kind === 'shared') ? (
-                <>
-                  <Text style={[type.caption, { paddingHorizontal: space.sm, paddingTop: space.xxs, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
-                    {t('journey.packing.sharedSection')}
-                  </Text>
-                  {checklistFilterMenuRef.current.options
-                    .filter((option) => option.kind === 'shared')
-                    .map((option) => (
-                      <JourneyChecklistFilterOptionRow
-                        key={option.key}
-                        theme={theme}
-                        option={option}
-                        selected={option.key === checklistFilterMenuRef.current?.activeKey}
-                        onPress={() => {
-                          checklistFilterMenuRef.current?.select(option.key);
-                          setChecklistFilterMenuVisible(false);
-                        }}
-                      />
-                    ))}
-                </>
-              ) : null}
-
-              <Text style={[type.caption, { paddingHorizontal: space.sm, paddingTop: space.md, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
-                {t('journey.packing.participantsSection')}
-              </Text>
-              {checklistFilterMenuRef.current.options
-                .filter((option) => option.kind !== 'shared')
-                .map((option) => (
-                  <JourneyChecklistFilterOptionRow
-                    key={option.key}
-                    theme={theme}
-                    option={option}
-                    selected={option.key === checklistFilterMenuRef.current?.activeKey}
-                    onPress={() => {
-                      checklistFilterMenuRef.current?.select(option.key);
-                      setChecklistFilterMenuVisible(false);
-                    }}
-                  />
-                ))}
-            </ScrollView>
-            </Animated.View>
-          </View>
-        </Modal>
+          onDismissStart={() => animateChecklistPicker(false)}
+          onClose={() => setChecklistFilterMenuVisible(false)}
+        />
       ) : null}
-      {nav.pointInfo?.kind === 'journey' && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
+      {nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -1700,6 +1635,37 @@ export function DiscoverScreen({
           )}
         </View>
       ) : null}
+      {nav.pointInfo?.kind === 'journey' && nav.journeyVersionPreview && journeySheetIndex > 0 && !externalOverlayOpen ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: space.md,
+            right: space.md,
+            bottom: Math.max(insets.bottom, space.md),
+            zIndex: 180,
+            alignItems: 'flex-end',
+          }}
+        >
+          <Press
+            onPress={() => setVersionRestoreDialogOpen(true)}
+            accessibilityRole="button"
+            style={{
+              minHeight: 44,
+              paddingHorizontal: space.lg,
+              borderRadius: radius.pill,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: space.xs,
+              backgroundColor: theme.accent,
+              boxShadow: theme.dark ? '0px 5px 14px rgba(0,0,0,0.42)' : '0px 5px 14px rgba(0,0,0,0.12)',
+            }}
+          >
+            <RotateCcw color="#FFFFFF" size={18} strokeWidth={2} />
+            <Text style={[type.body, { color: '#FFFFFF', fontWeight: '700' }]}>{t('journey.version.restorePreview')}</Text>
+          </Press>
+        </View>
+      ) : null}
       {nav.pointInfo?.kind === 'route' ? (
         <View
           pointerEvents="box-none"
@@ -1736,6 +1702,17 @@ export function DiscoverScreen({
           </View>
         </View>
       ) : null}
+      <AppActionDialog
+        theme={theme}
+        visible={versionRestoreDialogOpen && Boolean(nav.journeyVersionPreview)}
+        title={t('journey.version.restoreTitle')}
+        message={t('journey.version.restoreMessage', { name: nav.journeyVersionPreview?.poi.name || '' })}
+        confirmLabel={t('journey.version.restore')}
+        cancelLabel={t('common.cancel')}
+        confirming={versionRestoring}
+        onCancel={() => setVersionRestoreDialogOpen(false)}
+        onConfirm={() => void restorePreviewVersion()}
+      />
     </View>
   );
 }

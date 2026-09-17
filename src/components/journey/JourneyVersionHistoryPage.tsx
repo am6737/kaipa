@@ -1,120 +1,41 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { History, RotateCcw } from 'lucide-react-native';
-import { AppActionDialog, DetailPage, radius, space, type } from '../../design-system';
+import { ChevronLeft, ChevronRight, History, UserRound } from 'lucide-react-native';
+import { DetailPage, radius, space, type } from '../../design-system';
 import type { Poi } from '../../data/pois';
 import { useData } from '../../data/DataContext';
-import { useI18n, type TKey } from '../../i18n';
-import { restoreJourneyVersion, type JourneyVersion, useJourneyVersions } from '../../hooks/useJourneyVersions';
-import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { refetchJourneyInspo } from '../../hooks/useInspo';
-import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
+import { useI18n } from '../../i18n';
+import { type JourneyVersion, useJourneyVersions } from '../../hooks/useJourneyVersions';
+import { toJourneyPoi } from '../../lib/mappers';
 import { useNav } from '../../nav/NavContext';
 import type { Theme } from '../../theme/theme';
 import { Press } from '../Press';
-
-const FIELD_KEYS: Record<string, TKey> = {
-  name: 'journey.version.field.name',
-  region: 'journey.version.field.location',
-  coord: 'journey.version.field.location',
-  lng: 'journey.version.field.location',
-  lat: 'journey.version.field.location',
-  desc: 'journey.version.field.description',
-  date: 'journey.version.field.date',
-  days: 'journey.version.field.date',
-  planned_date: 'journey.version.field.date',
-  countdown: 'journey.version.field.date',
-  day_index: 'journey.version.field.date',
-  total_days: 'journey.version.field.date',
-  dist: 'journey.version.field.track',
-  asc_: 'journey.version.field.track',
-  track_coords: 'journey.version.field.track',
-  track_elevation: 'journey.version.field.track',
-  track_duration_ms: 'journey.version.field.track',
-  track_waypoints: 'journey.version.field.track',
-  track_file_url: 'journey.version.field.track',
-  track_file_name: 'journey.version.field.track',
-  photo_uris: 'journey.version.field.cover',
-  hero_mode: 'journey.version.field.cover',
-  track_public: 'journey.version.field.visibility',
-  route_show_photos: 'journey.version.field.visibility',
-  route_show_timeline: 'journey.version.field.visibility',
-  participant_permissions: 'journey.version.field.permissions',
-  fav: 'journey.version.field.favorite',
-  companions: 'journey.version.field.companions',
-  timeline: 'journey.version.field.timeline',
-  moments: 'journey.version.field.moments',
-  checklist: 'journey.version.field.checklist',
-  restore: 'journey.version.field.restore',
-};
-
-function uniqueFieldLabels(version: JourneyVersion, t: (key: TKey, vars?: Record<string, string | number>) => string) {
-  return [...new Set(version.changedFields.map((key) => t(FIELD_KEYS[key] || 'journey.version.field.other')))];
-}
-
-function formatVersionTime(value: string, locale: 'zh' | 'en') {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function versionSummary(
-  version: JourneyVersion,
-  editor: string,
-  resolved: 'zh' | 'en',
-  t: (key: TKey, vars?: Record<string, string | number>) => string,
-) {
-  if (version.changeKind === 'create') return t('journey.version.createdBy', { name: editor });
-  if (version.changeKind === 'restore') return t('journey.version.restoredBy', { name: editor });
-  const labels = uniqueFieldLabels(version, t);
-  return t('journey.version.changedSummary', {
-    name: editor,
-    fields: labels.length ? labels.join(resolved === 'zh' ? '、' : ', ') : t('journey.version.field.other'),
-  });
-}
+import { formatJourneyVersionRelativeTime, journeyVersionSummary } from './journeyVersionPresentation';
 
 export function JourneyVersionHistoryPage({ theme, poi, onBack }: { theme: Theme; poi: Poi; onBack: () => void }) {
   const { t, resolved } = useI18n();
   const data = useData();
   const nav = useNav();
   const { versions, loading, error, refetch } = useJourneyVersions(poi.id);
-  const [restoreCandidate, setRestoreCandidate] = useState<JourneyVersion>();
-  const [restoring, setRestoring] = useState(false);
   const latestVersion = versions[0]?.versionNumber;
-  const canRestore = poi.mine !== false;
-  const currentName = useMemo(() => poi.name, [poi.name]);
 
-  const restore = async () => {
-    if (!restoreCandidate || restoring) return;
-    setRestoring(true);
-    try {
-      await restoreJourneyVersion(restoreCandidate.id);
-      const [journeys] = await Promise.all([
-        data.refetchJourneys(),
-        refetchJourneyTimeline(poi.id),
-        refetchJourneyInspo(poi.id),
-        refetchJourneyPacking(poi.id),
-      ]);
-      const restored = journeys.find((journey) => journey.id === poi.id);
-      if (restored) nav.syncJourney(restored);
-      setRestoreCandidate(undefined);
-      await refetch();
-      nav.showToast(t('journey.version.restoreSuccess'));
-    } catch {
-      nav.showToast(t('journey.version.restoreFailed'));
-    } finally {
-      setRestoring(false);
-    }
+  const openPreview = (version: JourneyVersion) => {
+    const previewPoi = toJourneyPoi(
+      { ...version.snapshot.journey, mine: false },
+      version.snapshot.companions,
+      data.userId,
+    );
+    nav.openJourneyVersionPreview(previewPoi, poi, version);
   };
 
   return (
-    <DetailPage theme={theme} title={t('journey.version.title')} onBack={onBack} backgroundColor={theme.groupedBg}>
+    <DetailPage
+      theme={theme}
+      title={t('journey.version.title')}
+      onBack={onBack}
+      left={<HistoryBackButton theme={theme} onPress={onBack} />}
+      backgroundColor={theme.groupedBg}
+    >
       <View style={styles.content}>
         {loading ? (
           <View style={styles.state}><ActivityIndicator color={theme.accent} /></View>
@@ -128,49 +49,44 @@ export function JourneyVersionHistoryPage({ theme, poi, onBack }: { theme: Theme
           </View>
         ) : versions.length ? (
           <>
-            <View style={styles.summaryHeader}>
-              <Text numberOfLines={2} style={[type.sectionTitle, styles.journeyName, { color: theme.text }]}>{poi.name}</Text>
-              <Text style={[type.caption, { color: theme.text3 }]}>{t('journey.version.count', { count: versions.length })}</Text>
+            <View style={styles.intro}>
+              <Text style={[type.body, { color: theme.text3 }]}>{t('journey.version.autoSaveHint')}</Text>
             </View>
-            <View style={[styles.list, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder }]}>
-              {versions.map((version, index) => {
+            <View style={styles.list}>
+              {versions.map((version) => {
                 const isCurrent = version.versionNumber === latestVersion;
                 const editor = version.changedByName || t('journey.version.unknownEditor');
                 return (
-                  <View key={version.id} style={styles.versionRow}>
-                    {index > 0 ? <View style={[styles.timelineTop, { backgroundColor: theme.hairline }]} /> : null}
-                    {index < versions.length - 1 ? <View style={[styles.timelineBottom, { backgroundColor: theme.hairline }]} /> : null}
-                    <View
-                      style={[
-                        styles.timelineDot,
-                        isCurrent
-                          ? { backgroundColor: theme.accent, borderColor: theme.accent }
-                          : { backgroundColor: theme.surfaceTop, borderColor: theme.text3 },
-                      ]}
-                    />
+                  <Press
+                    key={version.id}
+                    onPress={isCurrent ? undefined : () => openPreview(version)}
+                    accessibilityRole={isCurrent ? undefined : 'button'}
+                    accessibilityLabel={isCurrent ? undefined : t('journey.version.previewLabel')}
+                    style={[styles.versionRow, { backgroundColor: theme.featureSurface }]}
+                  >
                     <View style={styles.rowContent}>
                       <View style={styles.titleRow}>
-                        <Text style={[type.cardTitle, { color: theme.text }]}>{t('journey.version.number', { number: version.versionNumber })}</Text>
-                        {isCurrent ? <Text style={[styles.current, { color: theme.accent }]}>{t('journey.version.current')}</Text> : null}
+                        <Text numberOfLines={2} style={[styles.changeSummary, { color: theme.text }]}>
+                          {journeyVersionSummary(version, resolved, t)}
+                        </Text>
+                        {isCurrent ? (
+                          <Text style={[type.caption, styles.current, { color: theme.accent, backgroundColor: theme.accentSofter }]}>
+                            {t('journey.version.current')}
+                          </Text>
+                        ) : null}
                       </View>
-                      <Text style={[type.caption, styles.time, { color: theme.text3 }]}>{formatVersionTime(version.changedAt, resolved)}</Text>
-                      <Text style={[type.body, styles.changeSummary, { color: theme.text2 }]}>
-                        {versionSummary(version, editor, resolved, t)}
+                      <View style={styles.metadataRow}>
+                        <UserRound color={theme.text3} size={14} strokeWidth={1.8} />
+                        <Text numberOfLines={1} style={[type.body, styles.editorName, { color: theme.text2 }]}>{editor}</Text>
+                      </View>
+                      <Text style={[type.caption, styles.versionTime, { color: theme.text3 }]}>
+                        {formatJourneyVersionRelativeTime(version.changedAt, resolved)}
                       </Text>
                     </View>
-                    {canRestore && !isCurrent ? (
-                      <Press
-                        onPress={() => setRestoreCandidate(version)}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('journey.version.restore')}
-                        hitSlop={4}
-                        style={styles.restore}
-                      >
-                        <RotateCcw color={theme.text3} size={18} strokeWidth={1.9} />
-                      </Press>
-                    ) : null}
-                    {index < versions.length - 1 ? <View style={[styles.divider, { backgroundColor: theme.hairline }]} /> : null}
-                  </View>
+                    <View style={styles.accessory}>
+                      {!isCurrent ? <ChevronRight color={theme.text3} size={18} strokeWidth={1.8} /> : null}
+                    </View>
+                  </Press>
                 );
               })}
             </View>
@@ -183,37 +99,38 @@ export function JourneyVersionHistoryPage({ theme, poi, onBack }: { theme: Theme
         )}
       </View>
 
-      <AppActionDialog
-        theme={theme}
-        visible={Boolean(restoreCandidate)}
-        title={t('journey.version.restoreTitle', { number: restoreCandidate?.versionNumber || 0 })}
-        message={t('journey.version.restoreMessage', { name: currentName })}
-        confirmLabel={t('journey.version.restore')}
-        cancelLabel={t('common.cancel')}
-        confirming={restoring}
-        onCancel={() => setRestoreCandidate(undefined)}
-        onConfirm={() => void restore()}
-      />
     </DetailPage>
+  );
+}
+
+function HistoryBackButton({ theme, onPress }: { theme: Theme; onPress: () => void }) {
+  const { t } = useI18n();
+  return (
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('common.back')}
+      style={styles.backButton}
+    >
+      <ChevronLeft color={theme.text} size={30} strokeWidth={2} />
+    </Press>
   );
 }
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: space.md, paddingBottom: space.xxxl },
-  summaryHeader: { marginTop: space.lg, marginBottom: space.md, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: space.md },
-  journeyName: { flex: 1, minWidth: 0 },
-  list: { overflow: 'hidden', borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth },
-  versionRow: { minHeight: 106, paddingLeft: 48, paddingRight: 8, paddingVertical: space.md, flexDirection: 'row', alignItems: 'center' },
-  rowContent: { flex: 1, minWidth: 0, paddingRight: space.xs },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  current: { fontSize: 12, lineHeight: 17, fontWeight: '700', letterSpacing: 0 },
-  time: { marginTop: 3 },
-  changeSummary: { marginTop: space.xs, lineHeight: 20 },
-  restore: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
-  divider: { position: 'absolute', left: 48, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
-  timelineTop: { position: 'absolute', left: 25, top: 0, width: StyleSheet.hairlineWidth, height: 20 },
-  timelineBottom: { position: 'absolute', left: 25, top: 29, bottom: 0, width: StyleSheet.hairlineWidth },
-  timelineDot: { position: 'absolute', left: 21, top: 20, width: 9, height: 9, borderRadius: 5, borderWidth: 1.5 },
+  intro: { marginTop: space.md, marginBottom: space.lg },
+  list: { gap: space.sm },
+  versionRow: { minHeight: 104, paddingLeft: space.md, paddingRight: space.sm, paddingVertical: space.md, borderRadius: radius.feature, flexDirection: 'row', alignItems: 'center' },
+  rowContent: { flex: 1, minWidth: 0, paddingRight: space.sm },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  changeSummary: { flex: 1, minWidth: 0, fontSize: 16, lineHeight: 22, fontWeight: '700' },
+  current: { flexShrink: 0, minHeight: 24, paddingHorizontal: space.xs, borderRadius: radius.pill, fontWeight: '700', lineHeight: 24, overflow: 'hidden' },
+  metadataRow: { minHeight: 22, marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  editorName: { flex: 1, minWidth: 0 },
+  versionTime: { marginTop: space.xs },
+  accessory: { width: 18, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
   state: { minHeight: 280, alignItems: 'center', justifyContent: 'center', gap: space.sm },
   retry: { minHeight: 42, marginTop: space.xs, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

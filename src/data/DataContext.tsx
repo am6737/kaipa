@@ -1,5 +1,6 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useCallback, useContext } from 'react';
 import { useRoutes } from '../hooks/useRoutes';
+import { useTracks, type TrackDraft } from '../hooks/useTracks';
 import { useJourneys } from '../hooks/useJourneys';
 import { useGear } from '../hooks/useGear';
 import { useNotifications } from '../hooks/useNotifications';
@@ -10,10 +11,12 @@ import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
 import type { Poi } from './pois';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
+import type { Track } from './tracks';
 
 export interface DataValue {
   userId: string;
   profile: UserProfile;
+  profileLoading: boolean;
   updateProfile: (field: string, value: string) => Promise<void>;
   updateAvatar: (localUri: string) => Promise<void>;
   planningProfile: UserPlanningProfile;
@@ -33,6 +36,13 @@ export interface DataValue {
   toggleFav: (id: string, current: boolean) => Promise<void>;
   refetchJourneys: () => Promise<Poi[]>;
   refetchRoutes: () => Promise<void>;
+  tracks: Track[];
+  tracksLoading: boolean;
+  createTrack: (draft: TrackDraft) => Promise<Track | null>;
+  updateTrack: (id: string, patch: Partial<TrackDraft>) => Promise<void>;
+  deleteTrack: (id: string) => Promise<void>;
+  deleteTracks: (ids: string[]) => Promise<void>;
+  refetchTracks: () => Promise<Track[]>;
   cats: GearCat[];
   items: GearItem[];
   sets: GearSet[];
@@ -58,6 +68,11 @@ const DataContext = createContext<DataValue | null>(null);
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
   const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes(userId);
   const {
+    tracks, loading: tracksLoading,
+    createTrack, updateTrack, deleteTrack, deleteTracks,
+    refetch: refetchTracks,
+  } = useTracks(userId);
+  const {
     journeys, trashedJourneys, loading: journeysLoading,
     createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav,
     refetch: refetchJourneys,
@@ -70,7 +85,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     refetch: refetchGear,
   } = useGear(userId);
   const {
-    profile, updateProfile, updateAvatar,
+    profile, loading: profileLoading, updateProfile, updateAvatar,
   } = useProfile(userId);
   const {
     planningProfile, loading: planningProfileLoading, savePlanningProfile,
@@ -80,11 +95,23 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     markRead: markNotifRead, markAllRead: markAllNotifsRead,
   } = useNotifications(userId);
 
+  // Deleting a track makes Postgres null out `journeys.track_id` everywhere it was
+  // referenced, so those journeys must be re-read or their pages keep drawing a
+  // track that no longer exists. Only pay for it when something was actually linked.
+  const removeTracks = useCallback(async (ids: string[]) => {
+    await deleteTracks(ids);
+    const removing = new Set(ids);
+    if (journeys.some((journey) => journey.trackId && removing.has(journey.trackId))) {
+      await refetchJourneys();
+    }
+  }, [deleteTracks, journeys, refetchJourneys]);
+
   const value: DataValue = {
     userId,
-    profile, updateProfile, updateAvatar,
+    profile, profileLoading, updateProfile, updateAvatar,
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
+    tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,
     journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav, refetchJourneys, refetchRoutes,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,

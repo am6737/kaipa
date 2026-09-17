@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { buildTrackData, computeStats, snapWaypoints } from '../src/lib/trackParser.ts';
+import { measureTrack, positionAtDistance } from '../src/lib/routeSegments.ts';
+
+const points = Array.from({ length: 1202 }, (_, i) => ({ lon: 100 + i * 0.00001, lat: 27 + (i % 2) * 0.0001, ele: 3500 + i % 20, time: null }));
+const stats = computeStats(points);
+const saved = buildTrackData(stats);
+const measure = measureTrack(saved.trackCoords);
+assert.equal(saved.trackCoords.length, points.length);
+assert.equal(saved.trackElevation.at(-1).km, stats.distM / 1000);
+assert.ok(Math.abs(measure.totalMeters - stats.distM) < 0.001);
+const camps = snapWaypoints([{ ...points[599], name: 'Camp' }, { ...points[0], name: ' ' }], stats);
+assert.equal(camps.length, 1);
+assert.ok(camps[0].cumulativeAscentMeters > 0);
+const marker = positionAtDistance(measure, camps[0].km * 1000);
+assert.ok(Math.abs(marker.coordinate[0] - points[599].lon) < 1e-8);
+assert.ok(Math.abs(marker.coordinate[1] - points[599].lat) < 1e-8);
+const source = readFileSync(new URL('../src/lib/trackImport.ts', import.meta.url), 'utf8');
+assert.match(source, /waypoints: parsed\.waypoints \? snapWaypoints\(parsed\.waypoints, stats\) : undefined/);
+console.log('Native GPX import preserves distance, camp position, effort data and new-journey waypoint persistence.');

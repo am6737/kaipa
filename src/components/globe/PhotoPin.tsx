@@ -12,15 +12,20 @@ import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
 import { paletteFor, photoUrlFor } from '../../data/tones';
 
-const PHOTO_SIZE = 34;
+const PHOTO_SIZE = 40;
 const ACTIVE_SCALE = 1.08;
 const PHOTO_RADIUS = 8;
 
 export const PHOTO_PIN_WIDTH = 116;
 export const PHOTO_PIN_HEIGHT = 70;
-export const PHOTO_PIN_ANCHOR_Y = 17 / PHOTO_PIN_HEIGHT;
+export const PHOTO_PIN_ANCHOR_Y = (PHOTO_SIZE / 2) / PHOTO_PIN_HEIGHT;
 
-export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; active?: boolean }) {
+export function photoPinScaleForZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return 0.65 + Math.max(0, Math.min(1, (zoom - 3) / 8)) * 0.35;
+}
+
+export function PhotoPin({ theme, poi, active, mapScale = 1 }: { theme: Theme; poi: GlobePoi; active?: boolean; mapScale?: number }) {
   const palette = paletteFor(poi.tone);
   const count = poi.count && poi.count > 1 ? poi.count : 0;
 
@@ -35,12 +40,15 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
   }, [active, scale]);
 
   return (
+    <View style={{ width: PHOTO_PIN_WIDTH, height: PHOTO_PIN_HEIGHT }}>
     <Animated.View
       style={{
         width: PHOTO_PIN_WIDTH,
         height: PHOTO_PIN_HEIGHT,
         alignItems: 'center',
-        transform: [{ scale }],
+        // Scale around the photo center so its geographic anchor stays fixed.
+        transformOrigin: [PHOTO_PIN_WIDTH / 2, PHOTO_SIZE / 2, 0],
+        transform: [{ scale: Animated.multiply(scale, mapScale) }],
       }}
     >
       <View
@@ -122,5 +130,6 @@ export function PhotoPin({ theme, poi, active }: { theme: Theme; poi: GlobePoi; 
         </View>
       ) : null}
     </Animated.View>
+    </View>
   );
 }

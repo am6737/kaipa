@@ -1,0 +1,22 @@
+services:
+  rail-query:
+    build: ./rail-query
+    container_name: kaipa-rail-query
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: node
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  functions:
+    environment:
+      RAIL_QUERY_URL: http://rail-query:8787

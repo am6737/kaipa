@@ -25,7 +25,7 @@ import { Package, Weight } from 'lucide-react-native';
 
 export type JourneyChecklistFilterMenuOption = {
   key: string;
-  kind: 'mine' | 'shared' | 'companion';
+  kind: 'mine' | 'companion';
   label: string;
   avatarUrl?: string;
   ready: number;
@@ -50,6 +50,8 @@ function JourneyChecklistTabComponent({
   deleteActionRef,
   filterActionRef,
   filterMenuRef,
+  filterMenuOpen = false,
+  pickerProgress,
   toggleAllActionRef,
   onFilterStateChange,
   onFilterMenuOpenChange,
@@ -58,6 +60,8 @@ function JourneyChecklistTabComponent({
   onSelectedItemIdsChange,
   onVisibleItemIdsChange,
   onCanEditChange,
+  readOnly = false,
+  preview,
 }: {
   theme: Theme;
   journey: Poi;
@@ -70,6 +74,8 @@ function JourneyChecklistTabComponent({
   deleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   filterActionRef?: React.MutableRefObject<(() => void) | null>;
   filterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>;
+  filterMenuOpen?: boolean;
+  pickerProgress?: Animated.Value;
   toggleAllActionRef?: React.MutableRefObject<(() => void) | null>;
   onFilterStateChange?: (label: string, active: boolean) => void;
   onFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void;
@@ -78,17 +84,18 @@ function JourneyChecklistTabComponent({
   onSelectedItemIdsChange: (ids: Set<string>) => void;
   onVisibleItemIdsChange?: (ids: string[]) => void;
   onCanEditChange?: (canEdit: boolean) => void;
+  readOnly?: boolean;
+  preview?: { lists: Record<string, unknown>[]; items: Record<string, unknown>[] };
 }) {
   const { t } = useI18n();
   const nav = useNav();
   const data = useData();
-  const controller = useJourneyPacking({ journey, userId });
+  const controller = useJourneyPacking({ journey, userId, preview });
   const [selectedKey, setSelectedKey] = useState<string>();
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<'gear' | 'sets' | 'templates' | null>(null);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<JourneyPackingItem | null>(null);
-  const filterAnchorRef = useRef<View>(null);
   const [gearDetailItem, setGearDetailItem] = useState<GearItem | null>(null);
   const gearItemsById = useMemo(() => new Map(gearItems.map((item) => [item.id, item])), [gearItems]);
   const gearItemsByName = useMemo(() => new Map(gearItems.map((item) => [item.name.trim().toLocaleLowerCase(), item])), [gearItems]);
@@ -99,24 +106,28 @@ function JourneyChecklistTabComponent({
     setSelectedItem(item);
   };
 
-  const myView = controller.views.find((view) => view.kind === 'personal' && view.ownerCompanionId === controller.currentCompanionId);
+  const memberViews = useMemo(() => controller.views.filter((view) => view.kind === 'personal'), [controller.views]);
+  const myView = memberViews.find((view) => view.ownerCompanionId === controller.currentCompanionId);
+  const initialView = readOnly && !myView?.items.length
+    ? memberViews.find((view) => view.items.length > 0) ?? myView
+    : myView;
   useEffect(() => {
-    if (!selectedKey && myView) setSelectedKey(myView.key);
-  }, [myView, selectedKey]);
+    if (!selectedKey && initialView) setSelectedKey(initialView.key);
+  }, [initialView, selectedKey]);
 
-  const activeView = controller.views.find((view) => view.key === selectedKey) ?? myView ?? controller.views[0];
+  const activeView = memberViews.find((view) => view.key === selectedKey) ?? initialView ?? memberViews[0];
   const isMine = activeView?.kind === 'personal' && activeView.ownerCompanionId === controller.currentCompanionId;
-  const isShared = activeView?.kind === 'shared';
+  const isShared = false;
   const isHost = Boolean(journey.mine || controller.currentCompanion.host);
-  const canEdit = Boolean(isMine || isHost || (isShared && journey.participantPermissions?.editChecklist));
-  const canCheck = Boolean(isMine || isHost || (isShared && journey.participantPermissions?.checkChecklistItems));
+  const canEdit = !readOnly && Boolean(isMine || isHost);
+  const canCheck = canEdit;
   const orderedViews = useMemo(
     () =>
-      [...controller.views].sort((a, b) => {
-        const rank = (view: typeof a) => (view.kind === 'personal' && view.ownerCompanionId === controller.currentCompanionId ? 0 : view.kind === 'shared' ? 1 : 2);
+      [...memberViews].sort((a, b) => {
+        const rank = (view: typeof a) => (view.ownerCompanionId === controller.currentCompanionId ? 0 : 1);
         return rank(a) - rank(b);
       }),
-    [controller.currentCompanionId, controller.views],
+    [controller.currentCompanionId, memberViews],
   );
 
   if (filterMenuRef) {
@@ -127,11 +138,11 @@ function JourneyChecklistTabComponent({
             const mine = view.kind === 'personal' && view.ownerCompanionId === controller.currentCompanionId;
             return {
               key: view.key,
-              kind: view.kind === 'shared' ? ('shared' as const) : mine ? ('mine' as const) : ('companion' as const),
-              label: view.kind === 'shared' ? t('journey.packing.sharedShort') : mine ? t('journey.packing.me') : (view.companion?.name ?? ''),
+              kind: mine ? ('mine' as const) : ('companion' as const),
+              label: mine ? (data.profile.nick.trim() || view.companion?.name || t('journey.packing.me')) : (view.companion?.name ?? ''),
               avatarUrl: view.companion?.avatarUrl,
-              ready: view.packedCount,
-              total: view.items.length,
+              ready: view.items.reduce((total, item) => total + (item.packed ? Math.max(1, item.quantity) : 0), 0),
+              total: view.items.reduce((total, item) => total + Math.max(1, item.quantity), 0),
             };
           }),
           select: (key) => {
@@ -164,7 +175,7 @@ function JourneyChecklistTabComponent({
       : null;
   }
 
-  const scopeLabel = activeView?.kind === 'shared' ? t('journey.packing.sharedShort') : activeView?.ownerCompanionId === controller.currentCompanionId ? t('journey.packing.me') : (activeView?.companion?.name ?? '');
+  const scopeLabel = isMine ? t('journey.packing.myChecklist') : t('journey.packing.memberChecklist', { name: activeView?.companion?.name ?? '' });
 
   useEffect(() => {
     if (scopeLabel) onFilterStateChange?.(scopeLabel, !isMine);
@@ -227,33 +238,6 @@ function JourneyChecklistTabComponent({
   return (
     <>
       <View>
-        <View style={{ minHeight: 36, marginBottom: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-          <Text numberOfLines={1} style={[type.caption, { flex: 1, color: theme.text2, fontWeight: '700' }]}>
-            {scopeLabel}
-          </Text>
-          {!selectionMode ? (
-            <View ref={filterAnchorRef} collapsable={false}>
-              <AppIconButton
-                theme={theme}
-                name="filter"
-                size={36}
-                noShadow
-                active={!isMine}
-                onPress={() => {
-                  const anchor = filterAnchorRef.current;
-                  if (!anchor) {
-                    onFilterMenuOpenChange?.(true);
-                    return;
-                  }
-                  anchor.measureInWindow((x, y, width, height) => {
-                    onFilterMenuOpenChange?.(true, { x, y, width, height });
-                  });
-                }}
-                accessibilityLabel={`${t('journey.packing.title')} ${scopeLabel}`}
-              />
-            </View>
-          ) : null}
-        </View>
         {controller.localMode ? (
           <View
             style={{
@@ -267,14 +251,25 @@ function JourneyChecklistTabComponent({
             <Text style={[type.body, { color: theme.danger, fontWeight: '700' }]}>{t('journey.packing.localMode')}</Text>
           </View>
         ) : null}
-        <PackingWeightOverviewCard theme={theme} items={displayItems} weightUnit={weightUnit} emptyBody={canEdit ? t('journey.packing.emptyBody') : t('journey.packing.emptyTeammate')} />
+        <PackingWeightOverviewCard
+          theme={theme}
+          items={displayItems}
+          weightUnit={weightUnit}
+          title={scopeLabel}
+          avatarUrl={activeView.companion?.avatarUrl}
+          listPickerOpen={filterMenuOpen}
+          pickerProgress={pickerProgress}
+          onSelectList={onFilterMenuOpenChange && !selectionMode ? () => onFilterMenuOpenChange(true) : undefined}
+          emptyBody={canEdit ? t('journey.packing.emptyBody') : t('journey.packing.emptyTeammate')}
+        />
+        {!canEdit ? <Text style={[type.caption, { color: theme.text2, marginTop: space.sm }]}>{t('journey.packing.viewOnly')}</Text> : null}
         {displayItems.length ? (
           <View style={{ marginTop: layout.sectionGap }}>
             <PackingGroups theme={theme} items={displayItems} weightUnit={weightUnit} isShared={isShared} canCheck={canCheck} canEdit={canEdit} currentCompanionId={controller.currentCompanionId} companions={controller.companions} onToggle={(item) => void controller.updateItem(item.id, { packed: !item.packed })} onSetPacked={(itemIds, packed) => void controller.setItemsPacked(itemIds, packed)} onOpen={openItem} selectionMode={selectionMode} selectedItemIds={selectedItemIds} onSelectedItemIdsChange={onSelectedItemIdsChange} />
           </View>
         ) : null}
 
-        {!isMine && !isShared && activeView.pendingCount > 0 ? (
+        {!readOnly && !isMine && !isShared && activeView.pendingCount > 0 ? (
           <Press
             onPress={() => {
               if (activeView.ownerCompanionId != null) void controller.remindCompanion(activeView.ownerCompanionId, activeView.pendingCount);
@@ -425,6 +420,81 @@ function JourneyChecklistTabComponent({
 // checklist tree from rendering again when all of its own inputs are unchanged.
 export const JourneyChecklistTab = React.memo(JourneyChecklistTabComponent);
 
+export function JourneyChecklistPickerSheet({ theme, controller, visible, onClose, onDismissStart }: {
+  theme: Theme;
+  controller: JourneyChecklistFilterMenuController;
+  visible: boolean;
+  onClose: () => void;
+  onDismissStart?: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
+      {visible ? <JourneyChecklistPickerContent theme={theme} controller={controller} onClose={onClose} onDismissStart={onDismissStart} /> : null}
+    </Modal>
+  );
+}
+
+function JourneyChecklistPickerContent({ theme, controller, onClose, onDismissStart }: {
+  theme: Theme;
+  controller: JourneyChecklistFilterMenuController;
+  onClose: () => void;
+  onDismissStart?: () => void;
+}) {
+  const { t } = useI18n();
+  const [query, setQuery] = useState('');
+  const search = query.trim().toLocaleLowerCase();
+  const options = controller.options.filter((option) => option.label.toLocaleLowerCase().includes(search));
+  return (
+    <SheetFrame theme={theme} onClose={onClose} onDismissStart={onDismissStart} keyboardAvoiding edgeToEdge contentPadding={space.lg}>
+      <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.packing.selectChecklist')}</Text>
+      <View style={{ minHeight: layout.fieldHeight, marginTop: space.md, marginBottom: space.sm, paddingHorizontal: space.sm, borderRadius: radius.control, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Icon name="search" color={theme.text2} size={18} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t('journey.packing.searchMembers')}
+          placeholderTextColor={theme.text2}
+          accessibilityLabel={t('journey.packing.searchMembers')}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          style={[type.body, { flex: 1, minWidth: 0, height: layout.fieldHeight, color: theme.text, padding: 0, lineHeight: undefined, textAlignVertical: 'center', includeFontPadding: false }]}
+        />
+        {query ? <AppIconButton theme={theme} name="close" size={32} noShadow onPress={() => setQuery('')} accessibilityLabel={t('search.clear')} /> : null}
+      </View>
+      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
+        {options.map((option) => {
+          const selected = option.key === controller.activeKey;
+          return (
+            <Press
+              key={option.key}
+              scaleTo={1}
+              onPress={() => { Keyboard.dismiss(); controller.select(option.key); onClose(); }}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected }}
+              accessibilityLabel={`${option.label}${option.kind === 'mine' ? `，${t('journey.packing.me')}` : ''}，${t('journey.packing.progress', { ready: option.ready, total: option.total })}`}
+              style={{ minHeight: layout.listRowMinHeight, paddingVertical: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+            >
+              <ParticipantAvatar theme={theme} uri={option.avatarUrl} size={40} />
+              <View style={{ flex: 1, minWidth: 0, gap: space.xxs }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                  <Text numberOfLines={2} style={[type.body, { flexShrink: 1, color: theme.text, fontWeight: '600' }]}>{option.label}</Text>
+                  {option.kind === 'mine' ? (
+                    <Text style={[type.caption, { flexShrink: 0, color: theme.text2, backgroundColor: theme.fieldSurface, borderRadius: radius.pill, paddingHorizontal: space.xs, paddingVertical: space.xxs }]}>{t('journey.packing.me')}</Text>
+                  ) : null}
+                </View>
+                <Text style={[type.caption, { color: theme.text2 }]}>{option.total ? t('journey.packing.progress', { ready: option.ready, total: option.total }) : t('journey.packing.noItems')}</Text>
+              </View>
+              <View style={{ width: space.xl, height: space.xl, alignItems: 'center', justifyContent: 'center' }}>{selected ? <Icon name="check" color={theme.accent} size={20} /> : null}</View>
+            </Press>
+          );
+        })}
+        {!options.length ? <Text style={[type.body, { color: theme.text2, textAlign: 'center', paddingVertical: space.xxl }]}>{t('journey.packing.noMembers')}</Text> : null}
+      </ScrollView>
+    </SheetFrame>
+  );
+}
+
 type PackingDisplayItem = JourneyPackingItem & {
   carryStatus: GearCarryStatus;
   inGearLibrary: boolean;
@@ -471,176 +541,99 @@ function buildPackingWeightStats(items: PackingDisplayItem[]): PackingWeightStat
   };
 }
 
-function PackingWeightOverviewCard({ theme, items, weightUnit, emptyBody }: { theme: Theme; items: PackingDisplayItem[]; weightUnit: WeightUnit; emptyBody: string }) {
+function PackingWeightOverviewCard({ theme, items, weightUnit, title, avatarUrl, onSelectList, listPickerOpen = false, pickerProgress: controlledPickerProgress, emptyBody }: {
+  theme: Theme;
+  items: PackingDisplayItem[];
+  weightUnit: WeightUnit;
+  title: string;
+  avatarUrl?: string;
+  onSelectList?: () => void;
+  listPickerOpen?: boolean;
+  pickerProgress?: Animated.Value;
+  emptyBody: string;
+}) {
   const { t } = useI18n();
   const stats = buildPackingWeightStats(items);
   const readyCount = Math.max(0, stats.itemCount - stats.pendingCount);
   const readyPercent = stats.itemCount ? (readyCount / stats.itemCount) * 100 : 0;
+  const packWeight = splitWeight(stats.packWeight, weightUnit);
+  const localPickerProgress = useRef(new Animated.Value(listPickerOpen ? 1 : 0)).current;
+  const pickerProgress = controlledPickerProgress ?? localPickerProgress;
+
+  useEffect(() => {
+    // The main page starts its animation before mounting the picker.
+    if (controlledPickerProgress) return;
+    const animation = Animated.timing(pickerProgress, {
+      toValue: listPickerOpen ? 1 : 0,
+      duration: motion.standard,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [controlledPickerProgress, listPickerOpen, pickerProgress]);
 
   return (
-    <View
-      style={{
-        marginTop: space.sm,
-        padding: space.md,
-        borderRadius: radius.feature,
-        backgroundColor: theme.surfaceTop,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.fieldBorder,
-        boxShadow: theme.dark ? '0px 2px 8px rgba(0,0,0,0.18)' : '0px 2px 8px rgba(0,0,0,0.04)',
-      }}
-    >
-      {!items.length ? (
-        <View
-          style={{
-            minHeight: 92,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: space.sm,
-          }}
-        >
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Package color={theme.text2} size={18} strokeWidth={1.9} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[type.body, { color: theme.text, fontWeight: '700' }]}>{t('journey.packing.empty')}</Text>
-            <Text style={[type.caption, { marginTop: space.xs, color: theme.text3, lineHeight: 18 }]}>{emptyBody}</Text>
-          </View>
+    <View style={{ marginTop: space.sm, paddingHorizontal: space.lg, paddingVertical: space.md, borderRadius: radius.feature, backgroundColor: theme.surface }}>
+      <Press
+        onPress={onSelectList}
+        disabled={!onSelectList}
+        scaleTo={1}
+        accessibilityRole="button"
+        accessibilityLabel={`${t('journey.packing.selectChecklist')}，${title}`}
+        accessibilityState={{ disabled: !onSelectList, expanded: listPickerOpen }}
+        style={{ minHeight: layout.iconButton, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+      >
+        <ParticipantAvatar theme={theme} uri={avatarUrl} size={34} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[type.cardTitle, { color: theme.text, letterSpacing: 0 }]}>{title}</Text>
+          <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
+            {stats.itemCount ? t('journey.packing.progress', { ready: readyCount, total: stats.itemCount }) : t('journey.packing.noItems')}
+          </Text>
         </View>
-      ) : (
-        <>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: space.sm,
-            }}
-          >
-            <View
-              style={{
-                width: 38,
-                height: 38,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Package color={theme.text2} size={18} strokeWidth={1.9} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>
-                {t('journey.packing.progress', {
-                  ready: readyCount,
-                  total: stats.itemCount,
-                })}
-              </Text>
-            </View>
-            <Text
-              style={{
-                fontFamily: MONO,
-                fontSize: 21,
-                fontWeight: '800',
-                letterSpacing: -0.6,
-                color: stats.pendingCount ? theme.text : theme.accent,
-              }}
-            >
-              {Math.round(readyPercent)}%
-            </Text>
-          </View>
-
-          <View style={{ marginTop: space.md }}>
-            <AppProgressBar theme={theme} value={readyPercent} height={6} />
-          </View>
-
-          <View
-            style={{
-              marginTop: space.lg,
-              paddingTop: space.md,
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: theme.fieldBorder,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'flex-end',
-                justifyContent: 'space-between',
-                gap: space.md,
-              }}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[type.caption, { color: theme.text2, fontWeight: '700' }]}>{t('gear.pack.pack')}</Text>
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.72}
-                  style={{
-                    marginTop: space.xxs,
-                    fontFamily: MONO,
-                    fontSize: 30,
-                    fontWeight: '800',
-                    letterSpacing: -1,
-                    color: theme.text,
-                  }}
-                >
-                  {fmtWeight(stats.packWeight, weightUnit)}
-                </Text>
-              </View>
-              <Text style={[type.caption, { paddingBottom: space.xs, color: theme.text3 }]}>
-                {t('gear.pack.base')} + {t('gear.pack.consumable')}
-              </Text>
-            </View>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                gap: space.xs,
-                marginTop: space.md,
-              }}
-            >
-              <PackingWeightMetric theme={theme} label={t('gear.pack.base')} value={fmtWeight(stats.baseWeight, weightUnit)} />
-              <PackingWeightMetric theme={theme} label={t('gear.pack.consumable')} value={fmtWeight(stats.consumableWeight, weightUnit)} />
-              <PackingWeightMetric theme={theme} label={t('gear.pack.worn')} value={fmtWeight(stats.wornWeight, weightUnit)} />
-            </View>
-          </View>
-        </>
-      )}
+        <Text style={[type.metric, { fontSize: 20, color: theme.text, letterSpacing: 0 }]}>{Math.round(readyPercent)}%</Text>
+        {onSelectList ? (
+          <Animated.View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: pickerProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+            <Icon name="chevronDown" color={theme.text2} size={16} />
+          </Animated.View>
+        ) : null}
+      </Press>
+      <View style={{ marginTop: space.sm }}>
+        <AppProgressBar theme={theme} value={readyPercent} height={6} />
+      </View>
+      <View style={{ marginTop: space.lg }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', columnGap: space.sm, rowGap: space.xxs }}>
+          <Text style={[type.caption, { color: theme.text2, fontWeight: '600' }]}>{t('gear.pack.pack')}</Text>
+          <Text style={[type.caption, { color: theme.text2 }]}>{t('gear.pack.base')} + {t('gear.pack.consumable')}</Text>
+        </View>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          style={{ marginTop: space.xs, fontFamily: MONO, fontSize: 30, lineHeight: 38, fontWeight: '800', letterSpacing: 0, color: theme.text }}
+        >
+          {packWeight.value}<Text style={{ fontSize: 14, fontWeight: '500', color: theme.text2 }}> {packWeight.unit}</Text>
+        </Text>
+        <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xl }}>
+          <PackingWeightMetric theme={theme} label={t('gear.pack.base')} value={fmtWeight(stats.baseWeight, weightUnit)} />
+          <PackingWeightMetric theme={theme} label={t('gear.pack.consumable')} value={fmtWeight(stats.consumableWeight, weightUnit)} />
+          <PackingWeightMetric theme={theme} label={t('gear.pack.worn')} value={fmtWeight(stats.wornWeight, weightUnit)} />
+        </View>
+      </View>
+      {!items.length ? <Text style={[type.caption, { color: theme.text2, lineHeight: 18, marginTop: space.md }]}>{emptyBody}</Text> : null}
     </View>
   );
 }
 
 function PackingWeightMetric({ theme, label, value }: { theme: Theme; label: string; value: string }) {
   return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 0,
-        paddingHorizontal: space.sm,
-        paddingVertical: space.sm,
-        borderRadius: radius.control,
-        backgroundColor: theme.fieldSurface,
-      }}
-    >
-      <Text numberOfLines={1} style={[type.caption, { color: theme.text2, fontWeight: '600' }]}>
-        {label}
-      </Text>
+    <View style={{ flex: 1, minWidth: 0 }}>
+      <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{label}</Text>
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.68}
-        style={{
-          marginTop: space.xs,
-          fontFamily: MONO,
-          fontSize: 15,
-          fontWeight: '800',
-          letterSpacing: -0.35,
-          color: theme.text,
-        }}
+        style={[type.metric, { marginTop: space.xs, fontSize: 15, lineHeight: 20, letterSpacing: 0, color: theme.text }]}
       >
         {value}
       </Text>
@@ -900,17 +893,26 @@ function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, o
           justifyContent: 'center',
         }}
       >
-        <Text
-          numberOfLines={2}
-          style={{
-            fontSize: 12.5,
-            lineHeight: 18,
-            fontWeight: '600',
-            color: item.packed ? theme.text2 : theme.text,
-          }}
-        >
-          {item.name}
-        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.xs }}>
+          <Text
+            numberOfLines={2}
+            style={{
+              flexShrink: 1,
+              minWidth: 0,
+              fontSize: 12.5,
+              lineHeight: 18,
+              fontWeight: '600',
+              color: item.packed ? theme.text2 : theme.text,
+            }}
+          >
+            {item.name}
+          </Text>
+          {item.carryStatus === 'consumable' ? (
+            <View style={{ maxWidth: '100%', paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
+              <Text style={[type.caption, { fontSize: 10, lineHeight: 14, color: theme.text2 }]}>{t('gear.status.consumable')}</Text>
+            </View>
+          ) : null}
+        </View>
         <View
           style={{
             flexDirection: 'row',
@@ -942,7 +944,7 @@ function PackingRow({ theme, item, weightUnit, isShared, canCheck, companions, o
           {isShared && !carrier ? <Text style={[type.caption, { color: theme.text3 }]}>{t('journey.packing.noCarrier')}</Text> : null}
         </View>
       </View>
-      {!item.inGearLibrary ? (
+      {!item.inGearLibrary && item.carryStatus !== 'consumable' ? (
         <View
           accessibilityLabel={t('journey.packing.notInGearLibrary')}
           style={{
@@ -1160,7 +1162,7 @@ function useDismissibleSheetDrag({ translateY, backdropOpacity, onDismiss }: { t
   return panResponder.panHandlers;
 }
 
-function SheetFrame({ theme, onClose, expanded = false, keyboardAvoiding = false, edgeToEdge = false, children }: { theme: Theme; onClose: () => void; expanded?: boolean; keyboardAvoiding?: boolean; edgeToEdge?: boolean; children: React.ReactNode }) {
+function SheetFrame({ theme, onClose, onDismissStart, expanded = false, keyboardAvoiding = false, edgeToEdge = false, contentPadding = space.xxl, children }: { theme: Theme; onClose: () => void; onDismissStart?: () => void; expanded?: boolean; keyboardAvoiding?: boolean; edgeToEdge?: boolean; contentPadding?: number; children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -1169,6 +1171,8 @@ function SheetFrame({ theme, onClose, expanded = false, keyboardAvoiding = false
   const onCloseRef = useRef(onClose);
   const closingRef = useRef(false);
   onCloseRef.current = onClose;
+  const onDismissStartRef = useRef(onDismissStart);
+  onDismissStartRef.current = onDismissStart;
 
   useEffect(() => {
     if (!keyboardAvoiding) return undefined;
@@ -1209,6 +1213,7 @@ function SheetFrame({ theme, onClose, expanded = false, keyboardAvoiding = false
   const requestClose = () => {
     if (closingRef.current) return;
     closingRef.current = true;
+    onDismissStartRef.current?.();
     if (keyboardAvoiding) Keyboard.dismiss();
     Animated.parallel([
       Animated.timing(slide, {
@@ -1250,7 +1255,7 @@ function SheetFrame({ theme, onClose, expanded = false, keyboardAvoiding = false
           transform: [{ translateY }],
           marginHorizontal: keyboardAvoiding && !edgeToEdge ? space.md : 0,
           marginBottom: keyboardAvoiding && !edgeToEdge ? Math.max(insets.bottom, space.md) : 0,
-          paddingHorizontal: space.xxl,
+          paddingHorizontal: contentPadding,
           paddingTop: space.xxs,
           paddingBottom: keyboardAvoiding && keyboardVisible ? 0 : Math.max(insets.bottom, space.xxl),
           borderTopLeftRadius: radius.feature,
@@ -1281,7 +1286,7 @@ function SheetFrame({ theme, onClose, expanded = false, keyboardAvoiding = false
           hitSlop={{ top: 8, bottom: 8 }}
           style={{
             height: 16,
-            marginHorizontal: -space.xxl,
+            marginHorizontal: -contentPadding,
             marginBottom: space.lg,
             alignItems: 'center',
             justifyContent: 'center',

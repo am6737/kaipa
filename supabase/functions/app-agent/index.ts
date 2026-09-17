@@ -5,9 +5,20 @@ import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
 import { SupabaseAgentSession } from './session.ts';
 import { bindRunClient, releaseRunClient } from './tools.ts';
-import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentPlanPreview, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
-import { canonicalJourneyDay } from './journey-days.ts';
-import { itineraryMinutes } from './itinerary-time.ts';
+import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
+import type { ModelMetric } from './model-metrics.ts';
+import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
+import { loadSavedPlanPreview, previewJourneyId } from './plan-preview.ts';
+import { normalizePlanningFollowUps, planningFollowUpReplies } from './planning-follow-ups.ts';
+import { conversationAttachments } from './conversation-attachments.ts';
+import { normalizeAgentLocation } from './location.ts';
+import { latestTravelContext, travelContextSchema } from './travel-context-schema.ts';
+import type { TravelContext } from './travel-context.ts';
+import { prepareAgentContext } from './context.ts';
+import { prepareTask } from './task-store.ts';
+import { renderTaskResponse } from './response-presentation.ts';
+import { planDraftSchema, taskOutcome, type PlanDraft } from './task.ts';
+import { assistantStoragePath, InvalidTrackError, isTrackAttachment, readAttachment, trackInput } from './attachments.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -56,17 +67,22 @@ function normalizeQuickReplies(value: unknown): AgentQuickReply[] {
     const record = item as Record<string, unknown>;
     const label = typeof record.label === 'string' ? record.label.trim().slice(0, 24) : '';
     const message = typeof record.message === 'string' ? record.message.trim().slice(0, 200) : '';
-    const action: AgentQuickReply['action'] = record.action === 'upload_track' || record.action === 'skip_track' ? record.action : undefined;
+    const action: AgentQuickReply['action'] = record.action === 'upload_track' || record.action === 'skip_track' || record.action === 'request_location' ? record.action : undefined;
     return label && message ? [{ label, message, action }] : [];
   }).slice(0, 4);
 }
 
-function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickReply[] } {
+function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickReply[]; travelContext?: TravelContext | null; offerJourneyExtras?: boolean; pendingQuestion: string | null; draft: PlanDraft | null; blocker?: string | null } {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     return {
       text: typeof record.text === 'string' ? record.text.trim() : '',
+      travelContext: record.travelContext == null ? null : travelContextSchema.parse(record.travelContext),
       quickReplies: normalizeQuickReplies(record.quickReplies),
+      offerJourneyExtras: record.offerJourneyExtras === true,
+      pendingQuestion: typeof record.pendingQuestion === 'string' ? record.pendingQuestion : null,
+      blocker: typeof record.blocker === 'string' ? record.blocker : null,
+      draft: record.draft == null ? null : planDraftSchema.parse(record.draft),
     };
   }
   if (typeof value === 'string') {
@@ -77,9 +93,50 @@ function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickR
     } catch {
       // Compatible providers may still return plain text; keep it usable.
     }
-    return { text, quickReplies: [] };
+    return { text, quickReplies: [], pendingQuestion: null, draft: null };
   }
-  return { text: value == null ? '' : String(value), quickReplies: [] };
+  return { text: value == null ? '' : String(value), quickReplies: [], pendingQuestion: null, draft: null };
+}
+
+const STALE_RUN_AFTER_MS = 5 * 60 * 1000 + 15 * 1000;
+
+async function failStaleRuns(client: any, userId: string, threadId?: string) {
+  let query = client
+    .from('agent_runs')
+    .update({
+      status: 'failed',
+      error: 'Agent worker exceeded its execution limit',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId)
+    .eq('status', 'running')
+    .eq('execution_mode', 'request')
+    .lt('created_at', new Date(Date.now() - STALE_RUN_AFTER_MS).toISOString());
+  if (threadId) query = query.eq('thread_id', threadId);
+  const stale = await query.select('id,thread_id');
+  if (stale.error) throw stale.error;
+  if (!stale.data?.length) return;
+
+  const runIds = stale.data.map((run: { id: string }) => run.id);
+  const failedAt = new Date().toISOString();
+  const calls = await client
+    .from('agent_tool_calls')
+    .update({ status: 'failed', error: 'Agent worker exceeded its execution limit', updated_at: failedAt })
+    .in('run_id', runIds)
+    .eq('status', 'running');
+  if (calls.error) throw calls.error;
+
+  const threadIds = [...new Set(stale.data.map((run: { thread_id: string }) => run.thread_id))] as string[];
+  const messages = await client.from('agent_messages').insert(threadIds.map((staleThreadId) => ({
+    thread_id: staleThreadId,
+    user_id: userId,
+    role: 'assistant',
+    content: '上一次规划因运行超时未能完成，请重新发送需求。',
+    ui: {},
+  })));
+  if (messages.error) throw messages.error;
+  const threads = await client.from('agent_threads').update({ updated_at: failedAt }).in('id', threadIds);
+  if (threads.error) throw threads.error;
 }
 
 function validClientRunId(value?: string) {
@@ -134,255 +191,9 @@ function agentTemporalContext(body: { clientLocalDate?: string; clientLocalTime?
 }
 
 
-function looksLikeJourneyPlanRequest(message: string) {
-  return /(创建|规划|安排|计划|做|生成).{0,12}(旅程|行程|路线|徒步|旅行|露营|登山)|帮我.{0,20}(旅程|行程|路线|徒步|旅行|露营|登山)/i.test(message);
-}
-
-function hasConcreteOrOpenJourneyDate(message: string) {
-  return /(今天|明天|后天|大后天|本周|这周|下周|下个月|周[一二三四五六日天末]|星期[一二三四五六日天]|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]|日期\s*(未定|待定)|待定|暂定|稍后补)/i.test(message);
-}
-
-function hasJourneyDuration(message: string) {
-  return /(\d+|[一二两三四五六七八九十半]+)\s*(天|日|晚|夜)|day|days|night|nights/i.test(message);
-}
-
-function explicitlyAllowsUndatedJourney(message: string) {
-  return /(日期|时间|出发|哪天).{0,6}(未定|待定|暂定|稍后补|以后补)|先.{0,6}(未定|待定)|待定日期|日期待定|date\s*(tbd|unknown|later)/i.test(message);
-}
-
-
-type CreateJourneyFlowStep = 'collect_date' | 'collect_duration' | 'collect_date_and_duration' | 'ask_track';
-type CreateJourneyFlowState = { step: CreateJourneyFlowStep; originalMessage: string };
-type JourneyCreationPreflight =
-  | { kind: 'continue' }
-  | { kind: Exclude<CreateJourneyFlowStep, 'ask_track'>; message: string; quickReplies: AgentQuickReply[] }
-  | { kind: 'ask_track'; message: string; quickReplies: AgentQuickReply[] };
-
-function dateClarificationQuickReplies(locale?: 'zh' | 'en'): AgentQuickReply[] {
-  if (locale === 'en') return [
-    { label: 'Tomorrow', message: 'Tomorrow' },
-    { label: 'This weekend', message: 'This weekend' },
-    { label: 'Date TBD', message: 'The date is TBD.' },
-  ];
-  return [
-    { label: '明天', message: '明天出发' },
-    { label: '本周末', message: '本周末出发' },
-    { label: '日期待定', message: '日期待定' },
-  ];
-}
-
-function durationClarificationQuickReplies(locale?: 'zh' | 'en'): AgentQuickReply[] {
-  if (locale === 'en') return [
-    { label: '1 day', message: '1 day' },
-    { label: '2 days 1 night', message: '2 days 1 night' },
-    { label: '3 days 2 nights', message: '3 days 2 nights' },
-  ];
-  return [
-    { label: '1 天', message: '1 天' },
-    { label: '2 天 1 夜', message: '2 天 1 夜' },
-    { label: '3 天 2 夜', message: '3 天 2 夜' },
-  ];
-}
-
-function dateDurationClarificationQuickReplies(locale?: 'zh' | 'en'): AgentQuickReply[] {
-  if (locale === 'en') return [
-    { label: 'Tomorrow, 1 day', message: 'Tomorrow, 1 day' },
-    { label: 'This weekend, 2 days', message: 'This weekend, 2 days 1 night' },
-    { label: 'Date TBD, 2 days', message: 'The date is TBD, 2 days 1 night.' },
-  ];
-  return [
-    { label: '明天，1 天', message: '明天出发，1 天' },
-    { label: '本周末，2 天', message: '本周末出发，2 天 1 夜' },
-    { label: '日期待定，2 天', message: '日期待定，2 天 1 夜' },
-  ];
-}
-
-function journeyCreationPreflight(message: string, locale?: 'zh' | 'en', intent?: AgentIntent): JourneyCreationPreflight {
-  const text = message.trim();
-  if (!text) return { kind: 'continue' };
-  const createLike = intent === 'plan_journey' || looksLikeJourneyPlanRequest(text);
-  if (!createLike) return { kind: 'continue' };
-
-  const hasDate = hasConcreteOrOpenJourneyDate(text) || explicitlyAllowsUndatedJourney(text);
-  const hasDuration = hasJourneyDuration(text);
-  if (hasDate && hasDuration) return { kind: 'continue' };
-
-  if (!hasDate && !hasDuration) {
-    return {
-      kind: 'collect_date_and_duration',
-      message: locale === 'en'
-        ? 'When do you plan to start, and how many days will it be? I’ll ask about a track after these are clear.'
-        : '计划什么时候出发？预计几天几夜？确定后，如果还没有轨迹，我再询问是否上传轨迹。',
-      quickReplies: dateDurationClarificationQuickReplies(locale),
-    };
-  }
-  if (!hasDate) {
-    return {
-      kind: 'collect_date',
-      message: locale === 'en'
-        ? 'When do you plan to start? I’ll ask about a track after the date and duration are clear.'
-        : '计划什么时候出发？确定日期后，如果还没有轨迹，我再询问是否上传轨迹。',
-      quickReplies: dateClarificationQuickReplies(locale),
-    };
-  }
-  return {
-    kind: 'collect_duration',
-    message: locale === 'en'
-      ? 'How many days will this trip be? I’ll ask about a track after the date and duration are clear.'
-      : '这次预计几天几夜？确定天数后，如果还没有轨迹，我再询问是否上传轨迹。',
-    quickReplies: durationClarificationQuickReplies(locale),
-  };
-}
-
-
-function wantsNoTrack(message: string) {
-  return /(不上传|不用上传|暂不上传|没有轨迹|无轨迹|跳过轨迹|不要轨迹|no track|skip track|not now)/i.test(message);
-}
-
-function wantsTrackUpload(message: string) {
-  return /(上传轨迹|使用轨迹|有轨迹|gpx|kml|kmz|upload track|use track)/i.test(message);
-}
-
-function isTrackAttachment(attachment: AgentAttachment) {
-  return (
-    /\.(gpx|kml|kmz)(?:$|[?#])/i.test(attachment.name)
-    || /\.(gpx|kml|kmz)(?:$|[?#])/i.test(attachment.url)
-    || /(gpx|google-earth\.(?:kml|kmz)|application\/zip)/i.test(attachment.mimeType)
-  );
-}
-
-function hasTrackAttachment(attachments: AgentAttachment[]) {
-  return attachments.some(isTrackAttachment);
-}
-
-function mergeFlowMessage(flow: CreateJourneyFlowState | null, message: string) {
-  const current = message.trim();
-  if (!flow) return current;
-  return `${flow.originalMessage.trim()}，${current}`;
-}
-
-function createFlowUi(step: CreateJourneyFlowStep, originalMessage: string) {
-  return { createJourneyFlow: { step, originalMessage } };
-}
-
-function trackPromptMessage(locale?: 'zh' | 'en') {
-  return locale === 'en'
-    ? 'Do you want to upload a GPX, KML, or KMZ track for this trip? If not, I’ll continue with a normal plan.'
-    : '这个旅程要上传 GPX、KML 或 KMZ 轨迹吗？没有也可以先按普通行程继续。';
-}
-
-function trackFileRequiredMessage(locale?: 'zh' | 'en') {
-  return locale === 'en'
-    ? 'Please choose a GPX, KML, or KMZ file to continue with a track, or tap “No track” to continue without one.'
-    : '请先选择要使用的 GPX、KML 或 KMZ 轨迹文件；如果没有轨迹，可以点“暂不上传”继续。';
-}
-
-
-function trackClarificationQuickReplies(locale?: 'zh' | 'en'): AgentQuickReply[] {
-  if (locale === 'en') return [
-    { label: 'Upload track', message: 'Upload track', action: 'upload_track' },
-    { label: 'No track', message: 'No track for now', action: 'skip_track' },
-  ];
-  return [
-    { label: '上传轨迹', message: '上传轨迹', action: 'upload_track' },
-    { label: '暂不上传', message: '暂不上传轨迹', action: 'skip_track' },
-  ];
-}
-
-function shouldStartCreateJourneyFlow(message: string, intent?: AgentIntent) {
-  const text = message.trim();
-  return Boolean(text) && (intent === 'plan_journey' || looksLikeJourneyPlanRequest(text));
-}
-
-function assistantAsksJourneyDate(message: string) {
-  return /(什么时候出发|计划.*出发|哪天出发|出发日期|具体日期|补充日期|when do you plan to start|what date)/i.test(message);
-}
-
-function assistantAsksJourneyDuration(message: string) {
-  return /(几天几夜|几天|多少天|预计.*天|how many days|duration)/i.test(message);
-}
-
-function assistantAsksTrack(message: string) {
-  return /(上传.*轨迹|轨迹.*上传|GPX|KML|KMZ|upload.*track|track.*upload)/i.test(message);
-}
-
-function inferredFlowStepFromAssistant(message: string): CreateJourneyFlowStep | null {
-  const asksDate = assistantAsksJourneyDate(message);
-  const asksDuration = assistantAsksJourneyDuration(message);
-  if (asksDate && asksDuration) return 'collect_date_and_duration';
-  if (asksDate) return 'collect_date';
-  if (asksDuration) return 'collect_duration';
-  if (assistantAsksTrack(message)) return 'ask_track';
-  return null;
-}
-
-async function latestCreateJourneyFlow(client: any, threadId: string): Promise<CreateJourneyFlowState | null> {
-  const result = await client
-    .from('agent_messages')
-    .select('role,content,ui')
-    .eq('thread_id', threadId)
-    .order('created_at', { ascending: false })
-    .limit(12);
-  if (result.error) throw result.error;
-  const messages = result.data || [];
-  const latest = messages[0];
-  if (latest?.role !== 'assistant') return null;
-
-  const flow = latest?.ui?.createJourneyFlow;
-  if (flow && typeof flow === 'object' && typeof flow.originalMessage === 'string') {
-    const step = String(flow.step || '');
-    if (step === 'collect_date' || step === 'collect_duration' || step === 'collect_date_and_duration' || step === 'ask_track') {
-      return { step, originalMessage: flow.originalMessage } as CreateJourneyFlowState;
-    }
-  }
-
-  // Compatibility for conversations that started before createJourneyFlow UI
-  // metadata existed: infer the pending step from the assistant's last question
-  // and recover the original create-journey request from recent user messages.
-  const inferredStep = inferredFlowStepFromAssistant(String(latest?.content || ''));
-  if (!inferredStep) return null;
-  const original = messages.find((message: { role?: string; content?: unknown }) => message.role === 'user' && shouldStartCreateJourneyFlow(String(message.content || ''), undefined));
-  return original ? { step: inferredStep, originalMessage: String(original.content || '').trim() } : null;
-}
-
-async function persistFlowReply(client: any, threadId: string, userId: string, userText: string, message: string, quickReplies: AgentQuickReply[], flow: CreateJourneyFlowState, extraUi: Partial<AgentMessageUi> = {}, userUi: Partial<AgentMessageUi> = {}) {
-  const userMessage = await client.from('agent_messages').insert({
-    thread_id: threadId,
-    user_id: userId,
-    role: 'user',
-    content: userText,
-    ui: userUi,
-  });
-  if (userMessage.error) throw userMessage.error;
-  const ui: AgentMessageUi = { quickReplies: quickReplies.length ? quickReplies : undefined, ...createFlowUi(flow.step, flow.originalMessage), ...extraUi };
-  const assistantMessage = await client.from('agent_messages').insert({
-    thread_id: threadId,
-    user_id: userId,
-    role: 'assistant',
-    content: message,
-    ui,
-  });
-  if (assistantMessage.error) throw assistantMessage.error;
-  const touchedThread = await client.from('agent_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
-  if (touchedThread.error) throw touchedThread.error;
-  return ui;
-}
-
-function requestsUndo(message: string) {
-  return /(撤销|撤回|还原|恢复原样|反悔|undo|revert|roll\s*back|take\s+back)/i.test(message);
-}
 
 function isValidAssistantAttachmentUrl(url: string, userId: string) {
-  try {
-    const parsed = new URL(url);
-    const marker = '/storage/v1/object/public/kaipa/';
-    const markerIndex = parsed.pathname.indexOf(marker);
-    if (markerIndex < 0) return false;
-    const storagePath = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
-    return storagePath.startsWith(`assistant/${userId}/`);
-  } catch {
-    return false;
-  }
+  return assistantStoragePath(url, userId) !== null;
 }
 
 function validAttachments(value: unknown, userId: string): AgentAttachment[] {
@@ -408,14 +219,12 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-async function attachmentInput(attachment: AgentAttachment) {
+async function attachmentInput(attachment: AgentAttachment, client: any, userId: string) {
+  if (isTrackAttachment(attachment)) return trackInput(client, attachment, userId);
+  const bytes = await readAttachment(client, attachment, userId);
   if (attachment.kind === 'image') {
-    return { type: 'input_image' as const, image: attachment.url, detail: 'auto' };
+    return { type: 'input_image' as const, image: `data:${attachment.mimeType};base64,${bytesToBase64(bytes)}`, detail: 'auto' };
   }
-  const response = await fetch(attachment.url);
-  if (!response.ok) throw new Error('Attachment could not be loaded');
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > 15 * 1024 * 1024) throw new Error('Attachment is too large');
   return {
     type: 'input_file' as const,
     file: `data:${attachment.mimeType};base64,${bytesToBase64(bytes)}`,
@@ -423,7 +232,7 @@ async function attachmentInput(attachment: AgentAttachment) {
   };
 }
 
-async function messageUiForRun(client: any, runId: string, quickReplies: AgentQuickReply[]): Promise<AgentMessageUi> {
+async function messageUiForRun(client: any, runId: string, quickReplies: AgentQuickReply[], offerJourneyExtras = false, locale?: 'zh' | 'en', currentJourneyId?: string | null): Promise<AgentMessageUi> {
   const calls = await client
     .from('agent_tool_calls')
     .select('tool_name,arguments,output,status,undo_payload,undone_at')
@@ -431,10 +240,12 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
     .order('created_at');
   if (calls.error) throw calls.error;
 
+  quickReplies = planningFollowUpReplies(offerJourneyExtras, quickReplies, calls.data || [], locale);
+
   const sourcesByUrl = new Map<string, AgentSource>();
   const completedCalls = (calls.data || []).filter((call: any) => call.status === 'completed');
   for (const call of completedCalls) {
-    if (call.tool_name !== 'search_travel_web') continue;
+    if (!['search_travel_web', 'search_transport', 'read_travel_guide'].includes(call.tool_name)) continue;
     const results = call.output && typeof call.output === 'object' && Array.isArray(call.output.results)
       ? call.output.results
       : [];
@@ -453,35 +264,18 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
     }
   }
 
-  let planPreview: AgentPlanPreview | undefined;
-  const itineraryCall = [...completedCalls].reverse().find((call: any) => call.tool_name === 'add_itinerary_items');
-  const itineraryArgs = itineraryCall?.arguments && typeof itineraryCall.arguments === 'object' ? itineraryCall.arguments : undefined;
-  const journeyId = typeof itineraryArgs?.journeyId === 'string' ? itineraryArgs.journeyId : undefined;
-  const items = Array.isArray(itineraryArgs?.items) ? itineraryArgs.items : [];
-  if (journeyId && items.length) {
-    const journey = await client.from('journeys').select('id,name,planned_date,date,total_days').eq('id', journeyId).is('deleted_at', null).maybeSingle();
-    if (journey.error) throw journey.error;
-    if (journey.data) {
-      const grouped = new Map<string, Array<{ title: string; timeStart?: number; timeEnd?: number }>>();
-      for (const item of items) {
-        if (!item || typeof item !== 'object' || typeof item.day !== 'string' || typeof item.title !== 'string') continue;
-        const day = canonicalJourneyDay(item.day);
-        const rows = grouped.get(day) || [];
-        rows.push({
-          title: item.title,
-          timeStart: itineraryMinutes(item.timeStart),
-          timeEnd: itineraryMinutes(item.timeEnd),
-        });
-        grouped.set(day, rows);
-      }
-      planPreview = {
-        journeyId,
-        title: journey.data.name,
-        dateLabel: journey.data.planned_date || journey.data.date || undefined,
-        days: [...grouped].map(([label, dayItems]) => ({ label, items: dayItems })),
-      };
+  // Recovery/failure paths also need the existing journey, even without a write.
+  if (!currentJourneyId) {
+    const run = await client.from('agent_runs').select('thread_id').eq('id', runId).maybeSingle();
+    if (run.error) throw run.error;
+    if (run.data?.thread_id) {
+      const thread = await client.from('agent_threads').select('current_journey_id').eq('id', run.data.thread_id).maybeSingle();
+      if (thread.error) throw thread.error;
+      currentJourneyId = thread.data?.current_journey_id;
     }
   }
+  const changedJourneyId = previewJourneyId(calls.data || [], currentJourneyId);
+  const planPreview = typeof changedJourneyId === "string" ? await loadSavedPlanPreview(client, changedJourneyId) : undefined;
 
   const activities: AgentRunActivity[] = (calls.data || []).map((call: any) => ({
     toolName: call.tool_name,
@@ -491,16 +285,23 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
     // can contain private or very large journey records.
     output: call.tool_name === 'search_travel_web'
       ? call.output
+      : call.tool_name === 'set_itinerary_group_endpoints'
+      ? { coverage: {
+          groupCount: typeof call.output?.coverage?.groupCount === 'number' ? call.output.coverage.groupCount : 0,
+          requiredGroupCount: typeof call.output?.coverage?.requiredGroupCount === 'number' ? call.output.coverage.requiredGroupCount : 0,
+          reachesTrackEnd: call.output?.coverage?.reachesTrackEnd === true,
+        } }
+      : ['read_travel_guide', 'read_travel_guide_images'].includes(call.tool_name)
+      ? { available: call.output?.available, status: call.output?.status }
+      : call.tool_name === 'search_transport'
+      ? { status: call.output?.status, available: call.output?.available, provider: call.output?.provider, count: call.output?.offers?.length || 0 }
       : call.tool_name === 'get_journey_details' && call.output && typeof call.output === 'object'
       ? {
-          hasTrack: Boolean(
-            call.output.trackSummary
-            || call.output.journey?.track_file_url
-            || call.output.journey?.track_file_name
-            || (Array.isArray(call.output.journey?.track_coords) && call.output.journey.track_coords.length > 1)
-          ),
-          distance: typeof call.output.journey?.dist === 'string' ? call.output.journey.dist : undefined,
-          ascent: typeof call.output.journey?.asc_ === 'string' ? call.output.journey.asc_ : undefined,
+          // The track section is the only place a journey's track shows up; the
+          // journey section itself carries no track facts.
+          hasTrack: Boolean(call.output.trackSummary),
+          distance: typeof call.output.trackSummary?.distance === 'string' ? call.output.trackSummary.distance : call.output.journey?.dist,
+          ascent: typeof call.output.trackSummary?.ascent === 'string' ? call.output.trackSummary.ascent : call.output.journey?.asc_,
           totalKm: typeof call.output.trackSummary?.totalKm === 'number' ? call.output.trackSummary.totalKm : undefined,
         }
       : undefined,
@@ -526,6 +327,9 @@ Deno.serve(async (req) => {
   let activeThreadId: string | undefined;
   let activeUserId: string | undefined;
   let shouldPersistFailure = false;
+  let jobLease: string | undefined;
+  let jobAdmin: any;
+  let jobAttempt = 0;
   try {
     const token = bearerToken(req);
     if (!token) return json({ error: { code: 'unauthorized', message: '请先登录' } }, 401);
@@ -540,22 +344,47 @@ Deno.serve(async (req) => {
     if (userError || !user) return json({ error: { code: 'unauthorized', message: '登录状态已失效' } }, 401);
     activeUserId = user.id;
 
-    const body = await req.json().catch(() => ({})) as {
-      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo';
+    let body = await req.json().catch(() => ({})) as {
+      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run';
+      leaseToken?: string;
       threadId?: string;
       runId?: string;
       clientRunId?: string;
       message?: string;
       displayMessage?: string;
       currentJourneyId?: string;
+      currentLocation?: unknown;
       intent?: AgentIntent;
       locale?: 'zh' | 'en';
       attachments?: AgentAttachment[];
+      conversationAttachments?: AgentAttachment[];
       clientLocalDate?: string;
       clientLocalTime?: string;
       clientTimeZone?: string;
       clientTimestamp?: string;
     };
+
+    if (body.action === 'retry_run') {
+      const retried = await client.rpc('retry_agent_job', { p_run_id: body.runId });
+      if (retried.error) return json({ error: { code: 'retry_unavailable', message: '这次规划无法继续，请在当前对话发送新的需求。' } }, 409);
+      return json(retried.data);
+    }
+
+    if (body.action === 'execute_job') {
+      if (!body.runId || !body.leaseToken) return json({ error: 'Missing lease' }, 403);
+      jobAdmin = createClient(supabaseUrl, env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false, autoRefreshToken: false } });
+      const owned = await client.from('agent_runs').select('id,thread_id').eq('id', body.runId).eq('status', 'running').single();
+      if (owned.error) return json({ error: 'Run unavailable' }, 403);
+      const claimed = await jobAdmin.from('agent_jobs').update({ state: 'executing' })
+        .eq('run_id', body.runId).eq('lease_token', body.leaseToken).eq('state', 'leased')
+        .gt('lease_until', new Date().toISOString()).select('payload,attempts').maybeSingle();
+      if (claimed.error) throw claimed.error;
+      if (!claimed.data) return json({ error: 'Lease unavailable' }, 409);
+      jobLease = body.leaseToken;
+      jobAttempt = claimed.data.attempts;
+      activeRunId = body.runId;
+      body = { ...claimed.data.payload, action: 'turn', clientRunId: body.runId, threadId: owned.data.thread_id };
+    }
 
     if (body.action === 'threads') {
       const threads = await client
@@ -588,13 +417,15 @@ Deno.serve(async (req) => {
 
     if (body.action === 'run_activity') {
       if (!body.runId) return json({ activities: [] });
-      const activities = await client
-        .from('agent_tool_calls')
-        .select('tool_name,status,arguments,output,created_at')
-        .eq('run_id', body.runId)
-        .order('created_at');
+      await failStaleRuns(client, user.id);
+      const [run, activities] = await Promise.all([
+        client.from('agent_runs').select('status').eq('id', body.runId).maybeSingle(),
+        client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at').eq('run_id', body.runId).order('created_at'),
+      ]);
+      if (run.error) throw run.error;
       if (activities.error) throw activities.error;
       return json({
+        status: run.data?.status,
         activities: (activities.data || []).map((activity: any) => ({
           toolName: activity.tool_name,
           status: activity.status,
@@ -624,22 +455,71 @@ Deno.serve(async (req) => {
 
     if (body.action === 'history') {
       if (!body.threadId) return json({ messages: [] });
-      const [thread, messages] = await Promise.all([
+      await failStaleRuns(client, user.id, body.threadId);
+      const [thread, messages, activeRun] = await Promise.all([
         client.from('agent_threads').select('id,title,current_journey_id').eq('id', body.threadId).maybeSingle(),
         client.from('agent_messages').select('id,role,content,ui,created_at').eq('thread_id', body.threadId).order('created_at'),
+        client.from('agent_runs').select('id,status').eq('thread_id', body.threadId).eq('status', 'running').maybeSingle(),
       ]);
       if (thread.error) throw thread.error;
       if (!thread.data) return json({ error: { code: 'thread_not_found', message: '对话不存在' } }, 404);
       if (messages.error) throw messages.error;
-      return json({ thread: thread.data, messages: messages.data || [] });
+      if (activeRun.error) throw activeRun.error;
+      const lastAssistant = [...(messages.data || [])].reverse().find(message => message.role === 'assistant');
+      if (lastAssistant && !lastAssistant.ui?.planPreview && thread.data.current_journey_id) {
+        const planPreview = await loadSavedPlanPreview(client, thread.data.current_journey_id);
+        if (planPreview) lastAssistant.ui = { ...lastAssistant.ui, planPreview };
+      }
+      if (!activeRun.data) {
+        const latestRun = await client.from('agent_runs').select('id,status,execution_mode,created_at,updated_at')
+          .eq('thread_id', body.threadId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (latestRun.error) throw latestRun.error;
+        const lastMessage = messages.data?.at(-1);
+        if (latestRun.data?.status === 'failed' && latestRun.data.execution_mode === 'request'
+          && lastMessage?.role === 'assistant' && !lastMessage.ui?.createJourneyFlow
+          && Date.parse(lastMessage.created_at) >= Date.parse(latestRun.data.created_at)) {
+          lastMessage.ui = { ...lastMessage.ui, quickReplies: [{ label: '继续规划', message: '继续规划', action: 'retry_run', runId: latestRun.data.id }] };
+        }
+      }
+      let activities: AgentRunActivity[] = [];
+      if (activeRun.data) {
+        const calls = await client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at').eq('run_id', activeRun.data.id).order('created_at');
+        if (calls.error) throw calls.error;
+        activities = (calls.data || []).map((activity: any) => ({
+          toolName: activity.tool_name,
+          status: activity.status,
+          arguments: activity.arguments || {},
+          output: activity.output,
+        }));
+      }
+      return json({
+        thread: thread.data,
+        messages: (messages.data || []).map((message: { ui?: AgentMessageUi }) => ({
+          ...message,
+          ui: message.ui?.quickReplies ? { ...message.ui, quickReplies: normalizePlanningFollowUps(message.ui.quickReplies) } : message.ui,
+        })),
+        activeRun: activeRun.data ? { id: activeRun.data.id, status: 'running', activities } : undefined,
+      });
     }
 
-    const runtime = createAgentRuntime(agentModelConfig(), Boolean(body.currentJourneyId));
-
     if (body.action !== 'turn' || !body.message?.trim()) return json({ error: { code: 'message_required', message: '请输入内容' } }, 400);
+    if (!jobLease && validClientRunId(body.clientRunId)) {
+      const existingRun = await client.from('agent_runs').select('id,thread_id,status,final_output').eq('id', body.clientRunId).maybeSingle();
+      if (existingRun.error) throw existingRun.error;
+      if (existingRun.data) {
+        const run = existingRun.data;
+        const reply = await client.from('agent_messages').select('ui').eq('thread_id', run.thread_id)
+          .eq('role', 'assistant').contains('ui', { requestId: run.id }).maybeSingle();
+        if (reply.error) throw reply.error;
+        const ui = reply.data?.ui || (run.status === 'completed' ? await messageUiForRun(client, run.id, []) : undefined);
+        return json({ runId: run.id, threadId: run.thread_id, status: run.status, message: run.final_output,
+          ui, quickReplies: ui?.quickReplies });
+      }
+    }
     const displayMessage = body.displayMessage?.trim() || body.message.trim();
     let threadId = body.threadId;
-    if (body.currentJourneyId) {
+    let resolvedCurrentJourneyId = body.currentJourneyId;
+    if (body.currentJourneyId && !jobLease) {
       const existing = await client
         .from('agent_threads')
         .select('id')
@@ -663,99 +543,127 @@ Deno.serve(async (req) => {
         const updated = await client.from('agent_threads').update({ current_journey_id: body.currentJourneyId }).eq('id', threadId);
         if (updated.error) throw updated.error;
       }
+      resolvedCurrentJourneyId = body.currentJourneyId || thread.data.current_journey_id || undefined;
     } else {
-      const created = await client.from('agent_threads').insert({ user_id: user.id, current_journey_id: body.currentJourneyId || null, title: displayMessage.slice(0, 36) }).select('id').single();
+      const newThreadId = validClientRunId(body.clientRunId) || crypto.randomUUID();
+      const created = await client.from('agent_threads').upsert({ id: newThreadId, user_id: user.id, current_journey_id: body.currentJourneyId || null, title: displayMessage.slice(0, 36) }, { onConflict: 'id', ignoreDuplicates: true });
       if (created.error) throw created.error;
-      threadId = created.data.id;
+      threadId = newThreadId;
     }
     if (!threadId) throw new Error('Thread could not be resolved');
     activeThreadId = threadId;
 
-    const attachments = validAttachments(body.attachments, user.id);
-    const existingFlow = body.currentJourneyId ? null : await latestCreateJourneyFlow(client, threadId);
-    const effectiveMessage = existingFlow ? mergeFlowMessage(existingFlow, body.message.trim()) : body.message.trim();
-    const flowActive = !body.currentJourneyId && (Boolean(existingFlow) || shouldStartCreateJourneyFlow(effectiveMessage, body.intent));
-
-    if (flowActive) {
-      const preflight = journeyCreationPreflight(effectiveMessage, body.locale, body.intent);
-      if (preflight.kind !== 'continue') {
-        const ui = await persistFlowReply(
-          client,
-          threadId,
-          user.id,
-          displayMessage,
-          preflight.message,
-          preflight.quickReplies,
-          { step: preflight.kind, originalMessage: effectiveMessage },
-          {},
-          attachments.length ? { attachments } : {},
-        );
-        return json({ threadId, runId: crypto.randomUUID(), status: 'completed', message: preflight.message, quickReplies: preflight.quickReplies, ui } satisfies AgentResponse);
-      }
-
-      const hasUploadedTrack = hasTrackAttachment(attachments);
-      const skipTrack = wantsNoTrack(effectiveMessage);
-      const requestedTrackWithoutFile = wantsTrackUpload(effectiveMessage) && !hasUploadedTrack;
-      if (!hasUploadedTrack && !skipTrack) {
-        const message = requestedTrackWithoutFile ? trackFileRequiredMessage(body.locale) : trackPromptMessage(body.locale);
-        const quickReplies = trackClarificationQuickReplies(body.locale);
-        const ui = await persistFlowReply(
-          client,
-          threadId,
-          user.id,
-          displayMessage,
-          message,
-          quickReplies,
-          { step: 'ask_track', originalMessage: effectiveMessage.replace(/[，,]?\s*(上传轨迹|使用轨迹|有轨迹|upload track|use track)\s*$/i, '') },
-          {},
-          attachments.length ? { attachments } : {},
-        );
-        return json({ threadId, runId: crypto.randomUUID(), status: 'completed', message, quickReplies, ui } satisfies AgentResponse);
+    const uploadedNow = validAttachments(body.attachments, user.id);
+    const conversationFiles: AgentAttachment[][] = [];
+    if (!jobLease) {
+      for (let offset = 0; ; offset += 100) {
+        const history = await client.from('agent_messages').select('ui').eq('thread_id', threadId)
+          .eq('role', 'user').not('ui->attachments', 'is', null)
+          .order('created_at', { ascending: false }).range(offset, offset + 99);
+        if (history.error) throw history.error;
+        for (const message of history.data || []) conversationFiles.push(validAttachments(message.ui?.attachments, user.id));
+        if ((history.data?.length || 0) < 100) break;
       }
     }
+    const availableAttachments = conversationAttachments(uploadedNow,
+      validAttachments(body.conversationAttachments, user.id), conversationFiles);
+    // Keep the most recent track available even when newer uploads are photos/documents.
+    const latestTrack = availableAttachments.find(isTrackAttachment);
+    let attachments = (latestTrack
+      ? [latestTrack, ...availableAttachments.filter((attachment) => !isTrackAttachment(attachment))]
+      : availableAttachments).slice(0, 6);
+    const effectiveMessage = body.message.trim();
 
     const runId = validClientRunId(body.clientRunId) || crypto.randomUUID();
+    await failStaleRuns(client, user.id, threadId);
+    if (!jobLease) {
+      const queued = await client.rpc('enqueue_agent_job', {
+        p_run_id: runId, p_thread_id: threadId, p_display_message: displayMessage, p_version: AGENT_VERSION,
+        p_payload: { message: effectiveMessage, displayMessage, currentJourneyId: resolvedCurrentJourneyId, intent: body.intent,
+          locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
+          clientTimeZone: body.clientTimeZone, clientTimestamp: body.clientTimestamp },
+      });
+      if (queued.error) throw queued.error;
+      return json(queued.data, 202);
+    }
     activeRunId = runId;
+    shouldPersistFailure = true;
+    const config = agentModelConfig();
+    const temporalContext = agentTemporalContext(body);
+    const recordMetric = async (metric: ModelMetric) => {
+      const result = await jobAdmin.from('agent_model_metrics').insert({ ...metric, run_id: runId, user_id: user.id });
+      if (result.error) throw result.error;
+    };
+    const task = await prepareTask(client, jobAdmin, {
+      runId, threadId, userId: user.id, journeyId: resolvedCurrentJourneyId || null,
+      message: effectiveMessage, intent: body.intent, temporalContext,
+      attachments: attachments.map(({ name, kind }) => ({ name, kind })),
+    }, createAgentRuntime(config, false, undefined, recordMetric).interpret);
+    attachments = attachments.filter(attachment => !isTrackAttachment(attachment) || attachment.name === task.decision.trackAttachmentName);
+    const runtime = createAgentRuntime(config, Boolean(resolvedCurrentJourneyId), task, recordMetric);
     const context: AgentContext = {
       userId: user.id,
       threadId,
       runId,
-      currentJourneyId: body.currentJourneyId,
-      canUndoPreviousChanges: requestsUndo(effectiveMessage),
+      currentJourneyId: resolvedCurrentJourneyId,
+      currentLocation: normalizeAgentLocation(body.currentLocation),
+      task,
       originalUserMessage: effectiveMessage,
-      allowUndatedJourney: explicitlyAllowsUndatedJourney(effectiveMessage),
+      attachments,
     };
-    bindRunClient(runId, client);
-    const discardedApprovals = await client.from('agent_runs').update({
-      status: 'failed',
-      error: 'Approval flow removed',
-      updated_at: new Date().toISOString(),
-    }).eq('thread_id', threadId).eq('status', 'pending_approval');
-    if (discardedApprovals.error) throw discardedApprovals.error;
-    const createdRun = await client.from('agent_runs').insert({ id: runId, thread_id: threadId, user_id: user.id, status: 'running', agent_version: AGENT_VERSION }).select('id').single();
-    if (createdRun.error) throw createdRun.error;
-    const userMessage = await client.from('agent_messages').insert({
-      thread_id: threadId,
-      user_id: user.id,
-      role: 'user',
-      content: displayMessage,
-      ui: attachments.length ? { attachments } : {},
+    const agentClient = createClient(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'x-kaipa-agent-run-id': runId,
+        },
+      },
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-    if (userMessage.error) throw userMessage.error;
+    bindRunClient(runId, agentClient);
+    bindPackingDraftStore(runId, jobAdmin);
     const touchedThread = await client.from('agent_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
     if (touchedThread.error) throw touchedThread.error;
 
-    const session = new SupabaseAgentSession(client, threadId, user.id);
+    const session = new SupabaseAgentSession(client, threadId, user.id, runtime.summarize);
     shouldPersistFailure = true;
-    const attachmentInputs = await Promise.all(attachments.map(attachmentInput));
-    const temporalContext = agentTemporalContext(body);
+    const dataContext = await prepareAgentContext(agentClient, context);
+    // Once a file is bound to a journey, use its versioned summary instead of
+    // downloading and parsing the same GPX/KML again on every conversation turn.
+    const boundTrack = resolvedCurrentJourneyId && attachments.some(isTrackAttachment)
+      ? await client.from('journeys').select('tracks ( file_url )').eq('id', resolvedCurrentJourneyId).single()
+      : { data: null, error: null };
+    if (boundTrack.error) throw boundTrack.error;
+    const boundTrackUrl = (boundTrack.data?.tracks as { file_url?: string | null } | null)?.file_url;
+    const attachmentInputs = await Promise.all(attachments.map(attachment => isTrackAttachment(attachment) && attachment.url === boundTrackUrl
+      ? { type: 'input_text' as const, text: `轨迹文件“${attachment.name}”已绑定当前旅程。使用本轮有效 track 摘要；缺失时只读取 track 分区，不必重新解析原文件。` }
+      : attachmentInput(attachment, client, user.id)));
     const uploadedTrack = attachments.find(isTrackAttachment);
-    const attachmentContext = uploadedTrack
-      ? `\n系统附件状态：本轮已成功收到并验证轨迹文件“${uploadedTrack.name}”。不得再次要求用户上传轨迹；创建旅程时必须把“${uploadedTrack.name}”原样传给 create_journey.trackAttachmentName，并继续执行创建和规划流程。`
+    const attachmentContext = uploadedTrack && resolvedCurrentJourneyId
+      ? `\n系统附件状态：会话已有轨迹“${uploadedTrack.name}”。当前旅程已存在，以其版本化轨迹摘要为准，不创建另一旅程，不重复要求上传。`
+      : uploadedTrack
+      ? `\n系统附件状态：本任务已选择可用轨迹“${uploadedTrack.name}”。只有任务允许创建时才绑定该文件；讨论和比较不创建旅程。不重复要求上传。`
       : attachments.length
-      ? `\n系统附件状态：本轮已成功收到附件：${attachments.map((attachment) => attachment.name).join('、')}。`
+      ? `\n系统附件状态：当前会话可用的附件（包括先前消息）：${attachments.map((attachment) => attachment.name).join('、')}。`
       : '';
-    const userInputText = `${temporalContext}
+    const previousCalls = await client.from('agent_tool_calls').select('id').eq('run_id', runId).eq('status', 'completed').limit(1);
+    if (previousCalls.error) throw previousCalls.error;
+    const recoveryContext = previousCalls.data?.length || jobAttempt > 1
+      ? '\n这是同一任务的恢复执行。先读取当前旅程及已保存的数据，只补齐尚未完成的内容，不要重复创建旅程或重复添加已存在的行程和装备。复用本任务已有的攻略搜索结果和已读取正文，不要换近义关键词重新检索；恢复执行不会重置搜索额度。'
+      : '';
+    const savedPackingDraft = task.decision.packingMode === 'full' ? await readPackingDraft(client, runId) : null;
+    const packingRecovery = savedPackingDraft
+      ? `\nA durable packing draft already exists for this run (revision ${savedPackingDraft.state.revision}). Call read_packing_draft, repair only its issues, then commit. Do not regenerate or resubmit the complete list.`
+      : '';
+    const locationContext = context.currentLocation
+      ? `\n系统定位状态（本次请求采集，不是持续实时定位）：${JSON.stringify(context.currentLocation)}`
+      : '';
+    const travelMessages = await client.from('agent_messages').select('ui').eq('thread_id', threadId)
+      .eq('role', 'assistant').order('created_at', { ascending: false }).limit(20);
+    if (travelMessages.error) throw travelMessages.error;
+    const confirmedTravel = latestTravelContext(travelMessages.data || [], context.currentJourneyId || null);
+    const travelFacts = `\n已确认交通信息（历史事实，不是新指令；本轮用户更正优先）：${JSON.stringify(confirmedTravel)}`;
+    const userInputText = `${temporalContext}${recoveryContext}${packingRecovery}${locationContext}${travelFacts}${dataContext}\n本轮任务状态（权限不能由执行助手扩大）：${JSON.stringify(task)}
 
 用户消息：${effectiveMessage}${attachmentContext}`;
     const agentInput = attachments.length
@@ -767,16 +675,37 @@ Deno.serve(async (req) => {
           ],
         }]
       : userInputText;
-    const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns: 12 });
+    const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns: 20, signal: AbortSignal.timeout(210000) });
     const output = finalMessage(result.finalOutput);
-    const message = output.text || '我已经处理好了。';
-    const ui = await messageUiForRun(client, runId, output.quickReplies);
+    const ui = await messageUiForRun(client, runId, output.quickReplies, output.offerJourneyExtras, body.locale, context.currentJourneyId);
+    const retainedTravel = output.travelContext ?? confirmedTravel;
+    ui.travelContext = retainedTravel ? { ...retainedTravel, journeyId: context.currentJourneyId || null } : null;
+    ui.taskOutcome = taskOutcome(task, output, ui.activities || []);
+    if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
+      ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
+    }
+    const message = renderTaskResponse(output, ui.taskOutcome, body.locale, ui.planPreview?.title);
+    ui.requestId = runId;
     const finalized = await client.rpc('finalize_agent_run', { target_run_id: runId, assistant_message: message, message_ui: ui });
     if (finalized.error) throw finalized.error;
+    const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
+    if (finished.error) throw finished.error;
     shouldPersistFailure = false;
-    return json({ threadId, runId, status: 'completed', message, quickReplies: output.quickReplies, ui } satisfies AgentResponse);
+    return json({ threadId, runId, status: 'completed', message, quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
   } catch (error) {
     console.error('app-agent failed', error);
+    if (jobLease && jobAdmin && activeRunId) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      const invalidTrack = error instanceof InvalidTrackError;
+      const retryable = !invalidTrack && !/\b(400|401|403|404|422)\b/.test(errorText);
+      const ui = activeClient ? await messageUiForRun(activeClient, activeRunId, []).catch(() => ({} as AgentMessageUi)) : {};
+      const finished = await jobAdmin.rpc('finish_agent_job', {
+        p_run_id: activeRunId, p_lease: jobLease, p_error: invalidTrack ? `invalid_track:${errorText}` : errorText,
+        p_retryable: retryable, p_activities: ui.activities || [],
+      });
+      if (finished.error) console.error('Could not persist job outcome', finished.error);
+      return json({ accepted: true });
+    }
     if (activeRunId && activeClient) {
       await activeClient.from('agent_runs').update({
         status: 'failed',
@@ -799,6 +728,6 @@ Deno.serve(async (req) => {
     }
     return json({ error: { code: 'agent_failed', message: 'AI 助手暂时不可用，请稍后重试' } }, 500);
   } finally {
-    if (activeRunId) releaseRunClient(activeRunId);
+    if (activeRunId) { releaseRunClient(activeRunId); releasePackingDraftStore(activeRunId); }
   }
 });

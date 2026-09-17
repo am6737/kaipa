@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
-import { parseTrack, computeStats, buildTrackData, snapWaypoints } from './lib/trackParser';
-import { extractKmlFromKmz } from './lib/kmz';
 import { StatusBar } from 'expo-status-bar';
 import type { Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
@@ -11,8 +9,9 @@ import { NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
 import { supabase } from './lib/supabase';
 import { upgradeCurrentAnonymousSession } from './lib/auth';
-import { uploadMedia } from './lib/storage';
+import { buildTrackDraft, parseTrackFile, TrackFileError } from './lib/trackImport';
 import { AuthFlow } from './screens/AuthFlow';
+import { OnboardingGate } from './screens/OnboardingFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { JourneyScreen } from './screens/JourneyScreen';
 import { GearScreen } from './screens/GearScreen';
@@ -113,7 +112,12 @@ function AppShell() {
       <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'gear' || detailOpen) && hidden]}>
         <GearScreen theme={theme} />
       </View>
-      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'me' || detailOpen) && hidden]}>
+      <View
+        pointerEvents={nav.mainTab === 'me' && !detailOpen ? 'auto' : 'none'}
+        accessibilityElementsHidden={nav.mainTab !== 'me' || detailOpen}
+        importantForAccessibility={nav.mainTab !== 'me' || detailOpen ? 'no-hide-descendants' : 'auto'}
+        style={[StyleSheet.absoluteFill, { opacity: nav.mainTab === 'me' && !detailOpen ? 1 : 0 }]}
+      >
         <MeScreen theme={theme} />
       </View>
       <BottomTabs
@@ -131,60 +135,32 @@ function AppShell() {
             try {
               const result = await FSFile.pickFileAsync({ mimeTypes: '*/*' });
               if (result.canceled || !result.result) return;
-              const filename = result.result.name || '';
-              const ext = (filename.split('.').pop() || '').toLowerCase();
-              if (ext !== 'gpx' && ext !== 'kml' && ext !== 'kmz') {
-                nav.showToast(t('record.track.errFormat'));
-                return;
-              }
               setTrackLoading(true);
               try {
-                let text: string;
-                let parseFilename = filename;
-                if (ext === 'kmz') {
-                  const buffer = await result.result.arrayBuffer();
-                  const kml = extractKmlFromKmz(new Uint8Array(buffer));
-                  if (!kml) {
-                    nav.showToast(t('record.track.errParse'));
-                    return;
-                  }
-                  text = kml;
-                  parseFilename = filename.replace(/\.kmz$/i, '.kml');
-                } else {
-                  text = await result.result.text();
-                }
-                const parsed = parseTrack(text, parseFilename, t as any);
-                if (parsed.error || !parsed.points) {
-                  nav.showToast(parsed.error || t('record.track.errParse'));
-                  return;
-                }
-                const stats = computeStats(parsed.points);
-                if (!stats) {
+                const parsed = await parseTrackFile(result.result, t);
+                const draft = await buildTrackDraft(parsed, { userId, sourceUri: result.result.uri, fileSize: result.result.size });
+                const track = await data.createTrack(draft);
+                if (!track) {
                   nav.showToast(t('record.track.errParse'));
                   return;
                 }
-                const trackFileUrl = await uploadMedia(result.result.uri, userId, nav.pointInfo?.id || 'route-import');
-                const { trackCoords, trackElevation, trackDurationMs, dist, asc } = buildTrackData(stats);
-                const trackWaypoints = parsed.waypoints ? snapWaypoints(parsed.waypoints, stats) : undefined;
-                nav.patchCurrent({
-                  trackCoords,
-                  trackElevation,
-                  trackDurationMs,
-                  dist,
-                  ...(asc ? { asc } : {}),
-                  ...(trackWaypoints ? { trackWaypoints } : {}),
-                  trackFileUrl,
-                  trackFileName: filename,
-                });
+                // Tracks belong to the library first. A journey can point at the
+                // new row; a route cannot, so the track stays unattached and the
+                // user applies it later from 轨迹库.
+                if (nav.pointInfo?.kind === 'journey') {
+                  nav.patchCurrent({ trackId: track.id, dist: parsed.dist, ...(parsed.asc ? { asc: parsed.asc } : {}) });
+                } else {
+                  nav.showToast(t('journey.track.savedToLibrary'));
+                }
                 nav.closeAddRoute();
                 nav.showToast(t('appShell.toastUploadTrack'));
               } finally {
                 setTrackLoading(false);
               }
             } catch (e) {
-              console.warn('[Upload] track parse error:', e);
+              console.warn('[Upload] track import error:', e);
               setTrackLoading(false);
-              nav.showToast(t('record.track.errParse'));
+              nav.showToast(t(e instanceof TrackFileError ? e.messageKey : 'record.track.errParse'));
             }
           }}
         />
@@ -214,16 +190,15 @@ function AppShell() {
             }
             nav.closeNewJourney();
             nav.showToast(t('appShell.toastJourneyCreated'));
+            const totalDays = saved.totalDays ?? poi.totalDays;
+            const hasTrack = Boolean(poi.trackFileUrl || (poi.trackCoords?.length ?? 0) > 1);
             nav.openAssistant(
               prompt,
               saved.id,
               true,
-              t(poi.trackFileUrl || (poi.trackCoords?.length ?? 0) > 1
-                ? 'journeyEdit.form.smartPlanTrackRequest'
-                : 'journeyEdit.form.smartPlanRequest', {
-                name: saved.name,
-                count: saved.totalDays || poi.totalDays || 1,
-              }),
+              totalDays != null && totalDays > 0
+                ? t(hasTrack ? 'journeyEdit.form.smartPlanTrackRequest' : 'journeyEdit.form.smartPlanRequest', { name: saved.name, count: totalDays })
+                : t(hasTrack ? 'journeyEdit.form.smartPlanTrackRequestUnset' : 'journeyEdit.form.smartPlanRequestUnset', { name: saved.name }),
             );
             return true;
           }}
@@ -439,7 +414,9 @@ export function AppRoot() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       {session === undefined ? null : session && userId ? (
         <DataProvider userId={userId}>
-          <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />
+          <OnboardingGate theme={theme}>
+            <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />
+          </OnboardingGate>
         </DataProvider>
       ) : (
         <AuthFlow theme={theme} onSuccess={() => {}} />

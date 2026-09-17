@@ -67,15 +67,23 @@ function resolvedCompanions(journey: Poi): Companion[] {
   return companions.length ? companions : [{ id: -1, ini: '我', name: '我', color: '#8E8E93', self: true, host: true }];
 }
 
-export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: string }) {
+export function useJourneyPacking({ journey, userId, preview, realtime = true }: {
+  journey: Poi;
+  userId: string;
+  preview?: { lists: Record<string, unknown>[]; items: Record<string, unknown>[] };
+  /** Disable the live subscription for one-shot read-only consumers such as exports. */
+  realtime?: boolean;
+}) {
   const companions = useMemo(() => resolvedCompanions(journey), [journey]);
   const currentCompanion = useMemo(() => companions.find((companion) => companion.userId === userId || companion.self) ?? companions[0], [companions, userId]);
   const currentCompanionId = useMemo(() => {
     const index = companions.indexOf(currentCompanion);
     return companionId(currentCompanion, Math.max(0, index));
   }, [companions, currentCompanion]);
-  const [snapshot, setSnapshot] = useState<JourneyPackingSnapshot>({ lists: [], items: [] });
-  const [loading, setLoading] = useState(true);
+  const [snapshot, setSnapshot] = useState<JourneyPackingSnapshot>(() => preview
+    ? { lists: preview.lists.map(mapList), items: preview.items.map(mapItem) }
+    : { lists: [], items: [] });
+  const [loading, setLoading] = useState(!preview);
   const [saving, setSaving] = useState(false);
   const [localMode, setLocalMode] = useState(false);
   const [error, setError] = useState<Error | undefined>();
@@ -186,6 +194,11 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
   }, [currentCompanionId, journey.id, userId]);
 
   const fetchPacking = useCallback(async () => {
+    if (preview) {
+      setSnapshot({ lists: preview.lists.map(mapList), items: preview.items.map(mapItem) });
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(undefined);
     const local = await readLocal();
@@ -219,11 +232,12 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
       setSnapshot(local);
     }
     setLoading(false);
-  }, [journey.id, migrateLocalToRemote, readLocal]);
+  }, [journey.id, migrateLocalToRemote, preview, readLocal]);
 
   useEffect(() => { void fetchPacking(); }, [fetchPacking]);
 
   useEffect(() => {
+    if (preview) return;
     let journeyRefreshers = refreshers.get(journey.id);
     if (!journeyRefreshers) {
       journeyRefreshers = new Set();
@@ -234,17 +248,17 @@ export function useJourneyPacking({ journey, userId }: { journey: Poi; userId: s
       journeyRefreshers!.delete(fetchPacking);
       if (!journeyRefreshers!.size) refreshers.delete(journey.id);
     };
-  }, [fetchPacking, journey.id]);
+  }, [fetchPacking, journey.id, preview]);
 
   useEffect(() => {
-    if (localMode) return;
+    if (!realtime || localMode || preview) return;
     const channel = supabase
       .channel(`journey-packing:${journey.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'journey_packing_lists', filter: `journey_id=eq.${journey.id}` }, () => { void fetchPacking(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'journey_packing_items' }, () => { void fetchPacking(); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [fetchPacking, journey.id, localMode]);
+  }, [fetchPacking, journey.id, localMode, preview, realtime]);
 
   const views = useMemo(() => buildPackingListViews(journey.id, snapshot.lists, snapshot.items, companions), [companions, journey.id, snapshot.items, snapshot.lists]);
 

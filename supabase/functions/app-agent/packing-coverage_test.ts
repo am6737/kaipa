@@ -33,6 +33,12 @@ Deno.test('full day-trip coverage accepts a complete actionable list', () => {
   assert(gaps.length === 0, `unexpected gaps: ${gaps.map((gap) => gap.key).join(', ')}`);
 });
 
+Deno.test('waterproof outerwear satisfies rain coverage but a waterproof bag does not', () => {
+  const withoutRain = baseline.filter(item => !item.name.includes('雨衣'));
+  assert(!missingPackingCoverage([...withoutRain, { name: '轻量防水外套', quantity: 1 }], dayTrip).some(gap => gap.key === 'rain'), 'Waterproof outerwear was rejected');
+  assert(missingPackingCoverage([...withoutRain, { name: '防水收纳袋', quantity: 1 }], dayTrip).some(gap => gap.key === 'rain'), 'A bag must not substitute for rain clothing');
+});
+
 Deno.test('camping and natural water add contextual requirements', () => {
   const gaps = missingPackingCoverage(baseline, {
     accommodation: 'camping',

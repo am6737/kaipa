@@ -12,14 +12,14 @@ export type PackingValidationIssue = {
 
 const WATER_PRODUCT = /(饮用水|矿泉水|瓶装水|纯净水|水壶|水瓶|水袋)/i;
 const BOTTLED_WATER = /(饮用水|矿泉水|瓶装水|纯净水)/i;
-const WATER_TREATMENT = /(净水|滤水|过滤)/i;
+const WATER_TREATMENT = /(?:净水|滤水|过滤)(?:器|片|剂|装置|系统|壶|吸管)/i;
 const WATER_CAPACITY = /\d+(?:\.\d+)?\s*(?:ml|毫升|l|升)/i;
 const POWER_BANK = /(充电宝|移动电源|power\s*bank)/i;
 const POWER_CAPACITY = /\d[\d,.]*\s*(?:mah|毫安时|wh|瓦时)/i;
 const UNSPLIT_KIT = /^(?:个人)?(?:急救|医药)(?:包|箱|套装)$/i;
 const GENERIC_FOOD = /^.{0,8}(?:路餐|餐食|食物|干粮|零食|能量食品)$/i;
-const GENERIC_ITEMS = /^(?:饮用水|水|充电宝|移动电源|个人药品|常用药|换洗衣物|衣物|备用衣物)$/i;
-const PACKAGED_TRAIL_FOOD = /(能量棒|蛋白棒|牛肉干|肉脯|坚果|燕麦|巧克力|饼干|方便面|速食|冻干|自热|火腿肠|电解质(?:粉|片|冲剂))/i;
+const GENERIC_ITEMS = /^(?:饮用水|水|个人药品|常用药|换洗衣物|衣物|备用衣物)$/i;
+const PACKAGED_TRAIL_FOOD = /(能量棒|蛋白棒|牛肉干|肉脯|坚果|花生酱|燕麦|巧克力|饼干|方便面|速食|冻干|自热|火腿肠|面包|三明治|葡萄干|果干|电解质(?:粉|片|冲剂))/i;
 const PORTION_SIZE = /\d+(?:\.\d+)?\s*(?:g|克|kg|千克|ml|毫升|l|升)(?:\s*\/\s*(?:包|袋|根|瓶|份))?/i;
 const FUEL_BY_WEIGHT = /(气罐|燃料)/i;
 const WEIGHT_IN_NAME = /(?:^|[\s（(])(?:约\s*)?\d+(?:\.\d+)?\s*(?:g|克|kg|千克)(?:[\s）)]|$)/i;
@@ -101,30 +101,6 @@ export function validatePackingItems(items: PackingItemDraft[]): PackingValidati
   });
 
   return issues;
-}
-
-function waterCapacityLiters(item: PackingItemDraft) {
-  if (!BOTTLED_WATER.test(item.name)) return undefined;
-  const match = packingItemSearchText(item).match(/(\d+(?:\.\d+)?)\s*(ml|毫升|l|升)/i);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  return /^(?:ml|毫升)$/i.test(match[2]) ? value / 1000 : value;
-}
-
-export function requiresMixedWaterPlan(message: string, waterRefill: string) {
-  if (waterRefill !== 'none') return false;
-  const hourMatch = message.match(/(\d+(?:\.\d+)?)\s*(?:小时|h(?:ours?)?)/i);
-  return /(?:全天|全日|一日|一天)/.test(message) || (hourMatch ? Number(hourMatch[1]) >= 4 : false);
-}
-
-export function packingWaterMixError(items: PackingItemDraft[]) {
-  const variants = items.map((item) => ({ item, liters: waterCapacityLiters(item) })).filter((entry): entry is { item: PackingItemDraft; liters: number } => entry.liters != null);
-  const hasLarge = variants.some((entry) => entry.liters >= 1.2 && entry.liters <= 2);
-  const hasSmall = variants.some((entry) => entry.liters >= 0.45 && entry.liters <= 0.75);
-  const totalLiters = variants.reduce((total, entry) => total + entry.liters * entry.item.quantity, 0);
-  return hasLarge && hasSmall && totalLiters >= 2
-    ? undefined
-    : `全天或连续数小时无补水的清单需要混合携水：至少一瓶 1.2L/1.5L 瓶装饮用水，加一瓶或多瓶 500ml/550ml 瓶装饮用水，总量不少于约 2L；水壶或空水瓶不能代替实际饮水。当前明确饮水总量为 ${Number(totalLiters.toFixed(2))}L。`;
 }
 
 export function packingValidationError(issues: PackingValidationIssue[]) {

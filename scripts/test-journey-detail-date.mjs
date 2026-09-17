@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { formatJourneyDetailDate } from '../src/components/journey/journeyDatePresentation.ts';
+
+const now = new Date(2026, 8, 8);
+const format = (journey, locale = 'zh') => formatJourneyDetailDate(journey, locale, now);
+assert.equal(format({ date: '2026 · 9 月' }), '9月');
+assert.equal(format({ date: '2025 · 9 月' }), '2025年9月');
+assert.equal(format({ date: '2026 · 9 月 8 日' }), '9月8日');
+assert.equal(format({ plannedDate: '9 月 8 日', date: '2026 · 9 月', totalDays: 3 }), '9月8日-9月10日 3天');
+assert.equal(format({ plannedDate: '9/8', date: '2026 · 9', totalDays: 3 }), '9月8日-9月10日 3天');
+assert.equal(format({ date: '2026-09-30', totalDays: 3 }), '9月30日-10月2日 3天');
+assert.equal(format({ date: '2026/09/08', totalDays: 1 }), '9月8日 1天');
+assert.equal(format({ plannedDate: '9月8日', date: '2025 · 9 月', totalDays: 2 }), '2025年9月8日-2025年9月9日 2天');
+assert.equal(format({ date: '2026-12-31', totalDays: 2 }), '2026年12月31日-2027年1月1日 2天');
+assert.equal(format({ date: '2024年2月28日', totalDays: 3 }), '2024年2月28日-2024年3月1日 3天');
+assert.equal(format({ date: '2026-03-07', totalDays: 3 }), '3月7日-3月9日 3天');
+assert.equal(format({ date: '2026-09-08', days: '3 天' }), '9月8日-9月10日 3天');
+assert.equal(format({ date: '2026-09-08', days: '3 days' }), '9月8日-9月10日 3天');
+assert.equal(format({ date: '2026-09-08', days: '3小时' }), '9月8日');
+assert.equal(format({ date: '2026-09-08', totalDays: 0 }), '9月8日');
+assert.equal(format({ date: '2026-02-30', totalDays: 2 }), '2026-02-30');
+assert.equal(format({ date: '记录到 Day 2/3' }), '记录到 Day 2/3');
+assert.equal(format({ days: '3天', totalDays: 3 }), null);
+assert.equal(format({ date: '2026-09-08', totalDays: 3 }, 'en'), 'Sep 8-Sep 10 3 days');
+assert.equal(format({ date: '2026-09-08', totalDays: 1 }, 'en'), 'Sep 8 1 day');
+assert.equal(format({ date: '2026 · 9' }, 'en'), 'Sep');
+console.log('Journey detail date tests passed.');

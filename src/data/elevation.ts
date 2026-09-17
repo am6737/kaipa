@@ -24,7 +24,7 @@ function num(s?: string): number {
   return m ? parseFloat(m[0]) : 0;
 }
 
-export function buildElevation(poi: Poi): ElevSeries {
+export function buildElevation(poi: Poi, options?: { synthesize?: boolean }): ElevSeries {
   if (poi.trackElevation && poi.trackElevation.length >= 2) {
     const raw = poi.trackElevation;
     const stride = Math.max(1, Math.floor(raw.length / 120));
@@ -48,6 +48,14 @@ export function buildElevation(poi: Poi): ElevSeries {
       if (last.ele < minEle) minEle = last.ele;
     }
     return { pts, totalKm: last.km, minEle: Math.round(minEle), maxEle: Math.round(maxEle), ascent: Math.round(ascent), descent: Math.round(descent), peakIdx };
+  }
+
+  // A track library entry shows what its file actually contains. Synthesizing a
+  // profile from dist/asc is decoration on a journey, but presenting an invented
+  // curve as measured elevation would be a lie in a file manager. The distance is
+  // still real, so it survives; the elevation fields collapse to zero.
+  if (options?.synthesize === false) {
+    return { pts: [], totalKm: num(poi.dist), minEle: 0, maxEle: 0, ascent: 0, descent: 0, peakIdx: 0 };
   }
 
   const totalKm = num(poi.dist) || 12;

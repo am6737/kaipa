@@ -4,6 +4,9 @@ The app agent reads the signed-in user's Kaipa data and searches configured
 travel sources through one normalized tool. All credentials stay in the Edge
 Function environment.
 
+The current task lifecycle, execution boundaries, skills and self-hosted rollout
+are documented in [Planning Harness](../../../docs/agent-harness.md).
+
 ## Required secrets
 
 ```bash
@@ -92,7 +95,16 @@ must validate the bearer token, rate-limit requests, and never return cookies
 or login state.
 
 The standalone gateway included in the adjacent MediaCrawler workspace reads
-`KAIPA_GATEWAY_API_KEY` and exposes only `/health` and `/v1/search`. Start it with:
+`KAIPA_GATEWAY_API_KEY` and exposes only `/health` and `/v1/search`.
+
+Xiaohongshu can also use an attended, already logged-in browser instead of the
+existing signed HTTP crawler. `XHS_SEARCH_MODE=api|browser` is a gateway-side
+operator setting, defaulting to `api`; Douyin is unchanged. See
+[Travel Search Modes](../../../infra/mediacrawler/README.md) for persistent mode
+switching, isolated browser setup, manual verification recovery, and deployment.
+The client and Edge Function use the same gateway contract in either mode.
+
+Example for the existing API mode:
 
 ```bash
 KAIPA_GATEWAY_API_KEY=replace-with-a-long-random-value \

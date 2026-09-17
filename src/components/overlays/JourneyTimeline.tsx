@@ -316,11 +316,10 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
   );
 }
 
-// ── A collapsible day group: bold label + count, chevron when collapsible ─────
-function DaySection({ theme, label, count, collapsible, collapsed, onToggle, routeSummary, routeColor, routePending, onRoutePress, children }: {
+// ── A collapsible day group: bold label, chevron when collapsible ─────────────
+function DaySection({ theme, label, collapsible, collapsed, onToggle, routeSummary, routeColor, routePending, onRoutePress, children }: {
   theme: Theme;
   label: string;
-  count: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
@@ -340,7 +339,6 @@ function DaySection({ theme, label, count, collapsible, collapsed, onToggle, rou
       >
         <View style={{ flex: 1 }}>
           <Text style={[type.pageTitle, { color: theme.text, fontSize: 23 }]} numberOfLines={1}>{label.toUpperCase()}</Text>
-          <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{count}</Text>
           {onRoutePress ? (
             <Press
               onPress={onRoutePress}
@@ -1108,11 +1106,11 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   );
 }
 
-export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onRouteBoundaryRequest }: { theme: Theme; info: Poi; readOnly?: boolean; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onRouteBoundaryRequest?: (groupKey: string) => void }) {
+export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onRouteBoundaryRequest }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onRouteBoundaryRequest?: (groupKey: string) => void }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId } = useData();
-  const tl = useTimeline(info.id, userId);
+  const tl = useTimeline(info.id, userId, preview);
   const [activeDay, setActiveDay] = useState<string>(ALL_DAYS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [viewer, setViewer] = useState<{ rowId: string; media: TLMedia[]; index: number } | null>(null);
@@ -1296,27 +1294,12 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
           {!readOnly && trackMeasure ? (
             <Press
               onPress={() => openRouteBoundary(g.key)}
-              style={{ height: 30, marginRight: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
+              style={{ height: 30, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
             >
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: routePendingFor(g.key) ? 'transparent' : JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length], borderWidth: routePendingFor(g.key) ? 1.5 : 0, borderColor: JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length] }} />
               <Text numberOfLines={1} style={[type.caption, { maxWidth: 180, color: tl.groupRoutes[g.key] ? theme.text2 : theme.accent, fontWeight: '700' }]}>{routeSummaryFor(g.key) || t('journey.timeline.routeSetEnd')}</Text>
             </Press>
           ) : null}
-          <View
-            style={{
-              minWidth: 52,
-              height: 30,
-              paddingHorizontal: space.sm,
-              borderRadius: radius.pill,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.fieldSurface,
-            }}
-          >
-            <Text style={[type.caption, { color: theme.text2, fontWeight: '700' }]}>
-              {t('journey.timeline.itemCount', { count: rows.length })}
-            </Text>
-          </View>
         </View>
 
         {rows.length ? (
@@ -1399,7 +1382,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, selectedDay, showDa
               key={g.key}
               theme={theme}
               label={dayLabel(g)}
-              count={t('journey.timeline.itemCount', { count: g.rows.length })}
               collapsible={currentDay === ALL_DAYS}
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
@@ -1510,6 +1492,9 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
     if (!dayChoiceMap.has(identity)) dayChoiceMap.set(identity, value);
   });
   const dayChoices = [...dayChoiceMap.values()].map((value) => ({ value, label: journeyDayDisplayLabel(value, resolved) }));
+  // The chip mirrors the wheel and the timeline group header: persisted keys
+  // stay as `Day 1` but are shown localized (`第一天`).
+  const dayDisplayLabel = day.trim() ? journeyDayDisplayLabel(day.trim(), resolved) : t('journey.timeline.ungrouped');
   const [startMins, setStartMins] = useState<number | null>(editRow?.timeStart ?? null);
   const [endMins, setEndMins] = useState<number | null>(editRow?.timeEnd ?? null);
   const [showTime, setShowTime] = useState(false);
@@ -1684,10 +1669,10 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
               <Press
                 onPress={toggleDayPicker}
                 accessibilityRole="button"
-                accessibilityLabel={`${t('journey.timeline.addTo')} ${day.trim() || t('journey.timeline.ungrouped')}`}
+                accessibilityLabel={`${t('journey.timeline.addTo')} ${dayDisplayLabel}`}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: dayOpen ? theme.fieldSurface : subtle }}
               >
-                <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{day.trim() || t('journey.timeline.ungrouped')}</Text>
+                <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{dayDisplayLabel}</Text>
                 <View style={{ transform: [{ rotate: dayOpen ? '180deg' : '0deg' }] }}>
                   <Icon name="chevronDown" color={theme.text3} size={14} />
                 </View>

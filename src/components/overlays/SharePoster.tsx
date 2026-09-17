@@ -24,6 +24,7 @@ import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../l
 import { useTimeline } from '../../hooks/useTimeline';
 import { useJourneyPacking } from '../../hooks/useJourneyPacking';
 import { useI18n, TKey } from '../../i18n';
+import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { Press } from '../Press';
 
 const formatTime = (minutes?: number) => {
@@ -321,13 +322,15 @@ export function SharePoster({
   onClose: () => void;
   onToast: (message: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const { items: gearItems, profile } = useData();
   const insets = useSafeAreaInsets();
   const screenDimensions = Dimensions.get('screen');
   const viewShotRef = useRef<any>(null);
   const timeline = useTimeline(poi.kind === 'journey' ? poi.id : undefined, userId);
-  const packing = useJourneyPacking({ journey: poi, userId });
+  // The poster only needs a snapshot. The journey checklist may already own
+  // this realtime channel while the poster is presented as an overlay.
+  const packing = useJourneyPacking({ journey: poi, userId, realtime: false });
 
   const timelineGroups = useMemo(() => {
     const orderedNames = [...timeline.knownGroups];
@@ -338,15 +341,17 @@ export function SharePoster({
     return orderedNames
       .map((name, index) => ({
         key: `${name}:${index}`,
-        label: name || t('journey.timeline.ungrouped'),
+        // Grouping stays on the persisted key (`Day 1`) so rows keep matching;
+        // only the printed title is localized (`第一天`).
+        label: name ? journeyDayDisplayLabel(name, resolved) : t('journey.timeline.ungrouped'),
         rows: timeline.rows.filter((row) => (row.day.trim() || t('journey.timeline.ungrouped')) === name),
       }))
       .filter((group) => group.rows.length > 0);
-  }, [t, timeline.knownGroups, timeline.rows]);
+  }, [resolved, t, timeline.knownGroups, timeline.rows]);
 
   const visiblePackingViews = useMemo(
     () => packing.views.filter((view) => (
-      view.kind === 'shared' || view.ownerCompanionId === packing.currentCompanionId
+      view.kind === 'personal' && view.ownerCompanionId === packing.currentCompanionId
     )),
     [packing.currentCompanionId, packing.views],
   );

@@ -7,19 +7,47 @@ STATE_DIR="${KAIPA_GATEWAY_STATE_DIR:-$HOME/.local/state/kaipa-gateway}"
 UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 PID_FILE="$STATE_DIR/gateway.pid"
 LOG_FILE="$STATE_DIR/gateway.log"
+MODE_FILE="$STATE_DIR/xhs-search-mode"
+restart=false
+requested_mode=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --restart) restart=true; shift ;;
+    --xhs-search-mode)
+      [[ $# -ge 2 ]] || { echo "--xhs-search-mode requires api or browser" >&2; exit 1; }
+      requested_mode="$2"; restart=true; shift 2 ;;
+    *) echo "Usage: $0 [--restart] [--xhs-search-mode api|browser]" >&2; exit 1 ;;
+  esac
+done
 
 mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/start.lock"
 flock -n 9 || exit 0
 
+saved_mode="$(cat "$MODE_FILE" 2>/dev/null || printf api)"
+mode="${requested_mode:-${XHS_SEARCH_MODE:-$saved_mode}}"
+[[ "$mode" == api || "$mode" == browser ]] || { echo "XHS search mode must be api or browser" >&2; exit 1; }
+browser_url="${XHS_BROWSER_SEARCH_URL:-http://127.0.0.1:8073/v1/search}"
+browser_key_file="${XHS_BROWSER_SEARCH_KEY_FILE:-${KAIPA_BROWSER_STATE_DIR:-$HOME/.local/state/kaipa-browser-verification}/search-api-key.txt}"
+if [[ "$mode" == browser && ! -s "$browser_key_file" && -z "${XHS_BROWSER_SEARCH_API_KEY:-}" ]]; then
+  echo "Start the browser search service first; its authentication key is missing" >&2
+  exit 1
+fi
+
 if [[ -f "$PID_FILE" ]]; then
   pid="$(cat "$PID_FILE")"
   if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-    if curl --silent --fail --max-time 2 http://127.0.0.1:8072/health >/dev/null; then
+    if [[ "$restart" == false ]] && curl --silent --fail --max-time 2 http://127.0.0.1:8072/health >/dev/null; then
       exit 0
     fi
+    process_command="$(ps -p "$pid" -o args= || true)"
+    if [[ "$process_command" != *"uvicorn api.kaipa_gateway:app"* ]]; then
+      echo "Refusing to stop an unrelated process recorded in $PID_FILE" >&2
+      exit 1
+    fi
     kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-    for _ in $(seq 1 10); do
+    for _ in $(seq 1 40); do
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.5
     done
@@ -51,6 +79,10 @@ if [[ -z "$gateway_key" ]]; then
   exit 1
 fi
 
+if [[ -n "$requested_mode" ]]; then
+  printf '%s\n' "$mode" >"$MODE_FILE"
+fi
+
 # Worker profiles are disposable copies. Rebuild them from the authenticated
 # base profiles whenever the gateway process is started.
 rm -rf \
@@ -60,6 +92,9 @@ rm -rf \
 cd "$MEDIA_CRAWLER_DIR"
 nohup setsid env \
   KAIPA_GATEWAY_API_KEY="$gateway_key" \
+  XHS_SEARCH_MODE="$mode" \
+  XHS_BROWSER_SEARCH_URL="$browser_url" \
+  XHS_BROWSER_SEARCH_KEY_FILE="$browser_key_file" \
   KAIPA_GATEWAY_SEARCH_TIMEOUT_SECONDS=120 \
   XHS_SEARCH_WORKERS=2 \
   DOUYIN_SEARCH_WORKERS=2 \

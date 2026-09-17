@@ -59,5 +59,6 @@ export interface NativeMapProps {
   onPress?: (coordinate: MapCoordinate) => void;
   onUserLocationChange?: (coordinate: MapCoordinate) => void;
   onCameraChange?: (heading: number, pitch: number) => void;
+  onZoomChange?: (zoom: number) => void;
   onGestureStart?: () => void;
 }

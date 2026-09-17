@@ -6,9 +6,11 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
+import type { JourneyVersion } from '../hooks/useJourneyVersions';
 
 export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type SubTab = 'explore' | 'memory';
+export type GearPageRequest = 'sets' | 'items';
 
 export type JourneyPatch = Partial<Poi>;
 
@@ -40,6 +42,9 @@ export interface NavValue {
   gearItemRequestId: number | null;
   openGearItem: (itemId: number) => void;
   clearGearItemRequest: () => void;
+  gearPageRequest: GearPageRequest | null;
+  openGearPage: (page: GearPageRequest) => void;
+  clearGearPageRequest: () => void;
 
   // selected POI + bottom sheet
   pointInfo: Poi | null;
@@ -110,6 +115,10 @@ export interface NavValue {
   journeyHistory: Poi | null;
   openJourneyHistory: (p: Poi) => void;
   closeJourneyHistory: () => void;
+  journeyVersionPreview: { poi: Poi; sourcePoi: Poi; version: JourneyVersion } | null;
+  openJourneyVersionPreview: (poi: Poi, sourcePoi: Poi, version: JourneyVersion) => void;
+  closeJourneyVersionPreview: () => void;
+  completeJourneyVersionPreview: (poi: Poi) => void;
   syncJourney: (p: Poi) => void;
 
   // 现场分享 (offline live share) host control sheet
@@ -187,6 +196,7 @@ export function NavProvider({
   const [mainTab, setMainTabRaw] = useState<MainTab>('discover');
   const [subTab, setSubTabRaw] = useState<SubTab>('explore');
   const [gearItemRequestId, setGearItemRequestId] = useState<number | null>(null);
+  const [gearPageRequest, setGearPageRequest] = useState<GearPageRequest | null>(null);
   const [pointInfo, setPointInfo] = useState<Poi | null>(null);
   const [pointSource, setPointSource] = useState<Poi | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -203,6 +213,7 @@ export function NavProvider({
   const [editJourney, setEditJourney] = useState<Poi | null>(null);
   const [journeySettings, setJourneySettings] = useState<Poi | null>(null);
   const [journeyHistory, setJourneyHistory] = useState<Poi | null>(null);
+  const [journeyVersionPreview, setJourneyVersionPreview] = useState<{ poi: Poi; sourcePoi: Poi; version: JourneyVersion } | null>(null);
   const [liveShare, setLiveShare] = useState<Poi | null>(null);
   const [nearbyJoinOpen, setNearbyJoinOpen] = useState(false);
   const [manageCompanions, setManageCompanions] = useState<{ poi: Poi; initialAction?: 'invite' } | null>(null);
@@ -269,6 +280,7 @@ export function NavProvider({
     setEditJourney(null);
     setJourneySettings(null);
     setJourneyHistory(null);
+    setJourneyVersionPreview(null);
     setLiveShare(null);
     setNearbyJoinOpen(false);
     setManageCompanions(null);
@@ -343,10 +355,18 @@ export function NavProvider({
       setSubTab,
       gearItemRequestId,
       openGearItem: (itemId) => {
+        setGearPageRequest(null);
         setGearItemRequestId(itemId);
         setMainTab('gear');
       },
       clearGearItemRequest: () => setGearItemRequestId(null),
+      gearPageRequest,
+      openGearPage: (page) => {
+        setGearItemRequestId(null);
+        setGearPageRequest(page);
+        setMainTab('gear');
+      },
+      clearGearPageRequest: () => setGearPageRequest(null),
       pointInfo,
       pointSource,
       sheetOpen,
@@ -356,10 +376,12 @@ export function NavProvider({
         setSheetOpen(false);
         setPointInfo(null);
         setPointSource(null);
+        setJourneyVersionPreview(null);
       },
       openPoint: (p, source) => {
         setActionSheet(null);
         setAddRouteOpen(false);
+        setJourneyVersionPreview(null);
         setPointInfo(merged(p));
         setSheetOpen(true);
         setPointSource(source || null);
@@ -367,6 +389,7 @@ export function NavProvider({
       closePoint: () => {
         setPointInfo(null);
         setPointSource(null);
+        setJourneyVersionPreview(null);
       },
       journeyPatch,
       removedIds,
@@ -420,6 +443,28 @@ export function NavProvider({
       journeyHistory,
       openJourneyHistory: (p) => setJourneyHistory(merged(p)),
       closeJourneyHistory: () => setJourneyHistory(null),
+      journeyVersionPreview,
+      openJourneyVersionPreview: (poi, sourcePoi, version) => {
+        setJourneyHistory(null);
+        setPointInfo(poi);
+        setPointSource(null);
+        setSheetOpen(true);
+        setJourneyVersionPreview({ poi, sourcePoi, version });
+      },
+      closeJourneyVersionPreview: () => {
+        const sourcePoi = journeyVersionPreview?.sourcePoi;
+        setJourneyVersionPreview(null);
+        if (sourcePoi) {
+          setPointInfo(merged(sourcePoi));
+          setJourneyHistory(merged(sourcePoi));
+        }
+      },
+      completeJourneyVersionPreview: (p) => {
+        setJourneyVersionPreview(null);
+        setPointInfo(p);
+        setPointSource(null);
+        setSheetOpen(true);
+      },
       syncJourney: (p) => {
         setJourneyPatch((current) => {
           if (!current[p.id]) return current;
@@ -494,6 +539,7 @@ export function NavProvider({
       mainTab,
       subTab,
       gearItemRequestId,
+      gearPageRequest,
       pointInfo,
       pointSource,
       sheetOpen,
@@ -510,6 +556,7 @@ export function NavProvider({
       editJourney,
       journeySettings,
       journeyHistory,
+      journeyVersionPreview,
       liveShare,
       nearbyJoinOpen,
       manageCompanions,

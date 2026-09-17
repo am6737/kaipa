@@ -8,7 +8,6 @@ import { PhotoTile } from '../components/PhotoTile';
 import { useI18n } from '../i18n';
 import type { GuestMoment } from './useGuestData';
 import { paletteFor } from '../data/tones';
-import { formatDuration } from '../lib/time';
 
 // react-native-web has no native animation driver; using it there logs a warning
 // and falls back to JS anyway, so opt in only on real native.
@@ -22,10 +21,9 @@ interface Props {
   onClose: () => void;
   onDelete?: (m: GuestMoment) => void;
   canDelete?: (m: GuestMoment) => boolean;
-  durationMs?: number;
 }
 
-export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, onDelete, canDelete, durationMs }: Props) {
+export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, onDelete, canDelete }: Props) {
   const { t } = useI18n();
   const { width: W } = useWindowDimensions();
   const photo = moments[index];
@@ -148,7 +146,7 @@ export function GuestLightbox({ theme, moments, index, onIndexChange, onClose, o
         {photo.caption && !photo.is_text && (
           <Text style={s.caption}>{photo.caption}</Text>
         )}
-        <Text style={s.dayTime}>{[photo.day ? `Day ${photo.day}` : '', durationMs ? formatDuration(durationMs, t) : ''].filter(Boolean).join(' · ')}</Text>
+        <Text style={s.dayTime}>{photo.day ? `Day ${photo.day}` : ''}</Text>
 
         {deletable && onDelete && (
           <View style={s.actionRow}>

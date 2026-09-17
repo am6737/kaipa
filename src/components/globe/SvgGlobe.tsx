@@ -6,7 +6,7 @@ import { View, Pressable } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G } from 'react-native-svg';
 import { GlobeProps } from './types';
 import { project, graticule } from './projection';
-import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH } from './PhotoPin';
+import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, photoPinScaleForZoom } from './PhotoPin';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 
 export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin }: GlobeProps) {
@@ -82,7 +82,7 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
             accessibilityLabel={p.label}
             hitSlop={6}
           >
-            <PhotoPin theme={t} poi={p} active={active} />
+            <PhotoPin theme={t} poi={p} active={active} mapScale={photoPinScaleForZoom(3)} />
           </Pressable>
         );
       })}

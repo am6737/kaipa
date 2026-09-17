@@ -217,7 +217,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
       <ScrollView
         style={{ marginTop: insets.top }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: space.sm }}
+        contentContainerStyle={{ paddingTop: space.xs }}
         refreshControl={(
           <RefreshControl
             refreshing={refreshing}
@@ -396,7 +396,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
-  header: { height: 56, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  header: { height: layout.iconButton, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandMark: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   headerButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },

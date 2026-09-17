@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { MoreHorizontal, Share2, type LucideIcon } from 'lucide-react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
@@ -19,7 +20,7 @@ import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearItemRow, yuan, yuanWithGap } from './parts';
-import { AppIconButton, DetailPage } from '../../design-system';
+import { DetailPage } from '../../design-system';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 import { GearMenuTransition } from './GearMenuTransition';
@@ -27,6 +28,9 @@ import { GearMenuTransition } from './GearMenuTransition';
 const fieldBg = (t: Theme) => t.fieldSurface;
 const fieldBorder = (t: Theme) => t.fieldBorder;
 const compactYuan = yuanWithGap;
+function DetailActionButton({ theme, icon: IconComponent, onPress }: { theme: Theme; icon: LucideIcon; onPress: () => void }) {
+  return <Press accessibilityRole="button" onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={theme.text} size={25} strokeWidth={2.2} /></Press>;
+}
 
 function MetricMenu({ theme, metric, setMetric }: { theme: Theme; metric: Metric; setMetric: (m: Metric) => void }) {
   const anchorRef = useRef<View>(null);
@@ -443,10 +447,11 @@ function GearSetDetailView({
     <DetailPage
       theme={theme}
       onBack={onBack}
+      flatChrome
       right={applicationAction ? undefined : (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <AppIconButton theme={theme} name="share" onPress={() => setExportOpen(true)} softShadow size={44} />
-          <AppIconButton theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} softShadow size={44} />
+          <DetailActionButton theme={theme} icon={Share2} onPress={() => setExportOpen(true)} />
+          <DetailActionButton theme={theme} icon={MoreHorizontal} onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} />
         </View>
       )}
       overlay={(

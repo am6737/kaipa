@@ -7,6 +7,7 @@ import type { GearCat, GearItem, GearSet, GearSetOverride } from "../data/gear";
 import type { Notif } from "../data/notifications";
 import type { TLRow, TLMedia } from "../data/timeline";
 import type { InspoMedia } from "../data/inspoStore";
+import type { Track } from "../data/tracks";
 
 export function toRoutePoi(r: any): Poi {
   return {
@@ -24,12 +25,6 @@ export function toRoutePoi(r: any): Poi {
     reviews: r.reviews,
     tone: r.tone,
     desc: r.desc,
-    trackCoords: r.track_coords,
-    trackElevation: r.track_elevation,
-    trackDurationMs: r.track_duration_ms,
-    trackWaypoints: r.track_waypoints,
-    trackFileUrl: r.track_file_url,
-    trackFileName: r.track_file_name,
     photoUris: r.photo_uris,
   };
 }
@@ -79,12 +74,8 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
       ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
       ...(j.participant_permissions ?? {}),
     },
-    trackCoords: j.track_coords,
-    trackElevation: j.track_elevation,
-    trackDurationMs: j.track_duration_ms,
-    trackWaypoints: j.track_waypoints,
-    trackFileUrl: j.track_file_url,
-    trackFileName: j.track_file_name,
+    trackId: j.track_id ?? undefined,
+    ...trackProjection(j.tracks ? toTrack(j.tracks) : null),
     heroMode:
       j.hero_mode === "cover"
         ? "cover"
@@ -96,6 +87,43 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
     routeShowTimeline: j.route_show_timeline ?? true,
     photoUris: j.photo_uris,
     deletedAt: j.deleted_at ?? undefined,
+  };
+}
+
+/**
+ * The Poi fields a journey reads off its track. Written once so a link the client
+ * makes renders exactly like one read back from the server: the journey row only
+ * stores `track_id`, so anything that sets it has to refresh this projection too.
+ */
+export function trackProjection(track: Track | null | undefined): Partial<Poi> {
+  return {
+    trackCoords: track?.coords ?? undefined,
+    trackElevation: track?.elevation ?? undefined,
+    trackDurationMs: track?.durationMs ?? undefined,
+    trackWaypoints: track?.waypoints ?? undefined,
+    trackFileUrl: track?.fileUrl ?? undefined,
+    trackFileName: track?.fileName ?? undefined,
+  };
+}
+
+export function toTrack(r: any): Track {
+  return {
+    id: r.id,
+    name: r.name,
+    fileName: r.file_name ?? undefined,
+    fileFormat: r.file_format ?? undefined,
+    fileUrl: r.file_url ?? undefined,
+    fileSize: r.file_size ?? undefined,
+    coords: r.coords ?? undefined,
+    elevation: r.elevation ?? undefined,
+    durationMs: r.duration_ms ?? undefined,
+    waypoints: r.waypoints ?? undefined,
+    distM: r.dist_m ?? undefined,
+    ascM: r.asc_m ?? undefined,
+    pointCount: r.point_count ?? undefined,
+    startedAt: r.started_at ?? undefined,
+    createdAt: r.created_at ?? undefined,
+    updatedAt: r.updated_at ?? undefined,
   };
 }
 

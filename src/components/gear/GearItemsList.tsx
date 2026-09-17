@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
+import { Filter, JapaneseYen, MoreHorizontal, Package, Plus, Search, Tag, Weight, type LucideIcon } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { GearCat, GearItem, WeightUnit, fmtWeight, itemPrice, itemWeight } from '../../data/gear';
@@ -27,6 +27,9 @@ import { GearEmptyState } from './GearEmptyState';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
+function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
+  return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
+}
 type LayoutMode = 'list' | 'grid';
 type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
 type GearPickerConfig = {
@@ -256,9 +259,9 @@ function GearItemsListView({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              {picker?.onAdd ? <AppIconButton theme={theme} name="plus" onPress={picker.onAdd} noShadow /> : null}
-              <AppIconButton theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
-              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              {picker?.onAdd ? <GearHeaderButton icon={Plus} onPress={picker.onAdd} label={t('gear.itemList.newItem')} color={theme.text} /> : null}
+              <GearHeaderButton icon={Filter} onPress={() => setFilterOpen(true)} label={t('common.filter')} color={theme.text} />
+              <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
               <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
             </View>
           )}
@@ -278,9 +281,9 @@ function GearItemsListView({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <AppIconButton theme={theme} name="filter" onPress={() => setFilterOpen(true)} noShadow />
-              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
-              <AppIconButton theme={theme} name="more" onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} noShadow />
+              <GearHeaderButton icon={Filter} onPress={() => setFilterOpen(true)} label={t('common.filter')} color={theme.text} />
+              <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
+              <GearHeaderButton icon={MoreHorizontal} onPress={() => { setDisplayExpanded(false); displayProgress.value = 0; setMoreOpen(true); }} label={t('gear.itemList.manage')} color={theme.text} />
             </View>
           )}
         />

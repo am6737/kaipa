@@ -1,0 +1,21 @@
+create function pg_temp.check_draft(ok boolean, message text) returns void language plpgsql as $$ begin
+  if ok is distinct from true then raise exception '%', message; end if;
+end $$;
+select set_config('request.jwt.claim.sub', (select id::text from public.profiles order by id limit 1), true);
+select set_config('test.owner', current_setting('request.jwt.claim.sub'), true);
+select set_config('test.thread', gen_random_uuid()::text, true);
+select set_config('test.run', gen_random_uuid()::text, true);
+insert into public.agent_threads(id,user_id) values(current_setting('test.thread')::uuid,current_setting('test.owner')::uuid);
+insert into public.agent_runs(id,thread_id,user_id,status,agent_version) values(current_setting('test.run')::uuid,current_setting('test.thread')::uuid,current_setting('test.owner')::uuid,'running','draft-test');
+insert into public.agent_packing_drafts(run_id,user_id,revision,state) values(current_setting('test.run')::uuid,current_setting('test.owner')::uuid,1,'{"revision":1,"items":[]}');
+insert into public.agent_model_metrics(run_id,user_id,stage,model,duration_ms,success) values(current_setting('test.run')::uuid,current_setting('test.owner')::uuid,'test','test',1,true);
+set local role authenticated;
+select pg_temp.check_draft(not has_table_privilege('authenticated','public.agent_packing_drafts','INSERT,UPDATE,DELETE'), 'Client can modify internal drafts');
+select pg_temp.check_draft(not has_table_privilege('authenticated','public.agent_model_metrics','INSERT,UPDATE,DELETE'), 'Client can forge usage');
+select pg_temp.check_draft((select count(*)=1 from public.agent_packing_drafts where run_id=current_setting('test.run')::uuid), 'Owner cannot resume draft');
+reset role;
+select set_config('request.jwt.claim.sub',gen_random_uuid()::text,true);
+set local role authenticated;
+select pg_temp.check_draft((select count(*)=0 from public.agent_packing_drafts where run_id=current_setting('test.run')::uuid), 'Cross-user draft leaked');
+select pg_temp.check_draft((select count(*)=0 from public.agent_model_metrics where run_id=current_setting('test.run')::uuid), 'Cross-user metrics leaked');
+reset role;

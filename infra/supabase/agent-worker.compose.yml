@@ -1,0 +1,18 @@
+services:
+  agent-worker:
+    image: node:22-alpine
+    container_name: kaipa-agent-worker
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    user: node
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - ./agent-worker.mjs:/app/agent-worker.mjs:ro
+    command: [node, /app/agent-worker.mjs]
+    stop_grace_period: 320s

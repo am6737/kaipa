@@ -6,7 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Package, Weight, JapaneseYen } from 'lucide-react-native';
+import { MoreHorizontal, Package, Search, Weight, JapaneseYen, type LucideIcon } from 'lucide-react-native';
 import { Theme, rgba } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { GearItem, GearSet, WeightUnit, fmtWeight, itemPrice, itemWeight } from '../../data/gear';
@@ -22,6 +22,9 @@ import { GearEmptyState } from './GearEmptyState';
 
 type LayoutMode = 'grid' | 'list';
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
+function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
+  return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
+}
 
 function setItems(set: GearSet, allItems: GearItem[]) {
   return allItems
@@ -206,7 +209,7 @@ export function GearSetsList({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
+              <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
               <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
             </View>
           )}
@@ -221,8 +224,8 @@ export function GearSetsList({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <AppIconButton theme={theme} name="search" onPress={() => setSearchOpen(true)} noShadow />
-              <AppIconButton theme={theme} name="more" onPress={() => setMoreOpen(true)} noShadow />
+              <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
+              <GearHeaderButton icon={MoreHorizontal} onPress={() => setMoreOpen(true)} label={t('gear.setList.manage')} color={theme.text} />
             </View>
           )}
         />

@@ -20,12 +20,6 @@ function routePatchToRow(patch: Partial<Poi>) {
   if (has(patch, 'reviews')) row.reviews = patch.reviews;
   if (has(patch, 'tone')) row.tone = patch.tone;
   if (has(patch, 'desc')) row.desc = patch.desc;
-  if (has(patch, 'trackCoords')) row.track_coords = patch.trackCoords ?? null;
-  if (has(patch, 'trackElevation')) row.track_elevation = patch.trackElevation ?? null;
-  if (has(patch, 'trackDurationMs')) row.track_duration_ms = patch.trackDurationMs ?? null;
-  if (has(patch, 'trackWaypoints')) row.track_waypoints = patch.trackWaypoints ?? null;
-  if (has(patch, 'trackFileUrl')) row.track_file_url = patch.trackFileUrl ?? null;
-  if (has(patch, 'trackFileName')) row.track_file_name = patch.trackFileName ?? null;
   if (has(patch, 'photoUris')) row.photo_uris = patch.photoUris ?? null;
   return row;
 }

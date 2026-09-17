@@ -1,4 +1,4 @@
-// GearScreen.tsx — 装备首页及新版装备、清单页面的本地导航容器。
+// GearScreen.tsx — 装备详情、装备列表和清单列表的本地导航容器。
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +22,6 @@ import { GearCatEditor } from '../components/gear/GearCatEditor';
 import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
-import { GearOverviewDetail } from '../components/gear/GearOverviewDetail';
 import { GearEmptyState } from '../components/gear/GearEmptyState';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
 import { layout, motion, radius, space, type } from '../design-system';
@@ -30,7 +29,6 @@ import { layout, motion, radius, space, type } from '../design-system';
 type GearPage =
   | { type: 'item'; item: GearItem }
   | { type: 'set'; set: GearSet }
-  | { type: 'overview' }
   | { type: 'setsList'; entry?: 'pull' }
   | { type: 'itemsList'; entry?: 'pull' };
 
@@ -47,7 +45,6 @@ const compactWan = (value: number) => {
   return `${wan >= 10 ? wan.toFixed(1) : wan.toFixed(2).replace(/0$/, '')}万`;
 };
 const yuan = (v: number) => '¥' + compactWan(v);
-const yuanWithGap = (v: number) => '¥ ' + compactWan(v);
 
 const normItem = (it: GearItem) => ({
   name: it.name,
@@ -91,18 +88,24 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
   const allItems = data.items;
   const sets = data.sets;
   const { pinnedIds: pinnedSetIds, setPinned: setSetsPinned } = usePinnedSets();
-  const orderedSets = useMemo(
-    () => sets.slice().sort((a, b) => Number(pinnedSetIds.has(b.id)) - Number(pinnedSetIds.has(a.id))),
-    [pinnedSetIds, sets],
-  );
 
   // Pushed detail and list pages, newest last.
   const [pageStack, setPageStack] = useState<GearPage[]>(() => initialItem ? [{ type: 'item', item: initialItem }] : []);
   const pushPage = (p: GearPage) => setPageStack((s) => [...s, p]);
+  // Render a requested collection immediately; the effect below then commits it
+  // to the local stack and clears the cross-feature request.
+  const visiblePageStack = pageStack.length > 0
+    ? pageStack
+    : nav.gearPageRequest
+      ? [{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList' } as GearPage]
+      : [];
   const popPage = () => {
-    if (pageStack.length === 1 && onExit) {
+    const stackLength = pageStack.length || (nav.gearPageRequest ? 1 : 0);
+    if (stackLength === 1) {
       setPageStack([]);
-      onExit();
+      if (nav.gearPageRequest) nav.clearGearPageRequest();
+      if (onExit) onExit();
+      else nav.setMainTab('me');
       return;
     }
     setPageStack((s) => s.slice(0, -1));
@@ -120,9 +123,9 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
   // 添加装备入口选择（链接 / 拍照 / 手动）
   const [addChoose, setAddChoose] = useState(false);
   const pendingSetItemAdded = useRef<((item: GearItem) => void) | null>(null);
-  // The standalone Gear tab owns tab-bar visibility. Embedded full-screen entries
+  // Standalone gear pages own tab-bar visibility. Embedded full-screen entries
   // sit above an already-open journey detail and must not mutate its navigation chrome.
-  const fullScreenPageOpen = pageStack.length > 0 || setEditor != null || itemEditor != null || catEditor != null || addChoose;
+  const fullScreenPageOpen = visiblePageStack.length > 0 || setEditor != null || itemEditor != null || catEditor != null || addChoose;
   const setTabBarHidden = nav.setTabBarHidden;
   useEffect(() => {
     if (!onExit) setTabBarHidden('gear', fullScreenPageOpen);
@@ -142,6 +145,12 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
     setPageStack([{ type: 'item', item }]);
     nav.clearGearItemRequest();
   }, [allItems, data.gearLoading, nav.gearItemRequestId]);
+
+  useEffect(() => {
+    if (!nav.gearPageRequest) return;
+    setPageStack([{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList' }]);
+    nav.clearGearPageRequest();
+  }, [nav.gearPageRequest]);
 
   const updateItem = async (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
@@ -250,39 +259,10 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
 
   return (
     <View style={{ flex: 1, backgroundColor: homePageBg(theme) }}>
-      {!initialItem ? (
-        <GearHome
-          theme={theme}
-          sets={orderedSets}
-          items={allItems}
-          catMap={catMap}
-          weightUnit={weightUnit}
-          onOpenOverview={() => pushPage({ type: 'overview' })}
-          onOpenSets={() => pushPage({ type: 'setsList' })}
-          onOpenItems={() => pushPage({ type: 'itemsList' })}
-          onPullOpenSets={() => pushPage({ type: 'setsList', entry: 'pull' })}
-          onPullOpenItems={() => pushPage({ type: 'itemsList', entry: 'pull' })}
-          onOpenSet={(set) => pushPage({ type: 'set', set })}
-          onOpenItem={(item) => pushPage({ type: 'item', item })}
-          onAddSet={() => setSetEditor({ mode: 'new' })}
-          onAddItem={() => setAddChoose(true)}
-        />
-      ) : null}
-
       {/* ── Pushed detail and list pages ── */}
-      {pageStack.map((pg, i) => (
+      {visiblePageStack.map((pg, i) => (
         <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
-          {pg.type === 'overview' ? (
-            <GearOverviewDetail
-              theme={theme}
-              items={allItems}
-              sets={sets}
-              catMap={catMap}
-              weightUnit={weightUnit}
-              onBack={popPage}
-              onOpenItem={(item) => pushPage({ type: 'item', item })}
-            />
-          ) : pg.type === 'item' ? (
+          {pg.type === 'item' ? (
             <GearItemDetail
               theme={theme}
               item={pg.item}
@@ -425,15 +405,13 @@ function edgePullHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 }
 
-function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, onOpenSets, onOpenItems, onPullOpenSets, onPullOpenItems, onOpenSet, onOpenItem, onAddSet, onAddItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenOverview: () => void; onOpenSets: () => void; onOpenItems: () => void; onPullOpenSets: () => void; onPullOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void; onAddSet: () => void; onAddItem: () => void }) {
+function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOpenItems, onPullOpenSets, onPullOpenItems, onOpenSet, onOpenItem, onAddSet, onAddItem }: { theme: Theme; sets: GearSet[]; items: GearItem[]; catMap: Record<string, GearCat>; weightUnit: WeightUnit; onOpenSets: () => void; onOpenItems: () => void; onPullOpenSets: () => void; onPullOpenItems: () => void; onOpenSet: (set: GearSet) => void; onOpenItem: (item: GearItem) => void; onAddSet: () => void; onAddItem: () => void }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const totalWeight = items.reduce((sum, it) => sum + itemWeight(it), 0);
   const previewItems = items.slice().sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, HOME_PREVIEW_LIMIT);
   const previewSets = sets.slice(0, HOME_PREVIEW_LIMIT);
   const hasMoreItems = items.length > HOME_PREVIEW_LIMIT;
   const hasMoreSets = sets.length > HOME_PREVIEW_LIMIT;
-  const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
 
   const setScrollRef = useRef<any>(null);
   const itemScrollRef = useRef<any>(null);
@@ -598,14 +576,6 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenOverview, 
             }}
             contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + space.md, paddingBottom: 110 }}
           >
-            <SectionHeader theme={theme} title={t('gear.home.overview')} first />
-            <Press onPress={onOpenOverview} accessibilityRole="button" accessibilityLabel={t('gear.overview.open')} style={{ flexDirection: 'row', flexWrap: 'wrap', borderRadius: radius.feature, padding: 6, backgroundColor: homeCardBg(theme) }}>
-              <OverviewFact theme={theme} label={t('gear.stat.itemCount')} value={String(items.length)} />
-              <OverviewFact theme={theme} label={t('gear.home.setCount')} value={String(sets.length)} />
-              <OverviewFact theme={theme} label={t('gear.home.libraryWeight')} value={fmtWeight(totalWeight, weightUnit)} />
-              <OverviewFact theme={theme} label={t('gear.stat.totalValue')} value={yuanWithGap(totalValue)} />
-            </Press>
-
             <SectionHeader theme={theme} title={t('gear.home.mySets')} action={t('gear.home.viewAll')} onPress={onOpenSets} />
             {previewSets.length ? (
               <GestureDetector gesture={setEdgeGesture}>
@@ -798,5 +768,4 @@ const styles = StyleSheet.create({
   },
 });
 
-function OverviewFact({ theme, label, value }: { theme: Theme; label: string; value: string }) { return <View style={{ width: '50%', minWidth: 0, minHeight: 94, paddingHorizontal: 14, paddingVertical: 13, justifyContent: 'space-between' }}><Text numberOfLines={1} style={{ fontSize: 12.5, color: theme.text2 }}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={{ fontFamily: MONO, fontSize: 23, fontWeight: '800', color: theme.text }}>{value}</Text></View>; }
 function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : space.xxl, marginBottom: first ? 18 : space.sm }}><Text style={[first ? type.pageTitle : type.sectionTitle, { color: theme.text }]}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={[type.eyebrow, { color: theme.text2 }]}>{action} ›</Text></Press> : null}</View>; }

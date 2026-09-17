@@ -1,6 +1,6 @@
 import type { ProviderSearchResponse, TravelSearchProvider } from '../types.ts';
 
-export function createTavilyProvider(apiKey?: string): TravelSearchProvider {
+export function createTavilyProvider(apiKey?: string, transportEvidence = false): TravelSearchProvider {
   return {
     source: 'tavily',
     async search(query, signal): Promise<ProviderSearchResponse> {
@@ -15,6 +15,7 @@ export function createTavilyProvider(apiKey?: string): TravelSearchProvider {
           max_results: 6,
           include_answer: false,
           include_raw_content: false,
+          ...(transportEvidence ? { exclude_domains: ['xiaohongshu.com', 'xhslink.com', 'douyin.com', 'tiktok.com'] } : {}),
         }),
         signal,
       });
@@ -24,6 +25,12 @@ export function createTavilyProvider(apiKey?: string): TravelSearchProvider {
         const title = typeof item.title === 'string' ? item.title.trim() : '';
         const url = typeof item.url === 'string' ? item.url.trim() : '';
         if (!title || !/^https?:\/\//i.test(url)) return [];
+        if (transportEvidence) {
+          try {
+            const host = new URL(url).hostname.toLowerCase();
+            if (['xiaohongshu.com', 'xhslink.com', 'douyin.com', 'tiktok.com'].some(domain => host === domain || host.endsWith(`.${domain}`))) return [];
+          } catch { return []; }
+        }
         return [{
           source: 'tavily' as const,
           kind: 'web' as const,

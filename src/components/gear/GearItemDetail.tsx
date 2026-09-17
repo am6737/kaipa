@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Package, Weight } from 'lucide-react-native';
+import { Check, Pencil, Package, Share2, Trash2, Weight, type LucideIcon } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -16,7 +16,7 @@ import { Press } from '../Press';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight } from '../../data/gear';
 import { GearItemImage, ShareBar, yuan, fmtKg } from './parts';
-import { AppIconButton, AppSectionHeader, DetailPage, radius, space } from '../../design-system';
+import { AppSectionHeader, DetailPage, radius, space } from '../../design-system';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
@@ -26,6 +26,9 @@ const softBorder = (t: Theme) => t.fieldBorder;
 
 const yuanWithGap = (value: number) => yuan(value).replace('¥', '¥ ');
 const pageBg = (t: Theme) => t.featureSurface;
+function DetailActionButton({ theme, icon: IconComponent, onPress, danger }: { theme: Theme; icon: LucideIcon; onPress: () => void; danger?: boolean }) {
+  return <Press accessibilityRole="button" onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={danger ? theme.danger : theme.text} size={25} strokeWidth={2.2} /></Press>;
+}
 
 function StatTile({ theme, label, value, unit }: { theme: Theme; label: string; value: string; unit?: string }) {
   return (
@@ -582,17 +585,11 @@ function GearItemDetailView({
     <DetailPage
       theme={theme}
       onBack={isEditing ? cancelEditing : onBack}
+      flatChrome
       right={(
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <AppIconButton
-            theme={theme}
-            name={isEditing ? 'check' : 'edit'}
-            onPress={isEditing ? saveEditing : beginEditing}
-            active={isEditing}
-            softShadow
-            size={44}
-          />
-          <AppIconButton theme={theme} name="trash" danger onPress={() => setDeleteDialogOpen(true)} softShadow size={44} />
+          <DetailActionButton theme={theme} icon={isEditing ? Check : Pencil} onPress={isEditing ? saveEditing : beginEditing} />
+          <DetailActionButton theme={theme} icon={Trash2} danger onPress={() => setDeleteDialogOpen(true)} />
         </View>
       )}
       overlay={(

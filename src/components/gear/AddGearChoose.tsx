@@ -11,7 +11,6 @@ import { useI18n } from '../../i18n';
 import { GearItem, GearCat } from '../../data/gear';
 import { fetchGearLinkPreview, GearLinkPreview } from '../../lib/gearLinkPreview';
 import { recognizeGearImage } from '../../lib/gearImageRecognition';
-import { CircleBtn } from './parts';
 
 type ScanDisplay = {
   name: string;
@@ -169,7 +168,9 @@ export function AddGearChoose({ theme, cats, onResult, onCancel }: {
 function PageHeader({ theme, top, title, subtitle, onBack, onClose }: { theme: Theme; top: number; title: string; subtitle?: string; onBack?: () => void; onClose?: () => void }) {
   return (
     <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}>
-      <CircleBtn theme={theme} name={onBack ? 'chevronL' : 'close'} onPress={(onBack || onClose)!} noShadow />
+      <Press accessibilityRole="button" onPress={(onBack || onClose)!} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={onBack ? 'chevronL' : 'close'} color={theme.text} size={28} strokeWidth={2.2} />
+      </Press>
       <View style={{ paddingHorizontal: 10, paddingTop: 22, paddingBottom: 20 }}>
         <Text style={{ fontSize: 29, lineHeight: 35, fontWeight: '800', letterSpacing: -0.8, color: theme.text }}>{title}</Text>
         {subtitle ? <Text style={{ marginTop: 7, maxWidth: 330, fontSize: 14, lineHeight: 21, color: theme.text2 }}>{subtitle}</Text> : null}
@@ -299,6 +300,7 @@ function CameraStage({ theme, top, bottom, onCancel, onImage }: { theme: Theme; 
   const [mode, setMode] = useState<'object' | 'tag'>('object');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const launchedRef = useRef(false);
 
   const takePhoto = async () => {
     setError('');
@@ -336,9 +338,16 @@ function CameraStage({ theme, top, bottom, onCancel, onImage }: { theme: Theme; 
     }
   };
 
+  // Opening the recognition entry is the camera action; keep the shutter button as a retry.
+  useEffect(() => {
+    if (launchedRef.current) return;
+    launchedRef.current = true;
+    void takePhoto();
+  }, []);
+
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0B0C0E' }]}>
-      <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}><CircleBtn theme={{ ...theme, dark: true, text: '#FFFFFF', surfaceTop: '#2C2C2E' }} name="close" onPress={onCancel} noShadow /></View>
+      <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}><Press accessibilityRole="button" onPress={onCancel} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="close" color="#FFFFFF" size={25} strokeWidth={2.2} /></Press></View>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 40 }}>
         <View style={{ width: 280, height: 280, borderRadius: 34, backgroundColor: '#17181B', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="camera" color="rgba(255,255,255,0.3)" size={48} strokeWidth={1.25} />

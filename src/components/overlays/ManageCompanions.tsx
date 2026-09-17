@@ -484,15 +484,16 @@ export function ManageCompanions({
         title={t('journey.manage.pageTitle')}
         onBack={selectMode ? exitSelect : onClose}
         backgroundColor={theme.featureSurface}
+        flatChrome
         right={
           selectMode ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} softShadow size={44} />
-              <AppIconButton theme={theme} name="close" onPress={exitSelect} softShadow size={44} />
+              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow size={44} />
+              <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow size={44} />
             </View>
           ) : (
             <View style={{ opacity: atCapacity ? 0.45 : 1 }}>
-              <AppIconButton theme={theme} name="plus" onPress={openAdd} softShadow size={44} />
+              <AppIconButton theme={theme} name="plus" onPress={openAdd} noShadow size={44} />
             </View>
           )
         }

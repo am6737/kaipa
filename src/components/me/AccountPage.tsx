@@ -276,6 +276,7 @@ export function AccountPage({
         visible={deleteDialogOpen}
         title={t('account.delete.title')}
         message={t('account.delete.message')}
+        confirmPhrase={t('account.delete.confirmPhrase')}
         confirmLabel={t('account.delete.action')}
         cancelLabel={t('common.cancel')}
         confirming={deletingAccount}

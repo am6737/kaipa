@@ -17,6 +17,7 @@ export const radius = {
   control: 11,
   card: 16,
   feature: 24,
+  showcase: 30,
   pill: 999,
 } as const;
 

@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronLeft } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
-import { AppIconButton } from '../components/AppIconButton';
+import { Press } from '../../components/Press';
 import { layout, motion, type } from '../tokens';
 
 const DetailPageScrollContext = React.createContext<{ scrollBy: (dy: number) => void } | null>(null);
@@ -140,7 +141,23 @@ export function DetailPage({
 
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: navHeight }} pointerEvents="box-none">
         <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
-          {left || <AppIconButton theme={theme} name="chevronL" onPress={onBack} noShadow={flatChrome} softShadow={!flatChrome} />}
+          {left || (
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              onPress={onBack}
+              style={{
+                width: layout.iconButton,
+                height: layout.iconButton,
+                borderRadius: layout.iconButton / 2,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: flatChrome ? 'transparent' : theme.controlSurface,
+              }}
+            >
+              <ChevronLeft color={theme.text} size={32} strokeWidth={2.2} />
+            </Press>
+          )}
         </View>
         {title && !hero ? (
           <View pointerEvents="none" style={{ position: 'absolute', left: 64, right: 64, top: insets.top + 12, height: 26, justifyContent: 'center' }}>

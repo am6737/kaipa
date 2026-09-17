@@ -30,6 +30,7 @@ export type NutritionPlanningItem = {
 };
 
 function finiteNumber(value: unknown) {
+  if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !/\d/.test(value))) return undefined;
   const parsed = typeof value === 'string' ? Number(value.replace(/[^\d.+-]/g, '')) : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -78,6 +79,7 @@ export function estimatePersonalPackingNeeds(
   journey: PlanningJourney,
   itinerary: PlanningItineraryItem[],
   plan: PackingPlanProfile,
+  activeHoursPerDay?: number | null,
 ) {
   const days = clamp(Math.round(finiteNumber(journey.total_days) ?? finiteNumber(journey.days) ?? 1), 1, 30);
   const distanceKm = finiteNumber(journey.dist);
@@ -88,7 +90,9 @@ export function estimatePersonalPackingNeeds(
     ? Math.max(1, distanceKm / 4.5 + Math.max(0, ascentM || 0) / 600)
     : undefined;
   const totalActiveHours = clamp(
-    recordedHours != null && recordedHours > 0 ? recordedHours / 3_600_000 : scheduledHours ?? terrainHours ?? days * 5,
+    activeHoursPerDay != null && Number.isFinite(activeHoursPerDay) && activeHoursPerDay > 0
+      ? activeHoursPerDay * days
+      : recordedHours != null && recordedHours > 0 ? recordedHours / 3_600_000 : scheduledHours ?? terrainHours ?? days * 5,
     1,
     days * 14,
   );
@@ -113,14 +117,6 @@ export function estimatePersonalPackingNeeds(
     max: Number((carriedFoodEnergyKcal.max / 3200).toFixed(1)),
   };
 
-  const conditions = new Set(plan.conditions || []);
-  const hydrationMultiplier = (conditions.has('hot') ? 1.3 : 1) * (conditions.has('high_altitude') ? 1.1 : 1);
-  const totalWater = totalActiveHours * 0.55 * hydrationMultiplier;
-  const waterCenter = plan.waterRefill === 'treated' || plan.waterRefill === 'natural'
-    ? Math.min(totalWater, conditions.has('hot') ? 2 : 1.5)
-    : Math.min(totalWater, 6);
-  const startingWaterLiters = roundedRange(Math.max(0.75, waterCenter), 0.2, 0.25);
-
   const knownProfileFields = [profile.heightCm, profile.weightKg, profile.ageYears].filter((value) => value != null).length;
   const knownJourneyFacts = [distanceKm, ascentM, recordedHours || scheduledHours].filter((value) => value != null).length;
 
@@ -139,7 +135,6 @@ export function estimatePersonalPackingNeeds(
     recommendation: {
       carriedFoodEnergyKcal,
       foodWeightKg,
-      startingWaterLiters,
       comfortableTotalCarryKg: profile.weightKg ? Number((profile.weightKg * 0.2).toFixed(1)) : undefined,
     },
     confidence: knownProfileFields >= 2 && knownJourneyFacts >= 2 ? 'medium' : 'low',

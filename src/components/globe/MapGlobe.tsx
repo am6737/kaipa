@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Icon } from '../Icon';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate } from '../maps/types';
-import { PhotoPin, PHOTO_PIN_ANCHOR_Y } from './PhotoPin';
+import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
 import type { GlobeProps } from './types';
 
 export default function MapGlobe({
@@ -27,11 +27,18 @@ export default function MapGlobe({
   showMapLabels = true,
   cameraAction,
   focusBottomPadding,
+  autoFrameRoute = true,
   onCameraOrientationChange,
   onCameraGestureStart,
 }: GlobeProps) {
   const { height } = useWindowDimensions();
   const mapRef = useRef<NativeMapHandle>(null);
+  const [pinScale, setPinScale] = useState(() => photoPinScaleForZoom(3));
+  const handleZoomChange = useCallback((zoom: number) => {
+    if (!Number.isFinite(zoom)) return;
+    // Quantize updates to avoid rebuilding every marker on every camera frame.
+    setPinScale(photoPinScaleForZoom(Math.round(zoom * 4) / 4));
+  }, []);
   const validFocusCoords = useMemo(
     () => focusCoords?.filter(isValidMapCoordinate),
     [focusCoords],
@@ -57,10 +64,10 @@ export default function MapGlobe({
   const routePadding: [number, number, number, number] = [90, 54, focusBottomPadding ?? Math.round(height * 0.54), 54];
 
   useEffect(() => {
-    if (onMapCoordinatePress || !cameraFocusCoords?.length) return;
+    if (!autoFrameRoute || onMapCoordinatePress || !cameraFocusCoords?.length) return;
     if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, 250);
     else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 250);
-  }, [cameraFocusCoords, focusBottomPadding, height, onMapCoordinatePress]);
+  }, [autoFrameRoute, cameraFocusCoords, focusBottomPadding, height, onMapCoordinatePress]);
 
   useEffect(() => {
     if (!cameraAction) return;
@@ -110,14 +117,14 @@ export default function MapGlobe({
 
   const markers = useMemo<NativeMapMarker[]>(() => {
     const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi) => ({
-      id: `poi-${poi.id}`,
+      id: `poi-${poi.id}-${pinScale}`,
       coordinate: [poi.lng, poi.lat],
       anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
       title: poi.label,
       onPress: () => onPoiPress?.(poi.id),
       content: (
         <Pressable accessibilityRole="button" accessibilityLabel={poi.label} hitSlop={6}>
-          <PhotoPin theme={theme} poi={poi} active={activePoiId === poi.id} />
+          <PhotoPin theme={theme} poi={poi} active={activePoiId === poi.id} mapScale={pinScale} />
         </Pressable>
       ),
     }));
@@ -174,7 +181,7 @@ export default function MapGlobe({
       }
     }
     return values;
-  }, [activePoiId, onPoiPress, onRouteBoundaryPress, pois, selectionPin, theme, validFocusBoundaries, validFocusCoords]);
+  }, [activePoiId, onPoiPress, onRouteBoundaryPress, pinScale, pois, selectionPin, theme, validFocusBoundaries, validFocusCoords]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
@@ -199,6 +206,7 @@ export default function MapGlobe({
         }}
         onUserLocationChange={onUserLocationChange}
         onCameraChange={onCameraOrientationChange}
+        onZoomChange={handleZoomChange}
         onGestureStart={onCameraGestureStart}
       />
     </View>

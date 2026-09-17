@@ -3,11 +3,21 @@ import { supabase } from '../lib/supabase';
 
 export type JourneyVersionKind = 'create' | 'update' | 'restore';
 
+export interface JourneyVersionSnapshot {
+  journey: Record<string, unknown>;
+  companions: Record<string, unknown>[];
+  timelineGroups: Record<string, unknown>[];
+  timelineRows: Record<string, unknown>[];
+  moments: Record<string, unknown>[];
+  packingLists: Record<string, unknown>[];
+  packingItems: Record<string, unknown>[];
+}
+
 export interface JourneyVersion {
   id: string;
   journeyId: string;
   versionNumber: number;
-  snapshot: Record<string, unknown>;
+  snapshot: JourneyVersionSnapshot;
   changedFields: string[];
   changeKind: JourneyVersionKind;
   changedBy?: string;
@@ -16,11 +26,21 @@ export interface JourneyVersion {
 }
 
 function mapVersion(row: any): JourneyVersion {
+  const rawSnapshot = row.snapshot || {};
+  const snapshot: JourneyVersionSnapshot = {
+    journey: rawSnapshot.journey || rawSnapshot,
+    companions: Array.isArray(rawSnapshot.companions) ? rawSnapshot.companions : [],
+    timelineGroups: Array.isArray(rawSnapshot.timelineGroups) ? rawSnapshot.timelineGroups : [],
+    timelineRows: Array.isArray(rawSnapshot.timelineRows) ? rawSnapshot.timelineRows : [],
+    moments: Array.isArray(rawSnapshot.moments) ? rawSnapshot.moments : [],
+    packingLists: Array.isArray(rawSnapshot.packingLists) ? rawSnapshot.packingLists : [],
+    packingItems: Array.isArray(rawSnapshot.packingItems) ? rawSnapshot.packingItems : [],
+  };
   return {
     id: row.id,
     journeyId: row.journey_id,
     versionNumber: row.version_number,
-    snapshot: row.snapshot || {},
+    snapshot,
     changedFields: row.changed_fields || [],
     changeKind: row.change_kind,
     changedBy: row.changed_by || undefined,
@@ -76,7 +96,7 @@ export async function restoreJourneyVersion(versionId: string) {
 }
 
 export function useJourneyVersionSummary(journeyId: string | undefined) {
-  const [latest, setLatest] = useState<Pick<JourneyVersion, 'versionNumber' | 'changedAt'> | null>(null);
+  const [latest, setLatest] = useState<Pick<JourneyVersion, 'versionNumber' | 'changedAt' | 'changedFields' | 'changeKind' | 'changedByName'> | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -84,17 +104,24 @@ export function useJourneyVersionSummary(journeyId: string | undefined) {
       setLatest(null);
       return () => { active = false; };
     }
+    setLatest(null);
 
     void supabase
       .from('journey_versions')
-      .select('version_number, changed_at')
+      .select('version_number, changed_at, changed_fields, change_kind, changed_by_name')
       .eq('journey_id', journeyId)
       .order('version_number', { ascending: false })
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
         if (!active) return;
-        setLatest(data ? { versionNumber: data.version_number, changedAt: data.changed_at } : null);
+        setLatest(data ? {
+          versionNumber: data.version_number,
+          changedAt: data.changed_at,
+          changedFields: data.changed_fields || [],
+          changeKind: data.change_kind,
+          changedByName: data.changed_by_name || '',
+        } : null);
       });
 
     return () => { active = false; };

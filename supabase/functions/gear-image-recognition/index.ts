@@ -1,7 +1,7 @@
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 type Category = { id: string; name: string };
-type Payload = { imageBase64?: string; categories?: Category[] };
+type Payload = { imageBase64?: string; contentType?: string; categories?: Category[] };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
 
   try {
     const payload = await req.json() as Payload;
-    const imageBase64 = String(payload.imageBase64 || '').replace(/\s/g, '');
+    const imageBase64 = String(payload.imageBase64 || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '');
     if (!imageBase64) return json({ error: { code: 'image_required', message: '请选择需要识别的图片' } }, 400);
     if (imageBase64.length > 12_000_000) return json({ error: { code: 'image_too_large', message: '图片过大，请选择尺寸较小的图片' } }, 413);
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)) return json({ error: { code: 'invalid_image', message: '图片数据无效，请重新选择' } }, 400);
@@ -82,8 +82,8 @@ Deno.serve(async (req) => {
 
     const apiKey = env('KAIPA_AI_API_KEY');
     if (!apiKey) return json({ error: { code: 'not_configured', message: '图片识别服务尚未配置' } }, 503);
-    const baseUrl = (env('GEAR_IMAGE_AI_BASE_URL') || 'https://ai.dootask.com/v1').replace(/\/$/, '');
-    const model = env('GEAR_IMAGE_AI_MODEL') || 'gpt-5.6-sol';
+    const baseUrl = (env('GEAR_IMAGE_AI_BASE_URL') || env('KAIPA_AI_BASE_URL') || 'https://ai.dootask.com/v1').replace(/\/$/, '');
+    const model = env('GEAR_IMAGE_AI_MODEL') || env('KAIPA_AI_MODEL') || 'gpt-5.6-sol';
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
             role: 'user',
             content: [
               { type: 'text', text: `可选分类：${JSON.stringify(categories)}\n请识别这张装备图片。` },
-              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}`, detail: 'high' } },
+              { type: 'image_url', image_url: { url: `data:${imageContentType(payload.contentType)};base64,${imageBase64}`, detail: 'high' } },
             ],
           },
         ],
@@ -123,3 +123,8 @@ Deno.serve(async (req) => {
     return json({ error: { code: 'request_failed', message: '图片识别失败，请稍后重试' } }, 500);
   }
 });
+
+function imageContentType(value: unknown): string {
+  const type = typeof value === 'string' ? value.toLowerCase().trim() : '';
+  return ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(type) ? type : 'image/jpeg';
+}

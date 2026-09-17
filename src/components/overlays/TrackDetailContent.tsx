@@ -56,7 +56,7 @@ const WaypointDots = React.memo(function WaypointDots({
 const MarkerRow = React.memo(function MarkerRow({
   theme, label, name, km, ele, active, index, waypointIndex, onPress, showDivider,
 }: {
-  theme: Theme; label: number; name: string; km: number; ele: number;
+  theme: Theme; label: number; name: string; km: number; ele: number | null;
   active: boolean; index: number; waypointIndex: number;
   onPress: (index: number, waypointIndex: number) => void; showDivider: boolean;
 }) {
@@ -80,7 +80,7 @@ const MarkerRow = React.memo(function MarkerRow({
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>{name}</Text>
           <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text2, marginTop: 3 }}>
-            {km.toFixed(1)} km · {fmt(ele)} m
+            {km.toFixed(1)} km{ele != null ? ` · ${fmt(ele)} m` : ''}
           </Text>
         </View>
       </Press>
@@ -106,7 +106,7 @@ function FullscreenTrackMap({
   info: Poi;
   coords: [number, number][];
   totalKm: number;
-  maxEle: number;
+  maxEle: number | null;
   accent: string;
   onClose: () => void;
 }) {
@@ -122,7 +122,6 @@ function FullscreenTrackMap({
   const [showWaypoints, setShowWaypoints] = useState(Boolean(info.trackWaypoints?.length));
   const [showMapLabels, setShowMapLabels] = useState(true);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
-  const [cameraOrientation, setCameraOrientation] = useState({ heading: 0, pitch: 0 });
 
   const mapWaypoints = useMemo<TrackMapWaypoint[]>(() => {
     if (!info.trackWaypoints?.length || coords.length < 2) return [];
@@ -133,7 +132,6 @@ function FullscreenTrackMap({
     });
   }, [coords, info.trackWaypoints, totalKm]);
 
-  const compassVisible = Math.abs(cameraOrientation.heading) > 2 || cameraOrientation.pitch > 2;
   const summarySurface = theme.dark ? 'rgba(20,20,22,0.90)' : 'rgba(255,255,255,0.94)';
   const layerOptions: { id: MapStyleId; label: string }[] = [
     { id: 'standard', label: t('journey.map.layerStandard') },
@@ -142,11 +140,6 @@ function FullscreenTrackMap({
 
   const togglePanel = (next: 'layers') => {
     setPanel((current) => current === next ? null : next);
-  };
-
-  const resetNorth = () => {
-    mapRef.current?.resetNorth();
-    setCameraOrientation({ heading: 0, pitch: 0 });
   };
 
   return (
@@ -165,12 +158,6 @@ function FullscreenTrackMap({
         showWaypoints={showWaypoints}
         showMapLabels={showMapLabels}
         routePadding={routePadding}
-        onCameraOrientationChange={(heading, pitch) => {
-          setCameraOrientation((current) => {
-            if (Math.abs(current.heading - heading) < 1 && Math.abs(current.pitch - pitch) < 1) return current;
-            return { heading, pitch };
-          });
-        }}
       />
 
       <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.sm }}>
@@ -180,7 +167,6 @@ function FullscreenTrackMap({
       <View style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm, gap: space.sm }}>
         <CircleBtn theme={theme} name="layers" active={panel === 'layers'} onPress={() => togglePanel('layers')} />
         <CircleBtn theme={theme} name="route" onPress={() => { setPanel(null); mapRef.current?.fitRoute(); }} />
-        {compassVisible ? <CircleBtn theme={theme} name="compassN" onPress={resetNorth} /> : null}
       </View>
 
       {panel === 'layers' ? (
@@ -232,8 +218,12 @@ function FullscreenTrackMap({
           <MapSummaryMetric theme={theme} value={info.dist || '—'} label={t('journey.elevation.totalDistance')} color={accent} />
           <View style={{ width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.border }} />
           <MapSummaryMetric theme={theme} value={info.asc || '—'} label={t('journey.elevation.ascent')} />
-          <View style={{ width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.border }} />
-          <MapSummaryMetric theme={theme} value={`${fmt(maxEle)} m`} label={t('journey.elevation.max')} />
+          {maxEle != null ? (
+            <>
+              <View style={{ width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.border }} />
+              <MapSummaryMetric theme={theme} value={`${fmt(maxEle)} m`} label={t('journey.elevation.max')} />
+            </>
+          ) : null}
           <Icon name={summaryExpanded ? 'chevronDown' : 'arrowUp'} size={17} color={theme.text3} />
         </View>
         {summaryExpanded ? (
@@ -272,6 +262,7 @@ export function TrackDetailContent({
   isMine,
   showMap = true,
   showActions = true,
+  synthesizeElevation = true,
   contentPaddingHorizontal = 18,
   bottomPadding = 12,
   selectedIndex,
@@ -283,6 +274,7 @@ export function TrackDetailContent({
   isMine?: boolean;
   showMap?: boolean;
   showActions?: boolean;
+  synthesizeElevation?: boolean;
   contentPaddingHorizontal?: number;
   bottomPadding?: number;
   selectedIndex?: number | null;
@@ -294,7 +286,13 @@ export function TrackDetailContent({
   const { t } = useI18n();
   ensureNativeMapReady();
 
-  const series = useMemo(() => buildElevation(info), [info.id, info.trackElevation]);
+  const series = useMemo(
+    () => buildElevation(info, { synthesize: synthesizeElevation }),
+    [info.id, info.trackElevation, synthesizeElevation]
+  );
+  // False only for a library track whose file carries no elevation. Journeys and
+  // tracks with real elevation both keep the full profile.
+  const hasElevation = series.pts.length >= 2;
   const coords = info.trackCoords || [];
   const hasMap = coords.length >= 2;
   const [mapFull, setMapFull] = useState(false);
@@ -303,17 +301,21 @@ export function TrackDetailContent({
   const allWaypoints = useMemo(() => {
     const pts = series.pts;
     const totalKm = series.totalKm;
-    const base: { name: string; km: number; ele: number; i: number }[] = [];
+    // Without a profile there is no sample index to point at, so markers carry -1
+    // and stay list-only: tappable for highlighting, but never a chart position.
+    const base: { name: string; km: number; ele: number | null; i: number }[] = [];
     if (info.trackWaypoints?.length) {
       for (const w of info.trackWaypoints) {
-        const wi = Math.max(0, Math.min(pts.length - 1, Math.round((w.km / (totalKm || 1)) * (pts.length - 1))));
-        base.push({ name: w.name, km: w.km, ele: pts[wi]?.ele ?? 0, i: wi });
+        const wi = hasElevation
+          ? Math.max(0, Math.min(pts.length - 1, Math.round((w.km / (totalKm || 1)) * (pts.length - 1))))
+          : -1;
+        base.push({ name: w.name, km: w.km, ele: hasElevation ? pts[wi]?.ele ?? 0 : null, i: wi });
       }
     }
-    const startWp = { name: t('journey.elevation.waypointStart'), km: 0, ele: pts[0]?.ele ?? 0, i: 0 };
-    const endWp = { name: t('journey.elevation.waypointEnd'), km: totalKm, ele: pts[pts.length - 1]?.ele ?? 0, i: pts.length - 1 };
+    const startWp = { name: t('journey.elevation.waypointStart'), km: 0, ele: hasElevation ? pts[0]?.ele ?? 0 : null, i: hasElevation ? 0 : -1 };
+    const endWp = { name: t('journey.elevation.waypointEnd'), km: totalKm, ele: hasElevation ? pts[pts.length - 1]?.ele ?? 0 : null, i: hasElevation ? pts.length - 1 : -1 };
     return [startWp, ...base, endWp];
-  }, [info.trackWaypoints, series.pts, series.totalKm, t]);
+  }, [info.trackWaypoints, series.pts, series.totalKm, t, hasElevation]);
 
   const [renderedWaypointCount, setRenderedWaypointCount] = useState(INITIAL_WAYPOINT_RENDER_COUNT);
 
@@ -357,8 +359,9 @@ export function TrackDetailContent({
   const [activeWpIdx, setActiveWpIdx] = useState<number | null>(null);
   const [hasScrubbed, setHasScrubbed] = useState(false);
   const idx = Math.max(0, Math.min(N - 1, dragIdx ?? (controlledSelection ? (selectedIndex ?? internalIdx) : internalIdx)));
-  const cur = series.pts[idx];
-  const showScrub = controlledSelection ? selectedIndex != null : (hasScrubbed || activeWpIdx != null);
+  const cur = series.pts[idx] ?? { km: 0, ele: 0, grade: 0 };
+  // No profile means no chart to scrub, so a waypoint tap only highlights its row.
+  const showScrub = hasElevation && (controlledSelection ? selectedIndex != null : (hasScrubbed || activeWpIdx != null));
   const snapThreshold = Math.max(3, Math.round(N * 0.015));
   const nearestWpIdx = useMemo(() => {
     let bi = 0;
@@ -367,7 +370,7 @@ export function TrackDetailContent({
     }
     return Math.abs(waypoints[bi].i - idx) <= snapThreshold ? bi : null;
   }, [idx, waypoints, snapThreshold]);
-  const highlightWpIdx = activeWpIdx ?? nearestWpIdx;
+  const highlightWpIdx = hasElevation ? (activeWpIdx ?? nearestWpIdx) : activeWpIdx;
   const waypointCountLabel = allWaypoints.length > waypoints.length ? `${waypoints.length}/${allWaypoints.length}` : String(allWaypoints.length);
   const ac = theme.accent;
   const routeOuter = theme.dark ? '#FFFFFF' : 'rgba(255,255,255,0.9)';
@@ -390,8 +393,9 @@ export function TrackDetailContent({
   }, [series.pts, W, totalKm, minP, maxP]);
   const area = useMemo(() => `${line}L${W},${PLOT_H} L0,${PLOT_H} Z`, [line, W]);
   // Waypoint dot screen positions — scrub-invariant, so WaypointDots stays memoized while dragging.
+  // Only drawn inside the chart, which requires a profile, so every marker has an elevation here.
   const dotPositions = useMemo(
-    () => waypoints.map((w) => ({ cx: xOf(w.km), cy: yOf(w.ele) })),
+    () => waypoints.map((w) => ({ cx: xOf(w.km), cy: yOf(w.ele ?? 0) })),
     [waypoints, W, totalKm, minP, maxP]
   );
   const scrubX = xOf(cur.km), scrubY = yOf(cur.ele);
@@ -516,7 +520,8 @@ export function TrackDetailContent({
             Alert.alert(t('journey.elevation.deleteTitle'), t('journey.elevation.deleteMessage'), [
               { text: t('common.cancel'), style: 'cancel' },
               { text: t('common.confirm'), style: 'destructive', onPress: () => {
-                nav.patchCurrent({ trackCoords: undefined, trackElevation: undefined, trackDurationMs: undefined, trackWaypoints: undefined });
+                // Unlinks the journey; the file stays in the track library.
+                nav.patchCurrent({ trackId: undefined });
                 onClose?.();
               }},
             ]);
@@ -551,6 +556,7 @@ export function TrackDetailContent({
         </Press>
       )}
 
+      {hasElevation ? (
       <View
         onLayout={(e) => { chartBox.current = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
         style={{ paddingHorizontal: contentPaddingHorizontal, paddingTop: showMap && hasMap ? 14 : 2 }}
@@ -619,13 +625,16 @@ export function TrackDetailContent({
           {t('journey.elevation.scrubHint')}
         </Text>
       </View>
+      ) : null}
 
+      {hasElevation ? (
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: contentPaddingHorizontal, paddingTop: 18 }}>
         <Stat theme={theme} value={fmt(maxEle)} unit="m" label={t('journey.elevation.max')} />
         <Stat theme={theme} value={fmt(minEle)} unit="m" label={t('journey.elevation.min')} />
         <Stat theme={theme} value={`+${fmt(series.ascent)}`} unit="m" label={t('journey.elevation.ascent')} color={ac} />
         <Stat theme={theme} value={`−${fmt(series.descent)}`} unit="m" label={t('journey.elevation.descent')} />
       </View>
+      ) : null}
 
       {waypoints.length > 0 && (
         <View
@@ -674,7 +683,7 @@ export function TrackDetailContent({
           info={info}
           coords={coords}
           totalKm={totalKm}
-          maxEle={maxEle}
+          maxEle={hasElevation ? maxEle : null}
           accent={ac}
           onClose={() => setMapFull(false)}
         />

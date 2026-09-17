@@ -3,18 +3,30 @@ import { tool } from 'npm:@openai/agents@0.16.1';
 // @ts-ignore Deno npm specifier
 import { z } from 'npm:zod@4.1.12';
 import type { AgentContext } from './types.ts';
+import { assertCreationFacts, assertTaskPackingMode, assertTaskWrite } from './task.ts';
+import { packingItem, packingPlanProfile, type PackingItem, type PackingProfile } from './packing-schema.ts';
+import { draftFeedback, draftPatchSchema, newPackingDraft, patchPackingDraft, type PackingDraft, type DraftIssue } from './packing-draft.ts';
+import { readPackingDraft, savePackingDraft } from './packing-draft-store.ts';
 import { validateDeletionTargets } from './deletion.ts';
 import { aggregateTravelSearch } from './search/aggregate.ts';
 import { createTravelSearchProviders, travelSearchNumberSetting } from './search/registry.ts';
-import { resolveJourneyDay } from './journey-days.ts';
+import { searchPurpose } from './search/routing.ts';
+import { analyzeGuideImages, readGuide, publicGuideUrl, GUIDE_LIMITS, type GuideContent, type GuideObservation } from './search/guide-reader.ts';
+import { queryTransport } from './search/transport.ts';
+import { journeyDayOrdinal, resolveJourneyDay } from './journey-days.ts';
 import { itineraryMinutes } from './itinerary-time.ts';
-import { itineraryValidationError, validIsoDate, validateItineraryItems } from './itinerary-validation.ts';
-import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, packingWaterMixError, requiresMixedWaterPlan, validatePackingItems } from './packing-validation.ts';
-import { missingPackingCoverage, packingCoverageError, requiresFullPackingPlan } from './packing-coverage.ts';
+import { itineraryValidationError, validIsoDate, validateItineraryItems, validateItineraryConflicts } from './itinerary-validation.ts';
+import { packingItemDisplayName, packingItemIdentityKey, packingValidationError, validatePackingItems } from './packing-validation.ts';
+import { missingPackingCoverage, packingCoverageError } from './packing-coverage.ts';
 import type { PackingPlanProfile } from './packing-coverage.ts';
 import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
-import { endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters } from './route-endpoints.ts';
-import { buildAgentTrackData, computeTrackStats, isTrackFilename, parseTrackBytes, snapTrackWaypoints } from './track.ts';
+import { assertTrackDistanceConsistency, endpointAtDistance, normalizeTrackCoordinates, trackLengthMeters } from './route-endpoints.ts';
+import { overnightReviewSchema, resolveHikingEndpoint, validateHikingBoundary } from './hiking-boundaries.ts';
+import { isTrackFilename } from './track.ts';
+import { loadTrackAttachment } from './attachments.ts';
+import { canReplayToolResult } from './tool-replay.ts';
+import { compactToolData, sanitizeSessionItem } from './session-input.ts';
+import { acceptWriteVersions, contextPrompt, expectedWriteVersions, invalidateContext, journeySections, readAgentGear, readJourneySections, writeDependencies } from './context.ts';
 
 declare const Deno: { env: { get(name: string): string | undefined } };
 
@@ -32,16 +44,25 @@ type UploadedTrackData = {
   trackWaypoints: { name: string; km: number }[] | null;
   dist: string;
   asc: string | null;
+  /** Library-row values; journeys store only a reference to them. */
+  distM: number;
+  ascM: number | null;
+  pointCount: number;
+  startedAt: string | null;
   start: { lng: number; lat: number };
 };
 
 const requestClients = new Map<string, Client>();
-const travelSearches = new Map<string, Promise<unknown>>();
+const travelSearches = new Map<string, Map<string, Promise<unknown>>>();
+const guideReads = new Map<string, Promise<unknown>>();
+const journeyWrites = new Map<string, Promise<unknown>>();
 
 export function bindRunClient(runId: string, client: Client) { requestClients.set(runId, client); }
 export function releaseRunClient(runId: string) {
   requestClients.delete(runId);
   travelSearches.delete(runId);
+  guideReads.delete(runId);
+  journeyWrites.delete(runId);
 }
 
 function clientFor(runContext?: RunContext): Client {
@@ -56,38 +77,11 @@ function contextFor(runContext?: RunContext): AgentContext {
   return runContext.context;
 }
 
-
-function looksLikeJourneyPlanRequest(message: string) {
-  return /(创建|规划|安排|计划|做|生成).{0,12}(旅程|行程|路线|徒步|旅行|露营|登山)|帮我.{0,20}(旅程|行程|路线|徒步|旅行|露营|登山)/i.test(message);
-}
-
-function hasConcreteOrOpenJourneyDate(message: string) {
-  return /(今天|明天|后天|大后天|本周|这周|下周|下个月|周[一二三四五六日天末]|星期[一二三四五六日天]|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[日号]|日期\s*(未定|待定)|待定|暂定|稍后补)/i.test(message);
-}
-
-function hasJourneyDuration(message: string) {
-  return /(\d+|[一二两三四五六七八九十半]+)\s*(天|日|晚|夜)|day|days|night|nights/i.test(message);
-}
-
-function explicitlyAllowsUndatedJourney(message: string) {
-  return /(日期|时间|出发|哪天).{0,6}(未定|待定|暂定|稍后补|以后补)|先.{0,6}(未定|待定)|待定日期|日期待定|date\s*(tbd|unknown|later)/i.test(message);
+function needsSourceVerification(output: any): boolean {
+  return Array.isArray(output?.sources) && output.sources.some((source: { errorCode?: string }) => source.errorCode === 'verification_required');
 }
 
 
-function journeyCreationBasicsMissing(context: AgentContext) {
-  const text = context.originalUserMessage?.trim() || '';
-  if (!text) return false;
-  const createLike = looksLikeJourneyPlanRequest(text);
-  if (!createLike) return false;
-  const hasDate = hasConcreteOrOpenJourneyDate(text) || explicitlyAllowsUndatedJourney(text);
-  return !hasDate || !hasJourneyDuration(text);
-}
-
-function assertJourneyCreationBasicsReady(context: AgentContext) {
-  if (journeyCreationBasicsMissing(context)) {
-    throw new Error('创建旅程前必须先补齐出发日期和天数；不要先查询路线、搜索攻略或创建旅程。');
-  }
-}
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -101,10 +95,6 @@ function stable(value: unknown): string {
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function undoable<T>(value: T, undo: Record<string, unknown>): UndoableResult<T> {
-  return { __undoable: true, value, undo };
 }
 
 function isUndoableResult<T>(value: T | UndoableResult<T>): value is UndoableResult<T> {
@@ -208,44 +198,91 @@ async function uploadedTrackForRun(client: Client, context: AgentContext, reques
     .limit(1)
     .maybeSingle();
   if (message.error) throw message.error;
-  const attachments = Array.isArray(message.data?.ui?.attachments) ? message.data.ui.attachments : [];
+  const attachments = context.attachments ?? (Array.isArray(message.data?.ui?.attachments) ? message.data.ui.attachments : []);
   const normalizedRequested = requestedName?.trim().toLocaleLowerCase();
   const trackAttachment = attachments.find((attachment: any) => {
     const name = typeof attachment?.name === 'string' ? attachment.name : '';
     if (!isTrackFilename(name)) return false;
     return !normalizedRequested || name.toLocaleLowerCase() === normalizedRequested;
   }) || null;
-  if (!trackAttachment) return null;
-  const response = await fetch(trackAttachment.url);
-  if (!response.ok) throw new Error('无法读取上传的轨迹文件');
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > 15 * 1024 * 1024) throw new Error('轨迹文件过大，请上传 15MB 以内的 GPX/KML/KMZ');
-  const parsed = await parseTrackBytes(bytes, trackAttachment.name);
-  const stats = computeTrackStats(parsed.points);
-  if (!stats) throw new Error('轨迹点不足，无法创建带轨迹的旅程');
-  const track = buildAgentTrackData(stats);
-  const start = stats.points[0];
-  return {
-    name: parsed.name,
-    fileUrl: trackAttachment.url,
-    fileName: trackAttachment.name,
-    trackCoords: track.trackCoords,
-    trackElevation: track.trackElevation,
-    trackDurationMs: track.trackDurationMs,
-    trackWaypoints: snapTrackWaypoints(parsed.waypoints, stats),
-    dist: track.dist,
-    asc: track.asc,
-    start: { lng: start.lon, lat: start.lat },
-  };
+  if (!trackAttachment) {
+    if (requestedName) throw new Error('指定的轨迹附件不存在，不能创建不带轨迹的旅程');
+    return null;
+  }
+  return loadTrackAttachment(client, trackAttachment, context.userId);
+}
+
+// A chat attachment becomes a track library row the first time it is bound to a
+// journey. Later bindings of the same file reuse that row, so two journeys
+// planned from one uploaded GPX share a single track.
+async function libraryTrackId(client: Client, context: AgentContext, track: UploadedTrackData): Promise<string> {
+  const existing = await client.from('tracks').select('id').eq('user_id', context.userId).eq('file_url', track.fileUrl).limit(1).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return existing.data.id;
+  const extension = track.fileName.split('.').pop()?.toLocaleLowerCase();
+  const inserted = await client.from('tracks').insert({
+    user_id: context.userId,
+    name: track.name || track.fileName,
+    file_name: track.fileName,
+    file_format: extension === 'kmz' || extension === 'kml' ? extension : 'gpx',
+    file_url: track.fileUrl,
+    coords: track.trackCoords,
+    elevation: track.trackElevation,
+    duration_ms: track.trackDurationMs,
+    waypoints: track.trackWaypoints,
+    dist_m: track.distM,
+    asc_m: track.ascM,
+    point_count: track.pointCount,
+    started_at: track.startedAt,
+  }).select('id').single();
+  if (inserted.error) throw inserted.error;
+  return inserted.data.id;
 }
 
 async function mutate<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T | UndoableResult<T>>): Promise<T> {
+  if (!writeDependencies(toolName, (args || {}) as Record<string, unknown>).length) return mutateUnlocked(toolName, args, runContext, operation);
+  const runId = contextFor(runContext).runId;
+  const previous = journeyWrites.get(runId) || Promise.resolve();
+  const next = previous.catch(() => {}).then(() => mutateUnlocked(toolName, args, runContext, operation));
+  journeyWrites.set(runId, next);
+  try { return await next; } finally { if (journeyWrites.get(runId) === next) journeyWrites.delete(runId); }
+}
+
+async function commitJourneyChange<T>(client: Client, context: AgentContext, journeyId: string, change: unknown, output: T, undo: Record<string, unknown> | null = null): Promise<T> {
+  if (!context.writeReceipt) throw new Error('Missing checked write context');
+  const result = await client.rpc('apply_agent_journey_change', {
+    p_call_id: context.writeReceipt.callId, p_journey_id: journeyId, p_expected: context.writeReceipt.expected,
+    p_change: change, p_output: output, p_undo: undo,
+  });
+  if (result.error) {
+    if (result.error.code === 'PT409' || String(result.error.message).includes('agent_context_conflict')) {
+      invalidateContext(context, journeyId);
+      throw new Error('旅程数据已被修改，本次写入没有执行。重新读取所需 sections，保留最新安排后再规划；不要原样重试旧写入。');
+    }
+    throw result.error;
+  }
+  context.writeReceipt.committed = true;
+  acceptWriteVersions(context, journeyId, context.writeReceipt.expected, result.data.versions);
+  return result.data.output as T;
+}
+
+async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T | UndoableResult<T>>): Promise<T> {
   const client = clientFor(runContext);
   const context = contextFor(runContext);
+  const targetJourneyId = (args as { journeyId?: string })?.journeyId;
+  assertTaskWrite(context.task, toolName, targetJourneyId);
+  if (toolName === 'add_packing_items') assertTaskPackingMode(context.task, (args as { mode: 'full' | 'incremental' }).mode);
   const argumentsHash = await sha256(stable(args));
   const existing = await client.from('agent_tool_calls').select('status,output').eq('run_id', context.runId).eq('tool_name', toolName).eq('arguments_hash', argumentsHash).maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data?.status === 'completed') return existing.data.output as T;
+  if (existing.data?.status === 'completed' && canReplayToolResult(toolName)
+    && !(toolName === 'search_travel_web' && !existing.data.output?.available && !needsSourceVerification(existing.data.output))) {
+    if (toolName === 'create_journey' && context.task) {
+      context.task.journeyId = existing.data.output.id;
+      context.currentJourneyId = existing.data.output.id;
+    }
+    return existing.data.output as T;
+  }
 
   const recorded = await client.from('agent_tool_calls').upsert({
     run_id: context.runId,
@@ -262,14 +299,23 @@ async function mutate<T>(toolName: string, args: unknown, runContext: RunContext
   if (recorded.error) throw recorded.error;
 
   try {
-    const operationResult = await operation(client, context);
+    context.dataContext ??= { versions: {}, snapshots: {}, observed: {} };
+    const checked = writeDependencies(toolName, (args || {}) as Record<string, unknown>).length > 0;
+    const operationContext = checked ? { ...context, writeReceipt: { callId: recorded.data.id, expected: expectedWriteVersions(context, toolName, args as Record<string, unknown>), committed: false } } : context;
+    const operationResult = await operation(client, operationContext);
     const output = isUndoableResult(operationResult) ? operationResult.value : operationResult;
+    if (toolName === 'create_journey' && context.task) {
+      const id = (output as { id: string }).id;
+      context.task.journeyId = id;
+      context.currentJourneyId = id;
+    }
+    if (operationContext.writeReceipt?.committed) return output;
     const undoPayload = isUndoableResult(operationResult) ? operationResult.undo : null;
     const saved = await client.from('agent_tool_calls').update({ status: 'completed', output, undo_payload: undoPayload, updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
     if (saved.error) throw saved.error;
     return output;
   } catch (error) {
-    await client.from('agent_tool_calls').update({ status: 'failed', error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
+    await client.from('agent_tool_calls').update({ status: 'failed', error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString() }).eq('id', recorded.data.id).neq('status', 'completed');
     throw error;
   }
 }
@@ -281,37 +327,19 @@ const itineraryItem = z.object({
   timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
 });
 
-const packingItem = z.object({
-  name: z.string().min(1).max(120).describe('可直接购买、准备和勾选的简短品名。不得使用“饮用水、路餐、食物、充电宝、急救包、个人药品、换洗衣物”等泛称，也不要把容量、重量或常识属性写进名称'),
-  attributes: z.array(z.object({
-    name: z.string().min(1).max(24).describe('字段名，例如容量、接口、单份净重、温标或 R 值'),
-    value: z.string().min(1).max(60).describe('字段值'),
-  })).max(6).optional().describe('仅填写会改变购买选择或安全性能的关键自定义字段；不要填写可调亮度、带帽檐、防紫外线、独立包装、中号等常识或非必要细节'),
-  categoryName: z.string().max(60).optional().describe('物品所属类别，例如饮水、食物、医疗或电子'),
-  quantity: z.number().int().min(1).max(99).default(1).describe('需要携带的实际件数；相同规格物品用此字段表示数量'),
-  weightKg: z.number().positive().max(100).describe('单件实际携带重量（千克），必须写入重量字段；食品包装克重等购买规格可同时保留在 attributes 中'),
-  weightEstimated: z.boolean().describe('没有确切型号或实测重量时为 true，有真实重量依据时为 false'),
-  carryStatus: z.enum(['packed', 'worn', 'consumable']).describe('重量归属：背包内固定装备用 packed，行进时穿在身上或脚上的衣物鞋帽用 worn，途中会消耗的食品、饮水和燃料用 consumable'),
-  estimatedEnergyKcalPerUnit: z.number().positive().max(3000).optional().describe('仅食品填写的内部单份热量估算，只用于检查路餐数量，不会展示或写入清单'),
-});
-
-const packingPlanProfile = z.object({
-  accommodation: z.enum(['day_trip', 'indoors', 'camping', 'unknown']).describe('当天往返、室内住宿、露营或未知'),
-  waterRefill: z.enum(['none', 'treated', 'natural', 'unknown']).describe('无补给、可靠处理水源、需净化的天然水源或未知'),
-  mealPreparation: z.enum(['no_cook', 'cook', 'provided', 'unknown']).describe('无需烹饪、自行开火、住宿或商家提供、未知'),
-  conditions: z.array(z.enum(['hot', 'cold', 'wet', 'snow', 'high_altitude'])).max(5).optional(),
-});
 
 async function loadPersonalPlanningNeeds(client: Client, context: AgentContext, journeyId: string, plan: PackingPlanProfile) {
   const [profile, journey, itinerary] = await Promise.all([
     client.from('user_planning_profiles').select('height_cm,weight_kg,age_years,dietary_restrictions').eq('user_id', context.userId).maybeSingle(),
-    client.from('journeys').select('id,days,total_days,dist,asc_,track_duration_ms').eq('id', journeyId).is('deleted_at', null).single(),
+    client.from('journeys').select('id,days,total_days,dist,asc_,tracks ( duration_ms )').eq('id', journeyId).is('deleted_at', null).single(),
     client.from('timeline_rows').select('day,time_mins,time_end_mins').eq('journey_id', journeyId),
   ]);
   if (profile.error) throw profile.error;
   if (journey.error) throw journey.error;
   if (itinerary.error) throw itinerary.error;
-  return estimatePersonalPackingNeeds(normalizePlanningProfile(profile.data), journey.data, itinerary.data || [], plan);
+  // A recorded duration now lives on the journey's track, not on the journey.
+  const { tracks, ...journeyFacts } = journey.data;
+  return estimatePersonalPackingNeeds(normalizePlanningProfile(profile.data), { ...journeyFacts, track_duration_ms: tracks?.duration_ms ?? null }, itinerary.data || [], plan, context.task?.decision.activeHoursPerDay);
 }
 
 const itineraryDeletionTarget = z.object({
@@ -326,23 +354,20 @@ const packingDeletionTarget = z.object({
 
 const itineraryGroupEndpoint = z.object({
   day: z.string().min(1).max(40).describe('要设置终点的行程组，标准日序使用 Day 1、Day 2'),
-  endDistanceKm: z.number().positive().max(10000).describe('终点在完整轨迹上的累计公里数，只能使用轨迹标注点或用户明确提供的可靠数值'),
+  waypointIndex: z.number().int().min(0).optional().describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
+  trackFinish: z.boolean().optional().describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
+  endDistanceKm: z.number().positive().max(10000).optional().describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
   locationName: z.string().min(1).max(120).optional().describe('轨迹标注点名称；没有可靠名称时省略'),
+  estimateBasis: z.string().trim().min(1).max(80).optional().describe('已停用，必须省略；暂估分段写入会被拒绝'),
+  userDistanceQuote: z.string().trim().min(1).max(500).optional().describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
+  overnightReview: overnightReviewSchema.optional().describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
 });
 
 async function assertDeleteContext(client: Client, context: AgentContext, journeyId: string) {
   if (!context.currentJourneyId || context.currentJourneyId !== journeyId) {
     throw new Error('只能删除当前打开旅程中的项目');
   }
-  const readCalls = await client
-    .from('agent_tool_calls')
-    .select('arguments')
-    .eq('run_id', context.runId)
-    .eq('tool_name', 'get_journey_details')
-    .eq('status', 'completed');
-  if (readCalls.error) throw readCalls.error;
-  const readCurrentJourney = (readCalls.data || []).some((call: { arguments?: { journeyId?: unknown } }) => call.arguments?.journeyId === journeyId);
-  if (!readCurrentJourney) throw new Error('删除前必须重新读取当前旅程详情');
+  // Exact IDs/titles are checked again inside the version-checked SQL transaction.
 }
 
 async function assertJourneyWriteAccess(client: Client, context: AgentContext, journeyId: string, permission: 'editTimeline' | 'editChecklist') {
@@ -357,9 +382,9 @@ async function assertJourneyWriteAccess(client: Client, context: AgentContext, j
 
 export const getAppContext = tool({
   name: 'get_app_context',
-  description: 'Read the journey currently open in the app. Always use this first when the user says current journey or this journey; its currentJourneyId is authoritative.',
+  description: 'Read the journey currently open in the app and the on-demand device location/status for this request. Use this when the user refers to their current location. Always use this first when the user says current journey or this journey; its currentJourneyId is authoritative.',
   parameters: z.object({}),
-  execute: async (args, runContext) => mutate('get_app_context', args, runContext as RunContext, async (_client, context) => ({ currentJourneyId: context.currentJourneyId || null })),
+  execute: async (args, runContext) => mutate('get_app_context', args, runContext as RunContext, async (_client, context) => ({ currentJourneyId: context.currentJourneyId || null, currentLocation: context.currentLocation || null, dataContext: contextPrompt(context) })),
 });
 
 export const searchJourneys = tool({
@@ -389,8 +414,7 @@ export const searchRoutes = tool({
   description: 'Search route catalog by route name or region when planning a journey.',
   parameters: z.object({ query: z.string().min(1).max(80) }),
   execute: async ({ query }, runContext) => mutate('search_routes', { query }, runContext as RunContext, async (client, context) => {
-    assertJourneyCreationBasicsReady(context);
-    const columns = 'id,name,region,dist,asc_,diff,desc,track_duration_ms,track_waypoints';
+    const columns = 'id,name,region,dist,asc_,diff,desc';
     const pattern = `%${query.trim()}%`;
     const [byName, byRegion] = await Promise.all([
       client.from('routes').select(columns).ilike('name', pattern).limit(20),
@@ -406,43 +430,19 @@ export const listGear = tool({
   name: 'list_gear',
   description: 'Read the user\'s gear library and categories. Use before recommending or adding gear.',
   parameters: z.object({ query: z.string().max(80).optional() }),
-  execute: async ({ query }, runContext) => mutate('list_gear', { query }, runContext as RunContext, async (client) => {
-    let itemsRequest = client.from('gear_items').select('id,name,cat_id,weight,price,qty,status,note').order('created_at').limit(100);
-    if (query?.trim()) itemsRequest = itemsRequest.ilike('name', `%${query.trim()}%`);
-    const [items, categories] = await Promise.all([itemsRequest, client.from('gear_categories').select('id,name,color').order('created_at')]);
-    if (items.error) throw items.error;
-    if (categories.error) throw categories.error;
-    return { items: items.data || [], categories: categories.data || [] };
-  }),
+  execute: async ({ query }, runContext) => mutate('list_gear', { query }, runContext as RunContext, async (client, context) => readAgentGear(client, context, query)),
 });
 
 export const getJourneyDetails = tool({
   name: 'get_journey_details',
-  description: 'Read one journey with its itinerary, itinerary groups and packing lists. Track waypoints include their cumulative km and can be used to set itinerary group endpoints. Always call before adding recommendations to an existing journey.',
-  parameters: z.object({ journeyId: z.string().min(1).max(100) }),
-  execute: async ({ journeyId }, runContext) => mutate('get_journey_details', { journeyId }, runContext as RunContext, async (client) => {
-    const [journey, timeline, groups, lists] = await Promise.all([
-      client.from('journeys').select('*').eq('id', journeyId).is('deleted_at', null).single(),
-      client.from('timeline_rows').select('id,title,day,time_mins,time_end_mins,checked').eq('journey_id', journeyId).order('sort_order'),
-      client.from('timeline_groups').select('name,sort_order,route_end_meters,route_location_name').eq('journey_id', journeyId).eq('deleted', false).order('sort_order'),
-      client.from('journey_packing_lists').select('id,kind,journey_packing_items(id,name,category_name,quantity,weight_kg,weight_estimated,attrs,note,packed)').eq('journey_id', journeyId),
-    ]);
-    if (journey.error) throw journey.error;
-    if (timeline.error) throw timeline.error;
-    if (groups.error) throw groups.error;
-    if (lists.error) throw lists.error;
-    const trackCoordinates = normalizeTrackCoordinates(journey.data.track_coords);
-    const trackSummary = trackCoordinates.length >= 2 ? {
-      totalKm: trackLengthMeters(trackCoordinates) / 1000,
-      waypoints: Array.isArray(journey.data.track_waypoints) ? journey.data.track_waypoints : [],
-    } : null;
-    return { journey: journey.data, trackSummary, itinerary: timeline.data || [], itineraryGroups: groups.data || [], packingLists: lists.data || [] };
-  }),
+  description: 'Read only missing or changed sections of a journey. Reuse version-verified context supplied with this turn. Sections: journey (dates/region), track (cached summary, never raw coordinates), itinerary (rows/groups), packing (lists/items). Request only sections needed for this task; transport does not need packing. A full plan needs all four sections. On a write conflict, reread the affected sections before revising the plan.',
+  parameters: z.object({ journeyId: z.string().min(1).max(100), sections: z.array(z.enum(journeySections)).min(1).max(4).default(['journey', 'track']) }),
+  execute: async ({ journeyId, sections }, runContext) => mutate('get_journey_details', { journeyId, sections }, runContext as RunContext, async (client, context) => readJourneySections(client, context, journeyId, sections)),
 });
 
 export const estimatePersonalPacking = tool({
   name: 'estimate_personal_packing_needs',
-  description: 'Privately estimate practical food, water and carrying needs for the current user before generating a full packing list. The result is internal planning context: use it to choose concrete item quantities, but do not quote body measurements, calories, confidence, formulas or calculations unless the user explicitly asks. Always call after get_journey_details and before add_packing_items for a full plan. Missing profile fields are allowed and must not trigger follow-up questions.',
+  description: 'Privately estimate practical food and carrying needs for the current user before generating a full packing list. This tool does not prescribe water quantities; assess hydration from the journey context. The result is internal planning context: use it to choose concrete item quantities, but do not quote body measurements, calories, confidence, formulas or calculations unless the user explicitly asks. Always call after get_journey_details and before add_packing_items for a full plan. Missing profile fields are allowed and must not trigger follow-up questions.',
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     planProfile: packingPlanProfile.describe('本次旅程已知的住宿、补水、餐食与环境条件；未知项使用 unknown'),
@@ -454,29 +454,154 @@ export const estimatePersonalPacking = tool({
 
 export const searchTravelWeb = tool({
   name: 'search_travel_web',
-  description: 'Search configured live travel sources for current facts, places, destination guides, and community inspiration. Each result identifies its source and reliability; critical facts must rely on web or official links rather than community posts.',
+  description: 'Search destination guides or transport reference pages. For guides, first verify the destination against journey/track context, then make one discovery search covering the task. Further guide queries reuse that result, including after recovery: read its articles/images, do not rephrase keywords. State unresolved gaps instead of inventing facts. Use purpose=transport only for actual transport evidence; community crawlers are excluded. For dated train/flight schedules, seats and fares use search_transport first. Web pages are not live availability or ticket quotes.',
   parameters: z.object({
     query: z.string().min(2).max(200),
+    purpose: z.enum(['guide', 'transport']).optional(),
   }),
-  execute: async ({ query }, runContext) => {
+  execute: async ({ query, purpose }, runContext) => {
+    const resolvedPurpose = searchPurpose(query, purpose);
     const context = contextFor(runContext as RunContext);
-    const activeSearch = travelSearches.get(context.runId);
-    if (activeSearch) return activeSearch;
-    const search = mutate('search_travel_web', { query }, runContext as RunContext, async (_client, context) => {
-      assertJourneyCreationBasicsReady(context);
-      const getEnv = (name: string) => Deno.env.get(name);
-      const providers = createTravelSearchProviders(getEnv);
-      const hasCrawlerSource = providers.some((provider) => provider.source === 'xhs' || provider.source === 'douyin');
-      return aggregateTravelSearch({
-        query,
-        providers,
-        timeoutMs: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 60000 : 8000, 2000, 120000),
-        maxResults: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30),
+    const perform = async () => {
+      if (resolvedPurpose === 'guide') {
+        const history = await guideHistory(clientFor(runContext as RunContext), context.runId);
+        const previous = history.find(call => call.tool_name === 'search_travel_web' && call.status === 'completed'
+          && (call.output?.purpose ?? searchPurpose(call.arguments.query || '', call.arguments.purpose)) === 'guide'
+          && Array.isArray(call.output?.results));
+        if (previous) return { ...previous.output, reused: true,
+          nextAction: 'This task already searched for guides. No new provider request was made. Reuse these original results and already-read articles/images; do not call search again or switch purpose to evade this limit. Finish remaining work and disclose unresolved facts.' };
+      }
+      const searches = travelSearches.get(context.runId) || new Map<string, Promise<unknown>>();
+      travelSearches.set(context.runId, searches);
+      const key = `${resolvedPurpose}:${query.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`;
+      const activeSearch = searches.get(key);
+      if (activeSearch) return activeSearch;
+      const search = mutate('search_travel_web', { query, purpose: resolvedPurpose }, runContext as RunContext, async (client, context) => {
+        const getEnv = (name: string) => Deno.env.get(name);
+        const history = await client.from('agent_tool_calls').select('output').eq('run_id', context.runId).eq('tool_name', 'search_travel_web').eq('status', 'completed');
+        if (history.error) throw history.error;
+        const blocked = new Set((history.data || []).flatMap((call: { output?: { sources?: Array<{ source: string; errorCode?: string }> } }) =>
+          (call.output?.sources || []).filter(source => source.errorCode === 'verification_required').map(source => source.source)));
+        const providers = createTravelSearchProviders(getEnv, resolvedPurpose).map(provider => blocked.has(provider.source)
+          ? { source: provider.source, search: async () => ({ available: false, results: [], errorCode: 'verification_required' as const,
+            error: 'This source requires manual browser verification. No further platform request was made in this task.' }) }
+          : provider);
+        const hasCrawlerSource = providers.some((provider) => provider.source === 'xhs' || provider.source === 'douyin');
+        const result = await aggregateTravelSearch({
+          query,
+          providers,
+          timeoutMs: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 60000 : 8000, 2000, 120000),
+          maxResults: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30),
+        });
+        return { ...result, purpose: resolvedPurpose, ...(resolvedPurpose === 'guide' ? {
+          nextAction: result.results.length
+            ? 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again. Read selected images only if needed; snippets do not include image or video understanding. Finish with existing evidence and disclose missing facts.'
+            : 'No usable guide results. Do not repeat near-identical queries or retry unavailable sources. Use existing evidence and state the missing facts.',
+        } : {}), ...(resolvedPurpose === 'transport' ? {
+          limitation: 'Reference pages only, not live schedules, fares or inventory. Check operator provenance and publication dates. No community fallback is allowed.',
+          ...(!result.available ? { nextAction: 'The reference provider is unavailable. Do not rephrase or repeat searches to bypass missing access; explain the limitation and continue with clearly unverified estimates.' } : {}),
+        } : {}) };
       });
-    });
-    travelSearches.set(context.runId, search);
-    return search;
+      searches.set(key, search);
+      void search.then(result => {
+        if (!(result as { available?: boolean }).available && !needsSourceVerification(result)) searches.delete(key);
+      }, () => { searches.delete(key); });
+      return search;
+    };
+    // The journal survives worker recovery; serialization also prevents parallel rephrases.
+    return resolvedPurpose === 'guide' ? guideOperation(runContext as RunContext, perform) : perform();
   },
+});
+
+type GuideCall = { tool_name: string; status: string; arguments: { query?: string; purpose?: 'guide' | 'transport'; url?: string; imageIds?: number[] }; output?: any };
+
+async function guideHistory(client: Client, runId: string): Promise<GuideCall[]> {
+  const result = await client.from('agent_tool_calls').select('tool_name,status,arguments,output').eq('run_id', runId)
+    .in('tool_name', ['search_travel_web', 'read_travel_guide', 'read_travel_guide_images']);
+  if (result.error) throw result.error;
+  return result.data || [];
+}
+
+// Serialize read/vision decisions so parallel tool calls cannot evade the
+// per-run budget. Journal receipts also retain the budget across recovery.
+async function guideOperation<T>(runContext: RunContext, operation: () => Promise<T>): Promise<T> {
+  const runId = contextFor(runContext).runId;
+  const next = (guideReads.get(runId) || Promise.resolve()).catch(() => {}).then(operation);
+  guideReads.set(runId, next);
+  try { return await next; } finally { if (guideReads.get(runId) === next) guideReads.delete(runId); }
+}
+
+export const readTravelGuide = tool({
+  name: 'read_travel_guide',
+  description: 'Read the body and candidate image URLs of a selected search_travel_web result, not just its snippet. Read 1-3 promising guides from the existing search instead of searching again. Only URLs returned by this run\'s search are accepted. Images are NOT analyzed yet; choose relevant image IDs with read_travel_guide_images if text leaves important gaps. No videos or restricted-content bypass.',
+  parameters: z.object({ url: z.string().min(1).max(2048) }),
+  execute: ({ url: input }, runContext) => {
+    const url = publicGuideUrl(input);
+    return guideOperation(runContext as RunContext, () => mutate('read_travel_guide', { url }, runContext as RunContext, async (client, context) => {
+      const calls = await guideHistory(client, context.runId);
+      const sources = calls.filter(call => call.tool_name === 'search_travel_web' && call.status === 'completed')
+        .flatMap(call => Array.isArray(call.output?.results) ? call.output.results : []);
+      const source = sources.find((source: { url?: string }) => {
+        try { return typeof source.url === 'string' && publicGuideUrl(source.url) === url; } catch { return false; }
+      });
+      if (!source) throw new Error('Select an exact URL returned by search_travel_web in this task');
+      if (new Set(calls.filter(call => call.tool_name === 'read_travel_guide').map(call => call.arguments.url)).size > GUIDE_LIMITS.pages) {
+        return { available: false, status: 'budget_exhausted', url, limitation: 'Article read budget reached. Reuse existing guides and report remaining gaps; do not keep searching to bypass this limit.' };
+      }
+      const result = await readGuide(url, name => Deno.env.get(name));
+      return { ...result, title: source.title, publishedAt: source.publishedAt,
+        results: result.available ? [{ title: source.title, url, source: source.source, publishedAt: source.publishedAt }] : [] };
+    }));
+  },
+});
+
+export const readTravelGuideImages = tool({
+  name: 'read_travel_guide_images',
+  description: 'Read selected image IDs from a successful read_travel_guide receipt in this task. Prefer route diagrams/day tables where body text leaves a concrete gap. Returns visible text, observations, uncertainties and image/source URLs, not verified current facts. Max 4 images per call, 6 distinct images and 3 image-read batches per task. No video analysis.',
+  parameters: z.object({ url: z.string().min(1).max(2048), imageIds: z.array(z.number().int().positive()).min(1).max(GUIDE_LIMITS.batch) }),
+  execute: ({ url: input, imageIds }, runContext) => {
+    const url = publicGuideUrl(input);
+    const ids = [...new Set(imageIds)].sort((a, b) => a - b);
+    return guideOperation(runContext as RunContext, () => mutate('read_travel_guide_images', { url, imageIds: ids }, runContext as RunContext, async (client, context) => {
+      const calls = await guideHistory(client, context.runId);
+      const page = calls.find(call => call.tool_name === 'read_travel_guide' && call.status === 'completed'
+        && call.arguments.url === url && call.output?.available)?.output as GuideContent | undefined;
+      if (!page) throw new Error('Read the selected guide body first; only its returned images can be analyzed');
+      const images = ids.map(id => page.images.find(image => image.id === id));
+      if (images.some(image => !image)) throw new Error('Select only image IDs returned for this guide');
+      const imageCalls = calls.filter(call => call.tool_name === 'read_travel_guide_images');
+      const attempted = new Set(imageCalls.flatMap(call => (call.arguments.imageIds || []).map(id => `${call.arguments.url}#${id}`)));
+      if (imageCalls.length > 3 || attempted.size > GUIDE_LIMITS.images) {
+        return { available: false, status: 'budget_exhausted', sourceUrl: url, images: [], limitation: 'Image reading budget reached. Use existing text and observations; state any unresolved gaps.' };
+      }
+      const cached = new Map<number, GuideObservation>();
+      for (const call of imageCalls) {
+        if (call.arguments.url !== url || call.status !== 'completed' || !call.output?.available) continue;
+        for (const observation of call.output.images as GuideObservation[]) cached.set(observation.imageId, observation);
+      }
+      const pending = images.filter((image): image is NonNullable<typeof image> => Boolean(image && !cached.has(image.id)));
+      if (!pending.length) return { available: true, status: 'completed', sourceUrl: url, images: ids.map(id => cached.get(id)!), cached: true,
+        limitation: 'Reused image observations, not current safety verification or exact GPX distances. No video was read.' };
+      const result = await analyzeGuideImages(url, pending, name => Deno.env.get(name));
+      return { ...result, images: [...ids.flatMap(id => cached.has(id) ? [cached.get(id)!] : []), ...result.images] };
+    }));
+  },
+});
+
+export const searchTransport = tool({
+  name: 'search_transport',
+  description: 'Read-only dated rail/flight query, never community timetables. Rail uses exact Chinese station names within 15 days including today in Shanghai; default direct trains, or set viaStation for one-page two-leg connection candidates. Inspect each connection.status: buffer_met means only a conservative 45-minute same-station time floor, not guaranteed transfer or ticket access. Never recommend same_train_split, insufficient_buffer or station_change_unverified as validated transfers. Prices are per adult per leg, not through/group fares. Use earliestHour for evening returns. Flights need verified IATA codes and production Amadeus. No booking; empty never means no service.',
+  parameters: z.object({
+    mode: z.enum(['rail', 'flight']),
+    origin: z.string().min(1).max(120),
+    destination: z.string().min(1).max(120),
+    departureDate: z.string().refine(validIsoDate, 'Use a valid YYYY-MM-DD date'),
+    adults: z.number().int().min(1).max(9).describe('Adult count used for pricing; do not treat a quote for one adult as a group total.'),
+    earliestHour: z.number().int().min(0).max(23).nullable().optional().describe('Rail only: earliest departure hour in Asia/Shanghai after allowing hike end, station transfer and boarding buffer. Null means all hours.'),
+    viaStation: z.string().min(1).max(40).nullable().optional().describe('Rail only: exact Chinese interchange arrival station to query two-leg candidates. Null means direct. Resolve a plausible hub from route context; no silent city/station substitution. Partial one-page coverage; empty is not exhaustive.'),
+  }),
+  execute: (args, runContext) => mutate('search_transport', args, runContext as RunContext,
+    async () => queryTransport(args, name => Deno.env.get(name))),
 });
 
 export const addGear = tool({
@@ -511,43 +636,46 @@ export const createJourney = tool({
     description: z.string().max(1000).optional(),
   }),
   execute: async (args, runContext) => mutate('create_journey', args, runContext as RunContext, async (client, context) => {
-    assertJourneyCreationBasicsReady(context);
-    if (!args.plannedDate?.trim() && !context.allowUndatedJourney) {
-      throw new Error('创建旅程前需要先询问用户出发日期；只有用户明确说日期待定/稍后补日期，才能创建未定日期旅程。');
+    if (context.currentJourneyId) {
+      throw new Error('当前会话已经关联旅程，不能再次创建旅程。');
     }
+    const linkedThread = await client.from('agent_threads').select('current_journey_id').eq('id', context.threadId).single();
+    if (linkedThread.error) throw linkedThread.error;
+    if (linkedThread.data.current_journey_id) {
+      const existing = await client.from('journeys').select('id,name,region,planned_date,total_days').eq('id', linkedThread.data.current_journey_id).is('deleted_at', null).single();
+      if (existing.error) throw existing.error;
+      return existing.data;
+    }
+    assertCreationFacts(context.task, args);
     if (args.plannedDate && !validIsoDate(args.plannedDate)) {
       throw new Error('出发日期不是有效的 YYYY-MM-DD 日历日期，请修正后重新调用 create_journey。');
     }
     const routeResult = args.routeId ? await client.from('routes').select('*').eq('id', args.routeId).maybeSingle() : { data: null, error: null };
     if (routeResult.error) throw routeResult.error;
     const route = routeResult.data;
-    const uploadedTrack = route ? null : await uploadedTrackForRun(client, context, args.trackAttachmentName);
+    const uploadedTrack = await uploadedTrackForRun(client, context, args.trackAttachmentName);
     const resolvedLocation = route || uploadedTrack ? null : await maybeGeocodeJourneyMapLocation(args.region || args.name);
     const id = `j_${crypto.randomUUID()}`;
     const startLocation = uploadedTrack?.start;
-    const inserted = await client.from('journeys').insert({
+    const trackId = uploadedTrack ? await libraryTrackId(client, context, uploadedTrack) : null;
+    const journeyPayload = {
       id, user_id: context.userId, route_id: route?.id || null, name: args.name, region: args.region || route?.region || resolvedLocation?.region || uploadedTrack?.name || '',
-      coord: route?.coord || resolvedLocation?.coord || (startLocation ? coordinateLabel(startLocation.lng, startLocation.lat) : ''),
-      lng: route?.lng || resolvedLocation?.lng || startLocation?.lng || 0,
-      lat: route?.lat || resolvedLocation?.lat || startLocation?.lat || 0,
-      dist: route?.dist || uploadedTrack?.dist || '', asc_: route?.asc_ || uploadedTrack?.asc || '',
+      coord: startLocation ? coordinateLabel(startLocation.lng, startLocation.lat) : route?.coord || resolvedLocation?.coord || '',
+      lng: startLocation?.lng ?? route?.lng ?? resolvedLocation?.lng ?? 0,
+      lat: startLocation?.lat ?? route?.lat ?? resolvedLocation?.lat ?? 0,
+      dist: uploadedTrack?.dist || route?.dist || '', asc_: uploadedTrack?.asc || route?.asc_ || '',
       diff: route?.diff || null, tone: route?.tone || 'forest', desc: args.description || route?.desc || null,
       date: args.plannedDate || null, planned_date: args.plannedDate || null, days: `${args.days} 天`, total_days: args.days,
-      track_coords: route?.track_coords || uploadedTrack?.trackCoords || null, track_elevation: route?.track_elevation || uploadedTrack?.trackElevation || null,
-      track_duration_ms: route?.track_duration_ms || uploadedTrack?.trackDurationMs || null, track_waypoints: route?.track_waypoints || uploadedTrack?.trackWaypoints || null,
-      track_file_url: route?.track_file_url || uploadedTrack?.fileUrl || null, track_file_name: route?.track_file_name || uploadedTrack?.fileName || null,
-    }).select('id,name,region,planned_date,total_days').single();
-    if (inserted.error) throw inserted.error;
+      track_id: trackId,
+    };
     const profile = await client.from('profiles').select('nick,display_name').eq('id', context.userId).single();
     const displayName = profile.data?.nick || profile.data?.display_name || '我';
-    const companion = await client.from('companions').insert({ user_id: context.userId, journey_id: id, ini: displayName.slice(0, 1), name: displayName, color: '#0A84FF', is_host: true, is_self: true, sort_order: 0 });
-    if (companion.error) {
-      await client.from('journeys').delete().eq('id', id);
-      throw companion.error;
-    }
-    const linked = await client.from('agent_threads').update({ current_journey_id: id }).eq('id', context.threadId);
-    if (linked.error) console.warn('Could not link created journey to agent thread', linked.error);
-    return inserted.data;
+    const inserted = await client.rpc('create_agent_journey', {
+      p_thread_id: context.threadId, p_journey: journeyPayload,
+      p_companion: { user_id: context.userId, journey_id: id, ini: displayName.slice(0, 1), name: displayName, color: '#0A84FF' },
+    });
+    if (inserted.error) throw inserted.error;
+    return compactToolData(inserted.data);
   }),
 });
 
@@ -559,7 +687,7 @@ export const addItinerary = tool({
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
       client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
-      client.from('timeline_rows').select('id,day,title').eq('journey_id', args.journeyId),
+      client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name').eq('journey_id', args.journeyId),
     ]);
     if (journey.error) throw journey.error;
@@ -575,6 +703,11 @@ export const addItinerary = tool({
     const existingKeys = new Set((existingRows.data || []).map((row: { day: string; title: string }) => `${resolveJourneyDay(row.day, existingNames).toLocaleLowerCase()}\u0000${row.title.trim().toLocaleLowerCase()}`));
     const uniqueItems = normalizedItems.filter((item) => !existingKeys.has(`${item.day.toLocaleLowerCase()}\u0000${item.title.trim().toLocaleLowerCase()}`));
     if (!uniqueItems.length) return { journeyId: args.journeyId, added: 0, skippedDuplicates: args.items.length };
+    const clock = (minutes: number | null) => minutes == null ? undefined : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    const conflicts = validateItineraryConflicts(uniqueItems, (existingRows.data || []).map((row: { day: string; title: string; time_mins: number | null; time_end_mins: number | null }) => ({
+      day: resolveJourneyDay(row.day, existingNames), title: row.title, timeStart: clock(row.time_mins), timeEnd: clock(row.time_end_mins),
+    })));
+    if (conflicts.length) throw new Error(itineraryValidationError(conflicts));
     const rows = uniqueItems.map((item, index) => ({
       id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
       title: item.title, day: item.day,
@@ -589,18 +722,35 @@ export const addItinerary = tool({
       user_id: context.userId,
       name,
       deleted: false,
-      sort_order: existingNames.length + index,
+      sort_order: journeyDayOrdinal(name) ? journeyDayOrdinal(name)! - 1 : existingNames.length + index,
       updated_at: new Date().toISOString(),
     }));
-    const applied = await client.rpc('apply_agent_itinerary', { p_itinerary_rows: rows, p_itinerary_groups: groups });
-    if (applied.error) throw applied.error;
-    return undoable(
+    return commitJourneyChange(client, context, args.journeyId, { rows, groups },
       { journeyId: args.journeyId, added: rows.length, skippedDuplicates: args.items.length - rows.length },
       { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames },
     );
   }),
 });
 
+
+export const updateJourneySchedule = tool({
+  name: 'update_journey_schedule',
+  description: 'Atomically update an existing journey start date, total days, and move whole day groups without recreating items. Read journey and itinerary sections first. Supply every existing day/group name exactly once in dayAssignments, including unchanged groups; assign each a distinct target day. Preserve relative hiking order and route endpoints. Only move custom groups when the user requests it. Omit plannedDate to keep the current date. Ask only when the intended date or move is ambiguous, not for manual editing.',
+  parameters: z.object({
+    journeyId: z.string().min(1).max(100),
+    totalDays: z.number().int().min(1).max(365),
+    plannedDate: z.string().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
+    dayAssignments: z.array(z.object({
+      from: z.string().min(1).max(100).describe('Exact existing day/group name'),
+      toDay: z.number().int().min(1).max(365),
+    })).max(365),
+  }),
+  execute: async (args, runContext) => mutate('update_journey_schedule', args, runContext as RunContext, async (client, context) => {
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
+    if (args.plannedDate !== undefined && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
+    return commitJourneyChange(client, context, args.journeyId, args, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
+  }),
+});
 
 export const setJourneyMapLocation = tool({
   name: 'set_journey_map_location',
@@ -622,95 +772,76 @@ export const setJourneyMapLocation = tool({
       lat: location.lat,
       updated_at: new Date().toISOString(),
     };
-    const saved = await client.from('journeys').update(patch).eq('id', args.journeyId).select('id,name,region,coord,lng,lat').single();
-    if (saved.error) throw saved.error;
-    return undoable(
-      { journeyId: args.journeyId, location: saved.data },
-      { kind: 'set_journey_map_location', journeyId: args.journeyId, previous: current.data, applied: saved.data },
+    const applied = { ...current.data, region: patch.region, coord: patch.coord, lng: patch.lng, lat: patch.lat };
+    return commitJourneyChange(client, context, args.journeyId, patch,
+      { journeyId: args.journeyId, location: applied },
+      { kind: 'set_journey_map_location', journeyId: args.journeyId, previous: current.data, applied },
     );
   }),
 });
 
-export const addPackingItems = tool({
-  name: 'add_packing_items',
-  description: 'Add purchase-ready, itemized recommendations to a journey packing list. Use mode=full with planProfile for a complete plan and mode=incremental only for a few user-requested additions. Use short names, put decisive purchasing or safety specifications in attributes, and per-unit carried weight in weightKg. For a multi-hour or full-day hike without refills that needs roughly 2L or more, prefer a practical mix such as one 1.2L/1.5L bottle plus one or more 500ml/550ml bottles; adjust the total for duration and conditions, and do not force this mix for short trips, refill routes, or a user-chosen hydration reservoir. A full plan must cover the scenario requirements enforced by validation. Split kits and meals into individual contents, but omit redundant comfort items and self-evident qualifiers. Solo journeys use the current user\'s personal list; group journeys use the shared list. Read journey details and gear first; avoid duplicates.',
-  parameters: z.object({
-    journeyId: z.string().min(1).max(100),
-    mode: z.enum(['full', 'incremental']).describe('生成或补齐整份清单时使用 full；仅按用户要求增加少量指定物品时使用 incremental'),
-    planProfile: packingPlanProfile.optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
-    items: z.array(packingItem).min(1).max(100),
-  }),
-  execute: async (args, runContext) => mutate('add_packing_items', args, runContext as RunContext, async (client, context) => {
-    if (requiresFullPackingPlan(context.originalUserMessage || '') && args.mode !== 'full') {
-      throw new Error('用户要求生成完整装备清单，必须使用 mode=full 并提交 planProfile。');
-    }
-    if (args.mode === 'full' && !args.planProfile) {
-      throw new Error('mode=full 时必须提交 planProfile，未知条件请明确填写 unknown。');
-    }
-    const validationIssues = validatePackingItems(args.items);
-    await assertJourneyWriteAccess(client, context, args.journeyId, 'editChecklist');
-    const companions = await client.from('companions').select('id,user_id,is_self').eq('journey_id', args.journeyId).order('sort_order');
-    if (companions.error) throw companions.error;
-    const soloOwner = companions.data?.length === 1
-      ? companions.data.find((companion: { user_id?: string; is_self?: boolean }) => companion.user_id === context.userId || companion.is_self)
-      : undefined;
-    const kind = soloOwner ? 'personal' : 'shared';
-    const ownerCompanionId = soloOwner?.id ?? null;
-    let listQuery = client.from('journey_packing_lists').select('id').eq('journey_id', args.journeyId).eq('kind', kind);
-    listQuery = kind === 'personal' ? listQuery.eq('owner_companion_id', ownerCompanionId) : listQuery.is('owner_companion_id', null);
-    let list = await listQuery.maybeSingle();
-    if (list.error) throw list.error;
-    const createdList = !list.data;
-    const existing = list.data
-      ? await client.from('journey_packing_items').select('name,category_name,quantity,attrs').eq('list_id', list.data.id)
-      : { data: [], error: null };
-    if (existing.error) throw existing.error;
-    const prepared = args.items.map((item) => ({ ...item, displayName: packingItemDisplayName(item) }));
-    const personalNeeds = args.mode === 'full' && args.planProfile
-      ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
-      : undefined;
-    const existingHasFood = (existing.data || []).some((item: { name: string; category_name?: string; quantity: number }) => isPlanningFoodItem({
-      name: item.name,
-      categoryName: item.category_name,
-      quantity: item.quantity,
-    }));
-    const nutritionError = personalNeeds && !existingHasFood
-      ? nutritionPlanError(args.items, personalNeeds.recommendation.carriedFoodEnergyKcal)
-      : undefined;
-    const dietaryError = personalNeeds
-      ? dietaryConflictError(personalNeeds.personalization.dietaryRestrictions, args.items)
-      : undefined;
-    const coverageGaps = args.mode === 'full' && args.planProfile
-      ? missingPackingCoverage([
-        ...(existing.data || []).map((item: { name: string; category_name?: string; quantity: number; attrs?: [string, string][] }) => ({
-          name: item.name,
-          categoryName: item.category_name,
-          quantity: item.quantity,
-          attributes: item.attrs?.map(([name, value]) => ({ name, value })),
-        })),
-        ...args.items,
-      ], args.planProfile)
-      : [];
-    const waterMixError = args.mode === 'full' && args.planProfile && requiresMixedWaterPlan(context.originalUserMessage || '', args.planProfile.waterRefill)
-      ? packingWaterMixError([
-        ...(existing.data || []).map((item: { name: string; quantity: number; attrs?: [string, string][] }) => ({ name: item.name, quantity: item.quantity, attributes: item.attrs?.map(([name, value]) => ({ name, value })) })),
-        ...args.items,
-      ])
-      : undefined;
-    if (validationIssues.length || coverageGaps.length || waterMixError || nutritionError || dietaryError) {
-      const errors = [
-        validationIssues.length ? packingValidationError(validationIssues) : '',
-        coverageGaps.length ? packingCoverageError(coverageGaps) : '',
-        waterMixError || '',
-        nutritionError || '',
-        dietaryError || '',
-      ].filter(Boolean);
-      throw new Error(errors.join('\n'));
-    }
-    if (!list.data) {
-      list = await client.from('journey_packing_lists').insert({ journey_id: args.journeyId, kind, owner_companion_id: ownerCompanionId, created_by: context.userId }).select('id').single();
-      if (list.error) throw list.error;
-    }
+export function resolvePackingOwner(companions: Array<{ id: number; user_id?: string | null; is_self?: boolean }>, userId: string) {
+  const owner = companions.find((companion) => companion.user_id === userId)
+    ?? (companions.length === 1 && !companions[0].user_id && companions[0].is_self ? companions[0] : undefined);
+  if (!owner) throw new Error('无法确定你的旅程成员身份，请先加入旅程后再添加装备。');
+  return owner.id;
+}
+
+type PackingArgs = { journeyId: string; mode: 'full' | 'incremental'; planProfile?: PackingProfile; items: PackingItem[] };
+
+async function preparePacking(client: Client, context: AgentContext, args: PackingArgs) {
+  if (args.mode === 'full' && !args.planProfile) {
+    throw new Error('mode=full 时必须提交 planProfile，未知条件请明确填写 unknown。');
+  }
+  const validationIssues = validatePackingItems(args.items);
+  await assertJourneyWriteAccess(client, context, args.journeyId, 'editChecklist');
+  const companions = await client.from('companions').select('id,user_id,is_self').eq('journey_id', args.journeyId).order('sort_order');
+  if (companions.error) throw companions.error;
+  const kind = 'personal';
+  const ownerCompanionId = resolvePackingOwner(companions.data ?? [], context.userId);
+  const listQuery = client.from('journey_packing_lists').select('id').eq('journey_id', args.journeyId).eq('kind', kind).eq('owner_companion_id', ownerCompanionId);
+  const list = await listQuery.maybeSingle();
+  if (list.error) throw list.error;
+  const createdList = !list.data;
+  const existing = list.data
+    ? await client.from('journey_packing_items').select('name,category_name,quantity,attrs').eq('list_id', list.data.id)
+    : { data: [], error: null };
+  if (existing.error) throw existing.error;
+  const prepared = args.items.map((item) => ({ ...item, displayName: packingItemDisplayName(item) }));
+  const personalNeeds = args.mode === 'full' && args.planProfile
+    ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+    : undefined;
+  const existingHasFood = (existing.data || []).some((item: { name: string; category_name?: string; quantity: number }) => isPlanningFoodItem({
+    name: item.name,
+    categoryName: item.category_name,
+    quantity: item.quantity,
+  }));
+  const nutritionError = personalNeeds && !existingHasFood
+    ? nutritionPlanError(args.items, personalNeeds.recommendation.carriedFoodEnergyKcal)
+    : undefined;
+  const dietaryError = personalNeeds
+    ? dietaryConflictError(personalNeeds.personalization.dietaryRestrictions, args.items)
+    : undefined;
+  const coverageGaps = args.mode === 'full' && args.planProfile
+    ? missingPackingCoverage([
+      ...(existing.data || []).map((item: { name: string; category_name?: string; quantity: number; attrs?: [string, string][] }) => ({
+        name: item.name,
+        categoryName: item.category_name,
+        quantity: item.quantity,
+        attributes: item.attrs?.map(([name, value]) => ({ name, value })),
+      })),
+      ...args.items,
+    ], args.planProfile)
+    : [];
+  return { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError };
+}
+
+async function executePackingItems(args: PackingArgs, runContext: RunContext | undefined) {
+  return mutate('add_packing_items', args, runContext as RunContext, async (client, context) => {
+    const { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError } = await preparePacking(client, context, args);
+    const errors = [validationIssues.length ? packingValidationError(validationIssues) : '', coverageGaps.length ? packingCoverageError(coverageGaps) : '', nutritionError, dietaryError].filter(Boolean);
+    if (errors.length) throw new Error(errors.join('\n'));
+    const listId: string = list.data?.id || crypto.randomUUID();
     const identities = new Set((existing.data || []).map((row: { name: string; quantity: number; attrs?: [string, string][] }) => packingItemIdentityKey({
       name: row.name,
       quantity: row.quantity,
@@ -722,28 +853,115 @@ export const addPackingItems = tool({
       identities.add(key);
       return true;
     });
-    let itemIds: string[] = [];
-    if (unique.length) {
-      const inserted = await client.from('journey_packing_items').insert(unique.map((item, index) => ({
-        list_id: list.data.id, source_type: 'custom', name: item.displayName, category_name: item.categoryName || null,
+    const items = unique.map((item, index) => ({
+        id: crypto.randomUUID(), name: item.displayName, category_name: item.categoryName || null,
         quantity: item.quantity, weight_kg: item.weightKg, weight_estimated: item.weightEstimated, carry_status: item.carryStatus,
         attrs: item.attributes?.map((attribute) => [attribute.name.trim(), attribute.value.trim()]) || null,
         note: null,
         packed: false, sort_order: (existing.data?.length || 0) + index,
-      }))).select('id');
-      if (inserted.error) throw inserted.error;
-      itemIds = (inserted.data || []).map((item: { id: string }) => item.id);
-    }
+      }));
+    const itemIds = items.map((item) => item.id);
     const value = { journeyId: args.journeyId, listKind: kind, ownerCompanionId, added: unique.length, skippedDuplicates: args.items.length - unique.length };
-    return itemIds.length
-      ? undoable(value, { kind: 'add_packing_items', journeyId: args.journeyId, listId: list.data.id, itemIds, createdList })
-      : value;
+    if (!items.length) return value;
+    return commitJourneyChange(client, context, args.journeyId, { listId, createdList, kind, ownerCompanionId, items }, value,
+      { kind: 'add_packing_items', journeyId: args.journeyId, listId, itemIds, createdList });
+  });
+}
+
+export const addPackingItems = tool({
+  name: 'add_packing_items',
+  description: 'Add purchase-ready, itemized recommendations to a journey packing list. Use mode=full with planProfile for a complete plan and mode=incremental only for a few user-requested additions. Use short names, put decisive purchasing or safety specifications in attributes, and per-unit carried weight in weightKg. A full day-hike plan must include backpack, footwear, clothing, hydration, food, phone/map/GPS, backup power, lighting, rain and sun protection, disinfectant, wound covering, bandage or medical tape, blister treatment, and an emergency whistle or blanket. Split kits and meals into individual contents, but omit redundant comfort items and self-evident qualifiers. Always use the requesting user\'s personal list in both solo and group journeys. A checklist represents what that person carries; never create a shared list. Read journey details and gear first; avoid duplicates.',
+  parameters: z.object({
+    journeyId: z.string().min(1).max(100),
+    mode: z.enum(['full', 'incremental']).describe('生成或补齐整份清单时使用 full；仅按用户要求增加少量指定物品时使用 incremental'),
+    planProfile: packingPlanProfile.optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
+    items: z.array(packingItem).min(1).max(100),
+  }),
+  execute: executePackingItems,
+});
+
+async function validateDraft(client: Client, context: AgentContext, draft: PackingDraft) {
+  assertTaskWrite(context.task, 'add_packing_items', draft.journeyId);
+  const checked = await preparePacking(client, context, { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) });
+  const foods = draft.items.filter(item => isPlanningFoodItem(item.value)).map(item => item.id);
+  const issues: DraftIssue[] = checked.validationIssues.map(issue => ({ code: 'item', itemIds: [draft.items[issue.index].id], field: 'name/attributes', message: issue.message }));
+  issues.push(...checked.coverageGaps.map(gap => ({ code: `coverage:${gap.key}`, itemIds: [] as string[], field: 'additions', message: gap.label })));
+  if (checked.nutritionError) issues.push({ code: 'nutrition', itemIds: foods, field: 'quantity/estimatedEnergyKcalPerUnit', message: checked.nutritionError });
+  if (checked.dietaryError) issues.push({ code: 'dietary', itemIds: foods, field: 'name', message: checked.dietaryError });
+  return draftFeedback(draft, issues);
+}
+
+const draftLocks = new Map<string, Promise<unknown>>();
+async function draftTool<T>(name: string, args: unknown, runContext: RunContext | undefined, operation: (client: Client, context: AgentContext) => Promise<T>) {
+  const context = contextFor(runContext);
+  assertTaskWrite(context.task, 'add_packing_items', context.task?.journeyId || undefined);
+  assertTaskPackingMode(context.task, 'full');
+  const previous = draftLocks.get(context.runId) || Promise.resolve();
+  const next = previous.catch(() => {}).then(() => mutate(name, args, runContext, operation));
+  draftLocks.set(context.runId, next);
+  try { return await next; } finally { if (draftLocks.get(context.runId) === next) draftLocks.delete(context.runId); }
+}
+
+export const preparePackingDraft = tool({
+  name: 'prepare_packing_draft',
+  description: 'Persist a complete packing proposal, not checklist items. Returns validation issues and stable IDs for only affected items. An existing draft is reused, never replaced. Read journey sections and estimate needs first.',
+  parameters: z.object({ journeyId: z.string(), planProfile: packingPlanProfile, items: z.array(packingItem).min(1).max(100) }),
+  execute: (args, runContext) => draftTool('prepare_packing_draft', args, runContext as RunContext, async (client, context) => {
+    assertTaskWrite(context.task, 'add_packing_items', args.journeyId);
+    const saved = await readPackingDraft(client, context.runId);
+    const draft = saved?.state || newPackingDraft(args.journeyId, args.planProfile, args.items);
+    if (!saved) await savePackingDraft(context.runId, context.userId, draft);
+    return validateDraft(client, context, draft);
   }),
 });
+export const readPackingDraftTool = tool({
+  name: 'read_packing_draft',
+  description: 'Resume this run\'s durable packing draft and recheck current data. Returns only invalid items and missing categories, not the whole list. Use after recovery or revision conflict.',
+  parameters: z.object({}),
+  execute: (args, runContext) => draftTool('read_packing_draft', args, runContext as RunContext, async (client, context) => {
+    const draft = await readPackingDraft(client, context.runId);
+    return draft ? validateDraft(client, context, draft.state) : { status: 'absent' };
+  }),
+});
+export const repairPackingDraft = tool({
+  name: 'repair_packing_draft',
+  description: 'Patch only invalid draft item fields by stable ID, or add missing items. Attribute arrays replace the affected item\'s attributes. Removals affect the draft only. Repairs are internal preparation, not user-visible checklist changes; no full-list regeneration. Revalidates the whole merged draft.',
+  parameters: draftPatchSchema,
+  execute: (args, runContext) => draftTool('repair_packing_draft', args, runContext as RunContext, async (client, context) => {
+    const saved = await readPackingDraft(client, context.runId);
+    if (!saved) throw new Error('Packing draft missing');
+    assertTaskWrite(context.task, 'add_packing_items', saved.state.journeyId);
+    const edit = await sha256(stable(args));
+    if (saved.last_edit === edit) return validateDraft(client, context, saved.state);
+    const draft = patchPackingDraft(saved.state, args);
+    await savePackingDraft(context.runId, context.userId, draft, saved.state.revision, edit);
+    return validateDraft(client, context, draft);
+  }),
+});
+export const commitPackingDraft = tool({
+  name: 'commit_packing_draft',
+  description: 'Atomically save the current validated packing draft to the personal checklist. Supply only its revision, never repeat items. Rechecks current data and uses version-checked writes. Existing successful commit receipts are reused after recovery.',
+  parameters: z.object({ revision: z.number().int().positive() }),
+  execute: (args, runContext) => draftTool('commit_packing_draft', args, runContext as RunContext, async (client, context) => {
+    const saved = await readPackingDraft(client, context.runId);
+    if (!saved || saved.state.revision !== args.revision) throw new Error('draft_revision_conflict: read_packing_draft first');
+    const draft = saved.state;
+    assertTaskWrite(context.task, 'add_packing_items', draft.journeyId);
+    const writeArgs: PackingArgs = { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) };
+    const receipt = await client.from('agent_tool_calls').select('output').eq('run_id', context.runId).eq('tool_name', 'add_packing_items')
+      .eq('arguments_hash', await sha256(stable(writeArgs))).eq('status', 'completed').maybeSingle();
+    if (receipt.error) throw receipt.error;
+    if (receipt.data) return receipt.data.output;
+    const feedback = await validateDraft(client, context, draft);
+    if (feedback.status !== 'ready') return feedback;
+    return executePackingItems(writeArgs, runContext as RunContext);
+  }),
+});
+export const packingDraftTools = [preparePackingDraft, readPackingDraftTool, repairPackingDraft, commitPackingDraft];
 
 export const setItineraryGroupEndpoints = tool({
   name: 'set_itinerary_group_endpoints',
-  description: 'Set track endpoints for itinerary groups in an existing journey. Read journey details first. Only use exact cumulative km values from trackSummary.totalKm, trackSummary.waypoints, route search track_waypoints, or values explicitly supplied by the user; never estimate a distance from prose. Endpoint distances must increase in itinerary group order.',
+  description: 'Save hiking day boundaries at real track waypoints, not equal-distance or time-proportional splits. Read journey, track and itinerary first. PREFER waypointIndex from trackSummary.waypoints for intermediate stops and trackFinish=true for the finish; omit name/distance in these modes. The server resolves exact coordinates, km and name, avoiding transcription mistakes. Legacy name/distance inputs must exactly match stored waypoints. Keep calls concise: overnightReview is optional, put uncertainty and effort in itinerary items. Guide proof of overnight use is NOT required: save a candidate endpoint with an unverified camping label when absent. overnightReview and its guide source/campQuote are optional; any supplied quotes must be genuine successfully read text. Save effort, water uncertainty and carried-water fallback in itinerary descriptions. A saved boundary does not certify camping suitability or water availability. The actual track finish needs no review. Explicit user distances require userDistanceQuote. Missing real track position blocks writes, missing guide evidence does not. Preserve manual boundaries unless asked to replan.',
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     endpoints: z.array(itineraryGroupEndpoint).min(1).max(30),
@@ -751,7 +969,7 @@ export const setItineraryGroupEndpoints = tool({
   execute: async (args, runContext) => mutate('set_itinerary_group_endpoints', args, runContext as RunContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
-      client.from('journeys').select('id,track_coords').eq('id', args.journeyId).single(),
+      client.from('journeys').select('id,dist,tracks ( coords, waypoints )').eq('id', args.journeyId).single(),
       client.from('timeline_groups').select('name,sort_order,route_end_meters,route_end_lng,route_end_lat,route_end_track_index,route_end_track_fraction,route_end_source,route_location_name,deleted').eq('journey_id', args.journeyId).order('sort_order'),
       client.from('timeline_rows').select('day,sort_order').eq('journey_id', args.journeyId).order('sort_order'),
     ]);
@@ -759,17 +977,23 @@ export const setItineraryGroupEndpoints = tool({
     if (groupsResult.error) throw groupsResult.error;
     if (rowsResult.error) throw rowsResult.error;
 
-    const coordinates = normalizeTrackCoordinates(journeyResult.data.track_coords);
+    const boundTrack = journeyResult.data.tracks as { coords?: unknown; waypoints?: { name: string; km: number }[] | null } | null;
+    const coordinates = normalizeTrackCoordinates(boundTrack?.coords);
     if (coordinates.length < 2) throw new Error('当前旅程没有可用于设置终点的轨迹');
+    const totalMeters = trackLengthMeters(coordinates);
+    assertTrackDistanceConsistency(totalMeters, journeyResult.data.dist);
+    const guideReceipts = args.endpoints.some(endpoint => endpoint.overnightReview)
+      ? await guideHistory(client, context.runId) : [];
     const activeGroups = (groupsResult.data || []).filter((group: { deleted?: boolean }) => !group.deleted);
     const existingNames = [...new Set([
       ...activeGroups.map((group: { name: string }) => group.name),
       ...(rowsResult.data || []).map((row: { day: string }) => row.day),
     ].filter(Boolean))];
-    const normalized = args.endpoints.map((endpoint) => ({
+    const normalized = args.endpoints.map(endpoint => resolveHikingEndpoint(endpoint, totalMeters, boundTrack?.waypoints ?? null)).map((endpoint) => ({
       ...endpoint,
       day: resolveJourneyDay(endpoint.day, existingNames),
       position: endpointAtDistance(coordinates, endpoint.endDistanceKm * 1000),
+      annotation: validateHikingBoundary(endpoint, totalMeters, boundTrack?.waypoints ?? null, guideReceipts, context.originalUserMessage),
     }));
     if (new Set(normalized.map((endpoint) => endpoint.day)).size !== normalized.length) {
       throw new Error('同一个行程组只能设置一个终点');
@@ -802,23 +1026,26 @@ export const setItineraryGroupEndpoints = tool({
       route_end_lat: endpoint.position.coordinate[1],
       route_end_track_index: endpoint.position.trackPointIndex,
       route_end_track_fraction: endpoint.position.trackPointFraction,
-      route_end_source: endpoint.locationName ? 'waypoint' : 'distance',
-      route_location_name: endpoint.locationName || null,
+      route_end_source: endpoint.annotation.source,
+      route_location_name: endpoint.annotation.locationName,
       updated_at: new Date().toISOString(),
     }));
-    const saved = await client.from('timeline_groups').upsert(endpointRows, { onConflict: 'journey_id,name' });
-    if (saved.error) throw saved.error;
     const value = {
       journeyId: args.journeyId,
       updated: normalized.length,
-      endpoints: normalized.map((endpoint) => ({ day: endpoint.day, endDistanceKm: endpoint.position.distanceMeters / 1000, locationName: endpoint.locationName })),
+      coverage: {
+        groupCount: effectiveMeters.size,
+        requiredGroupCount: existingNames.length,
+        reachesTrackEnd: [...effectiveMeters.values()].some(meters => Math.abs(meters - totalMeters) <= 1),
+      },
+      endpoints: normalized.map((endpoint) => ({ day: endpoint.day, endDistanceKm: endpoint.position.distanceMeters / 1000, locationName: endpoint.annotation.locationName, overnightReview: endpoint.overnightReview })),
     };
     const changedNames = new Set(normalized.map((endpoint) => endpoint.day));
     const previous = activeGroups.filter((group: { name: string }) => changedNames.has(group.name));
     const applied = endpointRows.map(({ name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name }) => ({
       name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name,
     }));
-    return undoable(value, { kind: 'set_itinerary_group_endpoints', journeyId: args.journeyId, previous, applied });
+    return commitJourneyChange(client, context, args.journeyId, { groups: endpointRows }, value, { kind: 'set_itinerary_group_endpoints', journeyId: args.journeyId, previous, applied });
   }),
 });
 
@@ -827,7 +1054,6 @@ export const undoLastAgentChanges = tool({
   description: 'Undo the most recent reversible changes made by this assistant in the current conversation. Use only when the user explicitly asks to undo, revert, or take back the previous assistant changes.',
   parameters: z.object({}),
   execute: async (args, runContext) => mutate('undo_last_agent_changes', args, runContext as RunContext, async (client, context) => {
-    if (!context.canUndoPreviousChanges) throw new Error('只有用户明确要求时才能撤销之前的更改');
     const recentRuns = await client.from('agent_runs')
       .select('id')
       .eq('thread_id', context.threadId)
@@ -854,7 +1080,7 @@ export const undoLastAgentChanges = tool({
 
 export const deleteItineraryItems = tool({
   name: 'delete_itinerary_items',
-  description: 'Permanently delete selected itinerary items from the journey currently open in the app. Call get_journey_details in the same turn, then copy the exact item IDs and titles returned by it. Never infer IDs or delete items from another journey.',
+  description: 'Permanently delete selected itinerary items from the current journey. Use exact IDs/titles from a version-verified itinerary snapshot, reading sections journey/itinerary only if missing or changed. The transaction rejects concurrent changes. Never infer IDs or delete from another journey.',
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     items: z.array(itineraryDeletionTarget).min(1).max(200),
@@ -867,16 +1093,13 @@ export const deleteItineraryItems = tool({
     if (found.error) throw found.error;
     const ids = validateDeletionTargets(requested, (found.data || []).map((item: { id: string; title: string }) => ({ id: item.id, label: item.title })), '行程项目已发生变化，请重新读取后再删除');
 
-    const deleted = await client.from('timeline_rows').delete().eq('journey_id', args.journeyId).in('id', ids).select('id');
-    if (deleted.error) throw deleted.error;
-    if ((deleted.data || []).length !== ids.length) throw new Error('部分行程项目未能删除');
-    return { journeyId: args.journeyId, deleted: ids.length, items: args.items };
+    return commitJourneyChange(client, context, args.journeyId, {}, { journeyId: args.journeyId, deleted: ids.length, items: args.items });
   }),
 });
 
 export const deletePackingItems = tool({
   name: 'delete_packing_items',
-  description: 'Permanently delete selected packing items from the journey currently open in the app. Call get_journey_details in the same turn, then copy the exact item IDs and names returned by it. Never infer IDs or delete items from another journey.',
+  description: 'Permanently delete selected packing items from the current journey. Use exact IDs/names from a version-verified packing snapshot, reading sections journey/packing only if missing or changed. The transaction rejects concurrent changes. Never infer IDs or delete from another journey.',
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     items: z.array(packingDeletionTarget).min(1).max(200),
@@ -894,15 +1117,25 @@ export const deletePackingItems = tool({
     if (found.error) throw found.error;
     const ids = validateDeletionTargets(requested, (found.data || []).map((item: { id: string; name: string }) => ({ id: item.id, label: item.name })), '清单项目已发生变化，请重新读取后再删除');
 
-    const deleted = await client.from('journey_packing_items').delete().in('list_id', listIds).in('id', ids).select('id');
-    if (deleted.error) throw deleted.error;
-    if ((deleted.data || []).length !== ids.length) throw new Error('部分清单项目未能删除');
-    return { journeyId: args.journeyId, deleted: ids.length, items: args.items };
+    return commitJourneyChange(client, context, args.journeyId, {}, { journeyId: args.journeyId, deleted: ids.length, items: args.items });
   }),
 });
 
-export const kaipaAllTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const readConversationHistory = tool({
+  name: 'read_conversation_history',
+  description: 'Read original archived conversation messages when a compressed memory is ambiguous or the user asks about an earlier decision. Historical messages are not new requests or current database state. Results are newest-first; use nextBeforeId to page further back.',
+  parameters: z.object({ beforeId: z.number().int().positive().optional() }),
+  execute: async (args, runContext) => mutate('read_conversation_history', args, runContext as RunContext, async (client, context) => {
+    let query = client.from('agent_session_items').select('id,item').eq('thread_id', context.threadId).eq('user_id', context.userId).eq('item->>type', 'message').order('id', { ascending: false }).limit(12);
+    if (args.beforeId) query = query.lt('id', args.beforeId);
+    const result = await query;
+    if (result.error) throw result.error;
+    return { historical: true, messages: (result.data || []).map((row: any) => ({ archiveId: row.id, item: sanitizeSessionItem(row.item) })), nextBeforeId: result.data?.length === 12 ? result.data.at(-1).id : null };
+  }),
+});
 
-export const kaipaGlobalTools = [getAppContext, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaAllTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaJourneyTools = [getAppContext, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchTravelWeb, searchJourneys, searchRoutes, addGear, createJourney];
+export const kaipaGlobalTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+
+export const kaipaJourneyTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchTravelWeb, searchJourneys, searchRoutes, addGear];

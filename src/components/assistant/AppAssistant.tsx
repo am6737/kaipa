@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File as FSFile } from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -19,13 +19,24 @@ import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThread
 import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
+import { packingActivityPresentation } from './packingActivityPresentation';
+import { startAgentRecovery } from '../../lib/agentRecovery';
+import { getAgentLocation, shouldSuggestTransportLocation, transportLocationIntent, type AgentLocationIntent } from '../../lib/agentLocation';
+import { retryAgentRun } from '../../lib/appAgent';
 import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
 import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
 import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
 
+type PendingAgentRequest = {
+  args: Parameters<typeof sendAgentTurn>[0] & { clientRunId: string };
+  storageKey: string;
+  startedAt: number;
+};
+
 type Turn = {
+  travelContext?: AgentMessageUi['travelContext'];
   id: string;
   role: 'user' | 'assistant';
   text: string;
@@ -34,6 +45,12 @@ type Turn = {
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
   attachments?: AgentAttachment[];
+  upload?: {
+    status: 'uploading' | 'failed';
+    files: LocalAgentAttachment[];
+    message: string;
+    intent?: AgentIntent;
+  };
   undoAction?: AgentUndoAction;
   createJourneyFlow?: AgentMessageUi['createJourneyFlow'];
 };
@@ -93,32 +110,24 @@ function trackMimeType(name: string, fallback?: string) {
 
 
 function wantsNoTrackReply(message: string) {
-  return /(不上传|不用上传|暂不上传|没有轨迹|无轨迹|跳过轨迹|不要轨迹|no track|skip track|not now)/i.test(message);
+  return /^(暂不上传(?:轨迹)?|不上传(?:轨迹)?|no track(?: for now)?|skip track)$/i.test(message.trim());
 }
 
 function wantsTrackUploadReply(message: string) {
-  return /(上传轨迹|使用轨迹|有轨迹|gpx|kml|kmz|upload track|use track)/i.test(message);
+  return /^(上传轨迹|upload track)$/i.test(message.trim());
 }
 
-
-function messageIsTrackPrompt(text: string) {
-  // Only classify the current step as track upload when the assistant is
-  // directly asking for a track. Date-collection copy may mention that track
-  // upload comes later; that must not become a track action UI.
-  return /^(这个旅程要上传|请先选择要使用的).{0,20}(GPX|KML|KMZ|轨迹)|请(?:先)?上传.{0,30}(GPX|KML|KMZ|轨迹)|^(Do you want to upload|Please choose).{0,40}track|please upload.{0,30}(GPX|KML|KMZ|track)/i.test(text.trim());
-}
 
 function turnHasTrackAction(turn: Turn) {
   return Boolean(turn.quickReplies?.some((reply) => reply.action === 'upload_track' || reply.action === 'skip_track'));
 }
 
 function isTrackPromptTurn(turn: Turn) {
-  return turn.role === 'assistant' && (turn.createJourneyFlow?.step === 'ask_track' || turnHasTrackAction(turn) || messageIsTrackPrompt(turn.text));
+  return turn.role === 'assistant' && turnHasTrackAction(turn);
 }
 
 function trackPromptFromTurn(turn: Turn): { message: string; intent?: AgentIntent } | undefined {
-  if (turn.createJourneyFlow?.step === 'ask_track') return { message: turn.createJourneyFlow.originalMessage, intent: undefined };
-  if (turn.role === 'assistant' && (turnHasTrackAction(turn) || messageIsTrackPrompt(turn.text))) return { message: '', intent: undefined };
+  if (isTrackPromptTurn(turn)) return { message: '', intent: undefined };
   return undefined;
 }
 
@@ -135,7 +144,6 @@ type ResearchStep = {
   key: string;
   text: string;
   status: AgentRunActivity['status'];
-  emphasis?: boolean;
 };
 
 function activityFingerprint(activities: AgentRunActivity[]) {
@@ -152,6 +160,7 @@ function searchReports(output: unknown) {
       source: report.source,
       status: report.status,
       resultCount: Number(report.resultCount || 0),
+      errorCode: typeof report.errorCode === 'string' ? report.errorCode : undefined,
     }];
   });
 }
@@ -175,17 +184,13 @@ function completedJourneyTrackLabel(output: unknown, t: ReturnType<typeof useI18
     ? result.trackSummary as Record<string, unknown>
     : undefined;
   const totalKm = Number(trackSummary?.totalKm);
-  const hasTrack = Boolean(
-    trackSummary
-    || journey?.track_file_url
-    || journey?.track_file_name
-    || (Array.isArray(journey?.track_coords) && journey.track_coords.length > 1),
-  );
+  // A journey carries no track facts of its own; the track section is the signal.
+  const hasTrack = Boolean(trackSummary);
   if (!hasTrack) return undefined;
 
-  const distance = String(journey?.dist || '').trim()
+  const distance = String(trackSummary?.distance || journey?.dist || '').trim()
     || (Number.isFinite(totalKm) ? `${totalKm.toFixed(totalKm >= 10 ? 1 : 2)} km` : '');
-  const ascent = String(journey?.asc_ || '').trim().replace(/^\+/, '');
+  const ascent = String(trackSummary?.ascent || journey?.asc_ || '').trim().replace(/^\+/, '');
   if (distance && ascent) return t('agent.research.journeyTrackLoadedStats', { distance, ascent });
   if (distance) return t('agent.research.journeyTrackLoadedDistance', { distance });
   return t('agent.research.journeyTrackLoaded');
@@ -195,12 +200,30 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
   return activities.flatMap((activity, index) => {
     const key = `${activity.toolName}_${index}`;
     const query = String(activity.arguments.query || '').trim();
+    if (activity.toolName === 'search_transport') {
+      const rail = activity.arguments.mode === 'rail';
+      const connecting = rail && Boolean(activity.arguments.viaStation);
+      const result = activity.output as { status?: string; count?: number; offers?: unknown[] } | undefined;
+      const label: TKey = activity.status === 'running'
+        ? rail ? 'agent.research.railSearching' : 'agent.research.flightSearching'
+        : activity.status === 'failed' || ['provider_error', 'rate_limited', 'temporarily_unavailable'].includes(result?.status || '')
+        ? 'agent.research.transportQueryFailed'
+        : result?.status === 'results' ? connecting ? 'agent.research.railConnectionsFound' : rail ? 'agent.research.railOffersFound' : 'agent.research.flightOffersFound'
+        : result?.status === 'empty' ? connecting ? 'agent.research.railConnectionsEmpty' : rail ? 'agent.research.railOffersEmpty' : 'agent.research.flightOffersEmpty'
+        : result?.status === 'not_on_sale' ? 'agent.research.railNotOnSale'
+        : ['invalid_request', 'invalid_station'].includes(result?.status || '') ? rail ? 'agent.research.railQueryNeedsCheck' : 'agent.research.airportCodesNeeded'
+        : rail ? 'agent.research.railNotConnected' : 'agent.research.flightNotConnected';
+      return [{ key, status: activity.status, text: t(label, { count: result?.count ?? result?.offers?.length ?? 0 }) }];
+    }
     if (activity.toolName === 'search_travel_web') {
+      const transport = activity.arguments.purpose === 'transport';
       const searchStep: ResearchStep = {
         key,
         status: activity.status,
-        emphasis: true,
-        text: t(activity.status === 'running'
+        text: t(transport ? activity.status === 'running'
+          ? 'agent.research.transportReferenceSearching'
+          : activity.status === 'failed' ? 'agent.research.transportQueryFailed' : 'agent.research.transportReferenceFinished'
+          : activity.status === 'running'
           ? 'agent.research.searchingTitle'
           : activity.status === 'failed'
           ? 'agent.research.searchFailedTitle'
@@ -218,6 +241,8 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
         status: report.status === 'completed' ? 'completed' : 'failed',
         text: report.status === 'completed'
           ? t('agent.research.sourceFound', { query, source: sourceLabel(report.source, t), count: report.resultCount })
+          : report.errorCode === 'verification_required'
+          ? t('agent.research.sourceVerificationRequired', { source: sourceLabel(report.source, t) })
           : report.status === 'unavailable'
           ? t('agent.research.sourceUnavailable', { source: sourceLabel(report.source, t) })
           : report.status === 'timed_out'
@@ -230,6 +255,15 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       const trackLabel = completedJourneyTrackLabel(activity.output, t);
       if (trackLabel) return [{ key, status: activity.status, text: trackLabel }];
     }
+    if (activity.toolName === 'read_travel_guide' || activity.toolName === 'read_travel_guide_images') {
+      const output = activity.output as { available?: boolean } | undefined;
+      const status = activity.status === 'completed' && !output?.available ? 'failed' : activity.status;
+      const imageRead = activity.toolName === 'read_travel_guide_images';
+      const labels = imageRead
+        ? { running: 'agent.research.guideImagesReading', completed: 'agent.research.guideImagesRead', failed: 'agent.research.guideImagesUnavailable' } as const
+        : { running: 'agent.research.guideReading', completed: 'agent.research.guideRead', failed: 'agent.research.guideUnavailable' } as const;
+      return [{ key, status, text: t(labels[status]) }];
+    }
     const stepKeys: Record<string, Record<AgentRunActivity['status'], TKey>> = {
       get_app_context: { running: 'agent.research.step.context.running', completed: 'agent.research.step.context.completed', failed: 'agent.research.step.context.failed' },
       search_journeys: { running: 'agent.research.step.journeys.running', completed: 'agent.research.step.journeys.completed', failed: 'agent.research.step.journeys.failed' },
@@ -238,6 +272,7 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       get_journey_details: { running: 'agent.research.step.journeyDetails.running', completed: 'agent.research.step.journeyDetails.completed', failed: 'agent.research.step.journeyDetails.failed' },
       create_journey: { running: 'agent.research.step.createJourney.running', completed: 'agent.research.step.createJourney.completed', failed: 'agent.research.step.createJourney.failed' },
       add_itinerary_items: { running: 'agent.research.step.itinerary.running', completed: 'agent.research.step.itinerary.completed', failed: 'agent.research.step.itinerary.failed' },
+      update_journey_schedule: { running: 'agent.research.step.journeySchedule.running', completed: 'agent.research.step.journeySchedule.completed', failed: 'agent.research.step.journeySchedule.failed' },
       set_journey_map_location: { running: 'agent.research.step.journeyMapLocation.running', completed: 'agent.research.step.journeyMapLocation.completed', failed: 'agent.research.step.journeyMapLocation.failed' },
       set_itinerary_group_endpoints: { running: 'agent.research.step.itineraryEndpoints.running', completed: 'agent.research.step.itineraryEndpoints.completed', failed: 'agent.research.step.itineraryEndpoints.failed' },
       add_packing_items: { running: 'agent.research.step.packing.running', completed: 'agent.research.step.packing.completed', failed: 'agent.research.step.packing.failed' },
@@ -254,6 +289,9 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
 function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeof useI18n>['t']) {
   const lastActivity = activities.at(-1);
   if (!lastActivity) return t('agent.research.preparing');
+  if (lastActivity.toolName === 'add_packing_items' && lastActivity.status === 'completed') {
+    return t('agent.research.phase.organizingResults');
+  }
 
   const phaseKeys: Partial<Record<string, TKey>> = {
     get_app_context: 'agent.research.phase.analyzingJourney',
@@ -264,9 +302,14 @@ function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeo
     create_journey: 'agent.research.phase.buildingItinerary',
     list_gear: 'agent.research.phase.matchingGear',
     add_itinerary_items: 'agent.research.phase.reviewingItinerary',
+    update_journey_schedule: 'agent.research.phase.reviewingItinerary',
     set_journey_map_location: 'agent.research.phase.reviewingItinerary',
     set_itinerary_group_endpoints: 'agent.research.phase.reviewingItinerary',
     add_packing_items: 'agent.research.phase.reviewingPacking',
+    prepare_packing_draft: 'agent.research.phase.reviewingPacking',
+    read_packing_draft: 'agent.research.phase.reviewingPacking',
+    repair_packing_draft: 'agent.research.phase.reviewingPacking',
+    commit_packing_draft: 'agent.research.phase.reviewingPacking',
     add_gear: 'agent.research.phase.reviewingChanges',
     delete_itinerary_items: 'agent.research.phase.reviewingChanges',
     delete_packing_items: 'agent.research.phase.reviewingChanges',
@@ -313,9 +356,20 @@ function MessageAttachments({ theme, attachments }: { theme: Theme; attachments:
       {attachments.map((attachment) => attachment.kind === 'image' ? (
         <Image key={attachment.url} source={{ uri: attachment.url }} contentFit="cover" style={styles.messageAttachmentImage} />
       ) : (
-        <View key={attachment.url} style={[styles.messageAttachmentFile, { backgroundColor: theme.controlSurface }]}>
-          <FileText size={18} color={theme.text2} strokeWidth={1.8} />
-          <Text numberOfLines={1} style={[styles.messageAttachmentName, { color: theme.text }]}>{attachment.name}</Text>
+        <View key={attachment.url} style={styles.messageAttachmentFile}>
+          {!isTrackAttachmentName(attachment.name) ? (
+            <View style={styles.messageAttachmentIcon}>
+              <FileText size={25} color={theme.text2} strokeWidth={1.5} />
+            </View>
+          ) : null}
+          <View style={styles.messageAttachmentDetails}>
+            <Text selectable style={[styles.messageAttachmentName, { color: theme.text }]}>{attachment.name}</Text>
+            {attachment.size != null && attachment.size > 0 ? (
+              <Text style={[styles.messageAttachmentMeta, { color: theme.text2 }]}>
+                {attachment.size < 1024 * 1024 ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : `${(attachment.size / (1024 * 1024)).toFixed(1)} MB`}
+              </Text>
+            ) : null}
+          </View>
         </View>
       ))}
     </View>
@@ -390,7 +444,7 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(running);
   const arrowProgress = useRef(new Animated.Value(running ? 1 : 0)).current;
-  const steps = researchSteps(activities, t);
+  const steps = researchSteps(packingActivityPresentation(activities, running), t);
   const hasRunningStep = steps.some((step) => step.status === 'running');
   const visibleSteps: ResearchStep[] = steps.length
     ? [
@@ -439,11 +493,11 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
       {expanded ? visibleSteps.map((step) => (
         <View key={step.key} style={styles.researchLine}>
           {step.status === 'running'
-            ? <LoadingDots color={step.emphasis ? theme.text : theme.text3} />
+            ? <LoadingDots color={theme.text3} />
             : step.status === 'completed'
             ? <Check size={14} color={theme.text3} strokeWidth={2} />
             : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, step.emphasis && styles.researchLineTitle, { color: step.emphasis ? theme.text : theme.text2 }]}>{step.text}</Text>
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}</Text>
         </View>
       )) : null}
     </View>
@@ -534,6 +588,7 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
     role: message.role,
     text: message.content,
     quickReplies: message.ui?.quickReplies,
+    travelContext: message.ui?.travelContext,
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
     activities: message.ui?.activities,
@@ -544,8 +599,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow }) => ({
-    role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow, travelContext }) => ({
+    role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow, travelContext,
   })));
 }
 
@@ -656,6 +711,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const attachmentTrayProgress = useRef(new Animated.Value(0)).current;
   const [selectedAttachments, setSelectedAttachments] = useState<LocalAgentAttachment[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const uploadInFlightRef = useRef(false);
   const [trackPrompt, setTrackPrompt] = useState<{ message: string; intent?: AgentIntent } | null>(null);
   const [trackPicking, setTrackPicking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -669,6 +725,11 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const [activeRunId, setActiveRunId] = useState<string>();
   const [runActivities, setRunActivities] = useState<AgentRunActivity[]>([]);
   const runActivitiesRef = useRef<AgentRunActivity[]>([]);
+  const requestInFlightRef = useRef(false);
+  const submitGenerationRef = useRef(0);
+  const pendingRequestRef = useRef<PendingAgentRequest | undefined>(undefined);
+  const [retryingPending, setRetryingPending] = useState(false);
+  const [requestPhase, setRequestPhase] = useState<'sending' | 'queued' | 'planning' | 'reconnecting' | 'unconfirmed'>('sending');
   const [restoring, setRestoring] = useState(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
   const [undoingRunId, setUndoingRunId] = useState<string>();
@@ -758,7 +819,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   };
   const handleIdleInputTouchEnd = () => finishHeldVoiceInput(false);
   const handleIdleInputTouchCancel = () => finishHeldVoiceInput(true);
-  const activeJourneyId = threadJourneyId;
+  const activeJourneyId = currentJourneyId || threadJourneyId;
   const currentJourney = useMemo(
     () => data.journeys.find((journey) => journey.id === activeJourneyId),
     [activeJourneyId, data.journeys],
@@ -809,9 +870,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         size: file.size,
       }));
       setInput('');
-      setSelectedAttachments([]);
       setAttachmentTrayOpen(false);
-      await submit(resolved === 'en' ? 'Upload track' : '上传轨迹', pending.intent, true, trackAttachments);
+      await submit(t('agent.trackPrompt.upload'), pending.intent, true, trackAttachments);
     } catch (error) {
       console.warn('[AppAgent] track picker failed', error);
       showAttachmentError(t('agent.attachment.failed'));
@@ -837,22 +897,60 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   useEffect(() => {
     if (!visible || !activeRunId) return;
     let active = true;
+    const finish = () => {
+      const pending = pendingRequestRef.current;
+      if (pending?.args.clientRunId === activeRunId) {
+        pendingRequestRef.current = undefined;
+        void AsyncStorage.removeItem(pending.storageKey);
+      }
+      requestInFlightRef.current = false;
+      setLoading(false);
+      setActiveRunId(undefined);
+      void refetchWrittenJourney().catch((error) => console.warn('[AppAgent] refresh failed', error));
+    };
     const poll = async () => {
-      try {
-        const result = await getAgentRunActivity(activeRunId);
-        if (active) {
-          const changed = activityFingerprint(runActivitiesRef.current) !== activityFingerprint(result.activities);
-          runActivitiesRef.current = result.activities;
-          if (changed) setRunActivities(result.activities);
-        }
-      } catch {
-        // Older deployments do not expose run activity; keep the generic state.
+      if (AppState.currentState && AppState.currentState !== 'active') return;
+      const result = await getAgentRunActivity(activeRunId);
+      if (!active) return;
+      const pending = pendingRequestRef.current;
+      const resolvedThreadId = result.threadId || threadId || pending?.args.threadId || activeRunId;
+      if (result.threadId && result.threadId !== threadId) {
+        setThreadId(result.threadId);
+        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), result.threadId);
+      }
+      const changed = activityFingerprint(runActivitiesRef.current) !== activityFingerprint(result.activities);
+      runActivitiesRef.current = result.activities;
+      if (changed) setRunActivities(result.activities);
+      const expiredLegacyRun = result.status === 'running' && result.executionMode !== 'background'
+        && result.createdAt && Date.now() - new Date(result.createdAt).getTime() > 5 * 60 * 1000 + 15 * 1000;
+      if (result.status === 'running' && !expiredLegacyRun) {
+        setRequestPhase(result.activities.length ? 'planning' : 'queued');
+        return;
+      }
+      if (result.status && requestInFlightRef.current && !pending) return;
+      // History is authoritative for both background results and synchronous replies.
+      const history = await getAgentHistory(resolvedThreadId);
+      if (!active || (expiredLegacyRun && history.activeRun)) return;
+      const hasReply = Boolean(result.status) || history.messages.some((message) => message.role === 'assistant' && message.ui?.requestId === activeRunId);
+      if (hasReply) {
+        setThreadId(history.thread.id);
+        setThreadTitle(history.thread.title);
+        setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || undefined);
+        setTurns((current) => [...historyTurns(history), ...current.filter((turn) => turn.upload)]);
+        console.info('[AppAgent] restored request', activeRunId, result.status || 'completed');
+        finish();
+      } else if (!pending || Date.now() - pending.startedAt >= 20_000) {
+        setRequestPhase('unconfirmed');
       }
     };
-    void poll();
-    const timer = setInterval(() => void poll(), 850);
-    return () => { active = false; clearInterval(timer); };
-  }, [activeRunId, visible]);
+    const recovery = startAgentRecovery(poll, () => {
+      if (active && (!pendingRequestRef.current || Date.now() - pendingRequestRef.current.startedAt >= 20_000)) setRequestPhase('reconnecting');
+    });
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recovery.resume();
+    });
+    return () => { active = false; recovery.stop(); subscription.remove(); };
+  }, [activeJourneyId, activeRunId, currentJourneyId, data.userId, threadId, visible]);
 
   useEffect(() => {
     if (!loading) return;
@@ -886,6 +984,14 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     const canReuseCurrentView = restoredScopeRef.current === scope;
     setRestoring(!canReuseCurrentView);
     if (!canReuseCurrentView) {
+      submitGenerationRef.current++;
+      pendingRequestRef.current = undefined;
+      requestInFlightRef.current = false;
+      uploadInFlightRef.current = false;
+      setAttachmentUploading(false);
+      setRetryingPending(false);
+      setActiveRunId(undefined);
+      setLoading(false);
       setThreadId(undefined);
       setThreadTitle('');
       setThreadJourneyId(currentJourneyId);
@@ -896,18 +1002,33 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
     const restore = async () => {
       try {
+        const pendingJson = await AsyncStorage.getItem(`${key}:pending`);
+        if (!active) return;
+        if (pendingJson) {
+          const pending = JSON.parse(pendingJson) as PendingAgentRequest;
+          if (pending.args?.clientRunId && pending.storageKey === `${key}:pending`) {
+            pendingRequestRef.current = pending;
+            setActiveRunId(pending.args.clientRunId);
+            setRequestPhase('reconnecting');
+            setLoading(true);
+          }
+        }
         let savedThreadId = (await AsyncStorage.getItem(key)) || undefined;
+        savedThreadId ||= pendingRequestRef.current?.args.threadId;
         if (currentJourneyId && !savedThreadId) {
           const result = await getJourneyAgentThread(currentJourneyId);
           savedThreadId = result.threadId || undefined;
         }
         if (!active) return;
         if (!savedThreadId) {
+          const pending = pendingRequestRef.current;
+          if (pending) setTurns((current) => current.length ? current : [{ id: `u_${pending.args.clientRunId}`, role: 'user', text: pending.args.displayMessage || pending.args.message, attachments: pending.args.attachments }]);
           restoredScopeRef.current = scope;
           if (initialPrompt && !autoSubmitInitialPrompt) setInput(initialPrompt);
           return;
         }
         let resolvedThreadId: string = savedThreadId;
+        setThreadId(resolvedThreadId);
         let history: AgentHistoryResponse;
         try {
           history = await getAgentHistory(resolvedThreadId);
@@ -919,13 +1040,14 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           history = await getAgentHistory(resolvedThreadId);
         }
         if (!active) return;
-        const restoredJourneyId = history.thread.current_journey_id || currentJourneyId || undefined;
+        const restoredJourneyId = currentJourneyId || history.thread.current_journey_id || undefined;
         setThreadJourneyId(restoredJourneyId);
         const restored: Turn[] = history.messages.map((message) => ({
           id: message.id,
           role: message.role,
           text: message.content,
           quickReplies: message.ui?.quickReplies,
+          travelContext: message.ui?.travelContext,
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
           activities: message.ui?.activities,
@@ -936,19 +1058,34 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         if (!active) return;
         setThreadId(resolvedThreadId);
         setThreadTitle(history.thread.title);
-        setTurns(restored);
+        const pending = pendingRequestRef.current;
+        const replied = pending && history.messages.some((message) => message.role === 'assistant' && message.ui?.requestId === pending.args.clientRunId);
+        if (replied && pending) {
+          pendingRequestRef.current = undefined;
+          requestInFlightRef.current = false;
+          void AsyncStorage.removeItem(pending.storageKey);
+        }
+        setTurns(pending && !replied && !history.activeRun
+          ? [...restored, { id: `u_${pending.args.clientRunId}`, role: 'user', text: pending.args.displayMessage || pending.args.message, attachments: pending.args.attachments }]
+          : restored);
+        if (history.activeRun) {
+          setActiveRunId(history.activeRun.id);
+          runActivitiesRef.current = history.activeRun.activities;
+          setRunActivities(history.activeRun.activities);
+          setLoading(true);
+          setRequestPhase(history.activeRun.activities.length ? 'planning' : 'queued');
+        } else if (!requestInFlightRef.current && !pendingRequestRef.current) {
+          setActiveRunId(undefined);
+          runActivitiesRef.current = [];
+          setRunActivities([]);
+          setLoading(false);
+        }
         restoredScopeRef.current = scope;
         await AsyncStorage.setItem(key, resolvedThreadId);
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 80);
       } catch (error) {
         console.warn('[AppAgent] history restore failed', error);
-        void AsyncStorage.removeItem(key);
-        if (active && !canReuseCurrentView) {
-          setThreadId(undefined);
-          setThreadTitle('');
-          setTurns([]);
-          if (initialPrompt && !autoSubmitInitialPrompt) setInput(initialPrompt);
-        }
+        if (active && pendingRequestRef.current) setRequestPhase('reconnecting');
       } finally {
         if (active) {
           pendingAutoSubmitRef.current = autoSubmitPrompt;
@@ -963,71 +1100,140 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   }, [currentJourneyId, data.userId, t, visible]);
 
   useEffect(() => {
-    if (!visible || !threadId || loading || restoring) return;
+    if (!visible || !threadId || loading || restoring || attachmentUploading) return;
     let active = true;
     const syncHistory = async () => {
+      if (AppState.currentState && AppState.currentState !== 'active') return;
       try {
         const history = await getAgentHistory(threadId);
         if (!active) return;
         const synchronized = historyTurns(history);
         setTurns((current) => (
-          synchronizedTurnFingerprint(current) === synchronizedTurnFingerprint(synchronized)
+          uploadInFlightRef.current || synchronizedTurnFingerprint(current.filter((turn) => !turn.upload)) === synchronizedTurnFingerprint(synchronized)
             ? current
-            : synchronized
+            : [...synchronized, ...current.filter((turn) => turn.upload)]
         ));
         setThreadTitle(history.thread.title);
-        setThreadJourneyId(history.thread.current_journey_id || undefined);
+        setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || undefined);
       } catch (error) {
         console.warn('[AppAgent] history sync failed', error);
       }
     };
-    void syncHistory();
-    const timer = setInterval(() => void syncHistory(), 2500);
-    return () => { active = false; clearInterval(timer); };
-  }, [loading, restoring, threadId, visible]);
-
-  const completedActivitiesFor = async (response: AgentTurnResponse) => {
-    try {
-      const result = await getAgentRunActivity(response.runId);
-      if (result.activities.length) return result.activities;
-    } catch {
-      // Keep the completed process visible when run_activity is not deployed yet.
-    }
-    return response.ui?.activities?.length ? response.ui.activities : runActivitiesRef.current;
-  };
+    const recovery = startAgentRecovery(syncHistory, () => {});
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') recovery.resume(); });
+    return () => { active = false; recovery.stop(); subscription.remove(); };
+  }, [attachmentUploading, currentJourneyId, loading, restoring, threadId, visible]);
 
   const appendResponse = (response: AgentTurnResponse, createdThreadTitle?: string, activities = response.ui?.activities) => {
     setThreadId(response.threadId);
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
+    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
-  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string) => {
+  const resendPendingRequest = async () => {
+    const pending = pendingRequestRef.current;
+    if (!pending || requestInFlightRef.current || retryingPending) return;
+    const generation = submitGenerationRef.current;
+    requestInFlightRef.current = true;
+    setRetryingPending(true);
+    try {
+      const run = await getAgentRunActivity(pending.args.clientRunId);
+      if (pendingRequestRef.current !== pending) return;
+      if (run.status) {
+        // The monitor will restore terminal replies; never replay an accepted run.
+        setRequestPhase(run.status === 'running' ? (run.activities.length ? 'planning' : 'queued') : 'reconnecting');
+        return;
+      }
+      setRequestPhase('sending');
+      const response = await sendAgentTurn(pending.args);
+      if (pendingRequestRef.current !== pending) return;
+      setThreadId(response.threadId);
+      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+      if (response.status === 'running') {
+        setRequestPhase('queued');
+        setActiveRunId(response.runId);
+      } else if (response.status === 'completed') {
+        appendResponse(response);
+        pendingRequestRef.current = undefined;
+        void AsyncStorage.removeItem(pending.storageKey);
+        setLoading(false);
+        setActiveRunId(undefined);
+        void refetchWrittenJourney().catch((error) => console.warn('[AppAgent] refresh failed', error));
+      }
+    } catch (error) {
+      console.warn('[AppAgent] request recovery failed', pending.args.clientRunId, error);
+      if (pendingRequestRef.current === pending) setRequestPhase('reconnecting');
+    } finally {
+      if (generation !== submitGenerationRef.current) return;
+      if (!pendingRequestRef.current || pendingRequestRef.current === pending) requestInFlightRef.current = false;
+      setRetryingPending(false);
+    }
+  };
+
+  const continueAgentRun = async (runId: string) => {
+    if (loading || requestInFlightRef.current || attachmentUploading) return;
+    const generation = ++submitGenerationRef.current;
+    requestInFlightRef.current = true;
+    setLoading(true);
+    setRequestPhase('sending');
+    setActiveRunId(runId);
+    let tracking = false;
+    try {
+      const response = await retryAgentRun(runId);
+      if (generation !== submitGenerationRef.current) return;
+      setThreadId(response.threadId);
+      void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+      const history = await getAgentHistory(response.threadId);
+      if (generation !== submitGenerationRef.current) return;
+      setTurns(historyTurns(history));
+      runActivitiesRef.current = history.activeRun?.activities || [];
+      setRunActivities(runActivitiesRef.current);
+      if (history.activeRun) {
+        tracking = true;
+        setActiveRunId(history.activeRun.id);
+      }
+    } catch {
+      if (generation !== submitGenerationRef.current) return;
+      // The retry may have been accepted before the connection was lost.
+      const run = await getAgentRunActivity(runId).catch(() => undefined);
+      if (generation !== submitGenerationRef.current) return;
+      if (run?.status === 'running') {
+        tracking = true;
+        setActiveRunId(runId);
+        runActivitiesRef.current = run.activities;
+        setRunActivities(run.activities);
+      } else {
+        Alert.alert(t('agent.retryFailed'));
+      }
+    } finally {
+      if (generation !== submitGenerationRef.current) return;
+      requestInFlightRef.current = false;
+      if (!tracking) setLoading(false);
+    }
+  };
+
+  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent) => {
     const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
     const typedMessage = (preset ?? input).trim();
     const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
     const visibleMessage = displayMessage?.trim() || message;
-    if (!message || loading || attachmentUploading || (trackPicking && !attachmentOverride)) return;
+    if (!message || loading || uploadInFlightRef.current || attachmentUploading || (trackPicking && !attachmentOverride)) return;
     const pendingHasTrackAttachment = pendingAttachments.some((attachment) => isTrackAttachmentName(attachment.name) || isTrackAttachmentName(attachment.uri));
-    const lastTrackPromptTurn = [...turns].reverse().find(isTrackPromptTurn);
+    const lastTrackPromptTurn = turns.at(-1) && isTrackPromptTurn(turns.at(-1)!) ? turns.at(-1) : undefined;
     const activeTrackPrompt = trackPrompt || (lastTrackPromptTurn ? trackPromptFromTurn(lastTrackPromptTurn) : undefined);
-    if (!skipTrackPrompt && !attachmentOverride && !pendingHasTrackAttachment && wantsTrackUploadReply(message)) {
+    if (!skipTrackPrompt && !attachmentOverride && !pendingHasTrackAttachment && !wantsNoTrackReply(message) && wantsTrackUploadReply(message)) {
       console.log('[AppAgent] intercepting track upload text without attachment; opening picker');
       void chooseTrackForPlan(activeTrackPrompt || {
-        message: turns
-          .filter((turn) => turn.role === 'user' && !wantsTrackUploadReply(turn.text) && !wantsNoTrackReply(turn.text))
-          .map((turn) => turn.text.trim())
-          .filter(Boolean)
-          .join('，'),
+        message: '',
         intent,
       });
       return;
     }
     if (!skipTrackPrompt && !attachmentOverride) {
-      if (activeTrackPrompt && wantsTrackUploadReply(message)) {
+      if (activeTrackPrompt && !pendingHasTrackAttachment && !wantsNoTrackReply(message) && wantsTrackUploadReply(message)) {
         void chooseTrackForPlan(activeTrackPrompt);
         return;
       }
@@ -1036,8 +1242,31 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         return;
       }
     }
+    const optimisticUpload = pendingHasTrackAttachment;
+    const generation = ++submitGenerationRef.current;
+    const userTurnId = retryTurnId || `u_${createRunId()}`;
+    uploadInFlightRef.current = true;
     setAttachmentUploading(pendingAttachments.length > 0);
+    if (optimisticUpload) {
+      const uploadTurn: Turn = {
+        id: userTurnId,
+        role: 'user',
+        text: visibleMessage,
+        attachments: pendingAttachments.map((file) => ({ ...file, url: file.uri })),
+        upload: { status: 'uploading', files: pendingAttachments, message, intent },
+      };
+      setTurns((current) => retryTurnId
+        ? current.map((turn) => turn.id === retryTurnId ? uploadTurn : turn)
+        : [...current, uploadTurn]);
+      if (!retryTurnId) {
+        setInput('');
+        setSelectedAttachments([]);
+        setAttachmentTrayOpen(false);
+      }
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    }
     let requestStarted = false;
+    let keepTrackingRun = false;
     const clientRunId = createRunId();
     try {
       const attachments: AgentAttachment[] = await Promise.all(pendingAttachments.map(async (attachment) => ({
@@ -1047,34 +1276,79 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         size: attachment.size,
         url: await uploadAgentAttachment(attachment.uri, data.userId, attachment.name, attachment.mimeType),
       })));
-      setTurns((current) => [...current, { id: `u_${Date.now()}`, role: 'user', text: visibleMessage, attachments }]);
-      setInput('');
-      setSelectedAttachments([]);
-      setAttachmentTrayOpen(false);
+      if (generation !== submitGenerationRef.current) return;
+      setTurns((current) => optimisticUpload
+        ? current.map((turn) => turn.id === userTurnId ? { ...turn, attachments, upload: undefined } : turn)
+        : [...current, { id: userTurnId, role: 'user', text: visibleMessage, attachments }]);
+      if (!optimisticUpload) {
+        setInput('');
+        setSelectedAttachments([]);
+        setAttachmentTrayOpen(false);
+      }
       setLoading(true);
+      setRequestPhase('sending');
       requestStarted = true;
-      setActiveRunId(clientRunId);
+      requestInFlightRef.current = true;
       runActivitiesRef.current = [];
       setRunActivities([]);
       const creatingThread = !threadId;
-      const response = await sendAgentTurn({ message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, ...localAgentTimeContext() });
+      const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
+      const skipSuggestedLocation = locationIntent === 'transport' && !shouldSuggestTransportLocation(travel, activeJourneyId);
+      const currentLocation = skipSuggestedLocation ? undefined : await getAgentLocation(visibleMessage, 15_000, locationIntent);
+      if (generation !== submitGenerationRef.current) return;
+      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
+      const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
+      pendingRequestRef.current = pending;
+      await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
+      setActiveRunId(clientRunId);
+      console.info('[AppAgent] sending request', clientRunId);
+      const response = await sendAgentTurn(args);
+      if (generation !== submitGenerationRef.current || pendingRequestRef.current?.args.clientRunId !== clientRunId) return;
+      console.info('[AppAgent] received response', clientRunId, response.status, Date.now() - pending.startedAt);
+      if (response.status === 'running') {
+        keepTrackingRun = true;
+        setRequestPhase('queued');
+        setThreadId(response.threadId);
+        if (creatingThread) setThreadTitle(visibleMessage.slice(0, 36));
+        void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
+        setActiveRunId(response.runId);
+        return;
+      }
+      if (response.status === 'failed') throw new Error('Agent run did not complete');
       const changedJourneyData = Boolean(response.ui?.undoAction)
         || response.ui?.activities?.some((activity) => activity.toolName === 'undo_last_agent_changes' && activity.status === 'completed');
-      if (changedJourneyData) await refetchWrittenJourney();
-      const completedActivities = await completedActivitiesFor(response);
-      appendResponse(response, creatingThread ? visibleMessage.slice(0, 36) : undefined, completedActivities);
+      appendResponse(response, creatingThread ? visibleMessage.slice(0, 36) : undefined, response.ui?.activities);
+      pendingRequestRef.current = undefined;
+      void AsyncStorage.removeItem(pending.storageKey);
+      setLoading(false);
+      setActiveRunId(undefined);
+      if (changedJourneyData) void refetchWrittenJourney().catch((error) => console.warn('[AppAgent] refresh failed', error));
     } catch (error) {
+      if (generation !== submitGenerationRef.current) return;
       console.warn('[AppAgent] turn failed', error);
       if (requestStarted) {
-        setTurns((current) => [...current, { id: `e_${Date.now()}`, role: 'assistant', text: t('agent.error') }]);
+        if (pendingRequestRef.current?.args.clientRunId === clientRunId) {
+          keepTrackingRun = true;
+          setActiveRunId(clientRunId);
+          setRequestPhase('reconnecting');
+        }
+      } else if (optimisticUpload) {
+        setTurns((current) => current.map((turn) => turn.id === userTurnId && turn.upload
+          ? { ...turn, upload: { ...turn.upload, status: 'failed' } }
+          : turn));
       } else {
         showAttachmentError(t('agent.attachment.failed'));
       }
     } finally {
+      if (generation !== submitGenerationRef.current) return;
+      uploadInFlightRef.current = false;
       setAttachmentUploading(false);
       if (requestStarted) {
-        setLoading(false);
-        setActiveRunId(undefined);
+        if (!pendingRequestRef.current || pendingRequestRef.current.args.clientRunId === clientRunId) requestInFlightRef.current = false;
+        if (!keepTrackingRun && !pendingRequestRef.current) {
+          setLoading(false);
+          setActiveRunId(undefined);
+        }
       }
     }
   };
@@ -1098,6 +1372,12 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   }, [input, voiceActive, voiceHolding]);
 
   const newChat = () => {
+    if (requestInFlightRef.current || attachmentUploading || pendingRequestRef.current) return;
+    submitGenerationRef.current++;
+    setActiveRunId(undefined);
+    runActivitiesRef.current = [];
+    setRunActivities([]);
+    setLoading(false);
     setThreadId(undefined);
     setThreadTitle('');
     setThreadJourneyId(currentJourneyId);
@@ -1125,10 +1405,12 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   };
 
   const selectThread = async (thread: AgentThreadSummary) => {
+    if (requestInFlightRef.current || attachmentUploading || pendingRequestRef.current) return;
     if (thread.id === threadId) {
       setThreadSheetOpen(false);
       return;
     }
+    submitGenerationRef.current++;
     setThreadsLoading(true);
     try {
       const history = await getAgentHistory(thread.id);
@@ -1138,6 +1420,18 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setThreadTitle(history.thread.title);
       setThreadJourneyId(selectedJourneyId);
       setTurns(restored);
+      if (history.activeRun) {
+        setActiveRunId(history.activeRun.id);
+        runActivitiesRef.current = history.activeRun.activities;
+        setRunActivities(history.activeRun.activities);
+        setLoading(true);
+        setRequestPhase(history.activeRun.activities.length ? 'planning' : 'queued');
+      } else if (!requestInFlightRef.current) {
+        setActiveRunId(undefined);
+        runActivitiesRef.current = [];
+        setRunActivities([]);
+        setLoading(false);
+      }
       setInput('');
       setAttachmentTrayOpen(false);
       setSelectedAttachments([]);
@@ -1158,6 +1452,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       await deleteAgentThread(deletedThreadId);
       setThreads((current) => current.filter((thread) => thread.id !== deletedThreadId));
       if (deletedThreadId === threadId) {
+        setActiveRunId(undefined);
+        runActivitiesRef.current = [];
+        setRunActivities([]);
+        setLoading(false);
         setThreadId(undefined);
         setThreadTitle('');
         setThreadJourneyId(currentJourneyId);
@@ -1239,28 +1537,23 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
   };
 
-  const trackActionPromptForTurn = (turn: Turn, index: number) => {
-    if (!isTrackPromptTurn(turn)) return undefined;
-    const hasAnsweredTrackPrompt = turns.slice(index + 1).some((item) => {
+  const trackAnswerForTurn = (index: number) => {
+    // Stop at the next upload question so a later answer cannot select an older one.
+    const nextPromptIndex = turns.findIndex((item, itemIndex) => itemIndex > index && isTrackPromptTurn(item));
+    return turns.slice(index + 1, nextPromptIndex < 0 ? undefined : nextPromptIndex).find((item) => {
       if (item.role !== 'user') return false;
       if (item.attachments?.some((attachment) => isTrackAttachmentName(attachment.name))) return true;
       return wantsTrackUploadReply(item.text) || wantsNoTrackReply(item.text);
     });
-    if (hasAnsweredTrackPrompt) return undefined;
-    const fromTurn = trackPromptFromTurn(turn);
-    if (fromTurn?.message) return fromTurn;
-    const message = turns
-      .slice(0, index)
-      .filter((item) => item.role === 'user' && !wantsTrackUploadReply(item.text) && !wantsNoTrackReply(item.text))
-      .map((item) => item.text.trim())
-      .filter(Boolean)
-      .join('，');
-    return { message, intent: undefined };
   };
+
+  const trackActionPromptForTurn = (turn: Turn) => trackPromptFromTurn(turn);
 
   const quickRepliesForTurn = (turn: Turn) => {
     if (isTrackPromptTurn(turn)) return [];
-    return turn.quickReplies || [];
+    return (turn.quickReplies || []).filter((reply) => reply.action === 'supplement_plan'
+      ? turn === turns[turns.length - 1] && !turn.undoAction?.undoneAt
+      : !turn.undoAction);
   };
 
   return (
@@ -1326,42 +1619,67 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                 </View>
               </View>
             )
-          ) : turns.map((turn, turnIndex) => (
+          ) : turns.map((turn, turnIndex) => {
+            const trackActionPrompt = trackActionPromptForTurn(turn);
+            const trackAnswer = trackActionPrompt ? trackAnswerForTurn(turnIndex) : undefined;
+            const trackActionsDisabled = loading || trackPicking || attachmentUploading || Boolean(trackAnswer);
+            const isTrackUploadMessage = turn.role === 'user'
+              && turn.attachments?.some((attachment) => isTrackAttachmentName(attachment.name))
+              && /^(上传轨迹|Upload track)$/i.test(turn.text.trim());
+            return (
             <View key={turn.id} style={turn.role === 'user' ? styles.userRow : styles.assistantRow}>
               {turn.role === 'assistant' && turn.activities?.length ? <ResearchActivity theme={theme} activities={turn.activities} running={false} /> : null}
               <View style={[
                 turn.role === 'user' ? styles.userBubble : styles.assistantBubble,
                 turn.role === 'user' ? { backgroundColor: theme.accentSoft } : null,
               ]}>
+                {isTrackUploadMessage
+                  ? <Text style={[styles.trackMessageLabel, { color: theme.text2 }]}>{t('agent.trackPrompt.upload')}</Text>
+                  : <SelectableMessageText text={turn.text} theme={theme} />}
                 {turn.attachments?.length ? <MessageAttachments theme={theme} attachments={turn.attachments} /> : null}
-                <SelectableMessageText text={turn.text} theme={theme} />
+                {turn.upload ? (
+                  <View style={styles.uploadStatus} accessibilityLiveRegion="polite">
+                    {turn.upload.status === 'uploading' ? <ActivityIndicator size="small" color={theme.text2} /> : null}
+                    <Text style={[styles.uploadStatusText, { color: turn.upload.status === 'failed' ? theme.danger : theme.text2 }]}>
+                      {t(turn.upload.status === 'uploading' ? 'agent.attachment.uploading' : 'agent.attachment.uploadFailed')}
+                    </Text>
+                    {turn.upload.status === 'failed' ? (
+                      <Press
+                        accessibilityRole="button"
+                        disabled={loading || attachmentUploading || trackPicking}
+                        accessibilityState={{ disabled: loading || attachmentUploading || trackPicking }}
+                        onPress={() => {
+                          const upload = turn.upload;
+                          if (upload) void submit(upload.message, upload.intent, true, upload.files, turn.text, turn.id);
+                        }}
+                        style={[styles.uploadRetry, (loading || attachmentUploading || trackPicking) && styles.quickReplyDisabled]}
+                      >
+                        <RotateCcw size={14} color={theme.text} />
+                        <Text style={[styles.uploadStatusText, { color: theme.text }]}>{t('agent.attachment.retryUpload')}</Text>
+                      </Press>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
-              {trackActionPromptForTurn(turn, turnIndex) ? (
+              {trackActionPrompt ? (
                 <View style={styles.quickReplies}>
                   <Press
-                    disabled={loading || trackPicking}
+                    disabled={trackActionsDisabled}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: loading || trackPicking, busy: trackPicking }}
-                    onPress={() => {
-                      const prompt = trackActionPromptForTurn(turn, turnIndex);
-                      if (prompt) void chooseTrackForPlan(prompt);
-                    }}
-                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || trackPicking) && styles.quickReplyDisabled]}
+                    accessibilityState={{ disabled: trackActionsDisabled }}
+                    onPress={() => void chooseTrackForPlan(trackActionPrompt)}
+                    style={({ pressed }) => [styles.quickReply, { backgroundColor: theme.accentSofter }, (pressed || (!trackAnswer && trackActionsDisabled)) && styles.quickReplyDisabled]}
                   >
-                    {trackPicking ? <ActivityIndicator size="small" color={theme.text} /> : null}
-                    <Text style={[styles.quickReplyText, { color: theme.text }]}>上传轨迹</Text>
+                    <Text style={[styles.quickReplyText, { color: theme.text }]}>{t('agent.trackPrompt.upload')}</Text>
                   </Press>
                   <Press
-                    disabled={loading || trackPicking}
+                    disabled={trackActionsDisabled}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: loading || trackPicking }}
-                    onPress={() => {
-                      const prompt = trackActionPromptForTurn(turn, turnIndex);
-                      if (prompt) continuePlanWithoutTrack(prompt);
-                    }}
-                    style={[styles.quickReply, { backgroundColor: theme.accentSofter }, (loading || trackPicking) && styles.quickReplyDisabled]}
+                    accessibilityState={{ disabled: trackActionsDisabled }}
+                    onPress={() => continuePlanWithoutTrack(trackActionPrompt)}
+                    style={({ pressed }) => [styles.quickReply, { backgroundColor: theme.accentSofter }, (pressed || (!trackAnswer && trackActionsDisabled)) && styles.quickReplyDisabled]}
                   >
-                    <Text style={[styles.quickReplyText, { color: theme.text }]}>暂不上传</Text>
+                    <Text style={[styles.quickReplyText, { color: theme.text }]}>{t('agent.trackPrompt.skip')}</Text>
                   </Press>
                 </View>
               ) : null}
@@ -1369,22 +1687,25 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                 <View style={styles.quickReplies}>
                   {quickRepliesForTurn(turn).map((reply) => {
                     const inlineTrackPrompt = trackPromptFromTurn(turn) || trackPrompt || undefined;
-                    const isTrackUploadReply = reply.action === 'upload_track' || wantsTrackUploadReply(reply.message) || wantsTrackUploadReply(reply.label);
-                    const isSkipTrackReply = reply.action === 'skip_track' || Boolean(inlineTrackPrompt && wantsNoTrackReply(reply.message));
-                    const disabled = loading || trackPicking;
+                    const isTrackUploadReply = reply.action === 'upload_track';
+                    const isSkipTrackReply = reply.action === 'skip_track';
+                    const disabled = loading || trackPicking || attachmentUploading;
                     return (
                       <Press
                         key={`${turn.id}_${reply.message}`}
                         disabled={disabled}
+                        accessibilityRole="button"
                         accessibilityState={{ disabled, busy: isTrackUploadReply && trackPicking }}
                         onPress={() => {
-                          if (isTrackUploadReply) void chooseTrackForPlan(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
+                          if (reply.action === 'retry_run' && reply.runId) void continueAgentRun(reply.runId);
+                          else if (isTrackUploadReply) void chooseTrackForPlan(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
                           else if (isSkipTrackReply) continuePlanWithoutTrack(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
-                          else void submit(reply.message);
+                          else void submit(reply.message, undefined, false, undefined, undefined, undefined, transportLocationIntent(reply));
                         }}
                         style={[styles.quickReply, { backgroundColor: theme.accentSofter }, disabled && styles.quickReplyDisabled]}
                       >
                         {isTrackUploadReply && trackPicking ? <ActivityIndicator size="small" color={theme.text} /> : null}
+                        {reply.action === 'retry_run' ? <RotateCcw size={16} color={theme.text} /> : null}
                         <Text style={[styles.quickReplyText, { color: theme.text }]}>{reply.label}</Text>
                       </Press>
                     );
@@ -1423,8 +1744,22 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                 </View>
               ) : null}
             </View>
-          ))}
-          {loading ? <ResearchActivity theme={theme} activities={runActivities} running /> : null}
+          ); })}
+          {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <ResearchActivity theme={theme} activities={runActivities} running /> : (
+            <View style={styles.researchProgress}>
+              <View style={styles.researchHeader}>
+                {requestPhase === 'sending' ? <ActivityIndicator size="small" color={theme.text} />
+                  : <RotateCcw size={18} color={theme.text2} />}
+                <Text style={[styles.researchTitle, { color: theme.text }]}>{t(`agent.request.${requestPhase}`)}</Text>
+              </View>
+              {(requestPhase === 'reconnecting' || requestPhase === 'unconfirmed') && pendingRequestRef.current ? (
+                <Press onPress={() => void resendPendingRequest()} disabled={retryingPending} accessibilityRole="button" accessibilityState={{ disabled: retryingPending }} style={styles.uploadRetry}>
+                  {retryingPending ? <ActivityIndicator size="small" color={theme.text2} /> : <RotateCcw size={16} color={theme.text2} />}
+                  <Text style={[type.body, { color: theme.text2 }]}>{t('agent.request.retry')}</Text>
+                </Press>
+              ) : null}
+            </View>
+          ) : null}
         </ScrollView>
 
         <Animated.View
@@ -1631,10 +1966,17 @@ const styles = StyleSheet.create({
   assistantRow: { alignItems: 'stretch', marginBottom: space.xl },
   userBubble: { maxWidth: '84%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card },
   assistantBubble: { alignSelf: 'stretch' },
-  messageAttachments: { marginBottom: space.xs, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs },
+  messageAttachments: { marginTop: space.sm, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs },
   messageAttachmentImage: { width: 112, height: 112, borderRadius: radius.control },
-  messageAttachmentFile: { maxWidth: 220, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  messageAttachmentName: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 17, fontWeight: '600', letterSpacing: 0 },
+  messageAttachmentFile: { width: 240, maxWidth: '100%', minHeight: layout.fieldHeight, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  messageAttachmentIcon: { width: space.xxl, height: layout.fieldHeight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  messageAttachmentDetails: { flex: 1, minWidth: 0, gap: space.xxs, paddingVertical: space.xxs },
+  messageAttachmentName: { ...type.cardTitle, lineHeight: 22, letterSpacing: 0 },
+  messageAttachmentMeta: { ...type.caption, lineHeight: 16, letterSpacing: 0 },
+  trackMessageLabel: { ...type.caption, lineHeight: 16, letterSpacing: 0 },
+  uploadStatus: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.xs, marginTop: space.xs },
+  uploadStatusText: { ...type.caption, flexShrink: 1, lineHeight: 18, letterSpacing: 0 },
+  uploadRetry: { minHeight: layout.fieldHeight, flexDirection: 'row', alignItems: 'center', gap: space.xxs, paddingHorizontal: space.xs },
   messageMeasure: { opacity: 0 },
   messageInput: { padding: 0, textAlignVertical: 'top' },
   quickReplies: { alignItems: 'flex-start', gap: space.xs, marginTop: space.sm },
@@ -1664,10 +2006,9 @@ const styles = StyleSheet.create({
   copyText: { fontSize: 13, lineHeight: 17, letterSpacing: 0 },
   researchProgress: { alignSelf: 'stretch', marginBottom: space.xl, paddingVertical: space.sm },
   researchHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  researchTitle: { fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
+  researchTitle: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
   researchLine: { minHeight: 26, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
-  researchLineTitle: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
   loadingDots: { width: 14, height: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },

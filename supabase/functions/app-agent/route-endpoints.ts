@@ -9,6 +9,17 @@ export type TrackEndpoint = {
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
+export function assertTrackDistanceConsistency(totalMeters: number, displayDistance: unknown) {
+  if (typeof displayDistance !== 'string') return;
+  const match = displayDistance.trim().match(/^(\d+(?:\.\d+)?)\s*(km|m)$/i);
+  if (!match) return;
+  const expectedMeters = Number(match[1]) * (match[2].toLowerCase() === 'km' ? 1000 : 1);
+  // Allow display rounding, but not the large loss caused by legacy coordinate sampling.
+  if (expectedMeters > 0 && Math.abs(expectedMeters - totalMeters) > Math.max(100, expectedMeters * 0.01)) {
+    throw new Error('旅程标称里程与存储轨迹明显不一致，可能是旧版抽稀数据。需要从已保存的原始轨迹文件恢复完整计量数据后再设置每日终点，不能按比例缩放或使用错误公里数。');
+  }
+}
+
 function radians(value: number) {
   return value * Math.PI / 180;
 }

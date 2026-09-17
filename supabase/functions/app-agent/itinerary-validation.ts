@@ -60,6 +60,34 @@ export function validateItineraryItems(items: ItineraryItemDraft[], maxDays?: nu
     }
   });
 
+  return [...issues, ...validateItineraryConflicts(items)];
+}
+
+// Only explicit time ranges can prove a conflict. Unknown durations are not
+// silently guessed. Overnight transport spans the following standard day.
+export function validateItineraryConflicts(items: ItineraryItemDraft[], existing: ItineraryItemDraft[] = []): ItineraryValidationIssue[] {
+  const interval = (item: ItineraryItemDraft) => {
+    const start = itineraryMinutes(item.timeStart);
+    const end = itineraryMinutes(item.timeEnd);
+    if (start == null || end == null || (end <= start && !OVERNIGHT_TITLE.test(item.title))) return null;
+    const day = canonicalJourneyDay(item.day);
+    const ordinal = journeyDayOrdinal(day);
+    const offset = ordinal == null ? 0 : (ordinal - 1) * 1440;
+    return { scope: ordinal == null ? day : 'standard-days', start: offset + start, end: offset + end + (end <= start ? 1440 : 0) };
+  };
+  const issues: ItineraryValidationIssue[] = [];
+  const seen = [...existing];
+  items.forEach((item, index) => {
+    const current = interval(item);
+    if (current) {
+      const overlap = seen.find(other => {
+        const previous = interval(other);
+        return previous && previous.scope === current.scope && current.start < previous.end && previous.start < current.end;
+      });
+      if (overlap) issues.push({ index, title: item.title, message: `时间与“${overlap.title}”重叠，请调整安排或先明确修改原行程` });
+    }
+    seen.push(item);
+  });
   return issues;
 }
 

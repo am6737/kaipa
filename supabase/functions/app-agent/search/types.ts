@@ -19,6 +19,7 @@ export type ProviderSearchResponse = {
   available: boolean;
   results: TravelSearchResult[];
   error?: string;
+  errorCode?: 'verification_required';
 };
 
 export type TravelSearchProvider = {
@@ -32,6 +33,7 @@ export type ProviderReport = {
   status: 'completed' | 'unavailable' | 'failed' | 'timed_out';
   resultCount: number;
   error?: string;
+  errorCode?: 'verification_required';
 };
 
 export type AggregatedTravelSearch = {

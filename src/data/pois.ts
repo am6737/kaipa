@@ -65,6 +65,10 @@ export interface Poi {
   dayIndex?: number;
   totalDays?: number;
   routeId?: string;
+  // Which library track this journey uses. The track* fields below are a
+  // read-only projection of that row, filled in by the mappers — write through
+  // the track library instead of patching them here.
+  trackId?: string;
   // real data from track import
   photoUris?: string[];
   trackCoords?: [number, number][];

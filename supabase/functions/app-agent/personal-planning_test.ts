@@ -1,4 +1,4 @@
-import { dietaryConflictError, estimatePersonalPackingNeeds, nutritionPlanError } from './personal-planning.ts';
+import { dietaryConflictError, estimatePersonalPackingNeeds, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -6,12 +6,31 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const dayTrip = { accommodation: 'day_trip', waterRefill: 'none', mealPreparation: 'no_cook' } as const;
 
+Deno.test('database nulls are unknown, not a one-hour zero-distance trip', () => {
+  const result = estimatePersonalPackingNeeds({}, { total_days: 1, dist: null, asc_: null, track_duration_ms: null }, [], dayTrip);
+  assert(result.trip.estimatedActiveHours === 5, 'Null distance incorrectly replaced the fallback duration');
+  assert(result.trip.distanceKm === undefined && result.trip.ascentM === undefined, 'Missing terrain was invented as zero');
+});
+
+Deno.test('blank optional body measurements are not invented as zero', () => {
+  const profile = normalizePlanningProfile({ height_cm: null, weight_kg: null, age_years: '', dietary_restrictions: null });
+  assert(Object.keys(profile).length === 0, 'Blank measurements became numeric profile facts');
+});
+
+Deno.test('explicit hiking duration reaches food estimates without prescribing water', () => {
+  const fallback = estimatePersonalPackingNeeds({}, { total_days: 1, dist: null }, [], dayTrip);
+  const explicit = estimatePersonalPackingNeeds({}, { total_days: 1, dist: null }, [], dayTrip, 8);
+  assert(explicit.trip.estimatedActiveHours === 8, 'Explicit duration was ignored');
+  assert(explicit.recommendation.carriedFoodEnergyKcal.min > fallback.recommendation.carriedFoodEnergyKcal.min, 'Food did not reflect longer activity');
+  assert(!('startingWaterLiters' in explicit.recommendation), 'Estimator must not prescribe water quantities');
+});
+
 Deno.test('personal packing estimates degrade gracefully without profile data', () => {
   const result = estimatePersonalPackingNeeds({}, { days: 1, dist: '18 km', asc_: '+900 m' }, [], dayTrip);
   assert(result.confidence === 'low', 'missing profile should keep confidence low');
   assert(!('profile' in result), 'raw body measurements must not be returned to the agent');
   assert(result.recommendation.carriedFoodEnergyKcal.min > 0, 'food estimate should remain usable');
-  assert(result.recommendation.startingWaterLiters.min > 0, 'water estimate should remain usable');
+  assert(!('startingWaterLiters' in result.recommendation), 'Missing context must not create a water target');
 });
 
 Deno.test('height is reduced to practical sizing guidance', () => {

@@ -9,7 +9,7 @@ import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
 
-const TABS: MainTab[] = ['discover', 'journey', 'gear', 'me'];
+const TABS: MainTab[] = ['discover', 'journey', 'me'];
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
@@ -33,12 +33,12 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
     ? {
         backgroundColor: '#242426',
         borderColor: 'rgba(255,255,255,0.10)',
-        boxShadow: '0px 10px 24px rgba(0,0,0,0.42), 0px 2px 7px rgba(0,0,0,0.24)',
+        boxShadow: '0px 6px 16px rgba(0,0,0,0.30), 0px 1px 4px rgba(0,0,0,0.16)',
       }
     : {
         backgroundColor: '#FCFCFA',
         borderColor: 'rgba(255,255,255,0.98)',
-        boxShadow: '0px 12px 30px rgba(34,34,28,0.12), 0px 2px 8px rgba(34,34,28,0.04)',
+        boxShadow: '0px 7px 18px rgba(34,34,28,0.08), 0px 1px 5px rgba(34,34,28,0.03)',
       };
 
   return (
@@ -56,7 +56,9 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       <View style={styles.row}>
         <View style={[styles.bar, barSurface]}>
           {TABS.map((tab) => {
-            const active = nav.mainTab === tab;
+            // Gear is reached from the Me shortcuts now, so keep Me as the
+            // selected section while its list/detail surface is open.
+            const active = nav.mainTab === tab || (tab === 'me' && nav.mainTab === 'gear');
 
             return (
               <Press
@@ -67,7 +69,12 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
                 onPress={() => nav.setMainTab(tab)}
                 style={styles.tab}
               >
-                <Text style={[styles.label, { color: active ? theme.text : theme.text3, fontWeight: active ? '700' : '600' }]}>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                  style={[styles.label, { color: active ? theme.text : theme.text3, fontWeight: active ? '700' : '600' }]}
+                >
                   {t(`tabs.${tab}`)}
                 </Text>
                 {tab === 'me' && unread > 0 ? <View style={[styles.unread, { backgroundColor: theme.danger, borderColor: theme.controlSurface }]} /> : null}
@@ -100,7 +107,9 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   bar: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: 210,
     height: 52,
     flexDirection: 'row',
     paddingVertical: space.xxs,
@@ -110,13 +119,14 @@ const styles = StyleSheet.create({
   },
   row: {
     width: '100%',
-    maxWidth: 400,
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.xxxl,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.lg,
+    justifyContent: 'flex-start',
   },
   assistant: {
+    position: 'absolute',
+    right: space.md,
     width: 52,
     height: 52,
     borderRadius: radius.pill,
@@ -130,6 +140,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   label: {
+    maxWidth: '100%',
     fontSize: 14,
     lineHeight: 19,
     letterSpacing: 0,

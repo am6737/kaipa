@@ -204,7 +204,7 @@ export function ColorDot({
           ? theme.dark
             ? 'rgba(255,255,255,0.30)'
             : 'rgba(0,0,0,0.25)'
-          : 'rgba(0,0,0,0.10)',
+          : theme.dark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.10)',
         borderStyle: dashed ? 'dashed' : 'solid',
       }}
     />

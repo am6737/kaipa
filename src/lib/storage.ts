@@ -2,6 +2,7 @@ import { File as FSFile } from 'expo-file-system';
 import { supabase } from './supabase';
 
 const BUCKET = 'kaipa';
+const PRIVATE_BUCKET = 'kaipa-private';
 
 const MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
@@ -46,6 +47,30 @@ export async function uploadMedia(
   return data.publicUrl;
 }
 
+// Track files live outside the journey that happens to use them: a track can
+// exist unattached, and several journeys may share one file.
+export async function uploadTrackFile(
+  localUri: string,
+  userId: string,
+  fileName?: string,
+): Promise<string> {
+  const ext = (fileName?.match(/\.([a-z0-9]{1,10})$/i)?.[1] || extFromUri(localUri)).toLowerCase();
+  const contentType = MIME[ext] || 'application/octet-stream';
+  const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
+  const storagePath = `tracks/${userId}/${filename}`;
+
+  const inlineBytes = dataUriBytes(localUri);
+  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buffer, { contentType, upsert: false });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
 export async function uploadAgentAttachment(
   localUri: string,
   userId: string,
@@ -59,12 +84,15 @@ export async function uploadAgentAttachment(
   const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
 
   const { error } = await supabase.storage
-    .from(BUCKET)
+    .from(PRIVATE_BUCKET)
     .upload(storagePath, buffer, { contentType: mimeType || MIME[ext] || 'application/octet-stream', upsert: false });
   if (error) throw error;
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  const { data, error: signedUrlError } = await supabase.storage
+    .from(PRIVATE_BUCKET)
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+  if (signedUrlError || !data?.signedUrl) throw signedUrlError || new Error('Unable to create attachment URL');
+  return data.signedUrl;
 }
 
 
@@ -114,17 +142,20 @@ export async function uploadCover(
   return data.publicUrl + `?t=${Date.now()}`;
 }
 
-function storagePathFromUrl(publicUrl: string): string | null {
-  const marker = `/object/public/${BUCKET}/`;
-  const idx = publicUrl.indexOf(marker);
-  if (idx < 0) return null;
-  return publicUrl.slice(idx + marker.length);
+function storageLocationFromUrl(publicUrl: string): { bucket: string; path: string } | null {
+  const match = publicUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?.*)?$/);
+  if (!match || ![BUCKET, PRIVATE_BUCKET].includes(decodeURIComponent(match[1]))) return null;
+  return { bucket: decodeURIComponent(match[1]), path: decodeURIComponent(match[2]) };
 }
 
 export async function removeMedia(publicUrls: string[]): Promise<void> {
-  const paths = publicUrls
-    .map(storagePathFromUrl)
-    .filter((p): p is string => p !== null);
-  if (paths.length === 0) return;
-  await supabase.storage.from(BUCKET).remove(paths);
+  const grouped = new Map<string, string[]>();
+  for (const url of publicUrls) {
+    const location = storageLocationFromUrl(url);
+    if (!location) continue;
+    const paths = grouped.get(location.bucket) || [];
+    paths.push(location.path);
+    grouped.set(location.bucket, paths);
+  }
+  await Promise.all([...grouped].map(([bucket, paths]) => supabase.storage.from(bucket).remove(paths)));
 }

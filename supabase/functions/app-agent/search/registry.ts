@@ -1,6 +1,7 @@
 import { createMediaCrawlerProvider } from './providers/mediacrawler.ts';
 import { createTavilyProvider } from './providers/tavily.ts';
 import type { TravelSearchProvider, TravelSearchSource } from './types.ts';
+import type { SearchPurpose } from './routing.ts';
 
 type EnvGetter = (name: string) => string | undefined;
 
@@ -12,7 +13,9 @@ function enabledSources(getEnv: EnvGetter) {
     .filter((value): value is TravelSearchSource => supportedSources.has(value as TravelSearchSource));
 }
 
-export function createTravelSearchProviders(getEnv: EnvGetter): TravelSearchProvider[] {
+export function createTravelSearchProviders(getEnv: EnvGetter, purpose: SearchPurpose = 'guide'): TravelSearchProvider[] {
+  // Transport evidence never fans out to community crawlers, regardless of config.
+  if (purpose === 'transport') return [createTavilyProvider(getEnv('TAVILY_API_KEY')?.trim(), true)];
   const endpoint = getEnv('MEDIACRAWLER_SEARCH_URL')?.trim();
   const apiKey = getEnv('MEDIACRAWLER_API_KEY')?.trim();
   const maxResults = travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30);

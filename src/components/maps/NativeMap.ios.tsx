@@ -37,6 +37,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onPress,
   onUserLocationChange,
   onCameraChange,
+  onZoomChange,
   onGestureStart,
 }, ref) {
   const mapRef = useRef<MapView>(null);
@@ -125,7 +126,11 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         onUserLocationChange?.([coordinate.longitude, coordinate.latitude]);
       }}
       onPanDrag={onGestureStart ? () => onGestureStart() : undefined}
-      onRegionChangeComplete={() => {
+      onRegionChange={(visibleRegion) => {
+        if (visibleRegion.longitudeDelta > 0) onZoomChange?.(Math.log2(360 / visibleRegion.longitudeDelta));
+      }}
+      onRegionChangeComplete={(visibleRegion) => {
+        if (visibleRegion.longitudeDelta > 0) onZoomChange?.(Math.log2(360 / visibleRegion.longitudeDelta));
         if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
         if (onCameraChange) {
           void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));

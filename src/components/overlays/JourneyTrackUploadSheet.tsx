@@ -3,26 +3,25 @@ import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text
 import { File as FSFile } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { buildTrackData, computeStats, parseTrack, snapWaypoints } from '../../lib/trackParser';
-import { extractKmlFromKmz } from '../../lib/kmz';
+import { buildTrackDraft, parseTrackFile, TrackFileError } from '../../lib/trackImport';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
-import { uploadMedia } from '../../lib/storage';
 import { Press } from '../Press';
 import { motion, radius, space, type } from '../../design-system';
 
 type SelectedTrackFile = {
   name: string;
   uri: string;
+  size?: number;
   text: () => Promise<string>;
   arrayBuffer: () => Promise<ArrayBuffer>;
 };
 
-export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }: { theme: Theme; journeyId: string; replacing: boolean; onClose: () => void }) {
+export function JourneyTrackUploadSheet({ theme, replacing, onClose }: { theme: Theme; replacing: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const nav = useNav();
-  const { userId } = useData();
+  const { userId, createTrack } = useData();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [selectedFile, setSelectedFile] = useState<SelectedTrackFile | null>(null);
@@ -92,53 +91,17 @@ export function JourneyTrackUploadSheet({ theme, journeyId, replacing, onClose }
 
     setLoading(true);
     try {
-      const filename = selectedFile.name || '';
-      const ext = (filename.split('.').pop() || '').toLowerCase();
-      let text: string;
-      let parseFilename = filename;
-      if (ext === 'kmz') {
-        const buffer = await selectedFile.arrayBuffer();
-        const kml = extractKmlFromKmz(new Uint8Array(buffer));
-        if (!kml) {
-          nav.showToast(t('record.track.errParse'));
-          return;
-        }
-        text = kml;
-        parseFilename = filename.replace(/\.kmz$/i, '.kml');
-      } else {
-        text = await selectedFile.text();
-      }
-
-      const parsed = parseTrack(text, parseFilename, t as any);
-      if (parsed.error || !parsed.points) {
-        nav.showToast(parsed.error || t('record.track.errParse'));
-        return;
-      }
-
-      const stats = computeStats(parsed.points);
-      if (!stats) {
-        nav.showToast(t('record.track.errParse'));
-        return;
-      }
-
-      const trackFileUrl = await uploadMedia(selectedFile.uri, userId, journeyId);
-      const { trackCoords, trackElevation, trackDurationMs, dist, asc } = buildTrackData(stats);
-      const trackWaypoints = parsed.waypoints ? snapWaypoints(parsed.waypoints, stats) : undefined;
-      nav.patchCurrent({
-        trackCoords,
-        trackElevation,
-        trackDurationMs,
-        trackWaypoints,
-        dist,
-        asc: asc || '—',
-        trackFileUrl,
-        trackFileName: filename,
-      });
+      const parsed = await parseTrackFile(selectedFile, t);
+      const draft = await buildTrackDraft(parsed, { userId, sourceUri: selectedFile.uri, fileSize: selectedFile.size });
+      const track = await createTrack(draft);
+      if (!track) throw new Error('TRACK_INSERT_FAILED');
+      // The journey only points at the track; geometry lives in the library.
+      nav.patchCurrent({ trackId: track.id, dist: parsed.dist, ...(parsed.asc ? { asc: parsed.asc } : {}) });
       close(true);
       nav.showToast(t('journey.track.uploadSuccess'));
     } catch (error) {
-      console.warn('[JourneyTrackUpload] track parse error:', error);
-      nav.showToast(t('record.track.errParse'));
+      console.warn('[JourneyTrackUpload] track import error:', error);
+      nav.showToast(t(error instanceof TrackFileError ? error.messageKey : 'record.track.errParse'));
     } finally {
       setLoading(false);
     }

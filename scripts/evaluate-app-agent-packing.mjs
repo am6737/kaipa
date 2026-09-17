@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 
 const coverageModuleUrl = new URL('../supabase/functions/app-agent/packing-coverage.ts', import.meta.url).href;
@@ -26,6 +28,7 @@ const cases = [
     prompt: '请为这个单人一日徒步旅程生成完整装备清单，不增加行程。预计徒步 8 小时，天气温暖，沿途没有任何补水点，不开火且当天返回。',
     profile: { accommodation: 'day_trip', waterRefill: 'none', mealPreparation: 'no_cook' },
     expectMixedWater: true,
+    expectedActiveHours: 8,
     expected: [/(矿泉水|瓶装水|纯净水|饮用水)/, /(能量棒|牛肉干|坚果|三明治)/, /(充电宝|移动电源)/],
   },
   {
@@ -50,7 +53,7 @@ const cases = [
     days: 1,
     prompt: '只在当前装备清单中增加一根 1 米长的 USB-C to USB-C 充电线，不要增加其他装备，也不要增加行程。',
     mode: 'incremental',
-    expected: [/USB-C.*充电线|充电线.*USB-C/],
+    expected: [/充电线/],
   },
 ];
 
@@ -123,8 +126,18 @@ async function evaluateCase(client, userId, scenario) {
     is_host: true,
     is_self: true,
     sort_order: 0,
-  });
+  }).select('id').single();
   if (insertedCompanion.error) throw insertedCompanion.error;
+
+  let existingItem;
+  if (scenario.mode === 'incremental') {
+    const list = await client.from('journey_packing_lists').insert({ journey_id: journeyId, kind: 'personal', owner_companion_id: insertedCompanion.data.id, created_by: userId }).select('id').single();
+    if (list.error) throw list.error;
+    const item = await client.from('journey_packing_items').insert({ list_id: list.data.id, source_type: 'custom', name: '头灯', quantity: 2,
+      weight_kg: 0.08, weight_estimated: false, carry_status: 'packed', note: '已检查电池', packed: true }).select('*').single();
+    if (item.error) throw item.error;
+    existingItem = item.data;
+  }
 
   const startedAt = Date.now();
   const turn = await client.functions.invoke('app-agent', { body: {
@@ -137,6 +150,16 @@ async function evaluateCase(client, userId, scenario) {
     message: scenario.prompt,
   } });
   if (turn.error) throw await functionError(turn.error);
+  if (turn.data?.status === 'running') {
+    const deadline = Date.now() + 19 * 60_000;
+    while (turn.data.status === 'running' && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const run = await client.from('agent_runs').select('status,error').eq('id', turn.data.runId).single();
+      if (run.error) throw run.error;
+      turn.data.status = run.data.status;
+      if (run.data.status === 'failed') throw new Error(run.data.error || 'Planning failed');
+    }
+  }
   if (turn.data?.status !== 'completed') throw new Error(`Unexpected status ${turn.data?.status}`);
 
   const [lists, activity, timeline] = await Promise.all([
@@ -148,13 +171,51 @@ async function evaluateCase(client, userId, scenario) {
   if (activity.error) throw activity.error;
   if (timeline.error) throw timeline.error;
   if (timeline.data.length) throw new Error('Packing-only evaluation unexpectedly created itinerary items');
+  const task = await client.from('agent_task_states').select('state').eq('run_id', turn.data.runId).single();
+  if (task.error) throw task.error;
+  assert.equal(task.data.state.outcome.status, 'completed', 'Packing task did not complete');
+  assert.deepEqual(task.data.state.decision.operations, ['add_packing_items'], 'Packing-only task was granted unrelated writes');
+  if (scenario.expectedActiveHours) {
+    const estimate = await client.from('agent_tool_calls').select('output').eq('run_id', turn.data.runId).eq('tool_name', 'estimate_personal_packing_needs').eq('status', 'completed').order('created_at', { ascending: false }).limit(1).single();
+    if (estimate.error) throw estimate.error;
+    assert.equal(estimate.data.output.trip.estimatedActiveHours, scenario.expectedActiveHours, 'Estimator ignored explicit hiking duration');
+  }
 
-  const rows = await client.from('journey_packing_items').select('name,category_name,quantity,weight_kg,weight_estimated,attrs,note').in('list_id', lists.data.map((list) => list.id)).order('sort_order');
+  const rows = await client.from('journey_packing_items').select('id,name,category_name,quantity,weight_kg,weight_estimated,attrs,note').in('list_id', lists.data.map((list) => list.id)).order('sort_order');
   if (rows.error || !rows.data?.length) throw rows.error || new Error('No packing items created');
+  if (existingItem) {
+    const preserved = await client.from('journey_packing_items').select('*').eq('id', existingItem.id).single();
+    if (preserved.error) throw preserved.error;
+    assert.deepEqual(preserved.data, existingItem, 'Incremental addition modified an existing item');
+    rows.data = rows.data.filter(item => item.id !== existingItem.id);
+    assert.equal(rows.data.length, 1, 'Incremental request added extra items');
+    assert.equal(rows.data[0].quantity, 1, 'Only one cable was requested');
+    assert.match(JSON.stringify(rows.data[0].attrs), /1\s*(?:m|米)|100\s*(?:cm|厘米)/i, 'Requested cable length is missing');
+    const attributes = JSON.stringify(rows.data[0].attrs);
+    assert.ok((attributes.match(/USB[- ]?C/gi) || []).length >= 2 || /双.*USB[- ]?C|USB[- ]?C.*双/i.test(attributes), 'Both requested USB-C connectors must be represented in attributes');
+  }
   const calls = (activity.data?.activities || []).filter((entry) => entry.toolName === 'add_packing_items');
   const completed = calls.find((entry) => entry.status === 'completed');
   if (!completed) throw new Error('No completed add_packing_items call');
   const expectedMode = scenario.mode || 'full';
+  let draftMetrics;
+  if (process.env.EVAL_EXPECT_DRAFT === '1') {
+    const draft = await client.from('agent_packing_drafts').select('state,revision').eq('run_id', turn.data.runId).maybeSingle();
+    if (draft.error) throw draft.error;
+    const metrics = await client.from('agent_model_metrics').select('stage,duration_ms,usage,success').eq('run_id', turn.data.runId).order('created_at');
+    if (metrics.error) throw metrics.error;
+    const timings = await client.from('agent_tool_calls').select('tool_name,created_at,updated_at').eq('run_id', turn.data.runId).order('created_at');
+    if (timings.error) throw timings.error;
+    if (expectedMode === 'full') {
+      assert.ok(draft.data, 'Full generation did not persist a draft');
+      assert.equal(draft.data.revision, draft.data.state.repairs + 1, 'Draft repair revision is inconsistent');
+      assert.equal(calls.filter(call => call.status === 'completed').length, 1, 'Draft commit was duplicated');
+      assert.ok((activity.data?.activities || []).some(call => call.toolName === 'commit_packing_draft' && call.status === 'completed'));
+    } else assert.equal(draft.data, null, 'Incremental addition took the full-draft path');
+    draftMetrics = { revisions: draft.data?.revision, repairs: draft.data?.state.repairs, modelCalls: metrics.data,
+      toolTimings: timings.data.map(call => ({ tool: call.tool_name, durationMs: Date.parse(call.updated_at) - Date.parse(call.created_at) })),
+      draftCalls: (activity.data?.activities || []).filter(call => /packing_draft$/.test(call.toolName)).map(call => ({ tool: call.toolName, status: call.status, payloadCharacters: JSON.stringify(call.arguments).length })) };
+  }
   if (completed.arguments?.mode !== expectedMode) throw new Error(`Expected ${expectedMode} mode, got ${completed.arguments?.mode}`);
   if (expectedMode === 'full' && !sameProfile(completed.arguments?.planProfile, scenario.profile)) {
     throw new Error(`Unexpected plan profile: ${JSON.stringify(completed.arguments?.planProfile)}`);
@@ -199,6 +260,7 @@ async function evaluateCase(client, userId, scenario) {
     notedItemCount: rows.data.filter((item) => Boolean(item.note?.trim())).length,
     attempts: calls.length,
     failedAttempts: calls.filter((entry) => entry.status === 'failed').length,
+    draftMetrics,
   };
 }
 
@@ -231,8 +293,10 @@ try {
   }
 }
 
-console.log(JSON.stringify({
+const report = {
   passed: results.every((result) => result.passed),
   cases: results,
-}, null, 2));
+};
+if (process.env.EVAL_REPORT) await writeFile(process.env.EVAL_REPORT, JSON.stringify(report, null, 2) + '\n');
+console.log(JSON.stringify(report, null, 2));
 process.exitCode = exitCode;

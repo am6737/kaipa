@@ -5,6 +5,7 @@ import { I18nProvider } from './src/i18n';
 import { AppearanceProvider } from './src/theme/AppearanceContext';
 import { AppRoot } from './src/AppRoot';
 import { GuestApp } from './src/web/GuestApp';
+import { AdminMock } from './src/web/admin/AdminMock';
 
 function isGuestPath() {
   return /^\/j\//.test(window.location.pathname);
@@ -12,6 +13,7 @@ function isGuestPath() {
 
 export default function App() {
   const guest = isGuestPath();
+  const admin = /^\/admin\/?$/.test(window.location.pathname);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -25,7 +27,7 @@ export default function App() {
       <SafeAreaProvider>
         <I18nProvider>
           <AppearanceProvider>
-            {guest ? <GuestApp /> : <AppRoot />}
+            {admin ? <AdminMock /> : guest ? <GuestApp /> : <AppRoot />}
           </AppearanceProvider>
         </I18nProvider>
       </SafeAreaProvider>

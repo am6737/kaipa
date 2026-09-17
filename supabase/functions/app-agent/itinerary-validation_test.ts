@@ -1,4 +1,4 @@
-import { itineraryValidationError, validIsoDate, validateItineraryItems } from './itinerary-validation.ts';
+import { itineraryValidationError, validIsoDate, validateItineraryItems, validateItineraryConflicts } from './itinerary-validation.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -43,4 +43,20 @@ Deno.test('ISO journey date validation rejects rolled-over dates', () => {
   assert(validIsoDate('2026-09-10'), 'expected valid ISO date');
   assert(!validIsoDate('2026-9-10'), 'expected zero-padded date');
   assert(!validIsoDate('2026-02-30'), 'expected invalid calendar date');
+});
+
+Deno.test('itinerary detects overlapping activities and conflicts with saved rows', () => {
+  const hike = { day: 'Day 1', title: '香山步道徒步', timeStart: '08:00', timeEnd: '16:00' };
+  const bus = { day: 'Day 1', title: '乘公交前往颐和园', timeStart: '09:00', timeEnd: '10:00' };
+  assert(validateItineraryItems([hike, bus], 1).length === 1, 'overlap in batch');
+  assert(validateItineraryConflicts([bus], [hike]).length === 1, 'overlap with saved hike');
+  assert(validateItineraryConflicts([{ ...bus, timeStart: '16:00', timeEnd: '17:00' }], [hike]).length === 0, 'adjacent ranges are valid');
+  assert(validateItineraryConflicts([{ ...bus, day: 'Day 2' }], [hike]).length === 0, 'different days are independent');
+  assert(validateItineraryConflicts([{ ...bus, timeEnd: undefined }], [hike]).length === 0, 'do not guess duration');
+});
+
+Deno.test('overnight travel conflicts with the next day but allows later activity', () => {
+  const train = { day: 'Day 1', title: '卧铺列车次日抵达', timeStart: '22:00', timeEnd: '07:00' };
+  assert(validateItineraryConflicts([{ day: 'Day 2', title: '山口出发', timeStart: '06:00', timeEnd: '08:00' }], [train]).length === 1, 'overnight overlap');
+  assert(validateItineraryConflicts([{ day: 'Day 2', title: '山口出发', timeStart: '08:00', timeEnd: '10:00' }], [train]).length === 0, 'after arrival');
 });

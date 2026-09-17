@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
 import { Press } from '../Press';
@@ -14,6 +14,8 @@ type Props = {
   onConfirm: () => void;
   onCancel: () => void;
   confirming?: boolean;
+  /** When set, the confirm button stays locked until the user types this text. */
+  confirmPhrase?: string;
 };
 
 export function AccountActionDialog({
@@ -26,10 +28,24 @@ export function AccountActionDialog({
   onConfirm,
   onCancel,
   confirming = false,
+  confirmPhrase,
 }: Props) {
   const { width } = useWindowDimensions();
   const [mounted, setMounted] = React.useState(visible);
+  const [phrase, setPhrase] = React.useState('');
   const progress = React.useRef(new Animated.Value(0)).current;
+
+  // Every opening starts from an empty field so the gate can't be satisfied by stale input.
+  React.useEffect(() => {
+    if (visible) setPhrase('');
+  }, [visible]);
+
+  const requiresPhrase = !!confirmPhrase;
+  // Case-insensitive so an English phrase typed in lowercase still counts as deliberate.
+  const phraseMatched = !requiresPhrase || phrase.trim().toLocaleLowerCase() === (confirmPhrase ?? '').toLocaleLowerCase();
+  const locked = confirming || !phraseMatched;
+  // Greyed out only while the phrase is unmet — running the action keeps the solid red look.
+  const dimmed = !phraseMatched;
 
   React.useLayoutEffect(() => {
     progress.stopAnimation();
@@ -64,7 +80,7 @@ export function AccountActionDialog({
 
   return (
     <Modal transparent visible statusBarTranslucent animationType="none" onRequestClose={onCancel}>
-      <View style={[styles.fill, styles.center]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.fill, styles.center]}>
         <Animated.View style={[styles.fill, { opacity: progress }]}>
           <Pressable
             accessibilityRole="button"
@@ -95,18 +111,46 @@ export function AccountActionDialog({
           <Text style={[type.pageTitle, { color: theme.text, lineHeight: 31 }]}>{title}</Text>
           <Text style={[type.body, { marginTop: space.sm, color: theme.text2, lineHeight: 22 }]}>{message}</Text>
 
+          {requiresPhrase ? (
+            // The field's placeholder and the confirm button label both spell out the
+            // phrase, so no separate instruction line is needed.
+            <TextInput
+              value={phrase}
+              onChangeText={setPhrase}
+              editable={!confirming}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              accessibilityLabel={confirmPhrase}
+              placeholder={confirmPhrase}
+              placeholderTextColor={theme.text3}
+              style={{
+                marginTop: space.lg,
+                height: 50,
+                borderRadius: radius.card,
+                backgroundColor: theme.fieldSurface,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.fieldBorder,
+                paddingHorizontal: space.md,
+                fontSize: 16,
+                color: theme.text,
+              }}
+            />
+          ) : null}
+
           <View style={{ marginTop: space.xl, gap: space.sm }}>
             <Press
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
-              accessibilityState={{ busy: confirming, disabled: confirming }}
-              onPress={confirming ? undefined : onConfirm}
+              accessibilityState={{ busy: confirming }}
+              disabled={locked}
+              onPress={onConfirm}
               opacityTo={1}
-              style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.danger }}
+              style={{ height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: dimmed ? theme.fieldSurface : theme.danger }}
             >
               {confirming
                 ? <ActivityIndicator color="#FFFFFF" />
-                : <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>}
+                : <Text style={{ fontSize: 16, fontWeight: '800', color: dimmed ? theme.text3 : '#FFFFFF' }}>{confirmLabel}</Text>}
             </Press>
             <Press
               accessibilityRole="button"
@@ -119,7 +163,7 @@ export function AccountActionDialog({
             </Press>
           </View>
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

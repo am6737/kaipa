@@ -3,16 +3,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Modal, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Luggage, Trash2 } from 'lucide-react-native';
+import { Bell, ChevronLeft, Luggage, ScanLine, Settings, Trash2 } from 'lucide-react-native';
 import ReAnimated, { Easing, Extrapolation, interpolate, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme, ACCENT_PRESETS } from '../theme/theme';
 import { Icon, IconName } from '../components/Icon';
 import { Press } from '../components/Press';
-import { Avatar } from '../components/Avatar';
+import { ProfileIdentity, ProfileShortcut } from '../components/me/ProfileIdentity';
 import { Glass } from '../components/Glass';
-import { PhotoTile } from '../components/PhotoTile';
 import { TwoStageSwipeable } from '../components/TwoStageSwipeable';
 import { Globe } from '../components/globe';
 import { TrailSheet } from '../components/Sheet';
@@ -20,9 +18,10 @@ import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
-import { WEIGHT_UNITS, WeightUnit } from '../data/gear';
+import { WEIGHT_UNITS, WeightUnit, itemPrice, itemWeight, fmtWeight } from '../data/gear';
 import { useNotifCenter } from '../data/notifications';
 import { ColorDot } from '../components/me/parts';
+import { makeMeTheme } from '../components/me/appearance';
 import { AccountPage } from '../components/me/AccountPage';
 import type { MeProfile } from '../components/me/AccountPage';
 import { EditFieldPage, MeEditField } from '../components/me/EditFieldPage';
@@ -31,8 +30,12 @@ import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
 import { PlanningProfilePage } from '../components/me/PlanningProfilePage';
+import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
 import { JourneyTrashPage } from '../components/journey/JourneyTrashPage';
-import { AppActionDialog, AppCard, AppSectionHeader, layout, motion, radius, space, type } from '../design-system';
+import { TracksPage } from '../components/tracks/TracksPage';
+import { TrackDetailPage } from '../components/tracks/TrackDetailPage';
+import { KPState } from '../components/State';
+import { AppActionDialog, AppCard, AppMetricStrip, AppSectionHeader, DetailPage, layout, motion, radius, space, type, type AppMetric } from '../design-system';
 import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from '../lib/journeyInvite';
 import type { Poi } from '../data/pois';
@@ -42,6 +45,8 @@ type MePage =
   | { type: 'settings' }
   | { type: 'journeys' }
   | { type: 'favorites' }
+  | { type: 'tracks' }
+  | { type: 'trackDetail'; trackId: string }
   | { type: 'trash' }
   | { type: 'account' }
   | { type: 'planningProfile' }
@@ -53,8 +58,9 @@ type MePage =
 
 type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
 type PopupAnchor = { x: number; y: number; width: number; height: number };
-const SETTINGS_ROW_HEIGHT = 78;
+const SETTINGS_ROW_HEIGHT = layout.listRowMinHeight;
 const flatMeCardStyle = { boxShadow: 'none' as const };
+const headerButtonStyle = { width: layout.iconButton, height: layout.iconButton, alignItems: 'center' as const, justifyContent: 'center' as const };
 
 function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
   const progress = useSharedValue(open ? 1 : 0);
@@ -153,98 +159,6 @@ function SettingsRow({
   );
 }
 
-function ProfileShortcut({
-  theme,
-  title,
-  detail,
-  items,
-  emptyLabel,
-  mapPreview,
-  onPress,
-}: {
-  theme: Theme;
-  title: string;
-  detail: string;
-  items: Poi[];
-  emptyLabel: string;
-  mapPreview?: boolean;
-  onPress: () => void;
-}) {
-  const previews = items.slice(0, 3);
-  const previewWidth = previews.length ? 72 + (previews.length - 1) * 36 : 144;
-
-  if (mapPreview) {
-    return (
-      <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { height: 176, borderWidth: 0, overflow: 'hidden' }]}>
-        <Press onPress={onPress} accessibilityRole="button" scaleTo={0.98} style={{ flex: 1 }}>
-          <CollectionMap theme={theme} points={items} compact />
-          <LinearGradient
-            pointerEvents="none"
-            colors={theme.dark ? ['rgba(18,18,20,0.90)', 'rgba(18,18,20,0.58)', 'rgba(18,18,20,0)'] : ['rgba(255,255,255,0.96)', 'rgba(255,255,255,0.68)', 'rgba(255,255,255,0)']}
-            locations={[0, 0.58, 1]}
-            style={{ position: 'absolute', left: 0, top: 0, right: 0, height: 122 }}
-          />
-          <View style={{ position: 'absolute', left: 0, top: 0, right: 0, padding: space.lg }}>
-            <Text style={[type.cardTitle, { color: theme.text }]}>{title}</Text>
-            <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{detail}</Text>
-          </View>
-        </Press>
-      </AppCard>
-    );
-  }
-
-  return (
-    <AppCard
-      theme={theme}
-      radius={radius.feature}
-      style={[flatMeCardStyle, { height: 176, borderWidth: 0, overflow: 'hidden' }]}
-    >
-      <Press
-        onPress={onPress}
-        accessibilityRole="button"
-        scaleTo={0.98}
-        style={{ flex: 1, padding: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.md }}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[type.cardTitle, { color: theme.text }]}>{title}</Text>
-          <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{detail}</Text>
-        </View>
-        <View style={{ width: 156, height: 84, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-          {previews.length ? (
-            <View style={{ width: previewWidth, height: 80 }}>
-              {previews.map((item, index) => (
-                <PhotoTile
-                  key={item.id}
-                  tone={item.tone}
-                  seed={item.id}
-                  radius={radius.control}
-                  resWidth={180}
-                  style={{
-                    position: 'absolute',
-                    left: index * 36,
-                    top: index % 2 ? 4 : 0,
-                    width: 72,
-                    height: 80,
-                    zIndex: index,
-                    borderWidth: 2,
-                    borderColor: theme.surfaceTop,
-                  }}
-                >
-                  {item.photoUris?.[0] ? <Image source={{ uri: item.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-                </PhotoTile>
-              ))}
-            </View>
-          ) : (
-            <View style={{ width: 144, minHeight: 72, paddingHorizontal: space.sm, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
-              <Text style={[type.caption, { color: theme.text3, lineHeight: 16, textAlign: 'center' }]}>{emptyLabel}</Text>
-            </View>
-          )}
-        </View>
-      </Press>
-    </AppCard>
-  );
-}
-
 function mapCoordinate(point: Poi): [number, number] {
   const start = point.trackCoords?.[0];
   return start && Number.isFinite(start[0]) && Number.isFinite(start[1]) ? start : [point.lng, point.lat];
@@ -261,7 +175,7 @@ function groupMapPoints(points: Poi[]) {
   return [...groups.values()];
 }
 
-function CollectionMap({ theme, points, compact = false, onPointPress }: { theme: Theme; points: Poi[]; compact?: boolean; onPointPress?: (point: Poi) => void }) {
+function CollectionMap({ theme, points, onPointPress }: { theme: Theme; points: Poi[]; onPointPress?: (point: Poi) => void }) {
   const { resolved } = useI18n();
   const { width } = useWindowDimensions();
   const groups = groupMapPoints(points);
@@ -281,15 +195,15 @@ function CollectionMap({ theme, points, compact = false, onPointPress }: { theme
       tone: representative.tone,
       count: group.length,
       coverUri: representative.photoUris?.[0],
-      label: compact ? undefined : representative.name,
+      label: representative.name,
     };
   });
 
   return (
-    <View pointerEvents={compact ? 'none' : 'auto'} style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }]}>
+    <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }]}>
       <Globe
         theme={theme}
-        size={compact ? Math.min(width * 0.52, 190) : Math.min(width * 0.86, 360)}
+        size={Math.min(width * 0.86, 360)}
         pois={pois}
         center={center}
         mapStyle="standard"
@@ -300,6 +214,92 @@ function CollectionMap({ theme, points, compact = false, onPointPress }: { theme
         } : undefined}
       />
     </View>
+  );
+}
+
+function FootprintShortcut({ theme, points, title, detail, onPress }: { theme: Theme; points: Poi[]; title: string; detail: string; onPress: () => void }) {
+  const previews = points.slice(0, 3);
+
+  return (
+    <AppCard theme={theme} radius={radius.showcase} style={{ aspectRatio: 1, borderCurve: 'continuous', borderWidth: 0, overflow: 'hidden', backgroundColor: theme.fieldSurface, boxShadow: 'none' }}>
+      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}, ${detail}`} scaleTo={0.985} style={{ flex: 1, padding: space.lg, flexDirection: 'column', justifyContent: 'space-between', gap: space.sm }}>
+        <View style={{ minWidth: 0, alignItems: 'flex-start', gap: space.xs }}>
+          <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text, textAlign: 'left' }]}>{title}</Text>
+          <Text numberOfLines={2} style={[type.caption, { color: theme.text2, textAlign: 'left' }]}>{detail}</Text>
+        </View>
+        <View pointerEvents="none" style={{ height: 70, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 88, height: 64 }}>
+            {Array.from({ length: 3 }, (_, index) => previews[index]).map((journey, index) => journey?.photoUris?.[0] ? (
+              <View key={journey.id} style={{
+                position: 'absolute', right: index * 18, top: index === 0 ? 6 : 0,
+                width: 48, height: 58, borderRadius: space.xxs, borderWidth: 3, borderColor: theme.surfaceTop,
+                overflow: 'hidden', backgroundColor: theme.surfaceTop,
+                transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
+              }}>
+                {journey.photoUris?.[0] ? <Image source={{ uri: journey.photoUris[0] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} /> : null}
+              </View>
+            ) : (
+              <View key={`placeholder-${index}`} style={{
+                position: 'absolute', right: index * 18, top: index === 0 ? 6 : 0,
+                width: 48, height: 58, borderRadius: space.xxs, borderWidth: 2,
+                borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop,
+                alignItems: 'center', justifyContent: 'center',
+                transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
+              }}>
+                <Icon name="photo" color={theme.text2} size={18} />
+              </View>
+            ))}
+          </View>
+        </View>
+      </Press>
+    </AppCard>
+  );
+}
+
+function PlanningProfileCard({ theme, profile, loading, onPress }: {
+  theme: Theme;
+  profile: UserPlanningProfile;
+  loading: boolean;
+  onPress: () => void;
+}) {
+  const { t } = useI18n();
+  const facts: AppMetric[] = [
+    { label: `${t('planningProfile.height')} cm`, value: profile.heightCm == null ? '--' : String(profile.heightCm), muted: profile.heightCm == null },
+    { label: `${t('planningProfile.weight')} kg`, value: profile.weightKg == null ? '--' : String(profile.weightKg), muted: profile.weightKg == null },
+    { label: `${t('planningProfile.age')} ${t('planningProfile.years')}`, value: profile.ageYears == null ? '--' : String(profile.ageYears), muted: profile.ageYears == null },
+  ];
+  // The profile stores dietary needs as one 、-joined string, and the editor is a
+  // multiline field, so the card splits on both separators and line breaks.
+  const dietary = profile.dietaryRestrictions.split(/[、,，;；\r\n]+/).map((item) => item.trim()).filter(Boolean);
+  const tags = dietary.slice(0, 3);
+
+  return (
+    <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { padding: space.lg, borderWidth: 0, backgroundColor: theme.fieldSurface }]}>
+      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${t('planningProfile.title')}, ${t('planningProfile.cardSummary')}`} scaleTo={0.985} style={{ gap: space.lg }}>
+        <View style={{ gap: space.xs }}>
+          <Text style={[type.cardTitle, { color: theme.text }]}>{t('planningProfile.title')}</Text>
+          <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('planningProfile.cardSummary')}</Text>
+        </View>
+
+        <View style={{ gap: space.sm }}>
+          <AppMetricStrip theme={theme} stats={facts} />
+
+          {tags.length ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexWrap: 'wrap' }}>
+              <Text style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.dietaryRestrictions')}</Text>
+              {tags.map((tag, index) => (
+                <View key={`${tag}-${index}`} style={{ maxWidth: 120, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop }}>
+                  <Text numberOfLines={1} style={[type.caption, { fontWeight: '600', color: theme.text2 }]}>{tag}</Text>
+                </View>
+              ))}
+              {dietary.length > tags.length ? <Text style={[type.caption, { color: theme.text3 }]}>{`+${dietary.length - tags.length}`}</Text> : null}
+            </View>
+          ) : loading ? null : (
+            <Text style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.emptyHint')}</Text>
+          )}
+        </View>
+      </Press>
+    </AppCard>
   );
 }
 
@@ -428,6 +428,8 @@ function JourneyOverviewTile({
               key={`${uri}-${index}`}
               source={{ uri }}
               contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={0}
               style={{
                 position: 'absolute',
                 right: index === 0 ? 28 : 2,
@@ -507,23 +509,17 @@ function JourneyRecordCard({
           <View style={{ width: 94, minHeight: 86, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
             {photos[1] ? (
               <View style={{ position: 'absolute', right: 8, width: 74, height: 78, borderRadius: radius.card, overflow: 'hidden', transform: [{ rotate: '7deg' }] }}>
-                <Image source={{ uri: photos[1] }} contentFit="cover" style={StyleSheet.absoluteFill} />
+                <Image source={{ uri: photos[1] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} />
               </View>
             ) : null}
-            <PhotoTile
-              tone={journey.tone}
-              seed={journey.id}
-              radius={radius.card}
-              resWidth={260}
-              style={{ width: 82, height: 86 }}
-            >
-              {photos[0] ? <Image source={{ uri: photos[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
+            <View style={{ width: 82, height: 86, borderRadius: radius.card, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+              {photos[0] ? <Image source={{ uri: photos[0] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} /> : <Icon name="photo" color={theme.text3} size={24} />}
               {(journey.photoUris?.length || 0) > 1 ? (
                 <View style={{ position: 'absolute', right: space.xs, bottom: space.xs, minWidth: 24, height: 20, paddingHorizontal: 6, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.62)' }}>
                   <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{journey.photoUris?.length}</Text>
                 </View>
               ) : null}
-            </PhotoTile>
+            </View>
           </View>
         </View>
       </AppCard>
@@ -732,7 +728,8 @@ function JourneysPage({
   );
 }
 
-export function MeScreen({ theme }: { theme: Theme }) {
+export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
+  const theme = makeMeTheme(baseTheme);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { mode, accent, setMode, setAccent } = useAppearance();
@@ -831,8 +828,28 @@ export function MeScreen({ theme }: { theme: Theme }) {
 
   const favoriteRoutes = data.routes.filter((route) => route.fav).length;
   const savedRoutes = data.routes.filter((route) => route.fav);
+  const trackKm = data.tracks.reduce((sum, track) => sum + (track.distM ?? 0), 0) / 1000;
+  const trackAsc = data.tracks.reduce((sum, track) => sum + (track.ascM ?? 0), 0);
+  const gearWeight = data.items.reduce((sum, item) => sum + itemWeight(item), 0);
+  const gearValue = data.items.reduce((sum, item) => sum + itemPrice(item), 0);
+  const checklistPreviewRows = data.sets.map((set) => {
+    const weight = set.items.reduce((sum, itemName) => {
+      const item = data.items.find((candidate) => candidate.name === itemName);
+      if (!item) return sum;
+      const override = item.id != null
+        ? set.overrides?.[String(item.id)] ?? set.overrides?.[itemName]
+        : set.overrides?.[itemName];
+      const quantity = override?.qty ?? item.qty ?? 1;
+      return sum + item.w * quantity;
+    }, 0);
+    return {
+      label: set.name,
+      value: fmtWeight(weight, data.profile.gearWeightUnit || 'kg', true),
+    };
+  });
 
   const renderPage = (pg: MePage) => {
+    const theme = pg.type === 'settings' ? makeMeTheme(baseTheme) : baseTheme;
     switch (pg.type) {
       case 'scanLogin':
         return (
@@ -862,8 +879,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
             >
               <AppSectionHeader theme={theme} text={t('me.account')} marginTop={space.lg} />
               <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} />
-                <SettingsRow theme={theme} icon="compass" label={t('planningProfile.title')} detail={t('planningProfile.summary')} onPress={() => push({ type: 'planningProfile' })} last />
+                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} last />
               </AppCard>
 
               <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
@@ -895,9 +911,9 @@ export function MeScreen({ theme }: { theme: Theme }) {
                 accessibilityRole="button"
                 accessibilityLabel={t('common.back')}
                 scaleTo={0.96}
-                style={{ width: layout.iconButton, height: layout.iconButton, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+                style={{ width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' }}
               >
-                <Icon name="chevronL" color={theme.text} size={20} />
+                <ChevronLeft color={theme.text} size={25} strokeWidth={2.2} />
               </Press>
               <Text
                 pointerEvents="none"
@@ -935,6 +951,27 @@ export function MeScreen({ theme }: { theme: Theme }) {
             }}
           />
         );
+      case 'tracks':
+        return (
+          <TracksPage
+            theme={theme}
+            onBack={pop}
+            onOpenTrack={(track) => push({ type: 'trackDetail', trackId: track.id })}
+          />
+        );
+      case 'trackDetail': {
+        const track = data.tracks.find((item) => item.id === pg.trackId);
+        // A track can disappear (deleted on another device) between the list and
+        // here, and a blank layer would trap the user, so say so with a way back.
+        if (!track) {
+          return (
+            <DetailPage theme={theme} onBack={pop} backgroundColor={theme.groupedBg} flatChrome>
+              <KPState theme={theme} icon="route" title={t('tracks.empty.title')} body={t('tracks.empty.body')} style={{ marginTop: 60 }} />
+            </DetailPage>
+          );
+        }
+        return <TrackDetailPage theme={theme} track={track} onBack={pop} />;
+      }
       case 'trash':
         return <JourneyTrashPage theme={theme} onBack={pop} />;
       case 'account':
@@ -971,7 +1008,7 @@ export function MeScreen({ theme }: { theme: Theme }) {
     }
   };
   const popupWidth = Math.min(260, windowWidth - space.xl * 2);
-  const popupHeight = appearancePopup === 'accent' ? 340 : appearancePopup === 'weight' ? 232 : 178;
+  const popupHeight = appearancePopup === 'accent' ? ACCENT_PRESETS.length * 54 + space.xs * 2 : appearancePopup === 'weight' ? 232 : 178;
   const popupCollapsedHeight = 16;
   const popupLeft = popupAnchor ? Math.max(space.xl, Math.min(popupAnchor.x + popupAnchor.width - popupWidth, windowWidth - popupWidth - space.xl)) : space.xl;
   const popupTop = popupAnchor
@@ -986,88 +1023,81 @@ export function MeScreen({ theme }: { theme: Theme }) {
   }));
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
+    <View style={{ flex: 1, backgroundColor: theme.featureSurface }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + 3, paddingBottom: 140 }}
+        contentContainerStyle={{ paddingTop: insets.top + space.xs, paddingBottom: insets.bottom + 120, width: '100%', maxWidth: 600, alignSelf: 'center' }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
-          <Press
-            onPress={() => push({ type: 'scanLogin' })}
-            accessibilityRole="button"
-            accessibilityLabel={t('me.scan')}
-            scaleTo={1}
-            opacityTo={1}
-            style={{ width: layout.iconButton, height: layout.iconButton, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-          >
-            <Icon name="scan" color={theme.text} size={21} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: layout.pagePadding }}>
+          <Press onPress={() => push({ type: 'scanLogin' })} accessibilityRole="button" accessibilityLabel={t('me.scan')} style={headerButtonStyle}>
+            <ScanLine color={theme.text} size={25} strokeWidth={2.2} />
           </Press>
           <View style={{ flex: 1 }} />
-          <Press
-            onPress={() => push({ type: 'inbox' })}
-            accessibilityRole="button"
-            accessibilityLabel={t('me.inbox')}
-            scaleTo={1}
-            opacityTo={1}
-            style={{
-              width: layout.iconButton,
-              height: layout.iconButton,
-              borderRadius: radius.pill,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.controlSurface,
-            }}
-          >
-            <Icon name="bell" color={theme.text} size={20} />
+          <View style={{ width: layout.iconButton, height: layout.iconButton }}>
+            <Press onPress={() => push({ type: 'inbox' })} accessibilityRole="button" accessibilityLabel={t('me.inbox')} style={headerButtonStyle}>
+              <Bell color={theme.text} size={25} strokeWidth={2.2} />
+            </Press>
             {unread > 0 ? (
-              <View style={{ position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: theme.danger, borderWidth: 2, borderColor: theme.groupedBg, alignItems: 'center', justifyContent: 'center' }}>
+              <View pointerEvents="none" style={{ position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: theme.danger, borderWidth: 2, borderColor: theme.groupedBg, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#fff' }}>{unread}</Text>
               </View>
             ) : null}
-          </Press>
-          <Press
-            onPress={() => push({ type: 'settings' })}
-            accessibilityRole="button"
-            accessibilityLabel={t('me.settingsPageTitle')}
-            scaleTo={1}
-            opacityTo={1}
-            style={{ width: layout.iconButton, height: layout.iconButton, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, marginLeft: space.xs }}
-          >
-            <Icon name="gearSettings" color={theme.text} size={20} />
-          </Press>
+          </View>
+          <View style={{ marginLeft: space.xs }}>
+            <Press onPress={() => push({ type: 'settings' })} accessibilityRole="button" accessibilityLabel={t('me.settingsPageTitle')} style={headerButtonStyle}>
+              <Settings color={theme.text} size={25} strokeWidth={2.2} />
+            </Press>
+          </View>
         </View>
 
-        <Press
-          onPress={() => push({ type: 'account' })}
-          accessibilityRole="button"
-          scaleTo={0.98}
-          opacityTo={1}
-          style={{ alignItems: 'center', paddingTop: space.lg, paddingBottom: space.xl }}
-        >
-          <Avatar uri={data.profile.avatarUrl} size={104} />
-          <Text numberOfLines={1} style={{ marginTop: space.lg, maxWidth: '86%', fontSize: 26, fontWeight: '800', color: theme.text }}>
-            {profile.nick || t('me.unnamed')}
-          </Text>
-          {profile.username ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xs }]}>{profile.username}</Text> : null}
-          {profile.bio ? <Text numberOfLines={2} style={[type.body, { maxWidth: '86%', color: theme.text2, lineHeight: 20, marginTop: space.sm, textAlign: 'center' }]}>{profile.bio}</Text> : null}
-        </Press>
+        <ProfileIdentity theme={theme} avatarUri={data.profile.avatarUrl} nick={profile.nick || t('me.unnamed')}
+          username={profile.username} bio={profile.bio} label={t('me.account')} onPress={() => push({ type: 'account' })} />
 
-        <AppSectionHeader theme={theme} text={t('me.myContent')} marginTop={layout.sectionGap} />
-        <View style={{ gap: space.md }}>
-          <ProfileShortcut theme={theme} title={t('me.myJourneys')} detail={t('me.journeySummary', { count: data.journeys.length })} items={data.journeys} emptyLabel={t('me.journeyPreviewEmpty')} mapPreview onPress={() => push({ type: 'journeys' })} />
-          <ProfileShortcut theme={theme} title={t('me.myFavorites')} detail={t('me.savedSummary', { count: favoriteRoutes })} items={savedRoutes} emptyLabel={t('me.savedPreviewEmpty')} mapPreview onPress={() => push({ type: 'favorites' })} />
-          <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-            <SettingsRow
-              theme={theme}
-              icon="trash"
-              label={t('journeyHome.trash.title')}
-              detail={t('me.trashSummary', { count: data.trashedJourneys.length })}
-              onPress={() => push({ type: 'trash' })}
-              last
-            />
-          </AppCard>
+        <View style={{ paddingHorizontal: layout.pagePadding, gap: space.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <FootprintShortcut theme={theme} points={data.journeys} title={t('me.myFootprints')} detail={t('me.footprintSummary', { count: data.journeys.length })} onPress={() => push({ type: 'journeys' })} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut variant="tracks" theme={theme} icon="route" title={t('me.myTracks')} detail={t('me.tracksSummary', { count: data.tracks.length })}
+                items={[]}
+                stats={[
+                  { label: t('tracks.stat.distance'), value: trackKm >= 1000 ? `${(trackKm / 1000).toFixed(1)}k km` : `${trackKm.toFixed(1)} km` },
+                  { label: t('tracks.stat.ascent'), value: `+${Math.round(trackAsc)} m` },
+                ]}
+                onPress={() => push({ type: 'tracks' })} />
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut variant="gear" theme={theme} icon="bag" title={t('gear.home.myGear')} detail={t('me.gearSummary', { count: data.items.length })}
+                items={data.items.map((item, index) => ({ id: String(item.id ?? index), photoUris: item.photos }))}
+                stats={[
+                  { label: t('gear.stat.totalWeight'), value: fmtWeight(gearWeight, data.profile.gearWeightUnit || 'kg') },
+                  { label: t('gear.stat.totalValue'), value: `¥${Math.round(gearValue)}` },
+                ]}
+                onPress={() => nav.openGearPage('items')} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut variant="checklist" theme={theme} icon="list" title={t('me.myChecklist')} detail={t('me.checklistSummary', { count: data.sets.length })}
+                items={[]}
+                previewRows={checklistPreviewRows}
+                onPress={() => nav.openGearPage('sets')} />
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut variant="favorites" theme={theme} icon="heart" title={t('me.myFavorites')} detail={t('me.savedSummary', { count: favoriteRoutes })}
+                items={savedRoutes} onPress={() => push({ type: 'favorites' })} />
+            </View>
+          </View>
+          <PlanningProfileCard theme={theme} profile={data.planningProfile} loading={data.planningProfileLoading} onPress={() => push({ type: 'planningProfile' })} />
+          <ProfileShortcut variant="trash" theme={theme} icon="trash" title={t('journeyHome.trash.title')}
+            detail={t('me.trashSummary', { count: data.trashedJourneys.length })}
+            badge={data.trashedJourneys.length ? String(data.trashedJourneys.length) : undefined}
+            items={[]}
+            onPress={() => push({ type: 'trash' })} />
         </View>
-
       </ScrollView>
 
       {appearancePopup && popupAnchor ? (

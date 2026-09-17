@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toTLRow } from '../lib/mappers';
 import type { TLRow, TimelineGroupRoute } from '../data/timeline';
@@ -28,7 +28,11 @@ function setState(key: string, updater: (prev: TLState) => TLState) {
   listeners.get(key)?.forEach((fn) => fn());
 }
 
-export function useTimeline(journeyId: string | undefined, userId: string | undefined) {
+export function useTimeline(
+  journeyId: string | undefined,
+  userId: string | undefined,
+  preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] },
+) {
   const key = journeyId || '';
   const [, bump] = useState(0);
   const rerender = useCallback(() => bump((n) => n + 1), []);
@@ -43,7 +47,33 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
 
   const [loading, setLoading] = useState(true);
 
+  const previewState = useMemo<TLState | undefined>(() => {
+    if (!preview) return undefined;
+    const rows = preview.rows.map(toTLRow);
+    const activeGroups = preview.groups.filter((group: any) => !group.deleted).map((group: any) => group.name).filter(Boolean);
+    const removedGroups = preview.groups.filter((group: any) => group.deleted).map((group: any) => group.name).filter(Boolean);
+    const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
+    preview.groups.forEach((group: any) => {
+      if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
+      groupRoutes[group.name] = {
+        endDistanceMeters: Number(group.route_end_meters),
+        longitude: Number(group.route_end_lng),
+        latitude: Number(group.route_end_lat),
+        trackPointIndex: Number(group.route_end_track_index ?? 0),
+        trackPointFraction: Number(group.route_end_track_fraction ?? 0),
+        source: group.route_end_source === 'waypoint' || group.route_end_source === 'distance' ? group.route_end_source : 'map',
+        locationName: group.route_location_name ?? undefined,
+      };
+    });
+    const fromRows = rows.map((row) => row.day).filter(Boolean);
+    return { rows, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
+  }, [preview]);
+
   const fetchRows = useCallback(async () => {
+    if (preview) {
+      setLoading(false);
+      return;
+    }
     if (!journeyId || !userId) return;
     const [rowsResult, groupsResult] = await Promise.all([
       supabase.from('timeline_rows').select('*').eq('journey_id', journeyId).order('sort_order'),
@@ -79,12 +109,12 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       });
     }
     setLoading(false);
-  }, [journeyId, userId, key]);
+  }, [journeyId, userId, key, preview]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
   useEffect(() => {
-    if (!key) return;
+    if (!key || preview) return;
     let journeyRefreshers = refreshers.get(key);
     if (!journeyRefreshers) {
       journeyRefreshers = new Set();
@@ -95,9 +125,9 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
       journeyRefreshers!.delete(fetchRows);
       if (!journeyRefreshers!.size) refreshers.delete(key);
     };
-  }, [fetchRows, key]);
+  }, [fetchRows, key, preview]);
 
-  const state = getState(key);
+  const state = previewState ?? getState(key);
 
   const persistGroup = async (name: string, deleted: boolean, route?: TimelineGroupRoute | null) => {
     if (!journeyId || !userId || !name.trim()) return;
@@ -244,5 +274,5 @@ export function useTimeline(journeyId: string | undefined, userId: string | unde
     }));
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, groupRoutes: state.groupRoutes, loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, setGroupRoute };
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, groupRoutes: state.groupRoutes, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, setGroupRoute };
 }

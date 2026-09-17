@@ -79,6 +79,8 @@ export interface GlobeProps {
   cameraAction?: GlobeCameraAction;
   /** bottom camera padding reserved for the journey detail sheet */
   focusBottomPadding?: number;
+  /** suspend automatic route framing after the user manually adjusts the map */
+  autoFrameRoute?: boolean;
   /** reports map orientation so detail chrome can reveal a compass only when useful */
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
   /** reports that the user has moved the camera away from its programmatic route framing */

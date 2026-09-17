@@ -1,0 +1,98 @@
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+    const errors = [];
+    const requests = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => requests.push(request.url()));
+    await page.goto(process.env.ADMIN_MOCK_URL || 'http://localhost:8092/admin-preview.html');
+    const button = name => page.getByRole('button', { name, exact: true });
+    const close = () => button('关闭详情').click();
+    const item = name => page.getByRole('article', { name, exact: true });
+    const view = name => page.getByRole('group', { name: '个人工作视图' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+    await button('打开通知中心').click();
+    assert.equal(await page.locator('.inbox-item').count(), 5);
+    await button('隐私举报需要优先处理').click();
+    assert.match(await item('隐私举报需要优先处理').innerText(), /已读/);
+    await item('隐私举报需要优先处理').getByRole('button', { name: '标为未读' }).click();
+    await page.getByLabel('工作项状态').selectOption('未读');
+    assert.equal(await page.locator('.inbox-item').count(), 3);
+    await page.getByLabel('工作项类型').selectOption('系统提醒');
+    assert.equal(await page.locator('.inbox-item').count(), 1);
+    await page.getByLabel('搜索通知与待办').fill('没有这条通知');
+    assert.equal(await page.locator('.inbox-item').count(), 0);
+    await button('清除筛选').click();
+    await item('隐私举报需要优先处理').getByRole('button', { name: '查看关联记录' }).click();
+    await page.getByRole('heading', { name: '公开照片涉及个人隐私', exact: true }).waitFor();
+    assert.match(page.url(), /record=RP-102/);
+    await button('返回通知中心').click();
+    await view('我的待办');
+    assert.equal(await page.locator('.inbox-item').count(), 5);
+    assert.equal(await item('审核山野照片分享').count(), 0);
+    await item('审核重装徒步装备分享').getByRole('button', { name: '去处理' }).click();
+    await button('通过审核').click();
+    await button('确认通过审核').click();
+    await button('打开通知中心').click();
+    await view('我的待办');
+    assert.match(await item('审核重装徒步装备分享').innerText(), /已完成/);
+    assert.match(await page.locator('.inbox-heading').innerText(), /3 项待办/);
+    await view('通知中心');
+    assert.match(await item('新的内容审核待办').innerText(), /未读/);
+    await button('全部已读').click();
+    assert.equal(await button('全部已读').isDisabled(), true);
+    await close();
+    assert.equal(await page.locator('.inbox-unread-count').count(), 0);
+    await button('打开我的待办').click();
+    await page.getByLabel('工作项状态').selectOption('已完成');
+    assert.equal(await page.locator('.inbox-item').count(), 2);
+    await page.getByLabel('工作项状态').selectOption('全部');
+    await item('核实公开照片隐私举报').getByRole('button', { name: '去处理' }).click();
+    await button('结案').click();
+    await page.getByLabel('处理原因').fill('已核实并记录隐私处理结论');
+    await button('确认结案').click();
+    await button('打开我的待办').click();
+    assert.match(await item('核实公开照片隐私举报').innerText(), /已完成/);
+    await item('核对并发布莫干山路线').getByRole('button', { name: '去处理' }).click();
+    await button('发布').click();
+    await button('发布').click();
+    await page.getByLabel('发布说明').fill('完成发布待办');
+    await button('确认发布').click();
+    await close();
+    await button('打开我的待办').click();
+    assert.match(await item('核对并发布莫干山路线').innerText(), /已完成/);
+    assert.match(await page.locator('.inbox-heading').innerText(), /1 项待办/);
+    await page.screenshot({ path: '/tmp/kaipa-admin-inbox-desktop-light.png' });
+    await close();
+    await button('切换主题').click();
+    await button('打开通知中心').click();
+    await page.screenshot({ path: '/tmp/kaipa-admin-inbox-desktop-dark.png' });
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const name of ['通知中心', '我的待办']) {
+        await view(name);
+        assert.equal(await page.locator('.drawer').evaluate(el => el.scrollWidth === el.clientWidth), true);
+        await page.screenshot({ path: `/tmp/kaipa-admin-inbox-${width}-${name}-dark.png` });
+      }
+    }
+    await close();
+    assert.equal(await page.locator('.admin').evaluate(el => el.scrollWidth === el.clientWidth), true);
+    await button('切换主题').click();
+    await button('打开通知中心').click();
+    await page.screenshot({ path: '/tmp/kaipa-admin-inbox-mobile-light.png' });
+    await close();
+    await button('打开导航').click();
+    await button('打开我的待办').click();
+    await close();
+    await button('重置模拟数据').click();
+    await button('确认重置').click();
+    await button('打开通知中心').click();
+    assert.match(await page.locator('.inbox-heading').innerText(), /3 条未读[\s\S]*4 项待办/);
+    assert.deepEqual(errors, []);
+    assert.equal(requests.some(request => /\/rest\/v1|\/auth\/v1|\/functions\/v1/.test(request)), false);
+    console.log('PASS: read/unread/all-read, filters/search/empty, exact-record navigation/return, assigned tasks, review/report/publish completion, independent read state, reset, desktop/mobile light/dark, no backend calls.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

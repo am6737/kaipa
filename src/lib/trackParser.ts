@@ -1,3 +1,5 @@
+import type { Track } from '../data/tracks';
+
 export interface TrackPt {
   lat: number;
   lon: number;
@@ -232,37 +234,121 @@ export function parseTrack(text: string, filename: string, t: TFn): { error?: st
   return { name, points, waypoints: waypoints.length ? waypoints : undefined, format: isKml ? 'KML' : 'GPX' };
 }
 
-export function snapWaypoints(waypoints: Waypoint[], stats: TrackStats): { name: string; km: number }[] {
+export function snapWaypoints(waypoints: Waypoint[], stats: TrackStats) {
   const pts = stats.points;
   const cum = stats.cum;
-  return waypoints.map((wp) => {
+  return waypoints.filter(wp => wp.name.trim()).map((wp) => {
     let bestIdx = 0;
     let bestDist = Infinity;
     for (let i = 0; i < pts.length; i++) {
       const d = haversine(wp, pts[i]);
       if (d < bestDist) { bestDist = d; bestIdx = i; }
     }
-    return { name: wp.name, km: cum[bestIdx] / 1000 };
+    const preceding = pts.slice(0, bestIdx + 1);
+    return { name: wp.name, km: cum[bestIdx] / 1000,
+      distanceFromTrackMeters: bestDist,
+      elevationMeters: Number.isFinite(pts[bestIdx].ele) ? pts[bestIdx].ele : null,
+      cumulativeAscentMeters: stats.hasEle ? computeStats(preceding)?.ascent ?? 0 : null,
+      cumulativeDescentMeters: stats.hasEle ? computeStats([...preceding].reverse())?.ascent ?? 0 : null,
+    };
   }).sort((a, b) => a.km - b.km);
+}
+
+// Journey rows store distance/ascent as display text, while the track library
+// stores meters so it can sort and total them. Both formats come from here.
+export function formatTrackDistance(distM: number) {
+  return distM >= 1000 ? (distM / 1000).toFixed(distM >= 10000 ? 1 : 2) + ' km' : Math.round(distM) + ' m';
+}
+
+export function formatTrackAscent(ascM: number) {
+  return `+${Math.round(ascM)} m`;
 }
 
 export function buildTrackData(stats: TrackStats) {
   const pts = stats.points;
   const stride = Math.max(1, Math.floor(pts.length / 500));
-  const trackCoords: [number, number][] = [];
-  for (let i = 0; i < pts.length; i += stride) trackCoords.push([pts[i].lon, pts[i].lat]);
-  if (trackCoords[trackCoords.length - 1][0] !== pts[pts.length - 1].lon || trackCoords[trackCoords.length - 1][1] !== pts[pts.length - 1].lat) {
-    trackCoords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
-  }
+  // These coordinates also measure itinerary distances; sampling cuts corners and moves camps.
+  const trackCoords: [number, number][] = pts.map(point => [point.lon, point.lat]);
   let trackElevation: { km: number; ele: number }[] | undefined;
   if (stats.hasEle) {
     trackElevation = [];
     for (let i = 0; i < pts.length; i += stride) {
       if (isFinite(pts[i].ele)) trackElevation.push({ km: stats.cum[i] / 1000, ele: pts[i].ele });
     }
+    const end = pts[pts.length - 1];
+    if (Number.isFinite(end.ele) && trackElevation.at(-1)?.km !== stats.distM / 1000) {
+      trackElevation.push({ km: stats.distM / 1000, ele: end.ele });
+    }
   }
   const trackDurationMs = stats.hasTime ? stats.durationMs : undefined;
-  const dist = stats.distM >= 1000 ? (stats.distM / 1000).toFixed(stats.distM >= 10000 ? 1 : 2) + ' km' : Math.round(stats.distM) + ' m';
-  const asc = stats.hasEle ? `+${stats.ascent} m` : undefined;
+  const dist = formatTrackDistance(stats.distM);
+  const asc = stats.hasEle ? formatTrackAscent(stats.ascent) : undefined;
   return { trackCoords, trackElevation, trackDurationMs, dist, asc };
+}
+
+function xmlEscape(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Index of the last cumulative distance at or below `meters`. */
+function bracket(cum: number[], meters: number) {
+  let low = 0;
+  let high = cum.length - 1;
+  if (meters <= cum[0]) return 0;
+  if (meters >= cum[high]) return high;
+  while (high - low > 1) {
+    const mid = (low + high) >> 1;
+    if (cum[mid] <= meters) low = mid;
+    else high = mid;
+  }
+  return low;
+}
+
+/** The stored profile sampled at an arbitrary distance along the track. */
+function elevationAt(samples: { km: number; ele: number }[], km: number): number | undefined {
+  if (!samples.length) return undefined;
+  const cums = samples.map((sample) => sample.km);
+  const low = bracket(cums, km);
+  const high = Math.min(low + 1, samples.length - 1);
+  const span = cums[high] - cums[low];
+  if (span <= 0) return samples[low].ele;
+  return samples[low].ele + ((samples[high].ele - samples[low].ele) * (km - cums[low])) / span;
+}
+
+/** GPX 1.1 for a track whose original file is not available. */
+export function trackToGpx(track: Track): string {
+  const coords = track.coords ?? [];
+  const samples = track.elevation ?? [];
+  // `coords` keeps every point while `elevation` is decimated and keyed by
+  // distance, so the two arrays share no index. Walking the geometry recovers
+  // each point's own distance, which is what the profile can be sampled against.
+  const stats = coords.length >= 2
+    ? computeStats(coords.map(([lon, lat]): TrackPt => ({ lat, lon, ele: NaN, time: null })))
+    : null;
+  const cum = stats?.cum ?? coords.map(() => 0);
+
+  const points = coords.map(([lng, lat], index) => {
+    const ele = elevationAt(samples, cum[index] / 1000);
+    return `      <trkpt lat="${lat}" lon="${lng}">${ele != null ? `<ele>${ele.toFixed(1)}</ele>` : ''}</trkpt>`;
+  });
+  const waypoints = (track.waypoints ?? []).map((waypoint) => {
+    const coord = coords[bracket(cum, waypoint.km * 1000)];
+    return coord
+      ? `  <wpt lat="${coord[1]}" lon="${coord[0]}"><name>${xmlEscape(waypoint.name)}</name></wpt>`
+      : null;
+  }).filter(Boolean);
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<gpx version="1.1" creator="Kaipa" xmlns="http://www.topografix.com/GPX/1/1">',
+    ...waypoints,
+    '  <trk>',
+    `    <name>${xmlEscape(track.name || 'Kaipa track')}</name>`,
+    '    <trkseg>',
+    ...points,
+    '    </trkseg>',
+    '  </trk>',
+    '</gpx>',
+    '',
+  ].join('\n');
 }

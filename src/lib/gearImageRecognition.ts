@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { File as FSFile } from 'expo-file-system';
 import { GearCat, GearItem } from '../data/gear';
 
 type GearImageRecognitionResponse = {
@@ -15,19 +16,32 @@ type GearImageRecognitionResponse = {
   error?: { code?: string; message?: string };
 };
 
+type ImageAsset = { uri: string; base64?: string | null; mimeType?: string | null };
+
 export class GearImageRecognitionError extends Error {
   constructor(public code: string, message: string) {
     super(message);
   }
 }
 
-export async function recognizeGearImage(asset: { uri: string; base64?: string | null }, cats: GearCat[]): Promise<GearItem> {
-  if (!asset.base64) throw new GearImageRecognitionError('image_read_failed', '无法读取所选图片，请重新选择');
-  if (asset.base64.length > 12_000_000) throw new GearImageRecognitionError('image_too_large', '图片过大，请选择尺寸较小的图片');
+export async function recognizeGearImage(asset: ImageAsset, cats: GearCat[]): Promise<GearItem> {
+  let imageBase64 = asset.base64 || '';
+  if (!imageBase64 && !/^https?:\/\//i.test(asset.uri)) {
+    try {
+      imageBase64 = await new FSFile(asset.uri).base64();
+    } catch {
+      throw new GearImageRecognitionError('image_read_failed', '无法读取所选图片，请重新选择');
+    }
+  }
+  // Some web adapters return a complete data URI even though the native picker returns raw base64.
+  imageBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '');
+  if (!imageBase64) throw new GearImageRecognitionError('image_read_failed', '无法读取所选图片，请重新选择');
+  if (imageBase64.length > 12_000_000) throw new GearImageRecognitionError('image_too_large', '图片过大，请选择尺寸较小的图片');
 
   const { data, error } = await supabase.functions.invoke<GearImageRecognitionResponse>('gear-image-recognition', {
     body: {
-      imageBase64: asset.base64,
+      imageBase64,
+      contentType: asset.mimeType || contentTypeFromUri(asset.uri),
       categories: cats.map(({ id, name }) => ({ id, name })),
     },
   });
@@ -67,6 +81,14 @@ export async function recognizeGearImage(asset: { uri: string; base64?: string |
     attrs: attrs.length ? attrs : undefined,
     note: result.warnings?.filter(Boolean).join('\n') || undefined,
   };
+}
+
+function contentTypeFromUri(uri: string): string {
+  const ext = uri.match(/\.(\w+)(?:\?.*)?$/)?.[1]?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'heic' || ext === 'heif') return 'image/heic';
+  return 'image/jpeg';
 }
 
 function positiveNumber(value: unknown) {

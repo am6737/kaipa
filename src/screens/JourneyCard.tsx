@@ -2,8 +2,9 @@
 // shown inside the discover sheet's in-place journey detail panel.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, View, Text, TextInput, StyleSheet, ScrollView, Modal, Pressable } from 'react-native';
-import PagerView from 'react-native-pager-view';
+import PagerView from '../components/PagerViewCompat';
 import { Image } from 'expo-image';
+import { Heart, MoreHorizontal, Settings, Share2, type LucideIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { MONO } from '../theme/fonts';
@@ -25,16 +26,20 @@ import { useI18n, TKey, ResolvedLang } from '../i18n';
 import { NJBottomSheet } from '../components/overlays/NewJourneyParts';
 import { ElevationStrip } from '../components/overlays/ElevationStrip';
 import { JourneyTrackUploadSheet } from '../components/overlays/JourneyTrackUploadSheet';
+import { PickDialog } from '../components/tracks/PickDialog';
+import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
 import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangePicker';
+import { journeySchedulePatch } from '../lib/journeySchedule';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
+import { formatJourneyDetailDate } from '../components/journey/journeyDatePresentation';
 import { AppCard, AppIconButton, AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { Glass } from '../components/Glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { ChevronRight, History } from 'lucide-react-native';
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
-import { useJourneyVersionSummary } from '../hooks/useJourneyVersions';
+import { useJourneyVersionSummary, type JourneyVersionSnapshot } from '../hooks/useJourneyVersions';
+import { formatJourneyVersionTime, journeyVersionActivitySummary } from '../components/journey/journeyVersionPresentation';
 
 function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title: string; action?: string; onAction?: () => void }) {
   const trailing = action ? (
@@ -45,20 +50,20 @@ function SectionHeader({ theme, title, action, onAction }: { theme: Theme; title
   return <AppSectionHeader theme={theme} text={title} trailing={trailing} variant="title" marginTop={0} />;
 }
 
-function FloatingIconButton({ name, onPress, color }: { name: IconName; onPress?: () => void; color?: string }) {
+function FloatingIconButton({ icon: IconComponent, onPress, color, fill }: { icon: LucideIcon; onPress?: () => void; color?: string; fill?: string }) {
   return (
     <Press
       onPress={onPress}
       style={{
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'rgba(0,0,0,0.36)',
       }}
     >
-      <Icon name={name} color={color || '#fff'} size={20} />
+      <IconComponent color={color || '#fff'} fill={fill} size={25} strokeWidth={2.2} />
     </Press>
   );
 }
@@ -71,6 +76,7 @@ function JourneyParticipantButton({
   inviteAtCapacity,
   participantsAccessibilityLabel,
   inviteAccessibilityLabel,
+  readOnly = false,
 }: {
   theme: Theme;
   people: { ini: string; color?: string; tone?: string; avatarUrl?: string }[];
@@ -79,6 +85,7 @@ function JourneyParticipantButton({
   inviteAtCapacity?: boolean;
   participantsAccessibilityLabel: string;
   inviteAccessibilityLabel: string;
+  readOnly?: boolean;
 }) {
   const visiblePeople = people.slice(0, 2);
   const hasOverflow = people.length > 2;
@@ -100,8 +107,8 @@ function JourneyParticipantButton({
   return (
     <View style={{ minHeight: 40, flexDirection: 'row', alignItems: 'center' }}>
       <Press
-        onPress={onOpenParticipants}
-        accessibilityRole="button"
+        onPress={readOnly ? undefined : onOpenParticipants}
+        accessibilityRole={readOnly ? undefined : 'button'}
         accessibilityLabel={participantsAccessibilityLabel}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
         style={{ flexDirection: 'row', alignItems: 'center' }}
@@ -147,7 +154,7 @@ function JourneyParticipantButton({
           );
         })}
       </Press>
-      <Press
+      {!readOnly ? <Press
         onPress={onInvite}
         accessibilityRole="button"
         accessibilityLabel={inviteAccessibilityLabel}
@@ -166,7 +173,7 @@ function JourneyParticipantButton({
         }}
       >
         <Icon name="plus" color={theme.text2} size={18} strokeWidth={2.1} />
-      </Press>
+      </Press> : null}
     </View>
   );
 }
@@ -493,6 +500,8 @@ function startOfTodayAtNine(): Date {
 function parseJourneyStart(poi: Poi): Date {
   const now = new Date();
   const text = [poi.plannedDate, poi.date].filter(Boolean).join(' ');
+  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), 9);
   const y = text.match(/(20\d{2})/);
   const md = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
   const hm = text.match(/(\d{1,2}):(\d{2})/);
@@ -539,9 +548,10 @@ export function nextJourneyDayLabel(labels: string[], _resolved: ResolvedLang, _
 }
 
 function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi: Poi; onApply: (patch: Partial<Poi>) => void; onClose: () => void }) {
+  const { t } = useI18n();
   const initialStart = useMemo(() => parseJourneyStart(poi), [poi]);
-  const initialDurationDays = useMemo(() => Math.max(1, Math.round(parseJourneyDurationMins(poi) / (24 * 60))), [poi]);
-  const initialFlexible = !poi.plannedDate && !poi.date && Boolean(poi.days || poi.totalDays);
+  const initialDurationDays = useMemo(() => poi.totalDays || (poi.days ? Math.max(1, Math.round(parseJourneyDurationMins({ ...poi, trackDurationMs: undefined }) / (24 * 60))) : undefined), [poi]);
+  const initialFlexible = !poi.plannedDate && !poi.date;
 
   return (
     <JourneyDateRangePicker
@@ -550,14 +560,7 @@ function JourneyTimePicker({ theme, poi, onApply, onClose }: { theme: Theme; poi
       initialDurationDays={initialDurationDays}
       initialFlexible={initialFlexible}
       onApply={({ start, totalDays, flexible }) => {
-        const durationMins = totalDays * 24 * 60;
-        onApply({
-          date: flexible ? '' : compactDate(start),
-          plannedDate: flexible ? '' : compactPlannedDate(start),
-          days: detailDurationLabel(durationMins),
-          totalDays,
-          trackDurationMs: durationMins * 60000,
-        });
+        onApply(journeySchedulePatch({ start, totalDays, flexible }, totalDays == null ? '' : t('journeyEdit.meta.days', { count: totalDays })));
       }}
       onClose={onClose}
     />
@@ -885,13 +888,14 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18 }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
-  const { userId, profile, sets, items: gearItems, cats: gearCategories } = useData();
+  const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
   const isJourney = poi.kind === 'journey';
+  const versionSummary = useJourneyVersionSummary(isJourney && !readOnly ? poi.id : undefined);
   const momentFilterAnchorRef = useRef<View>(null);
-  const isMine = isJourney;
+  const isMine = isJourney && !readOnly;
   const momentAuthor = useMemo(() => {
     const host = isJourney ? poi.companionList?.find((c) => c.self) || poi.companionList?.find((c) => c.host) : undefined;
     if (host) return { ini: host.ini, name: host.name, color: host.color, avatarUrl: host.avatarUrl };
@@ -904,14 +908,21 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const embeddedSurface = embedded && !theme.dark ? theme.featureSurface : theme.fieldSurface;
   const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
 
-  const inspo = useInspo(poi.id, userId);
+  const inspo = useInspo(poi.id, userId, versionSnapshot?.moments);
   const [libraryPermission, requestLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   const [processingMoments, setProcessingMoments] = useState(false);
   const [momentViewerIndex, setMomentViewerIndex] = useState<number | null>(null);
   const [momentFilter, setMomentFilter] = useState<MomentFilter>('all');
   const [momentAuthorFilter, setMomentAuthorFilter] = useState<string | null>(null);
-  const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined);
-  const versionSummary = useJourneyVersionSummary(isJourney ? poi.id : undefined);
+  const timelinePreview = useMemo(
+    () => versionSnapshot ? { rows: versionSnapshot.timelineRows, groups: versionSnapshot.timelineGroups } : undefined,
+    [versionSnapshot],
+  );
+  const packingPreview = useMemo(
+    () => versionSnapshot ? { lists: versionSnapshot.packingLists, items: versionSnapshot.packingItems } : undefined,
+    [versionSnapshot],
+  );
+  const timeline = useTimeline(isJourney ? poi.id : undefined, isJourney ? userId : undefined, timelinePreview);
 
   const addMomentAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
     const items = await Promise.all(
@@ -1194,6 +1205,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [distanceEditorOpen, setDistanceEditorOpen] = useState(false);
   const [trackUploadOpen, setTrackUploadOpen] = useState(false);
+  const [trackPickOpen, setTrackPickOpen] = useState(false);
   const [renamingPlanDay, setRenamingPlanDay] = useState<string | null>(null);
   // Reuse the same identity for the journey header and moments uploaded here.
   const author = momentAuthor;
@@ -1212,10 +1224,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
   const hasSpecificJourneyDate = Boolean(poi.plannedDate || poi.date);
   const journeyTimingLabel = hasSpecificJourneyDate ? t('journey.stat.date') : t('journey.stat.days');
-  const journeyTimingValue = poi.plannedDate
-    || poi.date
+  const journeyTimingValue = formatJourneyDetailDate(poi, resolved)
     || poi.days
-    || (poi.totalDays ? t('journeyEdit.duration.days', { count: poi.totalDays }) : '—');
+    || (poi.totalDays ? t('journeyEdit.duration.days', { count: poi.totalDays }) : t('journeyEdit.time.decideLater'));
 
   // Distance + ascent stay as the headline numbers; journeys use highest elevation
   // as the third headline because it is more meaningful here than elapsed time.
@@ -1570,13 +1581,24 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                           <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journey.section.trackOverview')}</Text>
                           {!hasTrack ? <Text style={[type.caption, { color: theme.text3, marginTop: space.xxs }]}>{t('journey.track.missing')}</Text> : null}
                         </View>
-                        <Press
-                          onPress={() => setTrackUploadOpen(true)}
-                          accessibilityRole="button"
-                          style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-                        >
-                          <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{hasTrack ? t('journey.track.reupload') : t('journey.track.upload')}</Text>
-                        </Press>
+                        {!readOnly ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 0 }}>
+                            <Press
+                              onPress={() => setTrackPickOpen(true)}
+                              accessibilityRole="button"
+                              style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+                            >
+                              <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t('journey.track.pickExisting')}</Text>
+                            </Press>
+                            <Press
+                              onPress={() => setTrackUploadOpen(true)}
+                              accessibilityRole="button"
+                              style={{ minHeight: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+                            >
+                              <Text numberOfLines={1} style={[type.body, { color: theme.text, fontWeight: '600' }]}>{hasTrack ? t('journey.track.reupload') : t('journey.track.upload')}</Text>
+                            </Press>
+                          </View>
+                        ) : null}
                       </View>
 
                       {hasTrack ? (
@@ -1779,40 +1801,45 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 </>
               )}
 
-              {!planEditorOpen ? <Press
-                onPress={() => nav.openJourneyHistory(poi)}
-                accessibilityRole="button"
-                accessibilityLabel={t('journey.version.open')}
-                style={{
-                  minHeight: 64,
-                  marginTop: space.xxl,
-                  paddingHorizontal: space.md,
-                  borderRadius: radius.card,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: space.sm,
-                  backgroundColor: theme.surface,
-                }}
-              >
-                <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-                  <History color={theme.text2} size={18} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[type.body, { color: theme.text, fontWeight: '700' }]}>{t('journey.version.open')}</Text>
-                  <Text numberOfLines={1} style={[type.caption, { color: theme.text3, marginTop: 2 }]}>
-                    {versionSummary
-                      ? t('journey.version.latestSummary', { number: versionSummary.versionNumber })
-                      : t('journey.version.openDescription')}
-                  </Text>
-                </View>
-                <ChevronRight color={theme.text3} size={18} />
-              </Press> : null}
-
             {poi.desc ? (
               <>
                 <AppSectionHeader theme={theme} text={t('journey.section.about')} variant="title" marginTop={space.xxl} />
                 <Text style={[type.body, { lineHeight: 23, color: theme.text2 }]}>{poi.desc}</Text>
               </>
+            ) : null}
+            {!readOnly && versionSummary ? (
+              <Press
+                onPress={() => nav.openJourneyHistory(poi)}
+                accessibilityRole="button"
+                accessibilityLabel={t('journey.version.open')}
+                style={{
+                  minHeight: 68,
+                  marginTop: space.xxl,
+                  paddingVertical: space.md,
+                }}
+              >
+                <Text numberOfLines={2} style={[type.body, { color: theme.text2, lineHeight: 21 }]}>
+                  {journeyVersionActivitySummary(
+                    versionSummary,
+                    versionSummary.changedByName || t('journey.version.unknownEditor'),
+                    resolved,
+                    t,
+                  )}
+                </Text>
+                <View style={{ marginTop: space.xs, flexDirection: 'row', alignItems: 'center' }}>
+                  <Icon name="clock" color={theme.text3} size={14} />
+                  <Text
+                    numberOfLines={1}
+                    style={[type.caption, { flex: 1, color: theme.text3, marginLeft: space.xs }]}
+                  >
+                    {formatJourneyVersionTime(versionSummary.changedAt, resolved, false)}
+                  </Text>
+                  <Text style={[type.caption, { color: theme.text2, fontWeight: '600' }]}>
+                    {t('journey.version.open')}
+                  </Text>
+                  <Icon name="chevronR" color={theme.text3} size={15} />
+                </View>
+              </Press>
             ) : null}
           </>
         ) : (
@@ -1852,6 +1879,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
         {activeSeg === 'checklist' && isJourney ? (
           <JourneyChecklistTab
+            key={versionSnapshot ? 'version-preview' : 'current'}
             theme={theme}
             journey={poi}
             userId={userId}
@@ -1863,6 +1891,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             deleteActionRef={checklistDeleteActionRef}
             filterActionRef={checklistFilterActionRef}
             filterMenuRef={checklistFilterMenuRef}
+            filterMenuOpen={checklistFilterMenuOpen}
+            pickerProgress={checklistPickerProgress}
             toggleAllActionRef={checklistToggleAllActionRef}
             onFilterStateChange={onChecklistFilterStateChange}
             onFilterMenuOpenChange={onChecklistFilterMenuOpenChange}
@@ -1871,11 +1901,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             onSelectedItemIdsChange={onSelectedChecklistItemIdsChange ?? (() => {})}
             onVisibleItemIdsChange={onVisibleChecklistItemIdsChange}
             onCanEditChange={onChecklistCanEditChange}
+            readOnly={readOnly}
+            preview={packingPreview}
           />
         ) : null}
 
         {/* 行程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney} availableDays={journeyDays} onRouteBoundaryRequest={onRouteBoundaryRequest} /> : null}
+        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onRouteBoundaryRequest={onRouteBoundaryRequest} /> : null}
         {activeJourneyDay ? (
           <View
             onLayout={(event) => {
@@ -1886,6 +1918,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             <JourneyTimelineCard
               theme={theme}
               info={poi}
+              readOnly={readOnly}
+              preview={timelinePreview}
               selectedDay={activeJourneyDay}
               showDayTabs={false}
               availableDays={journeyDays}
@@ -1918,7 +1952,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 <Text style={[type.caption, { flex: 1, color: theme.text3, fontFamily: MONO, fontWeight: '700' }]}>
                   {t('journey.moments.countPhotos', { count: filteredPhotos.length })}
                 </Text>
-                {!momentSelectionMode ? (
+                {!momentSelectionMode && !readOnly ? (
                   <View ref={momentFilterAnchorRef} collapsable={false}>
                     <AppIconButton
                       theme={theme}
@@ -2045,12 +2079,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     nav.openSharePanel(poi);
   };
 
-  const quickActions = (
+  const quickActions = readOnly ? null : (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <FloatingIconButton name={poi.fav ? 'heartFill' : 'heart'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />
-      <FloatingIconButton name="share" onPress={onShare} />
+      <FloatingIconButton icon={Heart} fill={poi.fav ? theme.trailMine : 'none'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />
+      <FloatingIconButton icon={Share2} onPress={onShare} />
       <FloatingIconButton
-        name={isJourney ? 'gearSettings' : 'more'}
+        icon={isJourney ? Settings : MoreHorizontal}
         onPress={() => {
           if (isJourney) nav.openJourneySettings(poi);
           else nav.openActionSheet({ items: moreItems });
@@ -2079,22 +2113,22 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       {/* identity header — lives in the sheet so the map remains focused on the route */}
       {embedded ? (
         isJourney ? (
-        <View style={{ paddingTop: space.xxs, paddingBottom: space.lg }}>
+        <View style={{ paddingTop: space.xxs, paddingBottom: space.xs }}>
           <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34 }]}>
             {poi.name}
           </Text>
-          <View style={{ marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <View style={{ marginTop: space.xxs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
             <Press
-              onPress={() => setTimePickerOpen(true)}
+              onPress={readOnly ? undefined : () => setTimePickerOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${journeyTimingLabel} ${journeyTimingValue}`}
-              style={{ minWidth: 0, maxWidth: '50%', minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+              style={{ minWidth: 0, maxWidth: '100%', minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
             >
               <Icon name={hasSpecificJourneyDate ? 'calendar' : 'clock'} color={theme.text3} size={15} />
-              <Text numberOfLines={1} style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{journeyTimingValue}</Text>
+              <Text style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyTimingValue}</Text>
             </Press>
             <Press
-              onPress={() => setDistanceEditorOpen(true)}
+              onPress={readOnly ? undefined : () => setDistanceEditorOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${t('journey.stat.distance')} ${poi.dist || '—'}`}
               style={{ minHeight: 40, maxWidth: 108, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
@@ -2102,8 +2136,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               <Icon name="distance" color={theme.text3} size={15} />
               <Text numberOfLines={1} style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{poi.dist || '—'}</Text>
             </Press>
-            <View style={{ flex: 1 }} />
-            <JourneyParticipantButton
+            <View style={{ marginLeft: 'auto' }}>
+              <JourneyParticipantButton
               theme={theme}
               people={participantPeople}
               onOpenParticipants={() => nav.openManageCompanions(poi)}
@@ -2117,7 +2151,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               inviteAtCapacity={participantPeople.length >= MAX_JOURNEY_PARTICIPANTS}
               participantsAccessibilityLabel={t('journey.manage.pageTitle')}
               inviteAccessibilityLabel={t('journey.manage.inviteParticipant')}
-            />
+              readOnly={readOnly}
+              />
+            </View>
           </View>
         </View>
       ) : (
@@ -2234,7 +2270,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             animationDuration={180}
             stretch={false}
             trailingAction={
-              isJourney
+              isJourney && !readOnly
                 ? {
                     content: <Icon name="plus" color={theme.text2} size={17} />,
                     onPress: () => addJourneyGroup(!planEditorOpen),
@@ -2342,7 +2378,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           }))}
           index={momentViewerIndex}
           onClose={() => setMomentViewerIndex(null)}
-          onDelete={(index) => {
+          onDelete={readOnly ? undefined : (index) => {
             const moment = filteredPhotos[index];
             if (!moment) return;
             Alert.alert(
@@ -2363,7 +2399,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           }}
         />
       ) : null}
-      {renamingPlanDay ? (
+      {!readOnly && renamingPlanDay ? (
         <JourneyGroupRenameSheet
           theme={theme}
           initialName={journeyDayDisplayLabel(renamingPlanDay, resolved)}
@@ -2383,8 +2419,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           }}
         />
       ) : null}
-      {timePickerOpen ? <JourneyTimePicker theme={theme} poi={poi} onApply={(patch) => nav.patchCurrent(patch)} onClose={() => setTimePickerOpen(false)} /> : null}
-      {distanceEditorOpen ? (
+      {!readOnly && timePickerOpen ? <JourneyTimePicker theme={theme} poi={poi} onApply={(patch) => nav.patchCurrent(patch)} onClose={() => setTimePickerOpen(false)} /> : null}
+      {!readOnly && distanceEditorOpen ? (
         <JourneyDistanceSheet
           theme={theme}
           initialValue={poi.dist}
@@ -2392,7 +2428,37 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           onClose={() => setDistanceEditorOpen(false)}
         />
       ) : null}
-      {trackUploadOpen ? <JourneyTrackUploadSheet theme={theme} journeyId={poi.id} replacing={hasTrack} onClose={() => setTrackUploadOpen(false)} /> : null}
+      {!readOnly && trackUploadOpen ? <JourneyTrackUploadSheet theme={theme} replacing={hasTrack} onClose={() => setTrackUploadOpen(false)} /> : null}
+      <PickDialog
+        theme={theme}
+        visible={!readOnly && trackPickOpen}
+        title={t('journey.track.pickTitle')}
+        emptyLabel={t('journey.track.pickEmpty')}
+        cancelLabel={t('common.cancel')}
+        options={tracks.map((track) => ({
+          item: track,
+          title: track.name || t('tracks.untitled'),
+          subtitle: [
+            track.distM != null ? formatTrackDistance(track.distM) : null,
+            track.ascM ? formatTrackAscent(track.ascM) : null,
+            track.pointCount ? t('tracks.meta.points', { count: track.pointCount }) : null,
+          ].filter(Boolean).join(' · '),
+          selected: track.id === poi.trackId,
+        }))}
+        onCancel={() => setTrackPickOpen(false)}
+        onSelect={(track) => {
+          setTrackPickOpen(false);
+          if (track.id === poi.trackId) return;
+          // The journey's distance and ascent describe the track it follows, so
+          // linking one overwrites them with the numbers the file actually holds.
+          nav.patchCurrent({
+            trackId: track.id,
+            ...(track.distM != null ? { dist: formatTrackDistance(track.distM) } : {}),
+            ...(track.ascM != null ? { asc: formatTrackAscent(track.ascM) } : {}),
+          });
+          nav.showToast(t('journey.track.applied'));
+        }}
+      />
     </View>
   );
 }

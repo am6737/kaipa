@@ -12,8 +12,10 @@ import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
 import { Tone } from '../../data/tones';
-import { TrackPt, TrackStats, haversine, computeStats, parseTrack, buildTrackData } from '../../lib/trackParser';
+import { TrackPt, TrackStats, haversine, computeStats, parseTrack, buildTrackData, snapWaypoints } from '../../lib/trackParser';
+import { buildTrackDraft, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
 import { extractKmlFromKmz } from '../../lib/kmz';
+import { trackFormatFromName } from '../../data/tracks';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
@@ -27,11 +29,20 @@ import { NativeMap, type NativeMapHandle } from '../maps/NativeMap';
 import { reverseJourneyLocation, searchJourneyLocations } from '../../lib/amapGeocoding';
 
 type TFn = (key: TKey, vars?: TVars) => string;
-interface Track {
-  stats: TrackStats;
-  fileName: string;
-  fileFormat: string;
+// The recorded track is a library row the moment it is parsed, so the flow
+// carries the parsed file (and where the original lives) rather than a Poi.
+interface Track extends ParsedTrackFile {
   sourceUri?: string;
+  fileSize?: number;
+}
+
+// Where a picked track came from: the display name stays the user's original
+// KMZ even though parsing happens on the KML inside it.
+interface TrackSourceInput {
+  name: string;
+  parseName?: string;
+  uri?: string;
+  size?: number;
 }
 interface RJPhoto {
   id: string;
@@ -380,7 +391,7 @@ function RJVisibility({ theme, value, onChange }: { theme: Theme; value: string;
 // ──────────────────────────────────────────────────────────────
 // Track block — real file picker + sample fallback
 // ──────────────────────────────────────────────────────────────
-function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast, onOpenMap }: { theme: Theme; track: Track | null; onIngest: (text: string, fname: string, region: string | null, tone: Tone | null, sourceUri?: string) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void; onOpenMap: () => void }) {
+function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setError, onToast, onOpenMap }: { theme: Theme; track: Track | null; onIngest: (text: string, source: TrackSourceInput, region: string | null, tone: Tone | null) => void; onRemove: () => void; busy: boolean; setBusy: (b: boolean) => void; setError: (e: string | null) => void; onToast: (m: string) => void; onOpenMap: () => void }) {
   const { t } = useI18n();
 
   const pickFile = async () => {
@@ -414,7 +425,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
       }
       if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
       console.log('[Track] read file:', fname, 'size:', text.length, 'first 120:', text.slice(0, 120));
-      onIngest(text, parseName, null, null, file.uri);
+      onIngest(text, { name: fname, parseName, uri: file.uri, size: file.size }, null, null);
     } catch (e) {
       console.warn('[Track] pickFile error:', e);
       setBusy(false);
@@ -429,7 +440,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 20, backgroundColor: 'rgba(52,199,89,0.14)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(52,199,89,0.4)' }}>
           <Icon name="check" color="#34C759" size={13} strokeWidth={2.6} />
           <Text numberOfLines={1} style={{ flex: 1, fontFamily: MONO, fontSize: 11.5, fontWeight: '600', color: theme.dark ? '#5BDC7E' : '#1E9E48' }}>
-            {track.fileName} · {track.fileFormat}
+            {track.fileName} · {track.format.toUpperCase()}
           </Text>
           <Press onPress={onRemove} style={{ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" color={theme.text3} size={12} />
@@ -467,7 +478,7 @@ function RJTrackBlock({ theme, track, onIngest, onRemove, busy, setBusy, setErro
               if (busy) return;
               let txt = makeSampleGpx(sp.spec);
               if (sp.label.endsWith('.kml')) txt = gpxToKml(txt);
-              onIngest(txt, sp.label, sp.region, sp.tone);
+              onIngest(txt, { name: sp.label }, sp.region, sp.tone);
             }}
             style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 9, backgroundColor: theme.accentSoft }}
           >
@@ -954,28 +965,8 @@ function buildRecordJourney(args: {
     ...companions.map((c, i) => ({ ini: iniOf(c.name), name: c.name, role: c.role || undefined, color: RJ_AVATAR_POOL[i % RJ_AVATAR_POOL.length] })),
   ];
 
-  // real track data
-  let trackCoords: [number, number][] | undefined;
-  let trackElevation: { km: number; ele: number }[] | undefined;
-  let trackDurationMs: number | undefined;
-  if (track) {
-    const pts = track.stats.points;
-    const stride = Math.max(1, Math.floor(pts.length / 500));
-    trackCoords = [];
-    for (let i = 0; i < pts.length; i += stride) trackCoords.push([pts[i].lon, pts[i].lat]);
-    if (trackCoords[trackCoords.length - 1][0] !== pts[pts.length - 1].lon || trackCoords[trackCoords.length - 1][1] !== pts[pts.length - 1].lat) {
-      trackCoords.push([pts[pts.length - 1].lon, pts[pts.length - 1].lat]);
-    }
-    if (track.stats.hasEle) {
-      const cum = track.stats.cum;
-      trackElevation = [];
-      for (let i = 0; i < pts.length; i += stride) {
-        if (isFinite(pts[i].ele)) trackElevation.push({ km: cum[i] / 1000, ele: pts[i].ele });
-      }
-    }
-    if (track.stats.hasTime) trackDurationMs = track.stats.durationMs;
-  }
-
+  // Geometry lives in the track library; the journey only points at it, so the
+  // local Poi carries no track fields. The track row is created by finish().
   const photoUris = photos.filter((p) => p.uri).map((p) => p.uri!);
 
   return {
@@ -999,10 +990,7 @@ function buildRecordJourney(args: {
     fav: false,
     desc: notes.trim(),
     photoUris,
-    ...(trackCoords ? { trackCoords } : {}),
-    ...(trackElevation ? { trackElevation } : {}),
-    ...(trackDurationMs ? { trackDurationMs } : {}),
-    trackPublic: trackPublic && !!trackCoords,
+    trackPublic: trackPublic && !!track,
   };
 }
 
@@ -1040,12 +1028,13 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
 
   const nameInit = useRef(false);
 
-  const onIngest = (text: string, fname: string, presetRegion: string | null, presetTone: Tone | null, sourceUri?: string) => {
+  const onIngest = (text: string, source: TrackSourceInput, presetRegion: string | null, presetTone: Tone | null) => {
     setError(null);
     setBusy(true);
     setTimeout(() => {
-      console.log('[Track] onIngest:', fname, 'length:', text.length);
-      const parsed = parseTrack(text, fname, t as any);
+      const parseName = source.parseName || source.name;
+      console.log('[Track] onIngest:', source.name, 'length:', text.length);
+      const parsed = parseTrack(text, parseName, t as any);
       if (parsed.error || !parsed.points) {
         console.warn('[Track] parse failed:', parsed.error, '| first 200 chars:', text.slice(0, 200));
         setBusy(false);
@@ -1061,9 +1050,21 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
         return;
       }
       const tn = presetTone || PHOTO_TONES[Math.floor((st.distM + st.count) % PHOTO_TONES.length)];
-      setTrack({ stats: st, fileName: fname, fileFormat: parsed.format || 'GPX', sourceUri });
+      const format = trackFormatFromName(source.name) || (parsed.format === 'KML' ? 'kml' : 'gpx');
+      const data = buildTrackData(st);
+      setTrack({
+        stats: st,
+        fileName: source.name,
+        format,
+        name: (parsed.name || '').trim() || source.name.replace(/\.[^.]+$/, ''),
+        waypoints: parsed.waypoints ? snapWaypoints(parsed.waypoints, st) : undefined,
+        dist: data.dist,
+        asc: data.asc,
+        sourceUri: source.uri,
+        fileSize: source.size,
+      });
       setTone(tn);
-      const base = (parsed.name && parsed.name.trim()) || fname.replace(/\.[^.]+$/, '');
+      const base = (parsed.name && parsed.name.trim()) || source.name.replace(/\.[^.]+$/, '');
       if (!nameInit.current && !name) {
         setName(base);
         nameInit.current = true;
@@ -1124,22 +1125,20 @@ export function RecordJourneySheet({ theme, onBack, onCreate, onToast }: { theme
     t('record.more.difficultySummary', { diff: t(`common.diff.${diff}` as TKey) }),
   ].join(' · ');
 
-  const { userId } = useData();
+  const { userId, createTrack } = useData();
 
   const finish = async () => {
     const jTone = photos[0] ? photos[0].tone : tone;
     const poi = buildRecordJourney({ name, region, regionCoord, date, endDate, diff, tone: jTone, track, manualDist, manualAsc, notes, companions, photos, trackPublic: visibility === 'public', t });
     try {
       if (userId) {
-        const [uploadedPhotos, trackFileUrl] = await Promise.all([
+        const [uploadedPhotos, savedTrack] = await Promise.all([
           poi.photoUris?.length ? Promise.all(poi.photoUris.map((uri) => uploadMedia(uri, userId, poi.id))) : Promise.resolve(undefined),
-          track?.sourceUri ? uploadMedia(track.sourceUri, userId, poi.id) : Promise.resolve(undefined),
+          track ? createTrack(await buildTrackDraft(track, { userId, sourceUri: track.sourceUri, fileSize: track.fileSize })) : Promise.resolve(null),
         ]);
         if (uploadedPhotos) poi.photoUris = uploadedPhotos;
-        if (trackFileUrl) {
-          poi.trackFileUrl = trackFileUrl;
-          poi.trackFileName = track?.fileName;
-        }
+        if (track && !savedTrack) throw new Error('TRACK_INSERT_FAILED');
+        if (savedTrack) poi.trackId = savedTrack.id;
       }
       setStep(1);
       setTimeout(() => onCreate(poi), 1500);

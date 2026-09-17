@@ -1827,6 +1827,20 @@ export const zh = {
       apply: "应用到旅程",
       export: "导出 GPX",
       delete: "删除轨迹",
+      import: "批量导入",
+      select: "选择轨迹",
+      exportZip: "导出 zip",
+    },
+    import: {
+      progress: "正在导入 {count} 条轨迹",
+      done: "已导入 {count} 条轨迹",
+      partial: "导入完成：成功 {ok} 条，失败 {failed} 条",
+      unusable: "所选文件里没有轨迹文件",
+      webHint: "网页版无法读取本地文件，请在 App 内导入轨迹。",
+    },
+    export: {
+      done: "已导出 {count} 条轨迹",
+      failed: "导出失败",
     },
     rename: {
       title: "重命名轨迹",
@@ -1838,7 +1852,6 @@ export const zh = {
       empty: "还没有可以应用的旅程。",
       done: "已应用到「{name}」",
       alreadyThere: "「{name}」已在用这条轨迹",
-      failed: "应用失败，请稍后重试",
     },
     toast: {
       deleted: "已删除 {count} 条轨迹",

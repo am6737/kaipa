@@ -1,0 +1,54 @@
+name: kaipa-browser-verification
+services:
+  browser:
+    build: .
+    init: true
+    restart: "no"
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 512m
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 512
+    stop_grace_period: 20s
+    ports:
+      - "127.0.0.1:6082:6080"
+      - "127.0.0.1:8073:8073"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+      - /run:rw,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=700
+      - /home/browser/.cache:rw,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=700
+      - /home/browser/.local:rw,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=700
+    volumes:
+      - type: bind
+        source: ${KAIPA_BROWSER_CHROME_DIR:?Chrome directory is required}
+        target: /opt/chrome
+        read_only: true
+      - type: bind
+        source: ${KAIPA_BROWSER_STATE_DIR:?State directory is required}/profile
+        target: /home/browser/profile
+      - type: bind
+        source: ${KAIPA_BROWSER_STATE_DIR}/password.txt
+        target: /run/secrets/vnc-password
+        read_only: true
+      - type: bind
+        source: ${KAIPA_BROWSER_STATE_DIR}/search-api-key.txt
+        target: /run/secrets/browser-search-key
+        read_only: true
+    environment:
+      SESSION_TTL_SECONDS: "14400"
+      XDG_CONFIG_HOME: /run/config
+      XDG_CACHE_HOME: /home/browser/.cache
+    healthcheck:
+      test: [CMD, python3, /opt/session.py, health]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"

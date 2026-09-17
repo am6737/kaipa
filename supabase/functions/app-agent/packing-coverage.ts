@@ -27,7 +27,7 @@ const RULES: Record<string, { label: string; pattern: RegExp }> = {
   navigation: { label: '导航或通信设备', pattern: /(手机|地图|指南针|GPS|导航设备|导航手表|inReach|卫星通信)/i },
   power: { label: '有明确容量的备用电源', pattern: /(充电宝|移动电源)/ },
   lighting: { label: '头灯或手电', pattern: /(头灯|手电)/ },
-  rain: { label: '防雨装备', pattern: /(雨衣|雨披|冲锋衣|防雨外套)/ },
+  rain: { label: '防雨装备', pattern: /(雨衣|雨披|冲锋衣|防[雨水](?:外套|夹克|上衣))/ },
   sun: { label: '防晒用品', pattern: /(防晒|遮阳帽|太阳镜)/ },
   warmth: { label: '保暖层', pattern: /(保暖|抓绒|羽绒|棉服)/ },
   disinfect: { label: '消毒用品', pattern: /(碘伏|酒精|消毒)/ },

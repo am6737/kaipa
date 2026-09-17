@@ -3,15 +3,19 @@ export type AgentContext = {
   threadId: string;
   runId: string;
   currentJourneyId?: string;
-  canUndoPreviousChanges?: boolean;
+  currentLocation?: import('./location.ts').AgentLocation;
+  task?: import('./task.ts').TaskState;
   originalUserMessage?: string;
-  allowUndatedJourney?: boolean;
+  attachments?: AgentAttachment[];
+  dataContext?: import('./context.ts').ContextState;
+  writeReceipt?: { callId: string; expected: import('./context.ts').ContextVersions; committed: boolean };
 };
 
 export type AgentQuickReply = {
   label: string;
   message: string;
-  action?: 'upload_track' | 'skip_track';
+  action?: 'upload_track' | 'skip_track' | 'retry_run' | 'supplement_plan' | 'request_location';
+  runId?: string;
 };
 
 export type AgentSource = {
@@ -46,6 +50,9 @@ export type AgentUndoAction = {
 };
 
 export type AgentMessageUi = {
+  travelContext?: import('./travel-context.ts').TravelContext | null;
+  taskOutcome?: import('./task.ts').TaskOutcome;
+  requestId?: string;
   quickReplies?: AgentQuickReply[];
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;

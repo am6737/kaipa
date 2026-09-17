@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
 import { supabase } from "../lib/supabase";
-import { toJourneyPoi } from "../lib/mappers";
+import { toJourneyPoi, toTrack, trackProjection } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
 import { MAX_JOURNEY_PARTICIPANTS, type Poi } from "../data/pois";
 
 const has = (obj: object, key: keyof Poi) =>
   Object.prototype.hasOwnProperty.call(obj, key);
+
+// A journey row only stores `track_id`; the fields a Poi projects from a track
+// come from this one read, so a freshly created journey renders its track
+// before the next refetch lands.
+const TRACK_COLUMNS = "coords, elevation, duration_ms, waypoints, file_url, file_name";
+
+async function embeddedTrack(trackId: string | undefined) {
+  if (!trackId) return null;
+  const { data } = await supabase.from("tracks").select(TRACK_COLUMNS).eq("id", trackId).maybeSingle();
+  return data ?? null;
+}
 
 export function useJourneys(userId: string | undefined) {
   const [journeys, setJourneys] = useState<Poi[]>([]);
@@ -20,7 +31,8 @@ export function useJourneys(userId: string | undefined) {
       .select(
         `
         *,
-        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
+        tracks ( ${TRACK_COLUMNS} )
       `,
       )
       .eq("user_id", userId)
@@ -33,7 +45,8 @@ export function useJourneys(userId: string | undefined) {
         .from("journeys")
         .select(`
           *,
-          companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+          companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
+          tracks ( ${TRACK_COLUMNS} )
         `)
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -55,7 +68,8 @@ export function useJourneys(userId: string | undefined) {
         .select(
           `
           *,
-          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
+          tracks ( ${TRACK_COLUMNS} )
         `,
         )
         .eq("user_id", userId)
@@ -88,7 +102,8 @@ export function useJourneys(userId: string | undefined) {
           .select(
             `
             *,
-            companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+            companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
+            tracks ( ${TRACK_COLUMNS} )
           `,
           )
           .in("id", joinedIds)
@@ -104,7 +119,8 @@ export function useJourneys(userId: string | undefined) {
             .select(
               `
               *,
-              companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+              companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
+              tracks ( ${TRACK_COLUMNS} )
             `,
             )
             .in("id", joinedIds)
@@ -125,7 +141,8 @@ export function useJourneys(userId: string | undefined) {
       .from("journeys")
       .select(`
         *,
-        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order )
+        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
+        tracks ( ${TRACK_COLUMNS} )
       `)
       .eq("user_id", userId)
       .not("deleted_at", "is", null)
@@ -139,7 +156,8 @@ export function useJourneys(userId: string | undefined) {
         .from("journeys")
         .select(`
           *,
-          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order )
+          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
+          tracks ( ${TRACK_COLUMNS} )
         `)
         .eq("user_id", userId)
         .not("deleted_at", "is", null)
@@ -228,12 +246,8 @@ export function useJourneys(userId: string | undefined) {
       route_show_timeline: poi.routeShowTimeline ?? true,
       photo_uris: photoUris ?? null,
       participant_permissions: poi.participantPermissions ?? null,
-      track_coords: poi.trackCoords || null,
-      track_elevation: poi.trackElevation || null,
-      track_duration_ms: poi.trackDurationMs || null,
-      track_waypoints: poi.trackWaypoints || null,
-      track_file_url: poi.trackFileUrl || null,
-      track_file_name: poi.trackFileName || null,
+      // A journey references a track; it never carries geometry of its own.
+      track_id: poi.trackId || null,
     };
     let insertResult = await supabase
       .from("journeys")
@@ -296,7 +310,11 @@ export function useJourneys(userId: string | undefined) {
       if (companionRes.data) savedCompanions = companionRes.data;
     }
 
-    const newPoi = toJourneyPoi({ ...data, companions: savedCompanions }, undefined, userId);
+    const newPoi = toJourneyPoi(
+      { ...data, tracks: await embeddedTrack(poi.trackId), companions: savedCompanions },
+      undefined,
+      userId,
+    );
     setJourneys((prev) => [newPoi, ...prev]);
     return newPoi;
   };
@@ -315,6 +333,14 @@ export function useJourneys(userId: string | undefined) {
           companionList: mediaResolvedPatch.companionList?.slice(0, MAX_JOURNEY_PARTICIPANTS),
         }
       : mediaResolvedPatch;
+    const linkedTrack = resolvedPatch.trackId ? await embeddedTrack(resolvedPatch.trackId) : null;
+    // Geometry lives in the track library, so a new link makes the journey's
+    // cached projection stale the instant the patch lands. Refresh it here
+    // instead of waiting for the next refetch, which would leave the page
+    // claiming the journey has no track.
+    const linkProjection = has(resolvedPatch, "trackId")
+      ? trackProjection(linkedTrack ? toTrack(linkedTrack) : null)
+      : {};
     const row: any = {};
     if (has(resolvedPatch, "name")) row.name = resolvedPatch.name;
     if (has(resolvedPatch, "region")) row.region = resolvedPatch.region;
@@ -323,30 +349,20 @@ export function useJourneys(userId: string | undefined) {
     if (has(resolvedPatch, "lat")) row.lat = resolvedPatch.lat;
     if (has(resolvedPatch, "desc")) row.desc = resolvedPatch.desc;
     if (has(resolvedPatch, "date")) row.date = resolvedPatch.date || null;
-    if (has(resolvedPatch, "days")) row.days = resolvedPatch.days;
+    if (has(resolvedPatch, "days")) row.days = resolvedPatch.days || null;
     if (has(resolvedPatch, "plannedDate"))
       row.planned_date = resolvedPatch.plannedDate || null;
     if (has(resolvedPatch, "countdown"))
-      row.countdown = resolvedPatch.countdown;
+      row.countdown = resolvedPatch.countdown ?? null;
     if (has(resolvedPatch, "dayIndex")) row.day_index = resolvedPatch.dayIndex;
     if (has(resolvedPatch, "totalDays"))
-      row.total_days = resolvedPatch.totalDays;
+      row.total_days = resolvedPatch.totalDays ?? null;
     if (has(resolvedPatch, "fav")) row.fav = resolvedPatch.fav;
     if (has(resolvedPatch, "tone")) row.tone = resolvedPatch.tone;
     if (has(resolvedPatch, "dist")) row.dist = resolvedPatch.dist;
     if (has(resolvedPatch, "asc")) row.asc_ = resolvedPatch.asc;
-    if (has(resolvedPatch, "trackCoords"))
-      row.track_coords = resolvedPatch.trackCoords ?? null;
-    if (has(resolvedPatch, "trackElevation"))
-      row.track_elevation = resolvedPatch.trackElevation ?? null;
-    if (has(resolvedPatch, "trackDurationMs"))
-      row.track_duration_ms = resolvedPatch.trackDurationMs ?? null;
-    if (has(resolvedPatch, "trackWaypoints"))
-      row.track_waypoints = resolvedPatch.trackWaypoints ?? null;
-    if (has(resolvedPatch, "trackFileUrl"))
-      row.track_file_url = resolvedPatch.trackFileUrl ?? null;
-    if (has(resolvedPatch, "trackFileName"))
-      row.track_file_name = resolvedPatch.trackFileName ?? null;
+    if (has(resolvedPatch, "trackId"))
+      row.track_id = resolvedPatch.trackId ?? null;
     if (has(resolvedPatch, "photoUris"))
       row.photo_uris = resolvedPatch.photoUris ?? null;
     if (has(resolvedPatch, "heroMode"))
@@ -437,7 +453,7 @@ export function useJourneys(userId: string | undefined) {
     }
 
     setJourneys((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, ...resolvedPatch } : j)),
+      prev.map((j) => (j.id === id ? { ...j, ...resolvedPatch, ...linkProjection } : j)),
     );
   };
   const deleteJourney = async (id: string) => {

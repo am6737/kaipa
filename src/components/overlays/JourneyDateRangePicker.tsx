@@ -1,21 +1,16 @@
-import React, { useMemo, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { BackHandler, FlatList, Modal, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import { Theme } from '../../theme/theme';
 import { ResolvedLang, useI18n } from '../../i18n';
 import { radius, space } from '../../design-system';
 import { Press } from '../Press';
 import { NJBottomSheet, njHapticTick } from './NewJourneyParts';
+import { journeyCalendarDays, type JourneyDateRangeSelection } from '../../lib/journeySchedule';
+export type { JourneyDateRangeSelection } from '../../lib/journeySchedule';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_RANGE = 1200;
 const MONTH_HEIGHT = 344;
-
-export interface JourneyDateRangeSelection {
-  start: Date;
-  totalDays: number;
-  flexible: boolean;
-}
 
 function dateOnly(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -25,12 +20,6 @@ function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
-}
-
-function calendarDayDiff(start: Date, end: Date): number {
-  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-  return Math.max(1, Math.round((endUtc - startUtc) / DAY_MS));
 }
 
 function sameCalendarDay(a: Date, b: Date): boolean {
@@ -130,28 +119,41 @@ export function JourneyDateRangePicker({
   initialStart,
   initialDurationDays,
   initialFlexible = false,
+  presentation = 'modal',
   onApply,
   onClose,
 }: {
   theme: Theme;
   initialStart: Date;
-  initialDurationDays: number;
+  initialDurationDays?: number;
   initialFlexible?: boolean;
+  presentation?: 'modal' | 'inline';
   onApply: (selection: JourneyDateRangeSelection) => void;
   onClose: () => void;
 }) {
   const { t, resolved } = useI18n();
   const { width, height } = useWindowDimensions();
-  const safeDuration = Math.max(1, Math.round(initialDurationDays));
+  useEffect(() => {
+    if (presentation !== 'inline') return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onClose, presentation]);
+  const safeDuration = Math.max(1, Math.round(initialDurationDays ?? 1));
   const [draftStart, setDraftStart] = useState(initialStart);
-  const [draftEnd, setDraftEnd] = useState<Date | null>(() => addDays(initialStart, safeDuration));
+  const [draftEnd, setDraftEnd] = useState<Date | null>(() => addDays(initialStart, safeDuration - 1));
   const [flexible, setFlexible] = useState(initialFlexible);
-  const [flexibleDays, setFlexibleDays] = useState(safeDuration);
+  const [flexibleDays, setFlexibleDays] = useState(initialFlexible && initialDurationDays == null ? 0 : safeDuration);
   const visibleMonths = useMemo(() => Array.from(
     { length: MONTH_RANGE * 2 + 1 },
     (_, index) => new Date(initialStart.getFullYear(), initialStart.getMonth() + index - MONTH_RANGE, 1),
   ), [initialStart]);
-  const dayOptions = useMemo(() => Array.from({ length: 30 }, (_, index) => ({ value: index + 1, label: String(index + 1) })), []);
+  const dayOptions = useMemo(() => [
+    { value: 0, label: t('journeyEdit.time.unset') },
+    ...Array.from({ length: Math.max(30, safeDuration) }, (_, index) => ({ value: index + 1, label: String(index + 1) })),
+  ], [safeDuration, t]);
 
   const handleDateSelect = (selectedDate: Date) => {
     const selected = new Date(selectedDate);
@@ -161,7 +163,7 @@ export function JourneyDateRangePicker({
       setDraftEnd(null);
       return;
     }
-    if (selected <= draftStart) {
+    if (selected < draftStart) {
       setDraftStart(selected);
       return;
     }
@@ -169,13 +171,13 @@ export function JourneyDateRangePicker({
   };
 
   const setPickerMode = (nextFlexible: boolean) => {
+    if (nextFlexible) setFlexibleDays(draftEnd ? journeyCalendarDays(draftStart, draftEnd) : safeDuration);
+    else setDraftEnd(addDays(draftStart, Math.max(1, flexibleDays) - 1));
     setFlexible(nextFlexible);
-    if (nextFlexible) setFlexibleDays(draftEnd ? calendarDayDiff(draftStart, draftEnd) : safeDuration);
-    else if (!draftEnd) setDraftEnd(addDays(draftStart, flexibleDays));
   };
 
   const apply = () => {
-    const totalDays = flexible ? flexibleDays : draftEnd ? calendarDayDiff(draftStart, draftEnd) : 1;
+    const totalDays = flexible ? flexibleDays || undefined : draftEnd ? journeyCalendarDays(draftStart, draftEnd) : 1;
     onApply({ start: draftStart, totalDays, flexible });
     onClose();
   };
@@ -183,17 +185,16 @@ export function JourneyDateRangePicker({
   const sheetHeight = Math.max(480, Math.min(height * 0.66, 620) - space.xxxl - space.xs);
   const wheelWidth = Math.min(width - space.xxxl * 2, 420);
 
-  return (
-    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+  const sheet = (
       <NJBottomSheet theme={theme} onClose={onClose} full bodyScrolls backgroundColor={theme.featureSurface} bottomPadding={space.sm}>
         <View style={{ height: sheetHeight, paddingHorizontal: space.lg }}>
           <View style={{ zIndex: 2, flexDirection: 'row', alignItems: 'center', paddingVertical: space.xs, backgroundColor: theme.featureSurface }}>
             <View style={{ flex: 1, paddingRight: space.sm }}>
-              <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: -0.55, color: theme.text }}>{t('journeyEdit.time.durationQuestion')}</Text>
+              <Text style={{ fontSize: 25, fontWeight: '800', letterSpacing: 0, color: theme.text }}>{t('journeyEdit.time.durationQuestion')}</Text>
             </View>
             <View style={{ minHeight: 44, paddingLeft: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
               <View style={{ width: 52, height: 32, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-                <Switch value={flexible} onValueChange={setPickerMode} trackColor={{ false: theme.hairline, true: theme.accent }} thumbColor="#FFFFFF" ios_backgroundColor={theme.hairline} style={{ transform: [{ scale: 0.76 }] }} />
+                <Switch value={flexible} onValueChange={setPickerMode} accessibilityLabel={t('journeyEdit.time.flexibleDays')} trackColor={{ false: theme.hairline, true: theme.accent }} thumbColor="#FFFFFF" ios_backgroundColor={theme.hairline} style={{ transform: [{ scale: 0.76 }] }} />
               </View>
               <Text pointerEvents="none" style={{ flexShrink: 0, paddingRight: space.xxs, fontSize: 13, fontWeight: '600', color: flexible ? theme.text : theme.text2 }}>{t('journeyEdit.time.flexibleDays')}</Text>
             </View>
@@ -209,7 +210,10 @@ export function JourneyDateRangePicker({
                 itemHeight={80}
                 visibleItemCount={5}
                 width={wheelWidth}
-                itemTextStyle={{ fontSize: 50, fontWeight: '500', letterSpacing: -1, color: theme.text }}
+                itemTextStyle={{ fontSize: 50, fontWeight: '500', letterSpacing: 0, color: theme.text }}
+                renderItem={({ item, itemTextStyle }) => (
+                  <Text numberOfLines={1} style={[itemTextStyle, { textAlign: 'center', lineHeight: 80 }, item.value === 0 && { fontSize: 26 }]}>{item.label}</Text>
+                )}
                 overlayItemStyle={{ backgroundColor: theme.fieldSurface, borderRadius: radius.control }}
               />
             </View>
@@ -249,6 +253,13 @@ export function JourneyDateRangePicker({
           </View>
         </View>
       </NJBottomSheet>
+  );
+
+  // Creation already owns a full-screen overlay; avoid another native presentation
+  // when returning from the system track-file picker.
+  return presentation === 'inline' ? sheet : (
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+      {sheet}
     </Modal>
   );
 }

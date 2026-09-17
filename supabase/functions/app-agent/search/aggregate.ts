@@ -32,6 +32,7 @@ async function runProvider(provider: TravelSearchProvider, query: string, timeou
         status: response.available ? 'completed' : 'unavailable',
         resultCount: response.results.length,
         error: response.error,
+        ...(response.errorCode ? { errorCode: response.errorCode } : {}),
       },
     };
   } catch (error) {
