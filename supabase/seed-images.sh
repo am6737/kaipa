@@ -1,12 +1,28 @@
 #!/bin/bash
 # Download Unsplash scenery photos for each route/journey, upload to Supabase Storage,
 # and update photo_uris in the database.
+#
+# Targets the isolated self-hosted Kaipa runtime (see infra/supabase/README.md).
+# Never point this at the shared instance on port 8000.
 
 set -e
 
-BASE="https://8000--main--am--am6737.coder.dootask.com"
-ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgwOTc3MjY2LCJleHAiOjIwOTYzMzcyNjZ9.vil4-e9_QqHR-yZ-l_jBiDc57CjgnSqu-dwnCZ0k_lU"
-SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODA5NzcyNjYsImV4cCI6MjA5NjMzNzI2Nn0.TrKAsukscLhMbJiMHD8WWWFid9-4QyZTE0hGopbqCLI"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker}"
+DB_CONTAINER="${KAIPA_SUPABASE_DB_CONTAINER:-kaipa-supabase-db}"
+
+read_env() {
+  sed -n "s/^$2=//p" "$1" | tail -n 1
+}
+
+BASE="$(read_env "$ROOT/.env" EXPO_PUBLIC_SUPABASE_URL)"
+ANON_KEY="$(read_env "$ROOT/.env" EXPO_PUBLIC_SUPABASE_ANON_KEY)"
+SERVICE_KEY="$(read_env "$RUNTIME_DIR/.env" SERVICE_ROLE_KEY)"
+if [[ -z "$BASE" || -z "$ANON_KEY" || -z "$SERVICE_KEY" ]]; then
+  echo "Missing Supabase URL or keys; check $ROOT/.env and $RUNTIME_DIR/.env" >&2
+  exit 1
+fi
+
 BUCKET="kaipa"
 TMP="/tmp/kaipa-img"
 mkdir -p "$TMP"
@@ -74,21 +90,21 @@ upload_and_get_url() {
   local public_url="${BASE}/storage/v1/object/public/${BUCKET}/${filename}"
 
   # Update DB
-  docker exec supabase-db psql -U postgres -d postgres -q -c \
+  docker exec "$DB_CONTAINER" psql -U postgres -d postgres -q -c \
     "UPDATE ${table} SET photo_uris = jsonb_build_array('${public_url}') WHERE id = '${poi_id}';"
 
   echo "    -> ${public_url}"
 }
 
 echo "=== Uploading route covers ==="
-for row in $(docker exec supabase-db psql -U postgres -d postgres -t -A -c "SELECT id || '|' || tone FROM routes;"); do
+for row in $(docker exec "$DB_CONTAINER" psql -U postgres -d postgres -t -A -c "SELECT id || '|' || tone FROM routes;"); do
   IFS='|' read -r id tone <<< "$row"
   upload_and_get_url "$id" "$tone" "routes"
 done
 
 echo ""
 echo "=== Uploading journey covers ==="
-for row in $(docker exec supabase-db psql -U postgres -d postgres -t -A -c "SELECT id || '|' || tone FROM journeys;"); do
+for row in $(docker exec "$DB_CONTAINER" psql -U postgres -d postgres -t -A -c "SELECT id || '|' || tone FROM journeys;"); do
   IFS='|' read -r id tone <<< "$row"
   upload_and_get_url "$id" "$tone" "journeys"
 done
