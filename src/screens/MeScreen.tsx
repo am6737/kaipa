@@ -274,8 +274,8 @@ function PlanningProfileCard({ theme, profile, loading, onPress }: {
   const tags = dietary.slice(0, 3);
 
   return (
-    <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { padding: space.lg, borderWidth: 0, backgroundColor: theme.fieldSurface }]}>
-      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${t('planningProfile.title')}, ${t('planningProfile.cardSummary')}`} scaleTo={0.985} style={{ gap: space.lg }}>
+    <AppCard theme={theme} radius={radius.showcase} style={[flatMeCardStyle, { aspectRatio: 1, minWidth: 0, borderWidth: 0, backgroundColor: theme.fieldSurface, overflow: 'hidden' }]}>
+      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${t('planningProfile.title')}, ${t('planningProfile.cardSummary')}`} scaleTo={0.985} style={{ flex: 1, padding: space.lg, justifyContent: 'space-between', gap: space.sm }}>
         <View style={{ gap: space.xs }}>
           <Text style={[type.cardTitle, { color: theme.text }]}>{t('planningProfile.title')}</Text>
           <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('planningProfile.cardSummary')}</Text>
@@ -285,17 +285,14 @@ function PlanningProfileCard({ theme, profile, loading, onPress }: {
           <AppMetricStrip theme={theme} stats={facts} />
 
           {tags.length ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, flexWrap: 'wrap' }}>
-              <Text style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.dietaryRestrictions')}</Text>
-              {tags.map((tag, index) => (
-                <View key={`${tag}-${index}`} style={{ maxWidth: 120, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop }}>
-                  <Text numberOfLines={1} style={[type.caption, { fontWeight: '600', color: theme.text2 }]}>{tag}</Text>
-                </View>
-              ))}
-              {dietary.length > tags.length ? <Text style={[type.caption, { color: theme.text3 }]}>{`+${dietary.length - tags.length}`}</Text> : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minWidth: 0 }}>
+              <Text numberOfLines={1} style={[type.caption, { color: theme.text3, flexShrink: 1 }]}>{t('planningProfile.dietaryRestrictions')}</Text>
+              <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flex: 1 }]}>
+                {tags.join('、')}{dietary.length > tags.length ? ` +${dietary.length - tags.length}` : ''}
+              </Text>
             </View>
           ) : loading ? null : (
-            <Text style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.emptyHint')}</Text>
+            <Text numberOfLines={2} style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.emptyHint')}</Text>
           )}
         </View>
       </Press>
@@ -1090,8 +1087,10 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               <ProfileShortcut variant="favorites" theme={theme} icon="heart" title={t('me.myFavorites')} detail={t('me.savedSummary', { count: favoriteRoutes })}
                 items={savedRoutes} onPress={() => push({ type: 'favorites' })} />
             </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <PlanningProfileCard theme={theme} profile={data.planningProfile} loading={data.planningProfileLoading} onPress={() => push({ type: 'planningProfile' })} />
+            </View>
           </View>
-          <PlanningProfileCard theme={theme} profile={data.planningProfile} loading={data.planningProfileLoading} onPress={() => push({ type: 'planningProfile' })} />
           <ProfileShortcut variant="trash" theme={theme} icon="trash" title={t('journeyHome.trash.title')}
             detail={t('me.trashSummary', { count: data.trashedJourneys.length })}
             badge={data.trashedJourneys.length ? String(data.trashedJourneys.length) : undefined}
