@@ -992,7 +992,7 @@ export const zh = {
     },
     form: {
       heading: "旅程信息",
-      nameQuestion: "这次行程叫什么？",
+      nameQuestion: "这次旅程叫什么？",
       whereTitle: "想去哪里？",
       wherePlaceholder: "输入目的地或旅程名称",
       whenTitle: "什么时候出发？",
@@ -1771,6 +1771,10 @@ export const zh = {
       postedAt: "发布于 {time}",
       postedAtUnknown: "发布时间未记录",
     },
+  },
+
+  route: {
+    seasonTitle: "最佳季节",
   },
 
   tracks: {

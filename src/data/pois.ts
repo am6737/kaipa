@@ -81,6 +81,9 @@ export interface Poi {
   trackPublic?: boolean; // whether this journey's track is shown on the explore page
   routeShowPhotos?: boolean; // show user photos on the published route card
   routeShowTimeline?: boolean; // show itinerary on the published route card
+  // route-catalog season metadata, curated in scripts/route-seasons.json
+  bestMonths?: number[]; // months 1-12 suitable for this route
+  seasonNote?: string; // caveats the months can't express (封山期, 雨季…)
   deletedAt?: string; // journey-only: present while the journey is in the trash
 }
 

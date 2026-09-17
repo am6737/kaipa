@@ -1,6 +1,6 @@
 // NewJourneySheet.tsx — unified journey creation flow:
 // choose a route or blank journey → add core details → create and open it.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -30,7 +30,8 @@ import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
-import { TrackMap } from './TrackMap';
+import { TrackMap, TrackMapHandle } from './TrackMap';
+import { TrailSheet } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
 import { journeySchedulePatch } from '../../lib/journeySchedule';
 import {
@@ -635,7 +636,10 @@ function NJPresetPlanner({
   const { height } = useWindowDimensions();
   // The planner has the same two core fields as the create form plus two CTAs;
   // keep enough sheet height for both controls without clipping the footer.
-  const plannerHeight = Math.min(Math.max(height * 0.44, 370), 430);
+  // The card top also carries a compact identity header — the minimized display
+  // left visible when the card collapses, like the journey detail sheet.
+  const plannerHeight = Math.min(Math.max(height * 0.56, 450), 500);
+  const minimizedHeight = Math.round(height * 0.15);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
@@ -661,74 +665,106 @@ function NJPresetPlanner({
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
   const nameValid = tripName.trim().length > 0;
   const visiblePlannerHeight = plannerHeight + keyboardHeight;
+  // TrailSheet leaves paddingBottom = 24 + insets.bottom below the body content,
+  // so the fixed-height card content must be that much shorter than the sheet
+  // frame to fill it exactly without any scroll slack.
+  const cardContentHeight = visiblePlannerHeight - (24 + insets.bottom);
+  const [sheetIndex, setSheetIndex] = useState(1);
+  const prevSheetIndex = useRef(1);
+  const mapRef = useRef<TrackMapHandle>(null);
+  // Frame the track above whatever the card covers and refit when it snaps to a
+  // new detent — the discover map does the same for journey details.
+  const routePadding: [number, number, number, number] = [
+    insets.top + 68,
+    34,
+    (sheetIndex === 0 ? minimizedHeight : visiblePlannerHeight) + space.md,
+    34,
+  ];
+  useEffect(() => {
+    if (prevSheetIndex.current === sheetIndex) return;
+    prevSheetIndex.current = sheetIndex;
+    mapRef.current?.fitRoute();
+  }, [sheetIndex]);
+  const handleSheetIndexChange = useCallback((index: number) => {
+    setSheetIndex(index);
+    // Collapsing the card is a "look at the map" gesture — drop the keyboard so
+    // the minimized strip isn't shadowed by it.
+    if (index === 0) Keyboard.dismiss();
+  }, []);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface }]}>
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: Math.max(0, height - visiblePlannerHeight + radius.feature), overflow: 'hidden' }}>
-        {hasMapLocation ? (
-          <TrackMap
-            fill
-            interactive
-            showLegend={false}
-            coords={mapCoords}
-            theme={theme}
-            accent={theme.accent}
-            routePadding={[insets.top + 84, 34, 48, 34]}
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }]}>
-            <Icon name="pin" color={theme.text2} size={24} />
-            <Text style={{ ...type.caption, color: theme.text2, marginTop: space.xs }}>{route.region}</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, right: space.md, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <AppIconButton theme={theme} name="close" onPress={onClose} noShadow accessibilityLabel={t('common.close')} />
-        <View pointerEvents="none" style={{ position: 'absolute', left: 54, right: 54, alignItems: 'center' }}>
-          <View style={{ paddingHorizontal: space.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: 'rgba(0,0,0,0.56)' }}>
-            <Text style={{ ...type.navTitle, color: '#FFFFFF' }}>{t('journeyEdit.planner.title')}</Text>
-          </View>
-        </View>
-        <View style={{ width: 44 }} />
-      </View>
-
-      <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 68, left: space.md, maxWidth: '72%', paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.control, backgroundColor: 'rgba(0,0,0,0.64)' }}>
-        <Text numberOfLines={1} style={{ ...type.cardTitle, color: '#FFFFFF' }}>{route.name}</Text>
-        {routeMetrics.length > 0 ? (
-          <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xxs }}>
-            {routeMetrics.map((metric, index) => <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 10.5, color: 'rgba(255,255,255,0.72)' }}>{metric}</Text>)}
-          </View>
-        ) : null}
-      </View>
-
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: visiblePlannerHeight, borderTopLeftRadius: radius.feature, borderTopRightRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.groupedBg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.fieldBorder }}>
-        <Pressable
-          onPress={Keyboard.dismiss}
-          style={StyleSheet.absoluteFill}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
+      {hasMapLocation ? (
+        <TrackMap
+          ref={mapRef}
+          fill
+          interactive
+          showLegend={false}
+          coords={mapCoords}
+          theme={theme}
+          accent={theme.accent}
+          routePadding={routePadding}
         />
-        <View style={{ width: 38, height: 4, borderRadius: radius.pill, alignSelf: 'center', marginTop: space.sm, backgroundColor: theme.progressTrack }} />
-        <View style={{ paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.md }}>
-          <View>
-            <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.nameQuestion')}</Text>
-            <View style={{ height: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
-              <TextInput
-                value={tripName}
-                onChangeText={setTripName}
-                maxLength={32}
-                multiline
-                numberOfLines={2}
-                placeholder={t('journeyEdit.details.namePlaceholder')}
-                placeholderTextColor={theme.text3}
-                style={{ width: '100%', height: 48, padding: 0, paddingRight: 28, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: '600', textAlignVertical: 'top' }}
-              />
-              <View style={{ height: 17, marginTop: space.xxs, justifyContent: 'center' }}>
-                <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{route.region}</Text>
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { bottom: sheetIndex === 0 ? minimizedHeight : visiblePlannerHeight, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }]}>
+          <Icon name="pin" color={theme.text2} size={24} />
+          <Text style={{ ...type.caption, color: theme.text2, marginTop: space.xs }}>{route.region}</Text>
+        </View>
+      )}
+
+      <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, height: 44, flexDirection: 'row', alignItems: 'center' }}>
+        <AppIconButton theme={theme} name="close" onPress={onClose} noShadow accessibilityLabel={t('common.close')} />
+      </View>
+
+      <TrailSheet
+        theme={theme}
+        snapHeights={[minimizedHeight, visiblePlannerHeight]}
+        initialIndex={1}
+        dismissOnDrag={false}
+        onIndexChange={handleSheetIndexChange}
+        backgroundColor={theme.groupedBg}
+        header={<View />}
+      >
+        <View style={{ height: cardContentHeight }}>
+          <Pressable
+            onPress={Keyboard.dismiss}
+            style={StyleSheet.absoluteFill}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <View style={{ paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.md }}>
+            {/* Identity header — the strip left visible when the card collapses,
+                mirroring the journey detail sheet's name + meta header. It
+                follows the name input while typing and falls back to the route
+                name only while the input is empty. */}
+            <Text numberOfLines={1} style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{tripName.trim() || route.name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.xxs }}>
+              <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{route.region}</Text>
+              {routeMetrics.length > 0 ? (
+                <View style={{ flexDirection: 'row', gap: space.sm, flexShrink: 0 }}>
+                  {routeMetrics.map((metric, index) => <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{metric}</Text>)}
+                </View>
+              ) : null}
+            </View>
+
+            <View style={{ marginTop: layout.sectionGap }}>
+              <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.nameQuestion')}</Text>
+              <View style={{ height: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+                <TextInput
+                  value={tripName}
+                  onChangeText={setTripName}
+                  maxLength={32}
+                  multiline
+                  numberOfLines={2}
+                  placeholder={t('journeyEdit.details.namePlaceholder')}
+                  placeholderTextColor={theme.text3}
+                  style={{ width: '100%', height: 48, padding: 0, paddingRight: 28, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: '600', textAlignVertical: 'top' }}
+                />
+                <View style={{ height: 17, marginTop: space.xxs, justifyContent: 'center' }}>
+                  <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{route.region}</Text>
+                </View>
               </View>
             </View>
-          </View>
 
           <View style={{ marginTop: layout.sectionGap }}>
             <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whenTitle')}</Text>
@@ -747,8 +783,7 @@ function NJPresetPlanner({
           </View>
         </View>
 
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: keyboardHeight, height: 68 + Math.max(insets.bottom, space.md), backgroundColor: theme.groupedBg }} />
-        <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) }}>
+        <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) - (24 + insets.bottom) }}>
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onManualPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
               {creatingMode === 'manual' ? <ActivityIndicator color={theme.text} /> : null}
@@ -760,7 +795,8 @@ function NJPresetPlanner({
             </Press>
           </View>
         </View>
-      </View>
+        </View>
+      </TrailSheet>
     </View>
   );
 }

@@ -1800,6 +1800,10 @@ export const en: SameShape<typeof zh> = {
     },
   },
 
+  route: {
+    seasonTitle: "Best season",
+  },
+
   tracks: {
     pageTitle: "My tracks",
     searchPlaceholder: "Search tracks",

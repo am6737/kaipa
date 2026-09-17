@@ -106,7 +106,7 @@ export function JourneyCreateMenu({ theme, visible, onClose, onCreate, onParse, 
           accessibilityRole="button"
           accessibilityLabel={labels.close}
           onPress={() => close()}
-          style={[styles.closeButton, { top: insets.top + space.sm + 6, right: 22 }]}
+          style={[styles.closeButton, { top: insets.top + space.xs, right: layout.pagePadding }]}
         >
           <Animated.View
             style={{
@@ -123,8 +123,8 @@ export function JourneyCreateMenu({ theme, visible, onClose, onCreate, onParse, 
           style={[
             styles.menu,
             {
-              top: insets.top + space.sm + 6 + layout.iconButton + space.xs,
-              right: 20,
+              top: insets.top + space.xs + layout.iconButton + space.xs,
+              right: layout.pagePadding - 2,
               width: Math.min(204, width - 52),
               opacity: progress,
               transform: [

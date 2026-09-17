@@ -38,6 +38,7 @@ import { KPState } from '../components/State';
 import { AppActionDialog, AppCard, AppMetricStrip, AppSectionHeader, DetailPage, layout, motion, radius, space, type, type AppMetric } from '../design-system';
 import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from '../lib/journeyInvite';
+import { formatTrackDistance, formatTrackAscent } from '../lib/trackParser';
 import type { Poi } from '../data/pois';
 
 type MePage =
@@ -825,8 +826,21 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
 
   const favoriteRoutes = data.routes.filter((route) => route.fav).length;
   const savedRoutes = data.routes.filter((route) => route.fav);
-  const trackKm = data.tracks.reduce((sum, track) => sum + (track.distM ?? 0), 0) / 1000;
-  const trackAsc = data.tracks.reduce((sum, track) => sum + (track.ascM ?? 0), 0);
+  // The tracks card previews content, not library aggregates: the two most
+  // recently added tracks with their own distance/ascent.
+  const tracksPreviewRows = [...data.tracks]
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+    .slice(0, 2)
+    .map((track) => ({
+      id: track.id,
+      label: track.name || t('tracks.untitled'),
+      value: [
+        track.distM != null ? formatTrackDistance(track.distM) : null,
+        track.ascM != null && track.ascM > 0 ? formatTrackAscent(track.ascM) : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') || t('tracks.meta.noGeometry'),
+    }));
   const gearWeight = data.items.reduce((sum, item) => sum + itemWeight(item), 0);
   const gearValue = data.items.reduce((sum, item) => sum + itemPrice(item), 0);
   const checklistPreviewRows = data.sets.map((set) => {
@@ -1058,10 +1072,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <ProfileShortcut variant="tracks" theme={theme} icon="route" title={t('me.myTracks')} detail={t('me.tracksSummary', { count: data.tracks.length })}
                 items={[]}
-                stats={[
-                  { label: t('tracks.stat.distance'), value: trackKm >= 1000 ? `${(trackKm / 1000).toFixed(1)}k km` : `${trackKm.toFixed(1)} km` },
-                  { label: t('tracks.stat.ascent'), value: `+${Math.round(trackAsc)} m` },
-                ]}
+                previewRows={tracksPreviewRows}
                 onPress={() => push({ type: 'tracks' })} />
             </View>
           </View>

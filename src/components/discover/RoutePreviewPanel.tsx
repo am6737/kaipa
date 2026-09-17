@@ -35,6 +35,8 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true }: {
         <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
       </View>
 
+      {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}
+
       <PhotoTile tone={route.tone} seed={route.id} radius={radius.feature} resWidth={900} style={{ height: 196, marginTop: space.xl }}>
         {route.photoUris?.[0] ? <Image source={{ uri: route.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
       </PhotoTile>
@@ -78,11 +80,74 @@ export function RoutePreviewActions({ theme, poi, style }: { theme: Theme; poi: 
   );
 }
 
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+// "5-6月 · 9-10月" — collapse adjacent months into ranges.
+function monthRanges(months: number[]) {
+  const sorted = [...new Set(months)].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    const m = sorted[i];
+    if (m === prev + 1) {
+      prev = m;
+      continue;
+    }
+    ranges.push(start === prev ? `${start}月` : `${start}-${prev}月`);
+    start = m;
+    prev = m;
+  }
+  return ranges.join(' · ');
+}
+
+// A 12-cell month strip highlighting the route's best season, with the
+// current month ringed and the free-form note (封山期, 雨季…) below.
+function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; note?: string }) {
+  const { t } = useI18n();
+  const best = new Set(months);
+  const currentMonth = new Date().getMonth() + 1;
+  return (
+    <View style={{ marginTop: space.md }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: theme.text }}>{t('route.seasonTitle')}</Text>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2 }}>{monthRanges(months)}</Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 4 }}>
+        {MONTHS.map((m) => {
+          const isBest = best.has(m);
+          const isCurrent = m === currentMonth;
+          return (
+            <View
+              key={m}
+              style={{
+                flex: 1,
+                height: 30,
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: isBest ? theme.accent : theme.dark ? theme.fieldSurface : '#F3F3F4',
+                borderWidth: isCurrent && !isBest ? StyleSheet.hairlineWidth : 0,
+                borderColor: theme.accent,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontFamily: MONO, fontWeight: '700', color: isBest ? '#FFFFFF' : theme.text3 }}>{m}</Text>
+            </View>
+          );
+        })}
+      </View>
+      {note ? (
+        <Text style={{ fontSize: 12, color: theme.text3, lineHeight: 17, marginTop: 7 }}>{note}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 function InfoPill({ theme, icon, text, accent, mono }: { theme: Theme; icon?: IconName; text: string; accent?: boolean; mono?: boolean }) {
   return (
-    <View style={{ height: 30, maxWidth: '100%', paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: accent ? theme.accentSoft : theme.dark ? theme.fieldSurface : '#F3F3F4' }}>
-      {icon ? <Icon name={icon} color={accent ? theme.accent : theme.text3} size={13} /> : null}
-      <Text numberOfLines={1} style={{ fontFamily: mono ? MONO : undefined, fontSize: 11.5, fontWeight: '700', color: accent ? theme.accent : theme.text2, flexShrink: 1 }}>{text}</Text>
+    <View style={{ height: 30, maxWidth: '100%', paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: accent ? theme.accent : theme.dark ? theme.fieldSurface : '#F3F3F4' }}>
+      {icon ? <Icon name={icon} color={accent ? '#FFFFFF' : theme.text3} size={13} /> : null}
+      <Text numberOfLines={1} style={{ fontFamily: mono ? MONO : undefined, fontSize: 11.5, fontWeight: '700', color: accent ? '#FFFFFF' : theme.text2, flexShrink: 1 }}>{text}</Text>
     </View>
   );
 }

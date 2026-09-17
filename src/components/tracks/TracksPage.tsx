@@ -8,11 +8,11 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppActionDialog, AppCard, AppHeaderSearch, AppIconButton, AppMetricStrip, AppProgressBar, DetailPage, radius } from '../../design-system';
+import { AppActionDialog, AppHeaderSearch, AppIconButton, AppProgressBar, DetailPage, radius } from '../../design-system';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
-import { KPState } from '../State';
+import { KPSkeletonLine } from '../State';
 import { useData } from '../../data/DataContext';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
@@ -23,12 +23,101 @@ import { Track } from '../../data/tracks';
 import { formatTrackAscent, formatTrackDistance } from '../../lib/trackParser';
 import { importTrackFiles, pickTrackFiles } from '../../lib/trackImport';
 import { exportTracks } from '../../lib/trackExport';
+import { TrackThumbnail } from './TrackThumbnail';
 
 export type TrackFilter = 'all' | 'unused' | 'applied';
 export type TrackSort = 'created' | 'distance' | 'name';
 
 function HeaderButton({ theme, icon, label, onPress, active }: { theme: Theme; icon: IconName; label: string; onPress: () => void; active?: boolean }) {
   return <AppIconButton theme={theme} name={icon} onPress={onPress} noShadow active={active} accessibilityLabel={label} />;
+}
+
+// The library's three totals read as one row of tiles rather than a bare strip,
+// so they carry the same weight as the gear and checklist summaries.
+function StatPill({ theme, icon, label, value }: { theme: Theme; icon: IconName; label: string; value: string }) {
+  return (
+    <View style={{ flex: 1, minWidth: 0, height: 82, paddingHorizontal: 17, paddingVertical: 13, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name={icon} color={theme.text3} size={15} strokeWidth={1.8} />
+        <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{label}</Text>
+      </View>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ fontFamily: MONO, fontSize: 20, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{value}</Text>
+    </View>
+  );
+}
+
+// Used vs unused is the one distinction worth a permanent control: it is the
+// difference between the routes already spoken for and the ones still free.
+function FilterChip({ theme, label, selected, dot, onPress }: { theme: Theme; label: string; selected: boolean; dot: string; onPress: () => void }) {
+  return (
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={label}
+      style={{
+        height: 36,
+        paddingHorizontal: 15,
+        borderRadius: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 7,
+        backgroundColor: selected ? theme.accent : theme.controlSurface,
+      }}
+    >
+      <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: selected ? '#FFFFFF' : dot }} />
+      <Text style={{ fontSize: 13.5, fontWeight: selected ? '700' : '600', color: selected ? '#FFFFFF' : theme.text2 }}>{label}</Text>
+      {selected ? <Icon name="check" color="#FFFFFF" size={13} strokeWidth={2.4} /> : null}
+    </Press>
+  );
+}
+
+function TracksEmptyCard({ theme, icon, title, body, action }: {
+  theme: Theme;
+  icon: IconName;
+  title: string;
+  body?: string;
+  action?: { label: string; icon?: IconName; onPress: () => void };
+}) {
+  return (
+    <View style={{ minHeight: 260, paddingHorizontal: 24, paddingVertical: 40, borderRadius: radius.feature, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentSofter }}>
+        <Icon name={icon} color={theme.accent} size={28} strokeWidth={1.7} />
+      </View>
+      <Text style={{ marginTop: 16, fontSize: 15, fontWeight: '700', color: theme.text, textAlign: 'center' }}>{title}</Text>
+      {body ? <Text style={{ marginTop: 8, fontSize: 13, lineHeight: 20, color: theme.text2, textAlign: 'center', maxWidth: 250 }}>{body}</Text> : null}
+      {action ? (
+        <Press
+          onPress={action.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          style={{ minHeight: 44, marginTop: 20, paddingHorizontal: 20, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.accent }}
+        >
+          {action.icon ? <Icon name={action.icon} color="#FFFFFF" size={17} strokeWidth={2.2} /> : null}
+          <Text style={{ fontSize: 14, fontWeight: '800', color: '#FFFFFF' }}>{action.label}</Text>
+        </Press>
+      ) : null}
+    </View>
+  );
+}
+
+// Rows only arrive after the first fetch, so the page holds their shape instead
+// of flashing the empty state at someone who has tracks.
+function TracksSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ gap: 12 }}>
+      {[0, 1, 2].map((index) => (
+        <View key={index} style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+          <KPSkeletonLine theme={theme} width={84} height={84} radius={16} />
+          <View style={{ flex: 1, gap: 10 }}>
+            <KPSkeletonLine theme={theme} width="72%" height={15} />
+            <KPSkeletonLine theme={theme} width="46%" height={12} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function TrackRow({
@@ -49,68 +138,76 @@ function TrackRow({
   onLongPress: () => void;
 }) {
   const { t } = useI18n();
-  const facts = [
-    track.distM != null ? formatTrackDistance(track.distM) : null,
-    track.ascM != null && track.ascM > 0 ? formatTrackAscent(track.ascM) : null,
-    track.pointCount ? t('tracks.meta.points', { count: track.pointCount }) : null,
-  ].filter(Boolean) as string[];
+  // Icon-value groups rather than one dotted string: each fact keeps its own
+  // glyph so the eye can find distance without reading the line.
+  const facts: { icon: IconName; text: string }[] = [
+    track.distM != null ? { icon: 'distance' as IconName, text: formatTrackDistance(track.distM) } : null,
+    track.ascM != null && track.ascM > 0 ? { icon: 'arrowUp' as IconName, text: formatTrackAscent(track.ascM) } : null,
+    track.pointCount ? { icon: 'pin' as IconName, text: t('tracks.meta.points', { count: track.pointCount }) } : null,
+  ].filter(Boolean) as { icon: IconName; text: string }[];
 
   return (
-    <Press onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={track.name} scaleTo={1} style={{ marginBottom: 12 }}>
-      <AppCard theme={theme} radius={radius.card} style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <View
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 13,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-          }}
-        >
-          <Icon name="route" color={theme.accent} size={22} strokeWidth={2} />
+    <Press onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={track.name}
+      style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
+        <TrackThumbnail theme={theme} coords={track.coords} size={84} />
+      </View>
+
+      <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text numberOfLines={2} style={{ flexShrink: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>
+            {track.name || t('tracks.untitled')}
+          </Text>
+          {track.fileFormat ? (
+            <View style={{ flexShrink: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, backgroundColor: theme.accentSoft }}>
+              <Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '800', color: theme.accent, letterSpacing: 0.4 }}>
+                {track.fileFormat.toUpperCase()}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 15.5, fontWeight: '700', color: theme.text }}>
-              {track.name || t('tracks.untitled')}
-            </Text>
-            {track.fileFormat ? (
-              <View style={{ paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, backgroundColor: theme.accentSoft }}>
-                <Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '800', color: theme.accent, letterSpacing: 0.4 }}>
-                  {track.fileFormat.toUpperCase()}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3, marginTop: 3 }}>
-            {facts.length ? facts.join(' · ') : t('tracks.meta.noGeometry')}
-          </Text>
-          <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: usage.length ? theme.accent : theme.text3, marginTop: 3 }}>
+        <View accessible accessibilityLabel={facts.map((fact) => fact.text).join(', ')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          {facts.length ? facts.map((fact) => (
+            <View key={fact.icon} style={{ flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Icon name={fact.icon} color={theme.text2} size={15} strokeWidth={1.8} />
+              <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, fontFamily: MONO, fontSize: 11.5, color: theme.text2 }}>{fact.text}</Text>
+            </View>
+          )) : (
+            <Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3 }}>{t('tracks.meta.noGeometry')}</Text>
+          )}
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <Icon name="link" color={usage.length ? theme.accent : theme.text3} size={15} strokeWidth={1.8} />
+          <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 12, fontWeight: '600', color: usage.length ? theme.accent : theme.text3 }}>
             {usage.length ? t('tracks.usage.applied', { count: usage.length }) : t('tracks.usage.unused')}
           </Text>
         </View>
+      </View>
 
-        {selectMode ? (
-          <View
-            style={{
-              width: 25,
-              height: 25,
-              borderRadius: 13,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 1.5,
-              borderColor: selected ? theme.accent : theme.fieldBorder,
-              backgroundColor: selected ? theme.accent : 'transparent',
-            }}
-          >
-            {selected ? <Icon name="check" color="#FFFFFF" size={14} strokeWidth={3} /> : null}
-          </View>
-        ) : (
-          <Icon name="chevronR" color={theme.text3} size={17} strokeWidth={2.2} />
-        )}
-      </AppCard>
+      {selectMode ? (
+        <View
+          style={{
+            width: 25,
+            height: 25,
+            borderRadius: 13,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 2,
+            borderColor: selected ? theme.accent : theme.text3,
+            backgroundColor: selected ? theme.accent : 'transparent',
+          }}
+        >
+          {selected ? <Icon name="check" color="#FFFFFF" size={16} strokeWidth={2.4} /> : null}
+        </View>
+      ) : (
+        <Icon name="chevronR" color={theme.text3} size={17} strokeWidth={2.2} />
+      )}
+
+      {selected ? (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} />
+      ) : null}
     </Press>
   );
 }
@@ -185,9 +282,9 @@ export function TracksPage({
     const totalM = data.tracks.reduce((sum, track) => sum + (track.distM ?? 0), 0);
     const totalAsc = data.tracks.reduce((sum, track) => sum + (track.ascM ?? 0), 0);
     return [
-      { label: t('tracks.stat.count'), value: String(data.tracks.length) },
-      { label: t('tracks.stat.distance'), value: totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m` },
-      { label: t('tracks.stat.ascent'), value: `+${Math.round(totalAsc)} m` },
+      { icon: 'route' as IconName, label: t('tracks.stat.count'), value: String(data.tracks.length) },
+      { icon: 'distance' as IconName, label: t('tracks.stat.distance'), value: totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m` },
+      { icon: 'arrowUp' as IconName, label: t('tracks.stat.ascent'), value: `+${Math.round(totalAsc)} m` },
     ];
   }, [data.tracks, t]);
 
@@ -357,16 +454,22 @@ export function TracksPage({
             {selectedIds.size ? (
               <Press
                 onPress={() => void exportZip()}
+                opacityTo={1}
+                accessibilityRole="button"
+                accessibilityLabel={t('tracks.action.exportZip')}
                 style={{
                   flex: 1,
                   height: 52,
                   borderRadius: 26,
+                  flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF',
+                  gap: 8,
+                  backgroundColor: theme.controlSurface,
                   opacity: exporting ? 0.5 : 1,
                 }}
               >
+                <Icon name="download" color={theme.text} size={18} strokeWidth={2.1} />
                 <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>
                   {t('tracks.action.exportZip')}
                 </Text>
@@ -374,13 +477,15 @@ export function TracksPage({
             ) : null}
             <Press
               onPress={selectedIds.size ? () => setDeleteOpen(true) : undefined}
+              accessibilityRole="button"
+              accessibilityLabel={selectedIds.size ? t('tracks.select.deleteConfirm', { count: selectedIds.size }) : t('tracks.select.deletePrompt')}
               style={{
                 flex: 1,
                 height: 52,
                 borderRadius: 26,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? '#2C2C2E' : '#FFFFFF'),
+                backgroundColor: selectedIds.size ? theme.danger : theme.controlSurface,
               }}
             >
               <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>
@@ -404,14 +509,23 @@ export function TracksPage({
             ) : null}
           </View>
           {!selectMode && data.tracks.length ? (
-            <View style={{ marginTop: 15 }}>
-              <AppMetricStrip theme={theme} stats={stats} />
+            <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
+              <FilterChip theme={theme} label={t('tracks.filter.all')} selected={filter === 'all'} dot={theme.text3} onPress={() => setFilter('all')} />
+              <FilterChip theme={theme} label={t('tracks.filter.unused')} selected={filter === 'unused'} dot={theme.text3} onPress={() => setFilter('unused')} />
+              <FilterChip theme={theme} label={t('tracks.filter.applied')} selected={filter === 'applied'} dot={theme.accent} onPress={() => setFilter('applied')} />
+            </View>
+          ) : null}
+          {!selectMode && data.tracks.length ? (
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 15 }}>
+              {stats.map((stat) => (
+                <StatPill key={stat.label} theme={theme} icon={stat.icon} label={stat.label} value={stat.value} />
+              ))}
             </View>
           ) : null}
         </View>
 
         {progress || summary ? (
-          <AppCard theme={theme} radius={radius.card} style={{ padding: 14, marginBottom: 14 }}>
+          <View style={{ borderRadius: 24, padding: 14, marginBottom: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text numberOfLines={1} style={{ flex: 1, fontSize: 14.5, fontWeight: '700', color: summary ? theme.danger : theme.text }}>
                 {progress
@@ -429,9 +543,14 @@ export function TracksPage({
                 <View style={{ marginTop: 10 }}>
                   <AppProgressBar theme={theme} value={(progress.done / Math.max(1, progress.total)) * 100} />
                 </View>
-                <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3, marginTop: 8 }}>
-                  {[`${progress.done}/${progress.total}`, progress.fileName].filter(Boolean).join(' · ')}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <Text style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: '700', color: theme.text2 }}>
+                    {`${progress.done}/${progress.total}`}
+                  </Text>
+                  <Text numberOfLines={1} style={{ flex: 1, fontFamily: MONO, fontSize: 11.5, color: theme.text3 }}>
+                    {progress.fileName}
+                  </Text>
+                </View>
               </>
             ) : null}
             {/* Naming the files that failed is the point of not aborting the batch —
@@ -443,30 +562,37 @@ export function TracksPage({
                 {fileName}
               </Text>
             ))}
-          </AppCard>
+          </View>
         ) : null}
 
-        {rows.length ? rows.map((track) => (
-          <TrackRow
-            key={track.id}
-            theme={theme}
-            track={track}
-            usage={usageByTrack.get(track.id) ?? []}
-            selectMode={selectMode}
-            selected={selectedIds.has(track.id)}
-            onPress={() => (selectMode ? toggleSelected(track.id) : openTrack(track))}
-            onLongPress={() => (selectMode ? undefined : enterSelect(track.id))}
-          />
-        )) : (
-          <KPState
+        {data.tracksLoading && !data.tracks.length ? (
+          <TracksSkeleton theme={theme} />
+        ) : rows.length ? (
+          <View style={{ gap: 12 }}>
+            {rows.map((track) => (
+              <TrackRow
+                key={track.id}
+                theme={theme}
+                track={track}
+                usage={usageByTrack.get(track.id) ?? []}
+                selectMode={selectMode}
+                selected={selectedIds.has(track.id)}
+                onPress={() => (selectMode ? toggleSelected(track.id) : openTrack(track))}
+                onLongPress={() => (selectMode ? undefined : enterSelect(track.id))}
+              />
+            ))}
+          </View>
+        ) : data.tracks.length ? (
+          <TracksEmptyCard theme={theme} icon="search" title={t('tracks.empty.filteredTitle')} body={t('tracks.empty.filteredBody')} />
+        ) : (
+          <TracksEmptyCard
             theme={theme}
             icon="route"
-            title={data.tracks.length ? t('tracks.empty.filteredTitle') : t('tracks.empty.title')}
-            body={data.tracks.length ? t('tracks.empty.filteredBody') : t('tracks.empty.body')}
+            title={t('tracks.empty.title')}
+            body={t('tracks.empty.body')}
             // An empty library makes import the only useful thing to do, and it
             // would otherwise be two taps away behind the header menu.
-            action={!data.tracks.length && Platform.OS !== 'web' ? { label: t('tracks.action.import'), onPress: () => void runImport() } : undefined}
-            style={{ marginTop: 40 }}
+            action={Platform.OS !== 'web' ? { label: t('tracks.action.import'), icon: 'upload', onPress: () => void runImport() } : undefined}
           />
         )}
       </View>

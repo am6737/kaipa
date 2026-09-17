@@ -42,7 +42,7 @@ export function ProfileShortcut({ theme, title, detail, items, previewRows, icon
   title: string;
   detail: string;
   items: Pick<Poi, 'id' | 'photoUris'>[];
-  previewRows?: { label: string; value: string }[];
+  previewRows?: { id?: string; label: string; value: string }[];
   icon: IconName;
   variant: 'journeys' | 'favorites' | 'gear' | 'checklist' | 'trash' | 'tracks';
   onPress: () => void;
@@ -115,7 +115,7 @@ export function ProfileShortcut({ theme, title, detail, items, previewRows, icon
           ) : previewRows?.length ? (
             <View style={{ width: '100%', gap: space.xs }}>
               {previewRows.slice(0, 3).map((row) => (
-                <View key={row.label} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <View key={row.id ?? row.label} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
                   <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flex: 1 }]}>{row.label}</Text>
                   <Text numberOfLines={1} style={[type.caption, { color: theme.text, textAlign: 'right' }]}>{row.value}</Text>
                 </View>

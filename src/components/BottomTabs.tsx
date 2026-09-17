@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   },
   assistant: {
     position: 'absolute',
-    right: space.md,
+    right: space.xxxl,
     width: 52,
     height: 52,
     borderRadius: radius.pill,

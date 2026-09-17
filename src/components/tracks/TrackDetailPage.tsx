@@ -23,13 +23,26 @@ import { trackToPoi } from './trackToPoi';
 import { PickDialog } from './PickDialog';
 import { RenameTrackDialog } from './RenameTrackDialog';
 
-function Stat({ theme, label, value }: { theme: Theme; label: string; value: string }) {
+// Distance and ascent are the two numbers worth reading before the map, so they
+// sit in the same field tiles the gear detail pages use for their headline stats.
+function StatTile({ theme, label, value, unit }: { theme: Theme; label: string; value: string; unit?: string }) {
   return (
-    <View style={{ flex: 1, minWidth: 0 }}>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontFamily: MONO, fontSize: 15, fontWeight: '700', color: theme.text }}>{value}</Text>
-      <Text numberOfLines={1} style={{ fontSize: 11, color: theme.text3, marginTop: 2 }}>{label}</Text>
+    <View style={{ flex: 1, minWidth: 0, minHeight: 104, borderRadius: 24, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, paddingHorizontal: 20, paddingVertical: 17, justifyContent: 'space-between' }}>
+      <Text numberOfLines={1} style={{ fontSize: 15, color: theme.text2, letterSpacing: -0.1 }}>{label}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
+        <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text, letterSpacing: -0.7 }}>{value}</Text>
+        {unit ? <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{unit}</Text> : null}
+      </View>
     </View>
   );
+}
+
+// The formatters return "12.34 km" / "+890 m" as one string; the tile wants the
+// number large and the unit beside it.
+function splitMeasure(text: string | null): { value: string; unit?: string } {
+  if (!text) return { value: '—' };
+  const cut = text.lastIndexOf(' ');
+  return { value: text.slice(0, cut), unit: text.slice(cut + 1) };
 }
 
 export function TrackDetailPage({
@@ -56,6 +69,8 @@ export function TrackDetailPage({
   const linkedJourneys = useMemo(() => data.journeys.filter((journey) => journey.trackId === track.id), [data.journeys, track.id]);
   const info = useMemo(() => trackToPoi(track), [track]);
   const hasElevation = (track.elevation?.length ?? 0) >= 2;
+  const dist = splitMeasure(track.distM != null ? formatTrackDistance(track.distM) : null);
+  const asc = splitMeasure(track.ascM != null ? formatTrackAscent(track.ascM) : null);
 
   const exportGpx = () => {
     if (!(track.coords?.length || track.fileUrl)) return;
@@ -110,14 +125,24 @@ export function TrackDetailPage({
             <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>
               {track.name || t('tracks.untitled')}
             </Text>
-            <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 12, color: theme.text3, marginTop: 6 }}>
-              {[track.fileName, track.pointCount ? t('tracks.meta.points', { count: track.pointCount }) : null].filter(Boolean).join(' · ')}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, minWidth: 0 }}>
+              {track.fileName ? (
+                <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: MONO, fontSize: 12, color: theme.text3 }}>{track.fileName}</Text>
+              ) : null}
+              {track.pointCount ? (
+                <View style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Icon name="pin" color={theme.text3} size={13} strokeWidth={1.8} />
+                  <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text2 }}>
+                    {t('tracks.meta.points', { count: track.pointCount })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           <View style={{ flexDirection: 'row', gap: space.md, marginTop: 18 }}>
-            <Stat theme={theme} label={t('tracks.stat.distance')} value={track.distM != null ? formatTrackDistance(track.distM) : '—'} />
-            <Stat theme={theme} label={t('tracks.stat.ascent')} value={track.ascM != null ? formatTrackAscent(track.ascM) : '—'} />
+            <StatTile theme={theme} label={t('tracks.stat.distance')} value={dist.value} unit={dist.unit} />
+            <StatTile theme={theme} label={t('tracks.stat.ascent')} value={asc.value} unit={asc.unit} />
           </View>
 
           <View style={{ marginTop: 18 }}>
@@ -185,7 +210,7 @@ export function TrackDetailPage({
         options={data.journeys.map((journey) => ({
           item: journey,
           title: journey.name,
-          subtitle: [journey.region, journey.date].filter(Boolean).join(' · '),
+          subtitle: [journey.region, journey.date].filter(Boolean) as string[],
           selected: journey.trackId === track.id,
         }))}
         onCancel={() => setApplyOpen(false)}

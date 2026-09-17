@@ -14,7 +14,8 @@ import { MONO } from '../../theme/fonts';
 export interface PickOption<T> {
   item: T;
   title: string;
-  subtitle?: string;
+  /** A plain string, or the parts of a subtitle shown as separate MONO groups. */
+  subtitle?: string | string[];
   /** Marked rather than filtered out, so a re-pick reads as a move. */
   selected?: boolean;
 }
@@ -125,10 +126,18 @@ export function PickDialog<T extends { id: string }>({
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{option.title}</Text>
-                    {option.subtitle ? (
+                    {typeof option.subtitle === 'string' ? (
                       <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3, marginTop: 2 }}>
                         {option.subtitle}
                       </Text>
+                    ) : option.subtitle?.length ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, minWidth: 0 }}>
+                        {option.subtitle.map((part, index) => (
+                          <Text key={`${index}-${part}`} numberOfLines={1} style={{ flexShrink: 1, fontFamily: MONO, fontSize: 11.5, color: theme.text3 }}>
+                            {part}
+                          </Text>
+                        ))}
+                      </View>
                     ) : null}
                   </View>
                   {option.selected ? <Icon name="check" color={theme.accent} size={18} strokeWidth={2.4} /> : null}
