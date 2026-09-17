@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Icon } from '../Icon';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate } from '../maps/types';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
+import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobeProps } from './types';
 
 export default function MapGlobe({
@@ -28,17 +29,23 @@ export default function MapGlobe({
   cameraAction,
   focusBottomPadding,
   autoFrameRoute = true,
+  staggerPins = false,
   onCameraOrientationChange,
   onCameraGestureStart,
 }: GlobeProps) {
   const { height } = useWindowDimensions();
   const mapRef = useRef<NativeMapHandle>(null);
-  const [pinScale, setPinScale] = useState(() => photoPinScaleForZoom(3));
+  // The pin scale is an Animated.Value rather than state: a state change would
+  // rebuild (and thus re-register) every marker on the native map mid-zoom,
+  // which makes all pins flicker while pinching. setValue updates the
+  // transform natively without a React render or a marker remount.
+  const pinScale = useRef(new Animated.Value(photoPinScaleForZoom(3))).current;
   const handleZoomChange = useCallback((zoom: number) => {
     if (!Number.isFinite(zoom)) return;
-    // Quantize updates to avoid rebuilding every marker on every camera frame.
-    setPinScale(photoPinScaleForZoom(Math.round(zoom * 4) / 4));
-  }, []);
+    // Quantize to quarter-zoom steps so the scale only steps a few times
+    // across the whole zoom range.
+    pinScale.setValue(photoPinScaleForZoom(Math.round(zoom * 4) / 4));
+  }, [pinScale]);
   const validFocusCoords = useMemo(
     () => focusCoords?.filter(isValidMapCoordinate),
     [focusCoords],
@@ -116,15 +123,23 @@ export default function MapGlobe({
   }, [focusConnector, validFocusCoords, validFocusSegments, theme]);
 
   const markers = useMemo<NativeMapMarker[]>(() => {
-    const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi) => ({
-      id: `poi-${poi.id}-${pinScale}`,
+    const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi, index) => ({
+      id: `poi-${poi.id}`,
       coordinate: [poi.lng, poi.lat],
       anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
       title: poi.label,
       onPress: () => onPoiPress?.(poi.id),
       content: (
         <Pressable accessibilityRole="button" accessibilityLabel={poi.label} hitSlop={6}>
-          <PhotoPin theme={theme} poi={poi} active={activePoiId === poi.id} mapScale={pinScale} />
+          <PhotoPin
+            theme={theme}
+            poi={poi}
+            active={activePoiId === poi.id}
+            mapScale={pinScale}
+            entranceDelayMs={staggerPins
+              ? Math.min(index, Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS)) * STAGGER_STEP_MS
+              : undefined}
+          />
         </Pressable>
       ),
     }));
@@ -181,7 +196,7 @@ export default function MapGlobe({
       }
     }
     return values;
-  }, [activePoiId, onPoiPress, onRouteBoundaryPress, pinScale, pois, selectionPin, theme, validFocusBoundaries, validFocusCoords]);
+  }, [activePoiId, onPoiPress, onRouteBoundaryPress, pois, selectionPin, staggerPins, theme, validFocusBoundaries, validFocusCoords]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];

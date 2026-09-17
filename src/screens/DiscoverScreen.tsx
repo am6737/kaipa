@@ -1,7 +1,7 @@
 // DiscoverScreen.tsx — the 发现 tab. A platform-native map (SVG fallback) of routes
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -18,6 +18,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { KPState, KPSkeletonLine } from '../components/State';
+import { StaggerIn } from '../components/StaggerIn';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
 import { AppActionDialog, motion, radius, space, type } from '../design-system';
@@ -175,7 +176,14 @@ export function DiscoverScreen({
   const nav = useNav();
   const { t, resolved } = useI18n();
   const data = useData();
-  const { routes, journeys, userId } = data;
+  const { routes, journeys, routesLoading, journeysLoading, userId } = data;
+  // The card list cascades in one-by-one on the first data load only; later
+  // list changes (chip filters, edits, refetches) mount instantly.
+  const [entrancePlayed, setEntrancePlayed] = useState(false);
+  const dataLoading = routesLoading || journeysLoading;
+  useEffect(() => {
+    if (!dataLoading && !entrancePlayed) setEntrancePlayed(true);
+  }, [dataLoading, entrancePlayed]);
   const chipLabel = (id: string) =>
     t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
@@ -185,9 +193,9 @@ export function DiscoverScreen({
   const [mapStyle, setMapStyle] = useState<GlobeMapStyle>('standard');
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
   const [journeyMapDetailsVisible, setJourneyMapDetailsVisible] = useState(true);
-  const [journeyMapAtRouteFrame, setJourneyMapAtRouteFrame] = useState(true);
+  const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
-  const [journeyMapCameraAction, setJourneyMapCameraAction] = useState<GlobeCameraAction>();
+  const [mapCameraAction, setMapCameraAction] = useState<GlobeCameraAction>();
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
@@ -205,6 +213,7 @@ export function DiscoverScreen({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
+  const [routeSheetIndex, setRouteSheetIndex] = useState(1);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
   const [routeEditorGroupKey, setRouteEditorGroupKey] = useState<string | null>(null);
@@ -270,6 +279,7 @@ export function DiscoverScreen({
   const [timelineSelectionMode, setTimelineSelectionMode] = useState(false);
   const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
   const focusedJourneyId = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.id : undefined;
+  const focusedRouteId = nav.pointInfo?.kind === 'route' ? nav.pointInfo.id : undefined;
   const versionTimelinePreview = useMemo(
     () => nav.journeyVersionPreview
       ? { rows: nav.journeyVersionPreview.version.snapshot.timelineRows, groups: nav.journeyVersionPreview.version.snapshot.timelineGroups }
@@ -359,9 +369,9 @@ export function DiscoverScreen({
     setJourneySheetIndex(1);
     setMapStylePickerOpen(false);
     setJourneyMapDetailsVisible(true);
-    setJourneyMapAtRouteFrame(true);
+    setMapAtRouteFrame(true);
     setMapLabelsVisible(true);
-    setJourneyMapCameraAction(undefined);
+    setMapCameraAction(undefined);
     setSelectedPlanDays(new Set());
     setSelectedJourneyDay(undefined);
     setJourneyDaySelectionRequest(undefined);
@@ -390,6 +400,13 @@ export function DiscoverScreen({
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
   }, [focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
+
+  React.useEffect(() => {
+    setRouteSheetIndex(1);
+    setMapStylePickerOpen(false);
+    setMapAtRouteFrame(true);
+    setMapCameraAction(undefined);
+  }, [focusedRouteId]);
 
   React.useEffect(() => () => {
     headingSubscriptionRef.current?.remove();
@@ -699,17 +716,18 @@ export function DiscoverScreen({
   const journeyShowsCover = !routeEditorGroupKey && journeyHeroMode === 'cover' && !!journeyCoverUri;
   const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
   const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover && !routeEditorGroupKey;
-  const mapStylePickerVisible = mapStylePickerOpen && (journeyMapFull || !nav.pointInfo);
+  const routeMapFull = nav.pointInfo?.kind === 'route' && routeSheetIndex === 0;
+  const mapStylePickerVisible = mapStylePickerOpen && (journeyMapFull || routeMapFull || !nav.pointInfo);
   const journeyMapBottomPadding = journeySheetIndex === 0
     ? journeyMinimum + space.xl
     : journeySheetIndex === 1
       ? focusPanel + space.xl
       : full + space.md;
 
-  const fitJourneyMapRoute = () => {
+  const fitMapRoute = () => {
     setMapStylePickerOpen(false);
-    setJourneyMapAtRouteFrame(true);
-    setJourneyMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
+    setMapAtRouteFrame(true);
+    setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
   };
 
   React.useEffect(() => {
@@ -736,7 +754,7 @@ export function DiscoverScreen({
         lat: coordinate[1],
         heading: positionHeading != null && positionHeading >= 0 ? positionHeading : undefined,
       });
-      setJourneyMapCameraAction((current) => ({
+      setMapCameraAction((current) => ({
         type: 'locate',
         coordinate,
         revision: (current?.revision ?? 0) + 1,
@@ -837,11 +855,12 @@ export function DiscoverScreen({
           activePoiId={activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
-          cameraAction={journeyMapCameraAction}
-          focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : undefined}
-          autoFrameRoute={nav.pointInfo?.kind !== 'journey' || journeyMapAtRouteFrame}
+          cameraAction={mapCameraAction}
+          focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
+          autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
+          staggerPins={!entrancePlayed}
           onCameraGestureStart={() => {
-            if (nav.pointInfo?.kind === 'journey') setJourneyMapAtRouteFrame(false);
+            if (nav.pointInfo) setMapAtRouteFrame(false);
             else setMapAtCurrentLocation(false);
           }}
           focusCoords={focusCoords}
@@ -984,7 +1003,7 @@ export function DiscoverScreen({
 
 
 
-      {journeyMapFull ? (
+      {journeyMapFull || routeMapFull ? (
         <>
           <Press
             onPress={() => setMapStylePickerOpen((value) => !value)}
@@ -1012,10 +1031,10 @@ export function DiscoverScreen({
           </Press>
 
           <Press
-            onPress={fitJourneyMapRoute}
+            onPress={fitMapRoute}
             accessibilityRole="button"
             accessibilityLabel={t('journey.map.fitRoute')}
-            accessibilityState={{ selected: journeyMapAtRouteFrame }}
+            accessibilityState={{ selected: mapAtRouteFrame }}
             style={{
               position: 'absolute',
               right: space.md,
@@ -1033,7 +1052,7 @@ export function DiscoverScreen({
               elevation: 3,
             }}
           >
-            <Icon name="locate" color={journeyMapAtRouteFrame ? theme.accent : theme.text2} size={18} />
+            <Icon name="locate" color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} />
           </Press>
         </>
       ) : null}
@@ -1066,15 +1085,12 @@ export function DiscoverScreen({
         ref={sheetRef}
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
-        snapHeights={nav.pointInfo?.kind === 'journey'
-          ? [journeyMinimum, focusPanel, full]
-          : nav.pointInfo
-            ? [focusPanel, full]
-            : [collapsed, full]}
-        initialIndex={nav.pointInfo?.kind === 'journey' ? 1 : 0}
-        dismissOnDrag={nav.pointInfo?.kind !== 'journey'}
-        onIndexChange={nav.pointInfo?.kind === 'journey' ? (index) => {
-          setJourneySheetIndex(index);
+        snapHeights={nav.pointInfo ? [journeyMinimum, focusPanel, full] : [collapsed, full]}
+        initialIndex={nav.pointInfo ? 1 : 0}
+        dismissOnDrag={!nav.pointInfo}
+        onIndexChange={nav.pointInfo ? (index) => {
+          if (nav.pointInfo?.kind === 'journey') setJourneySheetIndex(index);
+          else setRouteSheetIndex(index);
           if (index !== 0) setMapStylePickerOpen(false);
         } : undefined}
         header={nav.pointInfo ? <View /> : header}
@@ -1160,27 +1176,30 @@ export function DiscoverScreen({
               />
             ) : (
               <View style={{ gap: isMemory ? space.sm : space.md, paddingTop: space.xxs }}>
-                {displayPois.map((p) => isMemory && p.kind === 'journey' ? (
-                  <DiscoverJourneyCard
-                    key={p.id}
-                    theme={theme}
-                    poi={p}
-                    selectMode={selectMode}
-                    selected={selectedIds.has(p.id)}
-                    onPress={() => {
-                      if (selectMode) toggleSelect(p.id);
-                      else {
+                {displayPois.map((p, index) => (
+                  <StaggerIn key={p.id} index={index} staggered={!entrancePlayed}>
+                    {isMemory && p.kind === 'journey' ? (
+                      <DiscoverJourneyCard
+                        theme={theme}
+                        poi={p}
+                        selectMode={selectMode}
+                        selected={selectedIds.has(p.id)}
+                        onPress={() => {
+                          if (selectMode) toggleSelect(p.id);
+                          else {
+                            setFocusReturnToList(true);
+                            nav.openPoint(p);
+                          }
+                        }}
+                        onLongPress={() => (selectMode ? toggleSelect(p.id) : enterSelect(p.id))}
+                      />
+                    ) : (
+                      <DiscoverRouteCard theme={theme} poi={p} onPress={() => {
                         setFocusReturnToList(true);
                         nav.openPoint(p);
-                      }
-                    }}
-                    onLongPress={() => (selectMode ? toggleSelect(p.id) : enterSelect(p.id))}
-                  />
-                ) : (
-                  <DiscoverRouteCard key={p.id} theme={theme} poi={p} onPress={() => {
-                    setFocusReturnToList(true);
-                    nav.openPoint(p);
-                  }} />
+                      }} />
+                    )}
+                  </StaggerIn>
                 ))}
               </View>
             )
@@ -1666,7 +1685,7 @@ export function DiscoverScreen({
           </Press>
         </View>
       ) : null}
-      {nav.pointInfo?.kind === 'route' ? (
+      {nav.pointInfo?.kind === 'route' && routeSheetIndex > 0 ? (
         <View
           pointerEvents="box-none"
           style={{

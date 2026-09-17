@@ -81,6 +81,8 @@ export interface GlobeProps {
   focusBottomPadding?: number;
   /** suspend automatic route framing after the user manually adjusts the map */
   autoFrameRoute?: boolean;
+  /** cascade the POI pins in one-by-one (first data load) instead of showing them all at once */
+  staggerPins?: boolean;
   /** reports map orientation so detail chrome can reveal a compass only when useful */
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
   /** reports that the user has moved the camera away from its programmatic route framing */

@@ -25,7 +25,14 @@ export function photoPinScaleForZoom(zoom: number): number {
   return 0.65 + Math.max(0, Math.min(1, (zoom - 3) / 8)) * 0.35;
 }
 
-export function PhotoPin({ theme, poi, active, mapScale = 1 }: { theme: Theme; poi: GlobePoi; active?: boolean; mapScale?: number }) {
+export function PhotoPin({ theme, poi, active, mapScale = 1, entranceDelayMs }: {
+  theme: Theme;
+  poi: GlobePoi;
+  active?: boolean;
+  mapScale?: number | Animated.Value;
+  /** per-index entrance delay so pins pop in one-by-one on the first data load */
+  entranceDelayMs?: number;
+}) {
   const palette = paletteFor(poi.tone);
   const count = poi.count && poi.count > 1 ? poi.count : 0;
 
@@ -39,6 +46,32 @@ export function PhotoPin({ theme, poi, active, mapScale = 1 }: { theme: Theme; p
     }).start();
   }, [active, scale]);
 
+  // First-appearance pop-in: when a delay is given the pin springs from
+  // scale 0 after it (same rhythm as the card list's StaggerIn). The delay
+  // is captured at mount, so later re-renders never replay the entrance.
+  const entranceDelay = useRef(entranceDelayMs).current;
+  const entrance = useRef(new Animated.Value(entranceDelay === undefined ? 1 : 0)).current;
+  useEffect(() => {
+    if (entranceDelay === undefined) return;
+    const entranceAnim = Animated.sequence([
+      Animated.delay(entranceDelay),
+      Animated.spring(entrance, {
+        toValue: 1,
+        useNativeDriver: true,
+        bounciness: 7,
+        speed: 14,
+      }),
+    ]);
+    entranceAnim.start();
+    // Safety net: if a platform's marker content doesn't animate live, the
+    // pin still becomes visible instead of staying frozen at scale 0.
+    const fallback = setTimeout(() => entrance.setValue(1), entranceDelay + 900);
+    return () => {
+      entranceAnim.stop();
+      clearTimeout(fallback);
+    };
+  }, [entrance, entranceDelay]);
+
   return (
     <View style={{ width: PHOTO_PIN_WIDTH, height: PHOTO_PIN_HEIGHT }}>
     <Animated.View
@@ -48,7 +81,8 @@ export function PhotoPin({ theme, poi, active, mapScale = 1 }: { theme: Theme; p
         alignItems: 'center',
         // Scale around the photo center so its geographic anchor stays fixed.
         transformOrigin: [PHOTO_PIN_WIDTH / 2, PHOTO_SIZE / 2, 0],
-        transform: [{ scale: Animated.multiply(scale, mapScale) }],
+        transform: [{ scale: Animated.multiply(Animated.multiply(scale, mapScale), entrance) }],
+        opacity: entrance,
       }}
     >
       <View

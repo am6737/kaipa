@@ -7,9 +7,10 @@ import Svg, { Circle, Defs, RadialGradient, Stop, Polyline, ClipPath, G } from '
 import { GlobeProps } from './types';
 import { project, graticule } from './projection';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, photoPinScaleForZoom } from './PhotoPin';
+import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 
-export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin }: GlobeProps) {
+export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin, staggerPins = false }: GlobeProps) {
   const t = theme;
   const R = size / 2;
   const cx = R;
@@ -60,7 +61,7 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
       </Svg>
 
       {/* projected, tappable POIs — rounded photos with capsule labels */}
-      {pois.map((p) => {
+      {pois.map((p, index) => {
         const pr = project(p.lng, p.lat, lon0, lat0, R - 4, cx, cy);
         if (!pr.visible) return null;
         const active = activePoiId != null && p.id === activePoiId;
@@ -82,7 +83,15 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
             accessibilityLabel={p.label}
             hitSlop={6}
           >
-            <PhotoPin theme={t} poi={p} active={active} mapScale={photoPinScaleForZoom(3)} />
+            <PhotoPin
+              theme={t}
+              poi={p}
+              active={active}
+              mapScale={photoPinScaleForZoom(3)}
+              entranceDelayMs={staggerPins
+                ? Math.min(index, Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS)) * STAGGER_STEP_MS
+                : undefined}
+            />
           </Pressable>
         );
       })}
