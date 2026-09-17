@@ -119,7 +119,7 @@ fi
 
 python3 - "$RUNTIME_DIR" "$PUBLIC_URL" "$API_EXTERNAL_URL" "$KONG_HTTP_PORT" "$KONG_HTTPS_PORT" "$POSTGRES_PORT" "$POOLER_PORT" <<'PY'
 from pathlib import Path
-import base64, hashlib, hmac, json, os, secrets, sys, time
+import base64, hashlib, hmac, json, os, re, secrets, sys, time
 runtime=Path(sys.argv[1])
 public_url, api_url, kong_http, kong_https, pg_port, pooler_port = sys.argv[2:8]
 compose=runtime/'docker-compose.yml'
@@ -147,13 +147,22 @@ compose.write_text(s)
 # profile 注入 APP_VARIANT=development，见 app.config.js），host.exp.Exponent 对应 Expo Go
 # 调试。模板里残留的是 yibai 的 com.hitosea.moments100，必须改写，否则真机登录会因
 # audience 不匹配被拒。
+#
+# 这里按「整行归一化」而不是替换某个固定旧值：--source 既可能是 yibai 模板
+# （com.hitosea.moments100），也可能是一份已经生成的 kaipa runtime（旧版白名单，例如
+# 少了 com.hitosea.letsgo.dev 的那版）。两种来源都要能收敛到当前值，否则脚本会在中途
+# 退出，逼着人手改 runtime 里的 compose。
 s=compose.read_text()
-apple_client_id='GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent"'
-s=s.replace('GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.moments100"', apple_client_id)
-if apple_client_id not in s:
-    raise SystemExit('Could not normalize GOTRUE_EXTERNAL_APPLE_CLIENT_ID in docker-compose.yml')
+apple_audiences='com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent'
+s, replaced=re.subn(r'GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "[^"]*"',
+                    f'GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "{apple_audiences}"', s)
+if replaced != 1:
+    raise SystemExit(f'Expected exactly one GOTRUE_EXTERNAL_APPLE_CLIENT_ID in docker-compose.yml, found {replaced}')
 # Edge Function 侧的 Apple 撤销（注销换码用）默认值同样别指向 yibai。
-s=s.replace('APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-com.hitosea.moments100}"', 'APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-com.hitosea.letsgo}"')
+s, replaced=re.subn(r'APPLE_CLIENT_ID: "\$\{APPLE_CLIENT_ID:-[^}]*\}"',
+                    'APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-com.hitosea.letsgo}"', s)
+if replaced > 1:
+    raise SystemExit(f'Expected at most one APPLE_CLIENT_ID default in docker-compose.yml, found {replaced}')
 # 校验 ID token 时 GoTrue 要在运行时拉取 Apple 的 OIDC discovery 与签名密钥；Docker 内嵌
 # DNS 对外部域名解析偶发失败，显式指定宿主解析器。
 if 'AUTH_DNS_SERVER' not in s:
