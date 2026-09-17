@@ -4,16 +4,31 @@
 // App 标识（app.json）：iOS bundleIdentifier 与 Android package 都是
 // com.hitosea.letsgo。注意高德 Android key 按「包名 + SHA1」注册，换包名必须
 // 去高德控制台重新注册 key，并把新 key 写进 EXPO_PUBLIC_AMAP_ANDROID_KEY。
+//
+// development profile（eas.json 里注入 APP_VARIANT=development）在两端标识后
+// 加 .dev、显示名加 dev，这样 dev build 与正式包能装在同一台手机上互不覆盖：
+//   iOS / Android：com.hitosea.letsgo.dev   显示名：kaipa dev
+// 连带影响：dev build 的 Apple 登录 audience 变成 com.hitosea.letsgo.dev，必须
+// 同步加进 GOTRUE_EXTERNAL_APPLE_CLIENT_ID（见 docs/apple-sign-in.md）；高德
+// Android key 也要为新包名 + 新 keystore 的 SHA1 另注册一个。
+// 本地 `npx expo start` 服务 dev build 时要带上 APP_VARIANT=development。
+
+const IS_DEV_VARIANT = process.env.APP_VARIANT === 'development';
+
+const variantId = (value) => (IS_DEV_VARIANT && value ? `${value}.dev` : value);
 
 module.exports = ({ config }) => ({
   ...config,
+  name: IS_DEV_VARIANT ? `${config.name} dev` : config.name,
   userInterfaceStyle: 'automatic',
   ios: {
     ...config.ios,
+    bundleIdentifier: variantId(config.ios.bundleIdentifier),
     userInterfaceStyle: 'automatic',
   },
   android: {
     ...config.android,
+    package: variantId(config.android.package),
     userInterfaceStyle: 'automatic',
   },
   plugins: [

@@ -143,11 +143,12 @@ for a,b in repls.items(): s=s.replace(a,b)
 compose.write_text(s)
 
 # Sign in with Apple（iOS 原生 ID token 流程）。CLIENT_ID 是逗号分隔的 audience 白名单：
-# com.hitosea.letsgo 对应正式包 / dev build 的 bundleIdentifier，host.exp.Exponent 对应
-# Expo Go 调试。模板里残留的是 yibai 的 com.hitosea.moments100，必须改写，否则真机登录会
-# 因 audience 不匹配被拒。
+# com.hitosea.letsgo 对应正式包，com.hitosea.letsgo.dev 对应 EAS dev build（development
+# profile 注入 APP_VARIANT=development，见 app.config.js），host.exp.Exponent 对应 Expo Go
+# 调试。模板里残留的是 yibai 的 com.hitosea.moments100，必须改写，否则真机登录会因
+# audience 不匹配被拒。
 s=compose.read_text()
-apple_client_id='GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,host.exp.Exponent"'
+apple_client_id='GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent"'
 s=s.replace('GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.moments100"', apple_client_id)
 if apple_client_id not in s:
     raise SystemExit('Could not normalize GOTRUE_EXTERNAL_APPLE_CLIENT_ID in docker-compose.yml')

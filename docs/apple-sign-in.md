@@ -20,23 +20,27 @@ Apple 签发的 `identityToken` 里 `aud` 是**发起登录的 App 的 bundle ID
 `GOTRUE_EXTERNAL_APPLE_CLIENT_ID` 比对，不匹配直接拒绝。该变量是 `[]string`（逗号分隔），当前值为：
 
 ```
-com.hitosea.letsgo,host.exp.Exponent
+com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent
 ```
 
-- `com.hitosea.letsgo` —— `expo.ios.bundleIdentifier`，正式包与 EAS dev build 的 audience。
+- `com.hitosea.letsgo` —— `expo.ios.bundleIdentifier`，正式包的 audience。
+- `com.hitosea.letsgo.dev` —— **EAS dev build** 的 audience。development profile 会在
+  `app.config.js` 里给两端标识加 `.dev` 后缀（让 dev build 与正式包同机共存），bundle ID 跟着变，
+  audience 也就跟着变。
 - `host.exp.Exponent` —— **Expo Go** 的 audience。Expo Go 是 Apple 自己的 App，所以用 Expo Go 调试时
   `aud` 是 `host.exp.Exponent`，与正式包不同。
 
-因此：**改 `expo.ios.bundleIdentifier` 就必须同步改这里的 client_id**，否则真机登录会失败
-（典型报错是 audience 不匹配或 `invalid id token`）。
+因此：**改 `expo.ios.bundleIdentifier`（或改 `.dev` 后缀的拼法）就必须同步改这里的 client_id**，
+否则真机登录会失败（典型报错是 audience 不匹配或 `invalid id token`）。
 
-Android 的 `expo.android.package` 与 Apple 的 audience 无关（Apple 登录只在 iOS 展示），所以 Kaipa 现在两端
-都用 `com.hitosea.letsgo`，但只有 iOS 的 `bundleIdentifier` 会出现在 `aud` 里。改 Android 包名不影响这里
-（但会影响高德 Android key，它按「包名 + SHA1」注册）。
+Android 的 `expo.android.package` 与 Apple 的 audience 无关（Apple 登录只在 iOS 展示），Kaipa 两端都用
+同一个标识（正式 `com.hitosea.letsgo` / dev `com.hitosea.letsgo.dev`），但只有 iOS 的 `bundleIdentifier`
+会出现在 `aud` 里。改 Android 包名不影响这里（但会影响高德 Android key，它按「包名 + SHA1」注册）。
 
 ## 前置条件（Apple Developer）
 
-1. 在 Apple Developer → Identifiers 里确认 App ID **`com.hitosea.letsgo`** 存在。
+1. 在 Apple Developer → Identifiers 里确认 App ID **`com.hitosea.letsgo`** 存在；跑 EAS dev build 还要
+   另外有 **`com.hitosea.letsgo.dev`**（EAS 会按 `usesAppleSignIn` 自动注册，第一次构建后去后台确认一下）。
 2. 该 App ID 必须勾选 **Sign in with Apple** 能力，然后重新生成 provisioning profile。
    - EAS 会依据 `expo.ios.usesAppleSignIn: true` 自动申请这项能力并重签 profile；
      如果是手动管理证书，需要自己去后台开启。
@@ -50,7 +54,7 @@ Android 的 `expo.android.package` 与 Apple 的 audience 无关（Apple 登录�
 
 ```yaml
 GOTRUE_EXTERNAL_APPLE_ENABLED: "true"
-GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,host.exp.Exponent"
+GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent"
 GOTRUE_EXTERNAL_APPLE_SECRET: "unused-for-id-token-flow"
 GOTRUE_EXTERNAL_APPLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
 ```
@@ -102,11 +106,15 @@ npx expo start
 
 用 iPhone 上的 Expo Go 扫码 → 登录页 →「更多登录方式」→ Apple → 系统面板授权 → 应直接进入应用。
 
-**EAS dev build（验证正式 audience 与 entitlement）**
+**EAS dev build（验证 `.dev` App ID 与 entitlement）**
 
 ```bash
 npx eas build --profile development --platform ios
 ```
+
+dev build 的 bundle ID 是 `com.hitosea.letsgo.dev`，所以它验证的是 `.dev` 这个 App ID 的能力与
+audience，**不再顺带覆盖正式包的 audience**。要验证正式包那条路径，用 `--profile preview` 构建
+（preview 不注入 `APP_VARIANT`，两端标识与正式包一致）。
 
 装上 dev build 后再走一次登录。如果 Expo Go 成功而 dev build 失败，通常就是 client_id 与
 `bundleIdentifier` 不一致，或 App ID 没开 Sign in with Apple 能力。
@@ -116,10 +124,11 @@ npx eas build --profile development --platform ios
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `Unsupported provider: provider is not enabled` | auth 容器没开 Apple provider | 检查 `GOTRUE_EXTERNAL_APPLE_ENABLED`，重建 auth 容器 |
-| audience / `invalid id token` 类错误 | client_id 与当前 App 的 bundle ID 不匹配 | 把当前 audience 加进 `GOTRUE_EXTERNAL_APPLE_CLIENT_ID` |
+| audience / `invalid id token` 类错误 | ① client_id 与当前 App 的 bundle ID 不匹配；② App 打的根本不是 8010 这套实例 | 先看报错出自哪个 auth 容器（`docker logs kaipa-supabase-auth` vs 共享实例），再补 `GOTRUE_EXTERNAL_APPLE_CLIENT_ID`；详见下条 |
+| 本机 `.env` 是 8010，真机却报 audience 不匹配 | 包里的 `EXPO_PUBLIC_SUPABASE_URL` / `ANON_KEY` 是**构建期**内联的，不是 Metro 的 `.env`：EAS 云包取自 EAS 环境变量，dev client 取自提供 bundle 的那台 Metro | 核对 `eas env:list --environment <dev\|preview\|production>` 与构建所用 checkout 的 `.env`，改完重建（README「Dev build via EAS」） |
 | nonce 校验失败 | 传给 Apple 的 nonce 不是 SHA-256 后的值，或传给 Supabase 的不是原始值 | 对照 `signInWithApple()`；仅调试时可临时设 `GOTRUE_EXTERNAL_APPLE_SKIP_NONCE_CHECK=true` |
 | 拉取 Apple 密钥超时 / 解析失败 | 容器 DNS | 给 auth 服务加 `dns:`（见上），重建容器 |
-| dev build 上登录失败但 Expo Go 正常 | App ID 未开启 Sign in with Apple，或 profile 未重签 | Apple Developer 后台开启能力后重新 `eas build` |
+| dev build 上登录失败但 Expo Go 正常 | App ID（正式是 `com.hitosea.letsgo`，dev build 是 `com.hitosea.letsgo.dev`）未开启 Sign in with Apple，或 profile 未重签 | Apple Developer 后台开启能力后重新 `eas build` |
 | 第二次登录拿不到姓名 | Apple 只首次授权返回姓名 | 预期行为；首次已写入资料 |
 
 `GOTRUE_EXTERNAL_APPLE_SKIP_NONCE_CHECK` 会削弱重放保护，**只用于本地定位问题**，定位完就删掉。

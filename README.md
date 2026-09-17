@@ -28,6 +28,13 @@ cannot be treated as a secret after distribution. Restrict it in the 高德 cons
 to Kaipa's Android package name and the SHA-1 fingerprint of every allowed
 signing certificate. Configure quotas and usage alerts as an additional guard.
 
+The dev build ships a **different package name** (`com.hitosea.letsgo.dev`, see
+below), so it needs a key of its own: register one for that package name plus the
+SHA-1 of the EAS development keystore (`eas credentials --platform android`
+prints it), then give it to the development build environment as
+`AMAP_ANDROID_KEY`. Without it the dev build still runs, but AMap tiles stay
+blank.
+
 Place search and reverse geocoding run through the authenticated `map-search`
 Supabase Edge Function. Its Web Service key must remain server-side:
 
@@ -44,6 +51,12 @@ included in the client JavaScript bundle.
 This repo has no local Android SDK / Xcode, so use EAS Build. Android is the
 fastest path to a real phone (it produces an installable APK).
 
+The development profile builds a **separate app** from the release one: package
+`com.hitosea.letsgo.dev`, display name `kaipa dev`, so it installs *next to* the
+App Store build instead of replacing it. `eas.json` sets `APP_VARIANT=development`
+for that profile, and `app.config.js` turns it into the `.dev` suffix; every other
+profile keeps `com.hitosea.letsgo`.
+
 ```bash
 # 1. one-time: an Expo account + login
 eas login
@@ -52,18 +65,31 @@ eas login
 eas init
 
 # 3. provide the native AMap key to the cloud build environment
+#    (register it for com.hitosea.letsgo.dev + the dev keystore SHA-1 — see above)
 eas env:create --environment development --name AMAP_ANDROID_KEY --value YOUR_KEY --visibility sensitive
 
-# 4. build the Android dev client (APK)
+# 4. provide the self-hosted Supabase runtime to the cloud build environment
+#    (.env is gitignored and never uploaded, so cloud builds only see EAS variables)
+eas env:create --environment development --name EXPO_PUBLIC_SUPABASE_URL \
+  --value https://8010--main--am--am6737.coder.dootask.com --visibility plaintext
+eas env:create --environment development --name EXPO_PUBLIC_SUPABASE_ANON_KEY \
+  --value "$(grep -m1 '^EXPO_PUBLIC_SUPABASE_ANON_KEY=' .env | cut -d= -f2-)" --visibility sensitive
+
+# 5. build the Android dev client (APK)
 eas build --profile development --platform android
 
-# 5. install the APK on your phone (link/QR printed at the end), then:
-npm start          # the dev client connects and loads the JS
+# 6. install the APK on your phone (link/QR printed at the end), then serve the JS.
+#    Pass the same APP_VARIANT so the manifest Metro hands the client matches the
+#    identifiers baked into the build:
+APP_VARIANT=development npm start
 ```
 
 For iOS you'd additionally need an Apple Developer account and run
 `eas build --profile development --platform ios` (device registration handled
-interactively by EAS).
+interactively by EAS). The `.dev` bundle ID is a second App ID: Apple sign-in on
+the dev build only works once `com.hitosea.letsgo.dev` is registered and listed in
+the Supabase `GOTRUE_EXTERNAL_APPLE_CLIENT_ID` whitelist — see
+`docs/apple-sign-in.md`.
 
 
 ## Self-hosted Supabase isolation
