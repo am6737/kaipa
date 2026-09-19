@@ -162,8 +162,11 @@ export function nutritionPlanError(items: NutritionPlanningItem[], target: { min
   }
 
   const total = foods.reduce((sum, item) => sum + (item.estimatedEnergyKcalPerUnit || 0) * item.quantity, 0);
-  if (total < target.min * 0.75) return `当前路餐和补给明显不足，请增加具体食品数量后重新提交。`;
-  if (total > target.max * 1.35) return `当前路餐和补给明显过量，请减少具体食品数量后重新提交。`;
+  // The target and total make the repair concrete: the model cannot judge
+  // "how much over" from the bare message, and trimming without a number
+  // either loops or stalls.
+  if (total < target.min * 0.75) return `当前路餐和补给明显不足（总热量 ${Math.round(total)} kcal，目标 ${Math.round(target.min)}–${Math.round(target.max)} kcal），请增加具体食品数量后重新提交。`;
+  if (total > target.max * 1.35) return `当前路餐和补给明显过量（总热量 ${Math.round(total)} kcal，目标 ${Math.round(target.min)}–${Math.round(target.max)} kcal），请减少具体食品数量后重新提交。`;
   return undefined;
 }
 

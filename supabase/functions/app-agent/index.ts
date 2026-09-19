@@ -4,10 +4,10 @@ declare const Deno: { env: { get(name: string): string | undefined }; serve(hand
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
 import { SupabaseAgentSession } from './session.ts';
-import { bindRunClient, releaseRunClient } from './tools.ts';
+import { bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
 import type { ModelMetric } from './model-metrics.ts';
-import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
+import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentModelMetric, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
 import { loadSavedPlanPreview, previewJourneyId } from './plan-preview.ts';
 import { normalizePlanningFollowUps, planningFollowUpReplies } from './planning-follow-ups.ts';
 import { conversationAttachments } from './conversation-attachments.ts';
@@ -16,6 +16,7 @@ import { latestTravelContext, travelContextSchema } from './travel-context-schem
 import type { TravelContext } from './travel-context.ts';
 import { prepareAgentContext } from './context.ts';
 import { prepareTask } from './task-store.ts';
+import { runPipeline, useStagedPipeline } from './pipeline.ts';
 import { renderTaskResponse } from './response-presentation.ts';
 import { planDraftSchema, taskOutcome, type PlanDraft } from './task.ts';
 import { assistantStoragePath, InvalidTrackError, isTrackAttachment, readAttachment, trackInput } from './attachments.ts';
@@ -51,6 +52,8 @@ function agentModelConfig() {
     model: Deno.env.get('KAIPA_AI_MODEL')?.trim()
       || Deno.env.get('OPENROUTER_MODEL')?.trim()
       || 'openai/gpt-4.1-mini',
+    // 轻角色（解释、检索、清单、记忆）模型；未配置时回退主模型。
+    flashModel: Deno.env.get('KAIPA_AI_FLASH_MODEL')?.trim() || undefined,
   };
 }
 
@@ -87,15 +90,38 @@ function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickR
   }
   if (typeof value === 'string') {
     const text = value.trim();
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed && typeof parsed === 'object') return finalMessage(parsed);
-    } catch {
-      // Compatible providers may still return plain text; keep it usable.
-    }
+    const parsed = parseJsonString(text);
+    if (parsed && typeof parsed === 'object') return finalMessage(parsed);
     return { text, quickReplies: [], pendingQuestion: null, draft: null };
   }
   return { text: value == null ? '' : String(value), quickReplies: [], pendingQuestion: null, draft: null };
+}
+
+function isFinalOutputError(error: unknown) {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /Invalid output type|final assistant output|failed schema validation|is not valid JSON/i.test(text);
+}
+
+function assistantText(item: unknown): string {
+  const record = item as { role?: string; content?: unknown } | null;
+  if (!record || record.role !== 'assistant') return '';
+  if (typeof record.content === 'string') return record.content.trim();
+  if (!Array.isArray(record.content)) return '';
+  return record.content
+    .flatMap((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? [(part as { text: string }).text] : []))
+    .join('\n')
+    .trim();
+}
+
+// Returns the plain-text answer the model already produced, or undefined when
+// this failure is not a rejected final output.
+async function salvagedAnswer(error: unknown, session: SupabaseAgentSession) {
+  if (!isFinalOutputError(error)) return undefined;
+  const items = await session.getItems().catch(() => []);
+  const text = [...items].reverse().map(assistantText).find(Boolean);
+  if (!text) return undefined;
+  console.warn('[AppAgent] using the prose answer after a rejected final output');
+  return { text, blocker: text.slice(0, 1000), pendingQuestion: null, draft: null, quickReplies: [], offerJourneyExtras: false, travelContext: null };
 }
 
 const STALE_RUN_AFTER_MS = 5 * 60 * 1000 + 15 * 1000;
@@ -232,13 +258,65 @@ async function attachmentInput(attachment: AgentAttachment, client: any, userId:
   };
 }
 
+// Row → DTO mapping shared by message UI, run_activity and history, so the
+// timing rules and metric projection cannot drift between the three surfaces.
+function activityRow(call: any): AgentRunActivity {
+  return {
+    toolName: call.tool_name,
+    status: call.status,
+    startedAt: call.created_at,
+    finishedAt: call.status === 'running' ? undefined : call.updated_at,
+    durationMs: call.status === 'running' || !call.updated_at ? undefined : Math.max(0, Date.parse(call.updated_at) - Date.parse(call.created_at)),
+    arguments: call.arguments || {},
+  };
+}
+
+function metricRow(metric: any): AgentModelMetric {
+  return { stage: metric.stage, durationMs: Number(metric.duration_ms) || 0, success: metric.success === true };
+}
+
+// Only expose the small fields required by progress UI. Full tool payloads
+// can contain private or very large journey records.
+function activityOutput(call: any): unknown {
+  if (call.tool_name === 'search_travel_web') return call.output;
+  if (call.tool_name === 'set_itinerary_group_endpoints') {
+    return { coverage: {
+      groupCount: typeof call.output?.coverage?.groupCount === 'number' ? call.output.coverage.groupCount : 0,
+      requiredGroupCount: typeof call.output?.coverage?.requiredGroupCount === 'number' ? call.output.coverage.requiredGroupCount : 0,
+      reachesTrackEnd: call.output?.coverage?.reachesTrackEnd === true,
+    } };
+  }
+  if (call.tool_name === 'read_travel_guide' || call.tool_name === 'read_travel_guide_images') {
+    return { available: call.output?.available, status: call.output?.status };
+  }
+  if (call.tool_name === 'search_transport') {
+    return { status: call.output?.status, available: call.output?.available, provider: call.output?.provider, count: call.output?.offers?.length || 0 };
+  }
+  if (call.tool_name === 'get_journey_details' && call.output && typeof call.output === 'object') {
+    return {
+      // The track section is the only place a journey's track shows up; the
+      // journey section itself carries no track facts.
+      hasTrack: Boolean(call.output.trackSummary),
+      distance: typeof call.output.trackSummary?.distance === 'string' ? call.output.trackSummary.distance : call.output.journey?.dist,
+      ascent: typeof call.output.trackSummary?.ascent === 'string' ? call.output.trackSummary.ascent : call.output.journey?.asc_,
+      totalKm: typeof call.output.trackSummary?.totalKm === 'number' ? call.output.trackSummary.totalKm : undefined,
+    };
+  }
+  return undefined;
+}
+
 async function messageUiForRun(client: any, runId: string, quickReplies: AgentQuickReply[], offerJourneyExtras = false, locale?: 'zh' | 'en', currentJourneyId?: string | null): Promise<AgentMessageUi> {
-  const calls = await client
-    .from('agent_tool_calls')
-    .select('tool_name,arguments,output,status,undo_payload,undone_at')
-    .eq('run_id', runId)
-    .order('created_at');
+  const [calls, metricsResult, timingResult] = await Promise.all([
+    client.from('agent_tool_calls')
+      .select('tool_name,arguments,output,status,undo_payload,undone_at,created_at,updated_at')
+      .eq('run_id', runId)
+      .order('created_at'),
+    client.from('agent_model_metrics').select('stage,duration_ms,success').eq('run_id', runId).order('created_at'),
+    client.from('agent_runs').select('created_at').eq('id', runId).maybeSingle(),
+  ]);
   if (calls.error) throw calls.error;
+  if (metricsResult.error) throw metricsResult.error;
+  if (timingResult.error) throw timingResult.error;
 
   quickReplies = planningFollowUpReplies(offerJourneyExtras, quickReplies, calls.data || [], locale);
 
@@ -277,41 +355,16 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   const changedJourneyId = previewJourneyId(calls.data || [], currentJourneyId);
   const planPreview = typeof changedJourneyId === "string" ? await loadSavedPlanPreview(client, changedJourneyId) : undefined;
 
-  const activities: AgentRunActivity[] = (calls.data || []).map((call: any) => ({
-    toolName: call.tool_name,
-    status: call.status,
-    arguments: call.arguments || {},
-    // Only expose the small fields required by progress UI. Full tool payloads
-    // can contain private or very large journey records.
-    output: call.tool_name === 'search_travel_web'
-      ? call.output
-      : call.tool_name === 'set_itinerary_group_endpoints'
-      ? { coverage: {
-          groupCount: typeof call.output?.coverage?.groupCount === 'number' ? call.output.coverage.groupCount : 0,
-          requiredGroupCount: typeof call.output?.coverage?.requiredGroupCount === 'number' ? call.output.coverage.requiredGroupCount : 0,
-          reachesTrackEnd: call.output?.coverage?.reachesTrackEnd === true,
-        } }
-      : ['read_travel_guide', 'read_travel_guide_images'].includes(call.tool_name)
-      ? { available: call.output?.available, status: call.output?.status }
-      : call.tool_name === 'search_transport'
-      ? { status: call.output?.status, available: call.output?.available, provider: call.output?.provider, count: call.output?.offers?.length || 0 }
-      : call.tool_name === 'get_journey_details' && call.output && typeof call.output === 'object'
-      ? {
-          // The track section is the only place a journey's track shows up; the
-          // journey section itself carries no track facts.
-          hasTrack: Boolean(call.output.trackSummary),
-          distance: typeof call.output.trackSummary?.distance === 'string' ? call.output.trackSummary.distance : call.output.journey?.dist,
-          ascent: typeof call.output.trackSummary?.ascent === 'string' ? call.output.trackSummary.ascent : call.output.journey?.asc_,
-          totalKm: typeof call.output.trackSummary?.totalKm === 'number' ? call.output.trackSummary.totalKm : undefined,
-        }
-      : undefined,
-  }));
+  const activities: AgentRunActivity[] = (calls.data || []).map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
+  const modelMetrics: AgentModelMetric[] = (metricsResult.data || []).map(metricRow);
 
   return {
     quickReplies: quickReplies.length ? quickReplies : undefined,
     sources: sourcesByUrl.size ? [...sourcesByUrl.values()].slice(0, 8) : undefined,
     planPreview,
     activities: activities.length ? activities : undefined,
+    modelMetrics: modelMetrics.length ? modelMetrics : undefined,
+    runTiming: timingResult.data?.created_at ? { startedAt: timingResult.data.created_at, finishedAt: new Date().toISOString() } : undefined,
     undoAction: completedCalls.some((call: any) => call.undo_payload && !call.undone_at)
       ? { runId }
       : undefined,
@@ -418,20 +471,21 @@ Deno.serve(async (req) => {
     if (body.action === 'run_activity') {
       if (!body.runId) return json({ activities: [] });
       await failStaleRuns(client, user.id);
-      const [run, activities] = await Promise.all([
-        client.from('agent_runs').select('status').eq('id', body.runId).maybeSingle(),
-        client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at').eq('run_id', body.runId).order('created_at'),
+      const [run, activities, metrics] = await Promise.all([
+        client.from('agent_runs').select('status,created_at,updated_at').eq('id', body.runId).maybeSingle(),
+        client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at,updated_at').eq('run_id', body.runId).order('created_at'),
+        client.from('agent_model_metrics').select('stage,duration_ms,success').eq('run_id', body.runId).order('created_at'),
       ]);
       if (run.error) throw run.error;
       if (activities.error) throw activities.error;
+      if (metrics.error) throw metrics.error;
       return json({
         status: run.data?.status,
-        activities: (activities.data || []).map((activity: any) => ({
-          toolName: activity.tool_name,
-          status: activity.status,
-          arguments: activity.arguments || {},
-          output: activity.output,
-        })),
+        runTiming: run.data?.created_at ? { startedAt: run.data.created_at, finishedAt: run.data.status === 'running' ? undefined : run.data.updated_at } : undefined,
+        // Raw output: the poll/recovery UI renders search and journey-detail
+        // results from these rows, unlike the message UI's filtered projection.
+        activities: (activities.data || []).map((activity: any) => ({ ...activityRow(activity), output: activity.output })),
+        modelMetrics: (metrics.data || []).map(metricRow),
       });
     }
 
@@ -459,7 +513,7 @@ Deno.serve(async (req) => {
       const [thread, messages, activeRun] = await Promise.all([
         client.from('agent_threads').select('id,title,current_journey_id').eq('id', body.threadId).maybeSingle(),
         client.from('agent_messages').select('id,role,content,ui,created_at').eq('thread_id', body.threadId).order('created_at'),
-        client.from('agent_runs').select('id,status').eq('thread_id', body.threadId).eq('status', 'running').maybeSingle(),
+        client.from('agent_runs').select('id,status,created_at').eq('thread_id', body.threadId).eq('status', 'running').maybeSingle(),
       ]);
       if (thread.error) throw thread.error;
       if (!thread.data) return json({ error: { code: 'thread_not_found', message: '对话不存在' } }, 404);
@@ -482,15 +536,24 @@ Deno.serve(async (req) => {
         }
       }
       let activities: AgentRunActivity[] = [];
+      let modelMetrics: AgentModelMetric[] = [];
+      let stages: Array<{ stage: string; status: string; attempt: number; created_at: string; updated_at: string; error: string | null }> = [];
+      let runStage: string | null = null;
       if (activeRun.data) {
-        const calls = await client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at').eq('run_id', activeRun.data.id).order('created_at');
+        const [calls, metrics, stageRows, runRow] = await Promise.all([
+          client.from('agent_tool_calls').select('tool_name,status,arguments,output,created_at,updated_at').eq('run_id', activeRun.data.id).order('created_at'),
+          client.from('agent_model_metrics').select('stage,duration_ms,success').eq('run_id', activeRun.data.id).order('created_at'),
+          client.from('agent_stages').select('stage,status,attempt,created_at,updated_at,error').eq('run_id', activeRun.data.id).order('created_at'),
+          client.from('agent_runs').select('stage').eq('id', activeRun.data.id).maybeSingle(),
+        ]);
         if (calls.error) throw calls.error;
-        activities = (calls.data || []).map((activity: any) => ({
-          toolName: activity.tool_name,
-          status: activity.status,
-          arguments: activity.arguments || {},
-          output: activity.output,
-        }));
+        if (metrics.error) throw metrics.error;
+        if (!stageRows.error) stages = stageRows.data || [];
+        runStage = runRow.error ? null : (runRow.data?.stage as string | null) ?? null;
+        // Raw output: history turns render action results (gear added,
+        // packing committed) from these rows.
+        activities = (calls.data || []).map((activity: any) => ({ ...activityRow(activity), output: activity.output }));
+        modelMetrics = (metrics.data || []).map(metricRow);
       }
       return json({
         thread: thread.data,
@@ -498,7 +561,17 @@ Deno.serve(async (req) => {
           ...message,
           ui: message.ui?.quickReplies ? { ...message.ui, quickReplies: normalizePlanningFollowUps(message.ui.quickReplies) } : message.ui,
         })),
-        activeRun: activeRun.data ? { id: activeRun.data.id, status: 'running', activities } : undefined,
+        activeRun: activeRun.data ? {
+          id: activeRun.data.id, status: 'running', activities, modelMetrics,
+          stage: runStage,
+          stages: stages.map((row) => ({
+            stage: row.stage, status: row.status, attempt: row.attempt,
+            startedAt: row.created_at,
+            finishedAt: row.status === 'running' ? undefined : row.updated_at,
+            error: row.error ?? undefined,
+          })),
+          runTiming: { startedAt: activeRun.data.created_at },
+        } : undefined,
       });
     }
 
@@ -650,6 +723,7 @@ Deno.serve(async (req) => {
     if (previousCalls.error) throw previousCalls.error;
     const recoveryContext = previousCalls.data?.length || jobAttempt > 1
       ? '\n这是同一任务的恢复执行。先读取当前旅程及已保存的数据，只补齐尚未完成的内容，不要重复创建旅程或重复添加已存在的行程和装备。复用本任务已有的攻略搜索结果和已读取正文，不要换近义关键词重新检索；恢复执行不会重置搜索额度。'
+        + (jobAttempt > 1 ? '上一次执行没有产出符合结构要求的结果：本轮必须以结构化结果结束。写入被拒绝时把原因写进 blocker 并在正文说明，不要只输出一段解释性文字。' : '')
       : '';
     const savedPackingDraft = task.decision.packingMode === 'full' ? await readPackingDraft(client, runId) : null;
     const packingRecovery = savedPackingDraft
@@ -675,23 +749,81 @@ Deno.serve(async (req) => {
           ],
         }]
       : userInputText;
-    const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns: 20, signal: AbortSignal.timeout(210000) });
-    const output = finalMessage(result.finalOutput);
-    const ui = await messageUiForRun(client, runId, output.quickReplies, output.offerJourneyExtras, body.locale, context.currentJourneyId);
-    const retainedTravel = output.travelContext ?? confirmedTravel;
-    ui.travelContext = retainedTravel ? { ...retainedTravel, journeyId: context.currentJourneyId || null } : null;
-    ui.taskOutcome = taskOutcome(task, output, ui.activities || []);
-    if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
-      ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
+    const configuredMaxTurns = Number(Deno.env.get('KAIPA_AGENT_MAX_TURNS') || 16);
+    const maxTurns = Number.isInteger(configuredMaxTurns) && configuredMaxTurns >= 8 && configuredMaxTurns <= 24 ? configuredMaxTurns : 16;
+    const finalize = async (output: ReturnType<typeof finalMessage>) => {
+      const ui = await messageUiForRun(client, runId, output.quickReplies, output.offerJourneyExtras, body.locale, context.currentJourneyId);
+      const retainedTravel = output.travelContext ?? confirmedTravel;
+      ui.travelContext = retainedTravel ? { ...retainedTravel, journeyId: context.currentJourneyId || null } : null;
+      ui.taskOutcome = taskOutcome(task, output, ui.activities || []);
+      if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
+        ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
+      }
+      const message = renderTaskResponse(output, ui.taskOutcome, body.locale, ui.planPreview?.title);
+      ui.requestId = runId;
+      const finalized = await client.rpc('finalize_agent_run', { target_run_id: runId, assistant_message: message, message_ui: ui });
+      if (finalized.error) throw finalized.error;
+      const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
+      if (finished.error) throw finished.error;
+      shouldPersistFailure = false;
+      return { message, ui };
+    };
+    const completedResponse = (done: { message: string; ui: AgentMessageUi }) =>
+      json({ threadId, runId, status: 'completed', message: done.message, quickReplies: done.ui.quickReplies, ui: done.ui } satisfies AgentResponse);
+    // Long planning work runs as a staged pipeline; single edits, deletions,
+    // undo and discussion keep the interactive loop unchanged.
+    let output: ReturnType<typeof finalMessage>;
+    if (useStagedPipeline(task.decision)) {
+      // Pipeline stages run on in-memory sessions, so the user turn must reach
+      // session history before any model work: a retried attempt then reuses
+      // the persisted item instead of appending a duplicate (session items
+      // carry no run id).
+      if (jobAttempt <= 1) {
+        try {
+          await session.addItems([{ type: 'message', role: 'user', content: userInputText }]);
+        } catch (error) {
+          console.warn('[AppAgent] session history unavailable', error instanceof Error ? error.message : error);
+        }
+      }
+      const result = await runPipeline({
+        admin: jobAdmin, client: agentClient, context, task, runId, userId: user.id,
+        attempt: jobAttempt, signal: req.signal, userInput: userInputText, agentInput,
+        stageAgent: runtime.stageAgent, model: runtime.model, flashModel: runtime.flashModel,
+        invoke: (agent, input, options) => runtime.runner
+          .run(agent as never, input as never, { context, maxTurns: options.maxTurns, signal: options.signal, session: options.session as never })
+          .then(run => run.finalOutput),
+      });
+      // The run was cancelled or reclaimed while this execution was working;
+      // the job row already reflects that, so there is nothing to finalize.
+      if (result.aborted) return json({ accepted: true });
+      output = finalMessage(result.finalOutput);
+      const done = await finalize(output);
+      // Losing the assistant reply must not fail an otherwise saved plan.
+      try {
+        await session.addItems([
+          { type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: done.message }] },
+        ]);
+      } catch (error) {
+        console.warn('[AppAgent] session history unavailable', error instanceof Error ? error.message : error);
+      }
+      return completedResponse(done);
     }
-    const message = renderTaskResponse(output, ui.taskOutcome, body.locale, ui.planPreview?.title);
-    ui.requestId = runId;
-    const finalized = await client.rpc('finalize_agent_run', { target_run_id: runId, assistant_message: message, message_ui: ui });
-    if (finalized.error) throw finalized.error;
-    const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
-    if (finished.error) throw finished.error;
-    shouldPersistFailure = false;
-    return json({ threadId, runId, status: 'completed', message, quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
+    let agentOutput: unknown;
+    try {
+      const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns, signal: AbortSignal.timeout(210000) });
+      agentOutput = result.finalOutput;
+    } catch (error) {
+      // The configured provider sometimes answers in prose instead of the
+      // structured result, for example when a write was rejected and the
+      // explanation is the useful part. The answer itself is already in the
+      // session, so keep it as plain text instead of failing the whole turn.
+      const salvaged = await salvagedAnswer(error, session);
+      if (salvaged === undefined) throw error;
+      agentOutput = salvaged;
+    }
+    output = finalMessage(agentOutput);
+    const done = await finalize(output);
+    return completedResponse(done);
   } catch (error) {
     console.error('app-agent failed', error);
     if (jobLease && jobAdmin && activeRunId) {

@@ -57,6 +57,8 @@ export type AgentMessageUi = {
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
+  modelMetrics?: AgentModelMetric[];
+  runTiming?: { startedAt: string; finishedAt?: string };
   attachments?: AgentAttachment[];
   undoAction?: AgentUndoAction;
   createJourneyFlow?: { step: 'collect_date' | 'collect_duration' | 'collect_date_and_duration' | 'ask_track'; originalMessage: string };
@@ -66,8 +68,17 @@ export type AgentMessageUi = {
 export type AgentRunActivity = {
   toolName: string;
   status: 'running' | 'completed' | 'failed';
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
   arguments: Record<string, unknown>;
   output?: unknown;
+};
+
+export type AgentModelMetric = {
+  stage: string;
+  durationMs: number;
+  success: boolean;
 };
 
 export type AgentIntent = 'plan_journey';

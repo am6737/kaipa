@@ -18,7 +18,7 @@ export async function prepareTask(
     client.from('agent_task_states').select('state').eq('thread_id', args.threadId)
       .order('created_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('agent_messages').select('role,content').eq('thread_id', args.threadId)
-      .order('created_at', { ascending: false }).limit(16),
+      .order('created_at', { ascending: false }).limit(8),
   ]);
   if (prior.error) throw prior.error;
   if (history.error) throw history.error;
@@ -29,6 +29,10 @@ export async function prepareTask(
   const boundTrack = bound.data?.tracks as { file_name?: string | null; coords?: [number, number][] | null } | null;
   const hasBoundTrack = Array.isArray(boundTrack?.coords) && boundTrack.coords.length >= 2;
   const previous = (prior.data?.state || null) as TaskState | null;
+  const recentMessages = [...(history.data || [])].reverse().map((message: { role: string; content: string }) => ({
+    role: message.role,
+    content: message.content.slice(0, 800),
+  }));
   const decision = constrainTaskDecision(await interpret({
     latestMessage: args.message,
     appIntent: args.intent || null,
@@ -37,7 +41,7 @@ export async function prepareTask(
     temporalContext: args.temporalContext,
     availableAttachments: args.attachments,
     previousTask: previous,
-    recentMessages: [...(history.data || [])].reverse(),
+    recentMessages,
   }), args.message, previous, args.journeyId, { hasBoundTrack, intent: args.intent });
   const state: TaskState = { runId: args.runId, journeyId: args.journeyId, decision, outcome: null };
   // Only the authenticated worker's service client can persist interpreted scope.

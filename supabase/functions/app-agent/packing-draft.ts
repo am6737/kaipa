@@ -10,9 +10,12 @@ export type PackingDraft = z.infer<typeof draftSchema>;
 export type DraftIssue = { code: string; itemIds: string[]; field: string; message: string };
 export const draftPatchSchema = z.object({
   revision: z.number().int().positive(),
-  changes: z.array(z.object({ id: z.string(), patch: packingItem.extend({ quantity: z.number().int().min(1).max(99) }).partial().strict() })).max(30),
-  additions: z.array(packingItem).max(30),
-  removals: z.array(z.string()).max(30),
+  // A patch that only adds items, or only fixes one field, is normal; the
+  // untouched categories are simply absent. patchPackingDraft still rejects a
+  // patch that changes nothing at all.
+  changes: z.array(z.object({ id: z.string(), patch: packingItem.extend({ quantity: z.number().int().min(1).max(99) }).partial().strict() })).max(30).default([]),
+  additions: z.array(packingItem).max(30).default([]),
+  removals: z.array(z.string()).max(30).default([]),
 });
 export function newPackingDraft(journeyId: string, planProfile: PackingDraft['planProfile'], items: PackingItem[]): PackingDraft {
   return draftSchema.parse({ journeyId, planProfile, revision: 1, repairs: 0, items: items.map((value, index) => ({ id: `item-${index + 1}`, value })) });
@@ -22,7 +25,13 @@ export function patchPackingDraft(draft: PackingDraft, input: z.infer<typeof dra
   if (patch.revision !== draft.revision) throw new Error('draft_revision_conflict: reload the current draft');
   const ids = new Set(draft.items.map(item => item.id));
   const targets = [...patch.changes.map(change => change.id), ...patch.removals];
-  if (new Set(targets).size !== targets.length || targets.some(id => !ids.has(id))) throw new Error('Unknown or duplicate draft item ID');
+  // Spell out the offending IDs: the repair re-ask feeds this message back to
+  // the model, which cannot fix IDs it cannot see.
+  const unknown = [...new Set(targets.filter(id => !ids.has(id)))];
+  const duplicates = [...new Set(targets.filter((id, index) => targets.indexOf(id) !== index))];
+  if (unknown.length || duplicates.length) {
+    throw new Error([unknown.length ? `Unknown draft item IDs: ${unknown.join(', ')}` : '', duplicates.length ? `Duplicate IDs across changes/removals: ${duplicates.join(', ')}` : ''].filter(Boolean).join('; '));
+  }
   if (!targets.length && !patch.additions.length) throw new Error('Empty draft patch');
   const changes = new Map(patch.changes.map(change => [change.id, change.patch]));
   return draftSchema.parse({ ...draft, revision: draft.revision + 1, repairs: draft.repairs + 1,

@@ -57,6 +57,18 @@ const travelSearches = new Map<string, Map<string, Promise<unknown>>>();
 const guideReads = new Map<string, Promise<unknown>>();
 const journeyWrites = new Map<string, Promise<unknown>>();
 
+// A compatible provider may return a JSON string where an object is expected.
+// Shared by the interactive finalizer and the stage pipeline so the two paths
+// cannot drift on array/null handling.
+export function parseJsonString(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 export function bindRunClient(runId: string, client: Client) { requestClients.set(runId, client); }
 export function releaseRunClient(runId: string) {
   requestClients.delete(runId);
@@ -320,7 +332,7 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
   }
 }
 
-const itineraryItem = z.object({
+export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(40).describe('简短的地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
   timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
@@ -352,7 +364,7 @@ const packingDeletionTarget = z.object({
   name: z.string().min(1).max(120),
 });
 
-const itineraryGroupEndpoint = z.object({
+export const itineraryGroupEndpoint = z.object({
   day: z.string().min(1).max(40).describe('要设置终点的行程组，标准日序使用 Day 1、Day 2'),
   waypointIndex: z.number().int().min(0).optional().describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
   trackFinish: z.boolean().optional().describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
@@ -440,16 +452,18 @@ export const getJourneyDetails = tool({
   execute: async ({ journeyId, sections }, runContext) => mutate('get_journey_details', { journeyId, sections }, runContext as RunContext, async (client, context) => readJourneySections(client, context, journeyId, sections)),
 });
 
+const estimatePersonalPackingParams = z.object({
+  journeyId: z.string().min(1).max(100),
+  planProfile: packingPlanProfile.describe('本次旅程已知的住宿、补水、餐食与环境条件；未知项使用 unknown'),
+});
+export const runEstimatePersonalPacking = async (args: z.infer<typeof estimatePersonalPackingParams>, runContext?: RunContext) => mutate('estimate_personal_packing_needs', args, runContext, async (client, context) => (
+  loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
+));
 export const estimatePersonalPacking = tool({
   name: 'estimate_personal_packing_needs',
   description: 'Privately estimate practical food and carrying needs for the current user before generating a full packing list. This tool does not prescribe water quantities; assess hydration from the journey context. The result is internal planning context: use it to choose concrete item quantities, but do not quote body measurements, calories, confidence, formulas or calculations unless the user explicitly asks. Always call after get_journey_details and before add_packing_items for a full plan. Missing profile fields are allowed and must not trigger follow-up questions.',
-  parameters: z.object({
-    journeyId: z.string().min(1).max(100),
-    planProfile: packingPlanProfile.describe('本次旅程已知的住宿、补水、餐食与环境条件；未知项使用 unknown'),
-  }),
-  execute: async (args, runContext) => mutate('estimate_personal_packing_needs', args, runContext as RunContext, async (client, context) => (
-    loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
-  )),
+  parameters: estimatePersonalPackingParams,
+  execute: runEstimatePersonalPacking,
 });
 
 export const searchTravelWeb = tool({
@@ -623,19 +637,18 @@ export const addGear = tool({
   }),
 });
 
-export const createJourney = tool({
-  name: 'create_journey',
-  description: 'Create a journey after route and date requirements are understood. This does not add itinerary or packing items.',
-  parameters: z.object({
-    name: z.string().min(1).max(120),
-    region: z.string().max(120).default(''),
-    routeId: z.string().max(100).optional(),
-    trackAttachmentName: z.string().max(160).optional().describe('Name of an uploaded GPX/KML/KMZ attachment to use as this journey track'),
-    plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('出发日期，必须是 YYYY-MM-DD'),
-    days: z.number().int().min(1).max(30).default(1),
-    description: z.string().max(1000).optional(),
-  }),
-  execute: async (args, runContext) => mutate('create_journey', args, runContext as RunContext, async (client, context) => {
+export const createJourneyParams = z.object({
+  name: z.string().min(1).max(120),
+  region: z.string().max(120).default(''),
+  // Optional fields are nullish, not just optional: models express "absent"
+  // as null, and the task decision itself stores null for "no track".
+  routeId: z.string().max(100).nullish(),
+  trackAttachmentName: z.string().max(160).nullish().describe('Name of an uploaded GPX/KML/KMZ attachment to use as this journey track'),
+  plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().describe('出发日期，必须是 YYYY-MM-DD'),
+  days: z.number().int().min(1).max(30).default(1),
+  description: z.string().max(1000).nullish(),
+});
+export const runCreateJourney = async (args: z.infer<typeof createJourneyParams>, runContext?: RunContext): Promise<unknown> => mutate('create_journey', args, runContext, async (client, context) => {
     if (context.currentJourneyId) {
       throw new Error('当前会话已经关联旅程，不能再次创建旅程。');
     }
@@ -646,14 +659,14 @@ export const createJourney = tool({
       if (existing.error) throw existing.error;
       return existing.data;
     }
-    assertCreationFacts(context.task, args);
+    assertCreationFacts(context.task, { plannedDate: args.plannedDate ?? undefined, days: args.days, trackAttachmentName: args.trackAttachmentName ?? undefined });
     if (args.plannedDate && !validIsoDate(args.plannedDate)) {
       throw new Error('出发日期不是有效的 YYYY-MM-DD 日历日期，请修正后重新调用 create_journey。');
     }
     const routeResult = args.routeId ? await client.from('routes').select('*').eq('id', args.routeId).maybeSingle() : { data: null, error: null };
     if (routeResult.error) throw routeResult.error;
     const route = routeResult.data;
-    const uploadedTrack = await uploadedTrackForRun(client, context, args.trackAttachmentName);
+    const uploadedTrack = await uploadedTrackForRun(client, context, args.trackAttachmentName ?? undefined);
     const resolvedLocation = route || uploadedTrack ? null : await maybeGeocodeJourneyMapLocation(args.region || args.name);
     const id = `j_${crypto.randomUUID()}`;
     const startLocation = uploadedTrack?.start;
@@ -676,14 +689,16 @@ export const createJourney = tool({
     });
     if (inserted.error) throw inserted.error;
     return compactToolData(inserted.data);
-  }),
+});
+export const createJourney = tool({
+  name: 'create_journey',
+  description: 'Create a journey after route and date requirements are understood. This does not add itinerary or packing items.',
+  parameters: createJourneyParams,
+  execute: runCreateJourney,
 });
 
-export const addItinerary = tool({
-  name: 'add_itinerary_items',
-  description: 'Add an executable itinerary to an existing journey. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
-  parameters: z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80) }),
-  execute: async (args, runContext) => mutate('add_itinerary_items', args, runContext as RunContext, async (client, context) => {
+export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80) });
+export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, runContext?: RunContext): Promise<unknown> => mutate('add_itinerary_items', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
       client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
@@ -729,38 +744,41 @@ export const addItinerary = tool({
       { journeyId: args.journeyId, added: rows.length, skippedDuplicates: args.items.length - rows.length },
       { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames },
     );
-  }),
+});
+export const addItinerary = tool({
+  name: 'add_itinerary_items',
+  description: 'Add an executable itinerary to an existing journey. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
+  parameters: addItineraryParams,
+  execute: runAddItinerary,
 });
 
-
+export const updateJourneyScheduleParams = z.object({
+  journeyId: z.string().min(1).max(100),
+  totalDays: z.number().int().min(1).max(365),
+  plannedDate: z.string().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
+  dayAssignments: z.array(z.object({
+    from: z.string().min(1).max(100).describe('Exact existing day/group name'),
+    toDay: z.number().int().min(1).max(365),
+  })).max(365),
+});
+export const runUpdateJourneySchedule = async (args: z.infer<typeof updateJourneyScheduleParams>, runContext?: RunContext): Promise<unknown> => mutate('update_journey_schedule', args, runContext, async (client, context) => {
+  await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
+  if (args.plannedDate !== undefined && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
+  return commitJourneyChange(client, context, args.journeyId, args, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
+});
 export const updateJourneySchedule = tool({
   name: 'update_journey_schedule',
   description: 'Atomically update an existing journey start date, total days, and move whole day groups without recreating items. Read journey and itinerary sections first. Supply every existing day/group name exactly once in dayAssignments, including unchanged groups; assign each a distinct target day. Preserve relative hiking order and route endpoints. Only move custom groups when the user requests it. Omit plannedDate to keep the current date. Ask only when the intended date or move is ambiguous, not for manual editing.',
-  parameters: z.object({
-    journeyId: z.string().min(1).max(100),
-    totalDays: z.number().int().min(1).max(365),
-    plannedDate: z.string().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
-    dayAssignments: z.array(z.object({
-      from: z.string().min(1).max(100).describe('Exact existing day/group name'),
-      toDay: z.number().int().min(1).max(365),
-    })).max(365),
-  }),
-  execute: async (args, runContext) => mutate('update_journey_schedule', args, runContext as RunContext, async (client, context) => {
-    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
-    if (args.plannedDate !== undefined && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
-    return commitJourneyChange(client, context, args.journeyId, args, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
-  }),
+  parameters: updateJourneyScheduleParams,
+  execute: runUpdateJourneySchedule,
 });
 
-export const setJourneyMapLocation = tool({
-  name: 'set_journey_map_location',
-  description: 'Set the journey card/map GPS location from a real place search. Use this when an AI-planned journey has no map location, default 0/0 coordinates, or the user asks to fix the journey map position. Prefer the destination, route start, main scenic area, or most specific place from the itinerary as the query.',
-  parameters: z.object({
-    journeyId: z.string().min(1).max(100),
-    query: z.string().min(1).max(160).describe('Place name to geocode, for example 武功山金顶, 桂林老寨山, or 杭州西湖'),
-    region: z.string().min(1).max(120).optional().describe('Optional display region to save instead of the geocoding result'),
-  }),
-  execute: async (args, runContext) => mutate('set_journey_map_location', args, runContext as RunContext, async (client, context) => {
+export const setJourneyMapLocationParams = z.object({
+  journeyId: z.string().min(1).max(100),
+  query: z.string().min(1).max(160).describe('Place name to geocode, for example 武功山金顶, 桂林老寨山, or 杭州西湖'),
+  region: z.string().min(1).max(120).optional().describe('Optional display region to save instead of the geocoding result'),
+});
+export const runSetJourneyMapLocation = async (args: z.infer<typeof setJourneyMapLocationParams>, runContext?: RunContext): Promise<unknown> => mutate('set_journey_map_location', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const current = await client.from('journeys').select('id,name,region,coord,lng,lat').eq('id', args.journeyId).single();
     if (current.error) throw current.error;
@@ -777,7 +795,12 @@ export const setJourneyMapLocation = tool({
       { journeyId: args.journeyId, location: applied },
       { kind: 'set_journey_map_location', journeyId: args.journeyId, previous: current.data, applied },
     );
-  }),
+});
+export const setJourneyMapLocation = tool({
+  name: 'set_journey_map_location',
+  description: 'Set the journey card/map GPS location from a real place search. Use this when an AI-planned journey has no map location, default 0/0 coordinates, or the user asks to fix the journey map position. Prefer the destination, route start, main scenic area, or most specific place from the itinerary as the query.',
+  parameters: setJourneyMapLocationParams,
+  execute: runSetJourneyMapLocation,
 });
 
 export function resolvePackingOwner(companions: Array<{ id: number; user_id?: string | null; is_self?: boolean }>, userId: string) {
@@ -902,71 +925,75 @@ async function draftTool<T>(name: string, args: unknown, runContext: RunContext 
   try { return await next; } finally { if (draftLocks.get(context.runId) === next) draftLocks.delete(context.runId); }
 }
 
+export const preparePackingDraftParams = z.object({ journeyId: z.string(), planProfile: packingPlanProfile, items: z.array(packingItem).min(1).max(100) });
+export const runPreparePackingDraft = (args: z.infer<typeof preparePackingDraftParams>, runContext?: RunContext) => draftTool('prepare_packing_draft', args, runContext, async (client, context) => {
+  assertTaskWrite(context.task, 'add_packing_items', args.journeyId);
+  const saved = await readPackingDraft(client, context.runId);
+  const draft = saved?.state || newPackingDraft(args.journeyId, args.planProfile, args.items);
+  if (!saved) await savePackingDraft(context.runId, context.userId, draft);
+  return validateDraft(client, context, draft);
+});
 export const preparePackingDraft = tool({
   name: 'prepare_packing_draft',
   description: 'Persist a complete packing proposal, not checklist items. Returns validation issues and stable IDs for only affected items. An existing draft is reused, never replaced. Read journey sections and estimate needs first.',
-  parameters: z.object({ journeyId: z.string(), planProfile: packingPlanProfile, items: z.array(packingItem).min(1).max(100) }),
-  execute: (args, runContext) => draftTool('prepare_packing_draft', args, runContext as RunContext, async (client, context) => {
-    assertTaskWrite(context.task, 'add_packing_items', args.journeyId);
-    const saved = await readPackingDraft(client, context.runId);
-    const draft = saved?.state || newPackingDraft(args.journeyId, args.planProfile, args.items);
-    if (!saved) await savePackingDraft(context.runId, context.userId, draft);
-    return validateDraft(client, context, draft);
-  }),
+  parameters: preparePackingDraftParams,
+  execute: runPreparePackingDraft,
+});
+export const readPackingDraftParams = z.object({});
+export const runReadPackingDraft = (args: z.infer<typeof readPackingDraftParams>, runContext?: RunContext) => draftTool('read_packing_draft', args, runContext, async (client, context) => {
+  const draft = await readPackingDraft(client, context.runId);
+  return draft ? validateDraft(client, context, draft.state) : { status: 'absent' };
 });
 export const readPackingDraftTool = tool({
   name: 'read_packing_draft',
   description: 'Resume this run\'s durable packing draft and recheck current data. Returns only invalid items and missing categories, not the whole list. Use after recovery or revision conflict.',
-  parameters: z.object({}),
-  execute: (args, runContext) => draftTool('read_packing_draft', args, runContext as RunContext, async (client, context) => {
-    const draft = await readPackingDraft(client, context.runId);
-    return draft ? validateDraft(client, context, draft.state) : { status: 'absent' };
-  }),
+  parameters: readPackingDraftParams,
+  execute: runReadPackingDraft,
+});
+export const runRepairPackingDraft = (args: z.infer<typeof draftPatchSchema>, runContext?: RunContext) => draftTool('repair_packing_draft', args, runContext, async (client, context) => {
+  const saved = await readPackingDraft(client, context.runId);
+  if (!saved) throw new Error('Packing draft missing');
+  assertTaskWrite(context.task, 'add_packing_items', saved.state.journeyId);
+  const edit = await sha256(stable(args));
+  if (saved.last_edit === edit) return validateDraft(client, context, saved.state);
+  const draft = patchPackingDraft(saved.state, args);
+  await savePackingDraft(context.runId, context.userId, draft, saved.state.revision, edit);
+  return validateDraft(client, context, draft);
 });
 export const repairPackingDraft = tool({
   name: 'repair_packing_draft',
   description: 'Patch only invalid draft item fields by stable ID, or add missing items. Attribute arrays replace the affected item\'s attributes. Removals affect the draft only. Repairs are internal preparation, not user-visible checklist changes; no full-list regeneration. Revalidates the whole merged draft.',
   parameters: draftPatchSchema,
-  execute: (args, runContext) => draftTool('repair_packing_draft', args, runContext as RunContext, async (client, context) => {
-    const saved = await readPackingDraft(client, context.runId);
-    if (!saved) throw new Error('Packing draft missing');
-    assertTaskWrite(context.task, 'add_packing_items', saved.state.journeyId);
-    const edit = await sha256(stable(args));
-    if (saved.last_edit === edit) return validateDraft(client, context, saved.state);
-    const draft = patchPackingDraft(saved.state, args);
-    await savePackingDraft(context.runId, context.userId, draft, saved.state.revision, edit);
-    return validateDraft(client, context, draft);
-  }),
+  execute: runRepairPackingDraft,
+});
+export const commitPackingDraftParams = z.object({ revision: z.number().int().positive() });
+export const runCommitPackingDraft = (args: z.infer<typeof commitPackingDraftParams>, runContext?: RunContext) => draftTool('commit_packing_draft', args, runContext, async (client, context) => {
+  const saved = await readPackingDraft(client, context.runId);
+  if (!saved || saved.state.revision !== args.revision) throw new Error('draft_revision_conflict: read_packing_draft first');
+  const draft = saved.state;
+  assertTaskWrite(context.task, 'add_packing_items', draft.journeyId);
+  const writeArgs: PackingArgs = { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) };
+  const receipt = await client.from('agent_tool_calls').select('output').eq('run_id', context.runId).eq('tool_name', 'add_packing_items')
+    .eq('arguments_hash', await sha256(stable(writeArgs))).eq('status', 'completed').maybeSingle();
+  if (receipt.error) throw receipt.error;
+  if (receipt.data) return receipt.data.output;
+  const feedback = await validateDraft(client, context, draft);
+  if (feedback.status !== 'ready') return feedback;
+  return executePackingItems(writeArgs, runContext);
 });
 export const commitPackingDraft = tool({
   name: 'commit_packing_draft',
   description: 'Atomically save the current validated packing draft to the personal checklist. Supply only its revision, never repeat items. Rechecks current data and uses version-checked writes. Existing successful commit receipts are reused after recovery.',
-  parameters: z.object({ revision: z.number().int().positive() }),
-  execute: (args, runContext) => draftTool('commit_packing_draft', args, runContext as RunContext, async (client, context) => {
-    const saved = await readPackingDraft(client, context.runId);
-    if (!saved || saved.state.revision !== args.revision) throw new Error('draft_revision_conflict: read_packing_draft first');
-    const draft = saved.state;
-    assertTaskWrite(context.task, 'add_packing_items', draft.journeyId);
-    const writeArgs: PackingArgs = { journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: draft.items.map(item => item.value) };
-    const receipt = await client.from('agent_tool_calls').select('output').eq('run_id', context.runId).eq('tool_name', 'add_packing_items')
-      .eq('arguments_hash', await sha256(stable(writeArgs))).eq('status', 'completed').maybeSingle();
-    if (receipt.error) throw receipt.error;
-    if (receipt.data) return receipt.data.output;
-    const feedback = await validateDraft(client, context, draft);
-    if (feedback.status !== 'ready') return feedback;
-    return executePackingItems(writeArgs, runContext as RunContext);
-  }),
+  parameters: commitPackingDraftParams,
+  execute: runCommitPackingDraft,
 });
 export const packingDraftTools = [preparePackingDraft, readPackingDraftTool, repairPackingDraft, commitPackingDraft];
 
-export const setItineraryGroupEndpoints = tool({
-  name: 'set_itinerary_group_endpoints',
-  description: 'Save hiking day boundaries at real track waypoints, not equal-distance or time-proportional splits. Read journey, track and itinerary first. PREFER waypointIndex from trackSummary.waypoints for intermediate stops and trackFinish=true for the finish; omit name/distance in these modes. The server resolves exact coordinates, km and name, avoiding transcription mistakes. Legacy name/distance inputs must exactly match stored waypoints. Keep calls concise: overnightReview is optional, put uncertainty and effort in itinerary items. Guide proof of overnight use is NOT required: save a candidate endpoint with an unverified camping label when absent. overnightReview and its guide source/campQuote are optional; any supplied quotes must be genuine successfully read text. Save effort, water uncertainty and carried-water fallback in itinerary descriptions. A saved boundary does not certify camping suitability or water availability. The actual track finish needs no review. Explicit user distances require userDistanceQuote. Missing real track position blocks writes, missing guide evidence does not. Preserve manual boundaries unless asked to replan.',
-  parameters: z.object({
-    journeyId: z.string().min(1).max(100),
-    endpoints: z.array(itineraryGroupEndpoint).min(1).max(30),
-  }),
-  execute: async (args, runContext) => mutate('set_itinerary_group_endpoints', args, runContext as RunContext, async (client, context) => {
+export const setItineraryGroupEndpointsParams = z.object({
+  journeyId: z.string().min(1).max(100),
+  endpoints: z.array(itineraryGroupEndpoint).min(1).max(30),
+});
+export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItineraryGroupEndpointsParams>, runContext?: RunContext): Promise<unknown> => mutate('set_itinerary_group_endpoints', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
       client.from('journeys').select('id,dist,tracks ( coords, waypoints )').eq('id', args.journeyId).single(),
@@ -1046,7 +1073,12 @@ export const setItineraryGroupEndpoints = tool({
       name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name,
     }));
     return commitJourneyChange(client, context, args.journeyId, { groups: endpointRows }, value, { kind: 'set_itinerary_group_endpoints', journeyId: args.journeyId, previous, applied });
-  }),
+});
+export const setItineraryGroupEndpoints = tool({
+  name: 'set_itinerary_group_endpoints',
+  description: 'Save hiking day boundaries at real track waypoints, not equal-distance or time-proportional splits. Read journey, track and itinerary first. PREFER waypointIndex from trackSummary.waypoints for intermediate stops and trackFinish=true for the finish; omit name/distance in these modes. The server resolves exact coordinates, km and name, avoiding transcription mistakes. Legacy name/distance inputs must exactly match stored waypoints. Keep calls concise: overnightReview is optional, put uncertainty and effort in itinerary items. Guide proof of overnight use is NOT required: save a candidate endpoint with an unverified camping label when absent. overnightReview and its guide source/campQuote are optional; any supplied quotes must be genuine successfully read text. Save effort, water uncertainty and carried-water fallback in itinerary descriptions. A saved boundary does not certify camping suitability or water availability. The actual track finish needs no review. Explicit user distances require userDistanceQuote. Missing real track position blocks writes, missing guide evidence does not. Preserve manual boundaries unless asked to replan.',
+  parameters: setItineraryGroupEndpointsParams,
+  execute: runSetItineraryGroupEndpoints,
 });
 
 export const undoLastAgentChanges = tool({
