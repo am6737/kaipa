@@ -34,7 +34,7 @@ function harness(upload) {
     trackPromptFromTurn: () => undefined, localAgentTimeContext: () => ({}),
     getAgentLocation: async () => undefined,
     uploadAgentAttachment: upload, completedActivitiesFor: async () => [],
-    appendResponse() {}, setActiveRunId(value) { ctx.activeRunId = value; }, setRunActivities() {},
+    appendResponse() {}, setActiveRunId(value) { ctx.activeRunId = value; }, setRunActivities() {}, setRunStages() {}, setRunModelMetrics() {},
     setRequestPhase(value) { ctx.requestPhase = value; },
     setThreadId(value) { ctx.threadId = value; }, setThreadTitle() {},
     AsyncStorage: { setItem: async () => {}, removeItem: async () => {} }, storageKey: () => 'test-thread',

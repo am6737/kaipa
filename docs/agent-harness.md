@@ -31,6 +31,79 @@ runtime dependencies or evidence of measured improvements.
    Outcome, answer and run completion settle in one transaction. A multi-tool
    task is not a single transaction; saved partial work remains visible.
 
+## Staged Pipeline
+
+A full plan is minutes of model work. Giving it one 210-second budget meant it
+always timed out, retried from scratch, and left the abandoned execution holding
+journey row locks. Long-form work therefore runs as a sequence of stages, each
+with its own budget, its own durable artifact and its own retry.
+
+Dispatch (`pipeline.ts`): `mode=execute`, every authorized operation is one
+the deterministic save stage can express (the `create_journey` /
+`add_itinerary_items` / `set_itinerary_group_endpoints` /
+`set_journey_map_location` / `update_journey_schedule` set, plus
+`add_packing_items` only in full-packing mode), and any of
+`fullHikingPlan=true`, `packingMode=full`, `domain=transport`. Everything else —
+single edits, deletions, undo, discussion, incremental packing additions —
+keeps the interactive loop. `domain` (hiking/transport/packing/routes/general)
+is classified by the interpreter and also selects the injected skill and the
+stage tool sets. It is never derived from the operation list: one ticket edit
+and a full transport chain are both a bare `add_itinerary_items`. Routing a
+transport chain into the pipeline additionally requires the interpreter's
+`domainQuote` to match the latest user message verbatim — the same exact-quote
+check authorization uses, so a misread single item stays interactive in any
+language.
+
+| Stage | Model | Budget | Work |
+| --- | --- | --- | --- |
+| interpret | flash | 60s | Existing `prepareTask`; recorded, not re-run |
+| research | flash | 120s | Search/read tools only, output `ResearchBrief` |
+| plan | pro | 180s | Read-only tools plus a server-injected skill, output `PlanDocument` |
+| save | none | 30s | Deterministic; replays the scoped write tools |
+| packing | flash | 150s | One generation call, bounded batch repairs (2), deterministic commit |
+| respond | pro | 90s | No tools; states what was actually saved |
+
+Stage state lives in `agent_stages` (unique on run, stage, attempt) and
+`agent_runs.stage` carries the current one. A retry resumes from the first stage
+without a completed row instead of redoing finished work. Artifacts are the
+handoff: the planner never writes, and the save stage maps the document onto the
+same tool operations the interactive path calls, so authorization asserts,
+receipt replay, version-checked transactions and undo payloads are unchanged.
+`researchBriefSchema`, `planDocumentSchema` and the save order live in
+`plan-document.ts`; a new field cannot be added without deciding how it is saved.
+
+Two properties are load-bearing and must not be "simplified":
+
+- The planner emits one document and stops. Repair is exactly one extra round,
+  and it pins already-saved operations to the arguments that produced their
+  receipts, so it can only change what actually failed.
+- The runner parses a tool's arguments and then calls its execute function; the
+  tool object only exposes the JSON-schema `invoke`, which turns thrown failures
+  into model-visible strings. Stages call the exported schema/operation pairs
+  (`runCreateJourney`, `runAddItinerary`, …) so a rejected write stays an error.
+
+Progress is pushed over Supabase Realtime (`agent_runs`, `agent_stages`,
+`agent_tool_calls`) and the client's existing poll stays the single writer of run
+state: realtime only triggers an early refresh, so a dropped socket degrades to
+the old cadence. Stage labels are `agent.stage.*`; the client-side phase
+inference remains as the fallback for the interactive path and older runs.
+
+Ceilings must stay ordered, outermost last: stage budgets (≈630s) < worker fetch
+timeout (700s) < job lease (12 min) < Kong `read_timeout` (780s, patched outside
+this repo by `infra/supabase/patch-runtime-kong-timeout.sh`). Kong's stock 150s
+turned every long plan into a 504. `agent_lock_context` also sets a 5-second
+`lock_timeout` and reports `PT409`, so a zombie execution surfaces as the
+existing "read fresh, then replan" conflict instead of a multi-minute stall.
+
+`KAIPA_AI_FLASH_MODEL` selects the model for interpretation, research, packing
+and memory; unset, it falls back to `KAIPA_AI_MODEL`.
+
+The configured provider does not always honour structured output: when a write is
+rejected it may answer in prose, which the SDK's output validation turns into a
+whole failed turn. Pipeline stages re-ask once inside the stage; the interactive
+path keeps the answer the model already produced as plain text (`salvagedAnswer`
+in `index.ts`) instead of discarding a finished turn.
+
 ## Modules
 
 | Module | Responsibility |
@@ -39,7 +112,11 @@ runtime dependencies or evidence of measured improvements.
 | `skills.ts` | Reviewed route, hiking, packing and travel guidance; load by name |
 | `task.ts` | Structured intent, execution scope, creation facts and outcome |
 | `task-store.ts` | Durable interpretation, prior task and retry reuse |
-| `agent.ts` | SDK model/provider wiring, interpreter and conversation runtime |
+| `agent.ts` | SDK model/provider wiring, interpreter, conversation runtime and stage agents |
+| `pipeline.ts` | Pipeline dispatch, stage budgets, resume, cancellation and orchestration |
+| `plan-document.ts` | Research brief and plan document schemas, draft rendering, save order |
+| `save-stage.ts` | Deterministic PlanDocument → scoped tool calls |
+| `packing-stage.ts` | Draft generation, single batch repair and commit |
 | `context.ts`, `session*.ts` | Verified current data and bounded historical memory |
 | `tools.ts` | Domain actions, scope checks and existing transactional writes |
 | `plan-preview.ts` | Read complete saved itinerary for the result preview |
@@ -104,11 +181,12 @@ button. Existing active-run mutual exclusion remains in place. Implementing
 those requires cooperative cancellation at the transaction boundary and a
 durable queue contract; simply aborting the client's HTTP request is not safe.
 
-The interpreter adds one model request (60-second deadline) per new run; the
-executor has a 210-second deadline and a 20-step ceiling. Memory compaction is
-still independently bounded; the Edge hard limit and lease recovery remain the
-outer protection. Record actual end-to-end timing instead of assuming lower
-prompt size means faster answers.
+The interpreter adds one model request (60-second deadline) per new run. The
+interactive executor has a 210-second deadline and a 20-step ceiling; pipeline
+stages carry their own budgets above. Memory compaction is still independently
+bounded; the worker fetch timeout and lease recovery remain the outer
+protection. Record actual end-to-end timing instead of assuming lower prompt
+size means faster answers.
 
 ## Deployment and Validation
 
@@ -116,7 +194,8 @@ Use only the self-hosted workspace scripts:
 
 ```sh
 node scripts/test-agent-harness-db.cjs
-infra/supabase/apply-migration.sh supabase/migrations/20260908040000_agent_task_harness.sql
+infra/supabase/apply-migration.sh supabase/migrations/20260919000000_agent_staged_pipeline.sql
+infra/supabase/patch-runtime-kong-timeout.sh   # after setup regenerates the runtime
 infra/supabase/deploy-functions.sh app-agent
 npx tsc --noEmit
 npx --yes deno check supabase/functions/app-agent/index.ts

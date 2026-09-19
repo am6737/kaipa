@@ -44,9 +44,10 @@ function harness(readRun) {
     active: true, key: 'scope', scope: 'user:global', canReuseCurrentView: false,
     initialPrompt: undefined, autoSubmitInitialPrompt: false, autoSubmitPrompt: undefined, autoDisplayPrompt: undefined,
     restoredScopeRef: { current: undefined }, pendingAutoSubmitRef: { current: undefined }, pendingAutoDisplayRef: { current: undefined },
+    resumeRef: { current: undefined },
     scrollRef: { current: null }, setTimeout: () => {}, setInput() {}, setRestoring() {},
   });
-  for (const [setter, key] of [['setTurns', 'turns'], ['setLoading', 'loading'], ['setActiveRunId', 'activeRunId'], ['setThreadId', 'threadId'], ['setThreadTitle', 'threadTitle'], ['setThreadJourneyId', 'threadJourneyId'], ['setRunActivities', 'activities'], ['setRequestPhase', 'phase'], ['setRetryingPending', 'retryingPending']]) {
+  for (const [setter, key] of [['setTurns', 'turns'], ['setLoading', 'loading'], ['setActiveRunId', 'activeRunId'], ['setThreadId', 'threadId'], ['setThreadTitle', 'threadTitle'], ['setThreadJourneyId', 'threadJourneyId'], ['setRunActivities', 'activities'], ['setRunModelMetrics', 'modelMetrics'], ['setRunStages', 'stages'], ['setRunTiming', 'runTiming'], ['setRequestPhase', 'phase'], ['setRetryingPending', 'retryingPending']]) {
     ctx[setter] = (value) => { ctx[key] = typeof value === 'function' ? value(ctx[key]) : value; };
   }
   vm.runInNewContext(transpile(`globalThis.install = ${monitor}; globalThis.retry = ${resend}; globalThis.restore = ${restore};`), ctx);
