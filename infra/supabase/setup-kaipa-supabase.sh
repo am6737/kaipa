@@ -397,6 +397,13 @@ SQL
   KAIPA_SUPABASE_RUNTIME_DIR="$RUNTIME_DIR" bash "$ROOT/infra/supabase/deploy-agent-worker.sh"
 fi
 
+# The runtime is generated with Kong's stock 150s functions timeout; the staged
+# pipeline needs the raised ceiling, so re-apply the idempotent patch whenever
+# setup regenerates the runtime.
+if [[ -x "$ROOT/infra/supabase/patch-runtime-kong-timeout.sh" ]]; then
+  KAIPA_SUPABASE_RUNTIME_DIR="$RUNTIME_DIR" bash "$ROOT/infra/supabase/patch-runtime-kong-timeout.sh"
+fi
+
 echo "Kaipa Supabase runtime created: $RUNTIME_DIR"
 echo "Public URL: $PUBLIC_URL"
 echo "Client env: $RUNTIME_DIR/kaipa-client.env"

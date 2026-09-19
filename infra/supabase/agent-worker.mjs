@@ -34,12 +34,12 @@ while (!stopping) {
     const response = await fetch(`${url}/functions/v1/app-agent`, {
       method: 'POST', headers: { apikey: serviceKey, Authorization: `Bearer ${userToken(job.userId)}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'execute_job', runId: job.runId, leaseToken: job.leaseToken }),
-      signal: AbortSignal.timeout(310_000),
+      signal: AbortSignal.timeout(700_000),
     });
     await response.arrayBuffer();
     console.log(`Planning run ${job.runId}: HTTP ${response.status}`);
-    // A transport error does not mean the Edge worker stopped. The six-minute
-    // lease outlives its five-minute hard limit; reclaim only after that lease.
+    // A transport error does not mean the Edge worker stopped. The twelve-minute
+    // lease outlives this timeout, so a run is only reclaimed after its lease.
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Worker request failed');
     await sleep(2000);
