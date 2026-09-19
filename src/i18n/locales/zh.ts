@@ -2082,6 +2082,14 @@ export const zh = {
     voiceError: "语音识别失败，请重试",
     send: "发送",
     thinking: "正在处理中…",
+    stage: {
+    interpret: "正在理解需求并拆解任务…",
+    research: "正在搜集攻略与路线资料…",
+    plan: "正在编排行程方案…",
+    save: "正在保存行程安排…",
+    packing: "正在整理装备清单…",
+    respond: "正在整理规划结果…",
+    },
     research: {
       title: "正在处理中",
       completed: "处理完成",

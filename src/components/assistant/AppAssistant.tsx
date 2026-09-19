@@ -15,7 +15,8 @@ import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
 import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
@@ -44,6 +45,8 @@ type Turn = {
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
   activities?: AgentRunActivity[];
+  modelMetrics?: AgentModelMetric[];
+  runTiming?: AgentMessageUi['runTiming'];
   attachments?: AgentAttachment[];
   upload?: {
     status: 'uploading' | 'failed';
@@ -145,6 +148,50 @@ type ResearchStep = {
   text: string;
   status: AgentRunActivity['status'];
 };
+
+function formatElapsed(ms?: number) {
+  if (ms == null || !Number.isFinite(ms)) return '';
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function activityElapsed(activity: AgentRunActivity, now: number) {
+  if (activity.durationMs != null) return activity.durationMs;
+  if (!activity.startedAt) return undefined;
+  const started = Date.parse(activity.startedAt);
+  return Number.isFinite(started) ? Math.max(0, now - started) : undefined;
+}
+
+function runElapsed(activities: AgentRunActivity[], now: number, timing?: AgentMessageUi['runTiming']) {
+  if (timing?.startedAt) {
+    const started = Date.parse(timing.startedAt);
+    const finished = timing.finishedAt ? Date.parse(timing.finishedAt) : now;
+    if (Number.isFinite(started) && Number.isFinite(finished)) return Math.max(0, finished - started);
+  }
+  const starts = activities.map((activity) => activity.startedAt ? Date.parse(activity.startedAt) : NaN).filter(Number.isFinite);
+  if (!starts.length) return undefined;
+  const ends = activities.map((activity) => activity.finishedAt ? Date.parse(activity.finishedAt) : NaN).filter(Number.isFinite);
+  return Math.max(0, (ends.length === activities.length ? Math.max(...ends) : now) - Math.min(...starts));
+}
+
+function modelStageLabel(stage: string) {
+  const labels: Record<string, string> = {
+    interpretation: '任务解析',
+    execution: '模型决策',
+    memory: '历史摘要',
+    packing_generation: '装备清单生成',
+    packing_repair: '装备清单修正',
+    packing_commit_decision: '装备清单提交检查',
+    // Staged pipeline metric names.
+    research: '资料搜集',
+    plan: '方案编排',
+    packing: '装备清单生成',
+    respond: '回复生成',
+  };
+  return labels[stage] || stage;
+}
 
 function activityFingerprint(activities: AgentRunActivity[]) {
   return JSON.stringify(activities.map(({ toolName, status, arguments: args, output }) => ({ toolName, status, args, output })));
@@ -284,6 +331,22 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
     const keys = stepKeys[activity.toolName];
     return keys ? [{ key, status: activity.status, text: t(keys[activity.status]) }] : [];
   });
+}
+
+// Server-reported stage progress. The interactive path writes no stages, so the
+// inferred phase below remains the fallback for it and for older runs.
+function stageLabel(stages: AgentStage[] | undefined, t: ReturnType<typeof useI18n>['t']) {
+  const active = [...(stages || [])].reverse().find((stage) => stage.status === 'running');
+  if (!active) return undefined;
+  const keys: Record<AgentStage['stage'], TKey> = {
+    interpret: 'agent.stage.interpret',
+    research: 'agent.stage.research',
+    plan: 'agent.stage.plan',
+    save: 'agent.stage.save',
+    packing: 'agent.stage.packing',
+    respond: 'agent.stage.respond',
+  };
+  return t(keys[active.stage]);
 }
 
 function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeof useI18n>['t']) {
@@ -440,18 +503,33 @@ function LoadingDots({ color }: { color: string }) {
   );
 }
 
-function ResearchActivity({ theme, activities, running }: { theme: Theme; activities: AgentRunActivity[]; running: boolean }) {
+function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, stages, running, showTiming }: { theme: Theme; activities: AgentRunActivity[]; modelMetrics?: AgentModelMetric[]; runTiming?: AgentMessageUi['runTiming']; stages?: AgentStage[]; running: boolean; showTiming: boolean }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(running);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running || !showTiming) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running, showTiming]);
   const arrowProgress = useRef(new Animated.Value(running ? 1 : 0)).current;
   const steps = researchSteps(packingActivityPresentation(activities, running), t);
   const hasRunningStep = steps.some((step) => step.status === 'running');
   const visibleSteps: ResearchStep[] = steps.length
     ? [
         ...steps,
-        ...(running && !hasRunningStep ? [{ key: 'active_phase', status: 'running' as const, text: activePlanningPhase(activities, t) }] : []),
+        ...(running && !hasRunningStep ? [{ key: 'active_phase', status: 'running' as const, text: stageLabel(stages, t) ?? activePlanningPhase(activities, t) }] : []),
       ]
     : [{ key: 'preparing', status: 'running', text: t('agent.research.preparing') }];
+  const totalElapsed = showTiming ? runElapsed(activities, now, runTiming) : undefined;
+  const modelElapsed = modelMetrics.reduce((sum, metric) => sum + metric.durationMs, 0);
+  const toolElapsed = activities.reduce((sum, activity) => sum + (activityElapsed(activity, now) || 0), 0);
+  const timedSteps = visibleSteps.map((step) => {
+    const activityIndex = activities.findIndex((activity, index) => step.key === `${activity.toolName}_${index}` || step.key.startsWith(`${activity.toolName}_${index}_`));
+    const activity = activityIndex >= 0 ? activities[activityIndex] : undefined;
+    const elapsed = activity ? activityElapsed(activity, now) : undefined;
+    return { ...step, elapsed };
+  });
   const toggleExpanded = () => {
     const next = !expanded;
     arrowProgress.stopAnimation();
@@ -474,7 +552,7 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
         style={styles.researchHeader}
       >
         {running ? <ActivityIndicator size="small" color={theme.text} /> : <CheckCircle2 size={18} color={theme.text2} strokeWidth={2} />}
-        <Text style={[styles.researchTitle, { color: theme.text }]}>{t(running ? 'agent.research.title' : 'agent.research.completed')}</Text>
+        <Text style={[styles.researchTitle, { color: theme.text }]}>{t(running ? 'agent.research.title' : 'agent.research.completed')}{totalElapsed != null ? ` · ${formatElapsed(totalElapsed)}` : ''}</Text>
         <Animated.View
           style={{
             alignItems: 'center',
@@ -490,14 +568,23 @@ function ResearchActivity({ theme, activities, running }: { theme: Theme; activi
           <ChevronDown size={17} color={theme.text3} />
         </Animated.View>
       </Press>
-      {expanded ? visibleSteps.map((step) => (
+      {expanded ? timedSteps.map((step) => (
         <View key={step.key} style={styles.researchLine}>
           {step.status === 'running'
             ? <LoadingDots color={theme.text3} />
             : step.status === 'completed'
             ? <Check size={14} color={theme.text3} strokeWidth={2} />
             : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}</Text>
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}</Text>
+        </View>
+      )) : null}
+      {showTiming && expanded && (modelElapsed || toolElapsed) ? (
+        <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
+      ) : null}
+      {showTiming && expanded ? modelMetrics.map((metric, index) => (
+        <View key={`model_${metric.stage}_${index}`} style={styles.researchLine}>
+          {metric.success ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.success ? '' : ' · 失败'}</Text>
         </View>
       )) : null}
     </View>
@@ -592,6 +679,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
     activities: message.ui?.activities,
+    modelMetrics: message.ui?.modelMetrics,
+    runTiming: message.ui?.runTiming,
     attachments: message.ui?.attachments,
     undoAction: message.ui?.undoAction,
     createJourneyFlow: message.ui?.createJourneyFlow,
@@ -599,8 +688,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow, travelContext }) => ({
-    role, text, quickReplies, sources, planPreview, activities, attachments, undoAction, createJourneyFlow, travelContext,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext }) => ({
+    role, text, quickReplies, sources, planPreview, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext,
   })));
 }
 
@@ -724,7 +813,12 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const [loading, setLoading] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string>();
   const [runActivities, setRunActivities] = useState<AgentRunActivity[]>([]);
+  const [runModelMetrics, setRunModelMetrics] = useState<AgentModelMetric[]>([]);
+  const [runStages, setRunStages] = useState<AgentStage[]>([]);
+  const [runTiming, setRunTiming] = useState<AgentMessageUi['runTiming']>();
+  const showTiming = true;
   const runActivitiesRef = useRef<AgentRunActivity[]>([]);
+  const resumeRef = useRef<(() => void) | undefined>(undefined);
   const requestInFlightRef = useRef(false);
   const submitGenerationRef = useRef(0);
   const pendingRequestRef = useRef<PendingAgentRequest | undefined>(undefined);
@@ -921,6 +1015,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       const changed = activityFingerprint(runActivitiesRef.current) !== activityFingerprint(result.activities);
       runActivitiesRef.current = result.activities;
       if (changed) setRunActivities(result.activities);
+      setRunModelMetrics(result.modelMetrics || []);
+      setRunStages(result.stages || []);
+      setRunTiming(result.runTiming);
       const expiredLegacyRun = result.status === 'running' && result.executionMode !== 'background'
         && result.createdAt && Date.now() - new Date(result.createdAt).getTime() > 5 * 60 * 1000 + 15 * 1000;
       if (result.status === 'running' && !expiredLegacyRun) {
@@ -946,11 +1043,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     const recovery = startAgentRecovery(poll, () => {
       if (active && (!pendingRequestRef.current || Date.now() - pendingRequestRef.current.startedAt >= 20_000)) setRequestPhase('reconnecting');
     });
+    // Realtime only nudges the poll; the poll stays the single writer of run
+    // state, so a dropped socket degrades to the existing cadence.
+    resumeRef.current = () => { if (active) recovery.resume(); };
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') recovery.resume();
     });
     return () => { active = false; recovery.stop(); subscription.remove(); };
   }, [activeJourneyId, activeRunId, currentJourneyId, data.userId, threadId, visible]);
+
+  useAgentRunRealtime(activeRunId, () => resumeRef.current?.());
 
   useEffect(() => {
     if (!loading) return;
@@ -1051,6 +1153,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
           activities: message.ui?.activities,
+          modelMetrics: message.ui?.modelMetrics,
+          runTiming: message.ui?.runTiming,
           attachments: message.ui?.attachments,
           undoAction: message.ui?.undoAction,
           createJourneyFlow: message.ui?.createJourneyFlow,
@@ -1072,12 +1176,17 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           setActiveRunId(history.activeRun.id);
           runActivitiesRef.current = history.activeRun.activities;
           setRunActivities(history.activeRun.activities);
+          setRunModelMetrics(history.activeRun.modelMetrics || []);
+          setRunStages(history.activeRun.stages || []);
+          setRunTiming(history.activeRun.runTiming);
           setLoading(true);
           setRequestPhase(history.activeRun.activities.length ? 'planning' : 'queued');
         } else if (!requestInFlightRef.current && !pendingRequestRef.current) {
           setActiveRunId(undefined);
           runActivitiesRef.current = [];
           setRunActivities([]);
+          setRunModelMetrics([]);
+          setRunStages([]);
           setLoading(false);
         }
         restoredScopeRef.current = scope;
@@ -1129,7 +1238,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
+    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
@@ -1191,6 +1300,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setTurns(historyTurns(history));
       runActivitiesRef.current = history.activeRun?.activities || [];
       setRunActivities(runActivitiesRef.current);
+      setRunModelMetrics(history.activeRun?.modelMetrics || []);
+      setRunStages(history.activeRun?.stages || []);
+      setRunTiming(history.activeRun?.runTiming);
       if (history.activeRun) {
         tracking = true;
         setActiveRunId(history.activeRun.id);
@@ -1203,8 +1315,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       if (run?.status === 'running') {
         tracking = true;
         setActiveRunId(runId);
-        runActivitiesRef.current = run.activities;
-        setRunActivities(run.activities);
+                runActivitiesRef.current = run.activities;
+                setRunActivities(run.activities);
+                setRunModelMetrics(run.modelMetrics || []);
       } else {
         Alert.alert(t('agent.retryFailed'));
       }
@@ -1291,6 +1404,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       requestInFlightRef.current = true;
       runActivitiesRef.current = [];
       setRunActivities([]);
+      setRunStages([]);
       const creatingThread = !threadId;
       const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
       const skipSuggestedLocation = locationIntent === 'transport' && !shouldSuggestTransportLocation(travel, activeJourneyId);
@@ -1377,6 +1491,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     setActiveRunId(undefined);
     runActivitiesRef.current = [];
     setRunActivities([]);
+    setRunStages([]);
     setLoading(false);
     setThreadId(undefined);
     setThreadTitle('');
@@ -1424,12 +1539,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         setActiveRunId(history.activeRun.id);
         runActivitiesRef.current = history.activeRun.activities;
         setRunActivities(history.activeRun.activities);
+        setRunStages(history.activeRun.stages || []);
         setLoading(true);
         setRequestPhase(history.activeRun.activities.length ? 'planning' : 'queued');
       } else if (!requestInFlightRef.current) {
         setActiveRunId(undefined);
         runActivitiesRef.current = [];
         setRunActivities([]);
+        setRunStages([]);
+        setRunModelMetrics([]);
+        setRunTiming(undefined);
         setLoading(false);
       }
       setInput('');
@@ -1455,6 +1574,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         setActiveRunId(undefined);
         runActivitiesRef.current = [];
         setRunActivities([]);
+        setRunStages([]);
         setLoading(false);
         setThreadId(undefined);
         setThreadTitle('');
@@ -1628,7 +1748,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               && /^(上传轨迹|Upload track)$/i.test(turn.text.trim());
             return (
             <View key={turn.id} style={turn.role === 'user' ? styles.userRow : styles.assistantRow}>
-              {turn.role === 'assistant' && turn.activities?.length ? <ResearchActivity theme={theme} activities={turn.activities} running={false} /> : null}
+              {turn.role === 'assistant' && (turn.activities?.length || turn.modelMetrics?.length) ? <ResearchActivity theme={theme} activities={turn.activities || []} modelMetrics={turn.modelMetrics} runTiming={turn.runTiming} running={false} showTiming={showTiming} /> : null}
               <View style={[
                 turn.role === 'user' ? styles.userBubble : styles.assistantBubble,
                 turn.role === 'user' ? { backgroundColor: theme.accentSoft } : null,
@@ -1745,7 +1865,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               ) : null}
             </View>
           ); })}
-          {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <ResearchActivity theme={theme} activities={runActivities} running /> : (
+          {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <ResearchActivity theme={theme} activities={runActivities} modelMetrics={runModelMetrics} runTiming={runTiming} stages={runStages} running showTiming={showTiming} /> : (
             <View style={styles.researchProgress}>
               <View style={styles.researchHeader}>
                 {requestPhase === 'sending' ? <ActivityIndicator size="small" color={theme.text} />

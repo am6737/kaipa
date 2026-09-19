@@ -2112,6 +2112,14 @@ export const en: SameShape<typeof zh> = {
     voiceError: "Speech recognition failed. Try again.",
     send: "Send",
     thinking: "Processing…",
+    stage: {
+    interpret: "Understanding the request…",
+    research: "Researching guides and routes…",
+    plan: "Building the plan…",
+    save: "Saving the itinerary…",
+    packing: "Preparing the packing list…",
+    respond: "Finalizing the result…",
+    },
     research: {
       title: "Processing",
       completed: "Processing complete",
