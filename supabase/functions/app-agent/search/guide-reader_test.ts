@@ -31,6 +31,17 @@ Deno.test('guide extraction requests the body and bounds text and image candidat
   assert(result.limitation.includes('not yet read'));
 });
 
+Deno.test('guide extraction falls back to the next Tavily key', async () => {
+  const authorizations: string[] = [];
+  const result = await readGuide(url, (name) => name === 'TAVILY_API_KEYS' ? 'exhausted,available' : undefined, async (_target, init) => {
+    authorizations.push(new Headers(init?.headers).get('Authorization') || '');
+    if (authorizations.length === 1) return new Response('', { status: 429 });
+    return json({ results: [{ url, raw_content: '正文', images: [] }] });
+  });
+  assert(result.available && result.text === '正文');
+  assert(authorizations.join() === 'Bearer exhausted,Bearer available');
+});
+
 Deno.test('guide reads do not treat failures, challenge pages or search snippets as body content', async () => {
   const missing = await readGuide(url, () => undefined, () => { throw new Error('Unexpected network'); });
   assert(!missing.available && missing.status === 'not_configured');

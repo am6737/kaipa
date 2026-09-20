@@ -90,6 +90,7 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
             style={[styles.assistant, { backgroundColor: theme.accent }]}
           >
             <AssistantMark color="#FFFFFF" size={27} />
+            <Text numberOfLines={1} style={styles.assistantLabel}>{t('agent.open')}</Text>
           </Press>
         ) : null}
       </View>
@@ -127,11 +128,20 @@ const styles = StyleSheet.create({
   assistant: {
     position: 'absolute',
     right: space.xxxl,
-    width: 52,
+    width: 88,
     height: 52,
     borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: space.xxs,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  assistantLabel: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    letterSpacing: 0,
   },
   tab: {
     flex: 1,

@@ -23,16 +23,7 @@ export function parseJourneyInviteUrl(value: string): JourneyInvite | null {
   }
 }
 
-export async function joinJourneyByInvite(invite: JourneyInvite): Promise<Poi> {
-  const { data: result, error: joinError } = await supabase.rpc('join_journey_by_invite', {
-    invite_slug: invite.slug,
-    invite_code: invite.code,
-  });
-  if (joinError) throw joinError;
-
-  const journeyId = (result as { journey_id?: string } | null)?.journey_id;
-  if (!journeyId) throw new Error('JOURNEY_INVITE_INVALID');
-
+export async function fetchJourneyPoiById(journeyId: string): Promise<Poi> {
   const { data, error } = await supabase
     .from('journeys')
     .select(`
@@ -49,4 +40,21 @@ export async function joinJourneyByInvite(invite: JourneyInvite): Promise<Poi> {
     undefined,
     session?.user.id,
   );
+}
+
+export async function joinJourneyBySlugCode(slug: string, code: string): Promise<Poi> {
+  const { data: result, error: joinError } = await supabase.rpc('join_journey_by_invite', {
+    invite_slug: slug,
+    invite_code: code,
+  });
+  if (joinError) throw joinError;
+
+  const journeyId = (result as { journey_id?: string } | null)?.journey_id;
+  if (!journeyId) throw new Error('JOURNEY_INVITE_INVALID');
+
+  return fetchJourneyPoiById(journeyId);
+}
+
+export async function joinJourneyByInvite(invite: JourneyInvite): Promise<Poi> {
+  return joinJourneyBySlugCode(invite.slug, invite.code);
 }

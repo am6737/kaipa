@@ -1205,7 +1205,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
             </Press>
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.hairline }} />
             <Press
-              onPress={() => { setMoreMenu(false); nav.openJourneySettings(info); }}
+              onPress={() => { setMoreMenu(false); if (info.mine) nav.openJourneySettings(info); }}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 13 }}
             >
               <Icon name="gearSettings" color={t.text} size={17} />

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import type { Session } from '@supabase/supabase-js';
@@ -29,6 +29,8 @@ import { HostShareSheet } from './components/overlays/HostShareSheet';
 import { NearbyJoinSheet } from './components/overlays/NearbyJoinSheet';
 import { ManageCompanions } from './components/overlays/ManageCompanions';
 import { JourneyShareSheet } from './components/overlays/JourneyShareSheet';
+import { JourneyPassphraseSheet } from './components/overlays/JourneyPassphraseSheet';
+import { JourneyCodeEntrySheet } from './components/overlays/JourneyCodeEntrySheet';
 import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHistoryPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
@@ -45,6 +47,7 @@ function AppShell() {
   const { userId, journeys } = data;
   const [trackLoading, setTrackLoading] = useState(false);
   const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
+  const [passphrasePoi, setPassphrasePoi] = useState<typeof nav.sharePanel>(null);
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
   const [discoverOverlayOpen, setDiscoverOverlayOpen] = useState(false);
 
@@ -101,8 +104,11 @@ function AppShell() {
         <DiscoverScreen
           theme={theme}
           active={nav.mainTab === 'discover' || detailOpen}
-          keepMapWarm={nav.mainTab === 'journey' && !detailOpen}
-          externalOverlayOpen={Boolean(sharePosterPoi)}
+          // Android map views keep consuming GPU/compositor time even when a
+          // different tab is on top. The map component restores its last
+          // camera after remounting, so only keep the native view warm on iOS.
+          keepMapWarm={Platform.OS === 'ios'}
+          externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
           onBlockingOverlayChange={setDiscoverOverlayOpen}
         />
       </View>
@@ -122,7 +128,7 @@ function AppShell() {
       </View>
       <BottomTabs
         theme={theme}
-        hidden={sheetUp || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi}
+        hidden={sheetUp || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi || !!passphrasePoi}
         onOpenAssistant={() => nav.openAssistant()}
       />
 
@@ -167,6 +173,7 @@ function AppShell() {
       )}
       {nav.newJourneyOpen && (
         <NewJourneySheet
+          key={`new-journey-${nav.newJourneyPreset?.id ?? 'blank'}`}
           theme={theme}
           preset={nav.newJourneyPreset}
           onClose={() => nav.closeNewJourney()}
@@ -191,7 +198,7 @@ function AppShell() {
             nav.closeNewJourney();
             nav.showToast(t('appShell.toastJourneyCreated'));
             const totalDays = saved.totalDays ?? poi.totalDays;
-            const hasTrack = Boolean(poi.trackFileUrl || (poi.trackCoords?.length ?? 0) > 1);
+            const hasTrack = Boolean(poi.trackId || poi.trackFileUrl || (poi.trackCoords?.length ?? 0) > 1);
             nav.openAssistant(
               prompt,
               saved.id,
@@ -201,6 +208,19 @@ function AppShell() {
                 : t(hasTrack ? 'journeyEdit.form.smartPlanTrackRequestUnset' : 'journeyEdit.form.smartPlanRequestUnset', { name: saved.name }),
             );
             return true;
+          }}
+        />
+      )}
+      {nav.journeyCodeEntryOpen && (
+        <JourneyCodeEntrySheet
+          theme={theme}
+          onClose={() => nav.closeJourneyCodeEntry()}
+          onJoined={async (journey) => {
+            await data.refetchJourneys();
+            nav.closeJourneyCodeEntry();
+            nav.setMainTab('journey');
+            nav.openPoint(journey);
+            nav.showToast(t('qrLogin.journeyJoined', { name: journey.name }));
           }}
         />
       )}
@@ -287,9 +307,20 @@ function AppShell() {
           onToast={(m) => nav.showToast(m)}
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
           onPermissionsChange={(participantPermissions) => nav.patchCurrent({ participantPermissions })}
+          onLeave={async () => {
+            try {
+              await data.leaveJourney(managedPoi!.id);
+              await data.refetchJourneys();
+              nav.closeManageCompanions();
+              nav.closePoint();
+              nav.showToast(t('journey.manage.leaveSuccess'));
+            } catch {
+              nav.showToast(t('journey.manage.leaveFailed'));
+            }
+          }}
         />
       ) : null}
-      {nav.sharePanel && (
+      {nav.sharePanel?.kind === 'journey' && (
         <JourneyShareSheet
           theme={theme}
           poi={nav.sharePanel}
@@ -305,6 +336,19 @@ function AppShell() {
             nav.closeSharePanel();
             if (sharedPoi) setSharePosterPoi(sharedPoi);
           }}
+          onPassphrase={() => {
+            const sharedPoi = nav.sharePanel;
+            nav.closeSharePanel();
+            if (sharedPoi) setPassphrasePoi(sharedPoi);
+          }}
+        />
+      )}
+      {passphrasePoi && (
+        <JourneyPassphraseSheet
+          theme={theme}
+          poi={passphrasePoi}
+          onClose={() => setPassphrasePoi(null)}
+          onToast={(message) => nav.showToast(message)}
         />
       )}
       {sharePosterPoi && (
@@ -340,6 +384,10 @@ function AppShell() {
           nav.closeAssistant();
           nav.setSubTab('memory');
           nav.openPoint(journey);
+        }}
+        onOpenGear={(page) => {
+          nav.closeAssistant();
+          nav.openGearPage(page);
         }}
       />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}

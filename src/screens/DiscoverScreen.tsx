@@ -2,7 +2,8 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
+import { ActivityIndicator, Animated, Easing, InteractionManager, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,10 +32,11 @@ import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBo
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
-import { RotateCcw, Search } from 'lucide-react-native';
+import { Maximize2, Minimize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
 import { refetchJourneyInspo } from '../hooks/useInspo';
 import { refetchJourneyPacking } from '../hooks/useJourneyPacking';
+import { FeedbackPage } from '../components/me/FeedbackPage';
 
 // Chips carry a stable id (used by the filter logic + as the i18n key suffix);
 // their display label is resolved per-language at render time.
@@ -43,12 +45,25 @@ const MEMORY_CHIPS = ['all', 'fav'] as const;
 
 type FilterMenuAnchor = { x: number; y: number; width: number; height: number };
 
+const MAP_DISPLAY_SETTINGS_KEY = 'kaipa:discover-map-display:v1';
+
+type PersistedMapDisplaySettings = {
+  mapStyle?: GlobeMapStyle;
+  journeyMapDetailsVisible?: boolean;
+  mapLabelsVisible?: boolean;
+  mapDistanceMarkersVisible?: boolean;
+};
+
+function mapDisplaySettingsKey(userId: string | null) {
+  return `${MAP_DISPLAY_SETTINGS_KEY}:${userId || 'anonymous'}`;
+}
+
 function MapToolButton({
   theme,
   onPress,
   accessibilityLabel,
   children,
-  size = 44,
+  size = 36,
 }: {
   theme: Theme;
   onPress: () => void;
@@ -70,7 +85,6 @@ function MapToolButton({
         backgroundColor: theme.controlSurface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.fieldBorder,
-        boxShadow: theme.dark ? '0px 2px 8px rgba(0,0,0,0.34)' : '0px 2px 8px rgba(0,0,0,0.12)',
       }}
     >
       {children}
@@ -130,6 +144,13 @@ function JourneyFooterActionLabel({
 function num(s: string) {
   const m = s.replace(/,/g, '').match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(resolve, reject).finally(() => clearTimeout(timeout));
+  });
 }
 
 // Map avatars represent a trailhead. Once a journey has real track data, the
@@ -192,10 +213,18 @@ export function DiscoverScreen({
   const [chip, setChip] = React.useState(0);
   const [mapStyle, setMapStyle] = useState<GlobeMapStyle>('standard');
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
+  const [routeFeedbackOpen, setRouteFeedbackOpen] = useState(false);
   const [journeyMapDetailsVisible, setJourneyMapDetailsVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
+  const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
+  const [routeReversed, setRouteReversed] = useState(false);
   const [mapCameraAction, setMapCameraAction] = useState<GlobeCameraAction>();
+  const mapDisplaySettingsHydratedRef = React.useRef(false);
+  const mapCameraRef = React.useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const mapBeforePointRef = React.useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const mapPointGestureRef = React.useRef(false);
+  const wasMapActiveRef = React.useRef(active);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
@@ -206,7 +235,108 @@ export function DiscoverScreen({
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
   const [focusReturnToList, setFocusReturnToList] = React.useState(false);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
+  const routeJourneyTransitionRef = React.useRef(false);
   const journeyDetailScrollY = React.useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    mapDisplaySettingsHydratedRef.current = false;
+    setMapStyle('standard');
+    setJourneyMapDetailsVisible(true);
+    setMapLabelsVisible(true);
+    setMapDistanceMarkersVisible(true);
+    AsyncStorage.getItem(mapDisplaySettingsKey(userId))
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        try {
+          const saved = JSON.parse(raw) as PersistedMapDisplaySettings;
+          if (saved.mapStyle === 'standard' || saved.mapStyle === 'terrain' || saved.mapStyle === 'satellite') {
+            setMapStyle(saved.mapStyle);
+          }
+          if (typeof saved.journeyMapDetailsVisible === 'boolean') setJourneyMapDetailsVisible(saved.journeyMapDetailsVisible);
+          if (typeof saved.mapLabelsVisible === 'boolean') setMapLabelsVisible(saved.mapLabelsVisible);
+          if (typeof saved.mapDistanceMarkersVisible === 'boolean') setMapDistanceMarkersVisible(saved.mapDistanceMarkersVisible);
+        } catch {
+          // Ignore malformed local preferences and keep the defaults.
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) mapDisplaySettingsHydratedRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!mapDisplaySettingsHydratedRef.current) return;
+    const settings: PersistedMapDisplaySettings = {
+      mapStyle,
+      journeyMapDetailsVisible,
+      mapLabelsVisible,
+      mapDistanceMarkersVisible,
+    };
+    AsyncStorage.setItem(mapDisplaySettingsKey(userId), JSON.stringify(settings)).catch(() => {});
+  }, [journeyMapDetailsVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, userId]);
+
+  const openPointFromCurrentMap = (poi: Poi) => {
+    mapBeforePointRef.current = mapCameraRef.current;
+    mapPointGestureRef.current = false;
+    nav.openPoint(poi);
+  };
+
+  const restoreMapAfterPoint = () => {
+    const camera = mapBeforePointRef.current;
+    if (camera) {
+      setMapCameraAction((current) => ({
+        type: 'restore',
+        coordinate: camera.center,
+        zoom: camera.zoom,
+        revision: (current?.revision ?? 0) + 1,
+      }));
+    }
+    mapBeforePointRef.current = null;
+    mapPointGestureRef.current = false;
+  };
+
+  const dismissPointSheet = () => {
+    restoreMapAfterPoint();
+    sheetRef.current?.dismiss();
+  };
+
+  const planRouteJourney = React.useCallback((route: Poi) => {
+    routeJourneyTransitionRef.current = true;
+    // hide is an imperative animation and does not emit the sheet's index
+    // callback. Keep floating route actions in sync while it leaves the screen.
+    setRouteSheetIndex(0);
+    // Fully move the route card off-screen before mounting the planner. Going
+    // to the lowest detent first leaves a visible pause at the minimized card.
+    sheetRef.current?.hide(() => nav.openNewJourney(route));
+  }, [nav]);
+
+  React.useEffect(() => {
+    if (nav.newJourneyOpen || nav.pointInfo?.kind !== 'route' || !routeJourneyTransitionRef.current) return;
+    routeJourneyTransitionRef.current = false;
+    sheetRef.current?.snapTo(1);
+  }, [nav.newJourneyOpen, nav.pointInfo?.kind]);
+
+  // The map is intentionally unmounted while Discover is not the active tab.
+  // Restore the user's last camera when returning instead of fitting the
+  // selected route again and unexpectedly zooming into its region.
+  React.useEffect(() => {
+    const becameActive = active && !wasMapActiveRef.current;
+    wasMapActiveRef.current = active;
+    if (!becameActive || !mapCameraRef.current) return;
+    const camera = mapCameraRef.current;
+    setMapAtRouteFrame(false);
+    setMapCameraAction((current) => ({
+      type: 'restore',
+      coordinate: camera.center,
+      zoom: camera.zoom,
+      revision: (current?.revision ?? 0) + 1,
+    }));
+  }, [active]);
 
   // ── multi-select (long-press to enter, batch delete) ──
   const [selectMode, setSelectMode] = useState(false);
@@ -214,6 +344,7 @@ export function DiscoverScreen({
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [routeSheetIndex, setRouteSheetIndex] = useState(1);
+  const [mapImmersive, setMapImmersive] = useState(false);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
   const [routeEditorGroupKey, setRouteEditorGroupKey] = useState<string | null>(null);
@@ -368,10 +499,8 @@ export function DiscoverScreen({
     setPlanEditorOpen(false);
     setJourneySheetIndex(1);
     setMapStylePickerOpen(false);
-    setJourneyMapDetailsVisible(true);
     setMapAtRouteFrame(true);
-    setMapLabelsVisible(true);
-    setMapCameraAction(undefined);
+    if (focusedJourneyId) setMapCameraAction(undefined);
     setSelectedPlanDays(new Set());
     setSelectedJourneyDay(undefined);
     setJourneyDaySelectionRequest(undefined);
@@ -405,7 +534,8 @@ export function DiscoverScreen({
     setRouteSheetIndex(1);
     setMapStylePickerOpen(false);
     setMapAtRouteFrame(true);
-    setMapCameraAction(undefined);
+    setRouteReversed(false);
+    if (focusedRouteId) setMapCameraAction(undefined);
   }, [focusedRouteId]);
 
   React.useEffect(() => () => {
@@ -582,7 +712,7 @@ export function DiscoverScreen({
   const focusPanel = Math.round(height * 0.56);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
-  const focusCoords = useMemo<[number, number][] | null>(() => {
+  const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
     if ((point.trackCoords?.length ?? 0) >= 2) return point.trackCoords!;
@@ -594,6 +724,21 @@ export function DiscoverScreen({
 
     return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
   }, [nav.pointInfo, routes]);
+  // Opening a journey from the Journey tab otherwise mounts the detail tree,
+  // initializes the Android map, and measures the full track in one JS frame.
+  // Let the sheet/press transition get on screen first, then add the expensive
+  // route geometry after native interactions settle.
+  const [detailMapReady, setDetailMapReady] = useState(true);
+  useEffect(() => {
+    if (!nav.pointInfo) {
+      setDetailMapReady(true);
+      return;
+    }
+    setDetailMapReady(false);
+    const task = InteractionManager.runAfterInteractions(() => setDetailMapReady(true));
+    return () => task.cancel();
+  }, [nav.pointInfo?.id]);
+  const focusCoords = detailMapReady ? rawFocusCoords : null;
   const focusMeasure = useMemo(() => measureTrack(focusCoords ?? undefined), [focusCoords]);
   const focusGroupKeys = availableJourneyDays.length ? availableJourneyDays : focusedTimeline.knownGroups;
   const displayedGroupRoutes = useMemo(() => {
@@ -717,15 +862,30 @@ export function DiscoverScreen({
   const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
   const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover && !routeEditorGroupKey;
   const routeMapFull = nav.pointInfo?.kind === 'route' && routeSheetIndex === 0;
-  const mapStylePickerVisible = mapStylePickerOpen && (journeyMapFull || routeMapFull || !nav.pointInfo);
+  const mapStylePickerVisible = mapStylePickerOpen;
   const journeyMapBottomPadding = journeySheetIndex === 0
     ? journeyMinimum + space.xl
     : journeySheetIndex === 1
       ? focusPanel + space.xl
       : full + space.md;
+  const pointMapControlsBottom = (nav.pointInfo?.kind === 'journey'
+    ? (journeySheetIndex === 0 ? journeyMinimum : journeySheetIndex === 1 ? focusPanel : full)
+    : (routeSheetIndex === 0 ? journeyMinimum : routeSheetIndex === 1 ? focusPanel : full)) + space.md;
+  const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
+    ? journeySheetIndex < 2
+    : nav.pointInfo?.kind === 'route'
+      ? routeSheetIndex < 2
+      : false;
 
   const fitMapRoute = () => {
     setMapStylePickerOpen(false);
+    setMapAtRouteFrame(true);
+    setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
+  };
+
+  const toggleRouteDirection = () => {
+    if (nav.pointInfo?.kind !== 'route') return;
+    setRouteReversed((value) => !value);
     setMapAtRouteFrame(true);
     setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
   };
@@ -743,10 +903,36 @@ export function DiscoverScreen({
         nav.showToast(t('discover.locationPermissionDenied'));
         return;
       }
+      // Android can grant permission while the device-wide location provider
+      // is disabled. Avoid waiting indefinitely for a native callback.
+      const servicesEnabled = await withTimeout(
+        Location.hasServicesEnabledAsync(),
+        3_000,
+        'Checking location services timed out',
+      );
+      if (!servicesEnabled) {
+        nav.showToast(t('discover.locationFailed'));
+        return;
+      }
       const approximateLocation = permission.ios?.accuracy === 'reduced'
         || permission.android?.accuracy === 'coarse';
 
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      // A cached fix gives Android an immediate result when the GPS provider
+      // is slow to acquire a satellite fix. Fall back to a bounded balanced-
+      // accuracy request instead of waiting indefinitely for Highest accuracy.
+      const cachedPosition = await withTimeout(
+        Location.getLastKnownPositionAsync({ maxAge: 120_000, requiredAccuracy: 5_000 }),
+        2_000,
+        'Reading cached location timed out',
+      );
+      const position = cachedPosition ?? await withTimeout(
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          mayShowUserSettingsDialog: true,
+        }),
+        15_000,
+        'Location request timed out',
+      );
       const coordinate: [number, number] = [position.coords.longitude, position.coords.latitude];
       const positionHeading = position.coords.heading;
       setCurrentLocation({
@@ -792,7 +978,7 @@ export function DiscoverScreen({
           .catch(() => {});
       }
     } catch (error) {
-      console.warn('Failed to locate current position', error);
+      console.warn('Failed to locate current position', error instanceof Error ? error.message : error);
       nav.showToast(t('discover.locationFailed'));
     } finally {
       setLocating(false);
@@ -848,22 +1034,41 @@ export function DiscoverScreen({
         <Globe
           theme={theme}
           size={globeSize}
-          pois={nav.pointInfo ? [] : placeGroups.map(({ rep, group }) => {
-            const [lng, lat] = poiMapCoordinate(rep);
-            return { id: rep.id, lng, lat, mine: rep.mine, tone: rep.tone, count: group.length, coverUri: rep.photoUris?.[0], label: rep.name };
+          pois={placeGroups.flatMap(({ rep, group }) => {
+            const isSelectedPlace = nav.pointInfo?.kind === 'route' && rep.id === activeRepId;
+            // A shared trailhead still needs a tappable pin for its sibling
+            // routes. Show a sibling's photo there, while hiding the selected
+            // route's own photo; single-route places remain fully hidden.
+            const markerPoi = isSelectedPlace
+              ? group.find((item) => item.id !== nav.pointInfo?.id)
+              : rep;
+            if (!markerPoi) return [];
+            const [lng, lat] = poiMapCoordinate(markerPoi);
+            return [{ id: rep.id, lng, lat, mine: markerPoi.mine, tone: markerPoi.tone, count: group.length, coverUri: markerPoi.photoUris?.[0], label: markerPoi.name }];
           })}
-          activePoiId={activeRepId}
+          // Keep nearby route pins interactive while a route detail card is
+          // open, so users can compare close tracks without first dismissing
+          // the current card. Journey detail keeps its existing map-focused UI.
+          showPoiMarkers={!nav.pointInfo || nav.pointInfo.kind === 'route'}
+          activePoiId={nav.pointInfo?.kind === 'route' ? null : activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
+          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo}
           cameraAction={mapCameraAction}
           focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
           staggerPins={!entrancePlayed}
           onCameraGestureStart={() => {
-            if (nav.pointInfo) setMapAtRouteFrame(false);
+            if (nav.pointInfo) {
+              mapPointGestureRef.current = true;
+              setMapAtRouteFrame(false);
+            }
             else setMapAtCurrentLocation(false);
           }}
-          focusCoords={focusCoords}
+          onCameraPositionChange={(camera) => {
+            mapCameraRef.current = camera;
+          }}
+          focusCoords={nav.pointInfo?.kind === 'route' && routeReversed ? [...(focusCoords ?? [])].reverse() : focusCoords}
           focusSegments={journeyMapDetailsVisible || routeEditorGroupKey ? focusSegments : []}
           focusBoundaries={journeyMapDetailsVisible || routeEditorGroupKey ? displayedFocusBoundaries : []}
           selectionPin={routeEditorGroupKey && routeDraftPosition && routeEditorIndex >= 0 ? {
@@ -892,13 +1097,23 @@ export function DiscoverScreen({
           onPoiPress={(id) => {
             const group = repIdToGroup.get(id);
             if (!group) return;
+            // While viewing a route, tapping a shared trailhead should switch
+            // to another route there directly instead of opening the list.
+            // This keeps nearby-route exploration consistent with single pins.
+            if (nav.pointInfo?.kind === 'route' && group.length > 1) {
+              const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id) ?? group[0];
+              setPlaceSel(null);
+              setFocusReturnToList(false);
+              openPointFromCurrentMap(nextRoute);
+              return;
+            }
             // One route/journey here → open its map detail. Several → scope the journey-list
             // sheet to this trailhead so the user can pick the past memory vs. the
             // 再次出发 plan (same list, just a 这个地点的旅程 header).
             if (group.length === 1) {
               setPlaceSel(null);
               setFocusReturnToList(false);
-              nav.openPoint(group[0]);
+              openPointFromCurrentMap(group[0]);
               return;
             }
             setPlaceSel(placeKey(group[0]));
@@ -911,7 +1126,7 @@ export function DiscoverScreen({
       </View>
 
       {/* Discover keeps its original route / journey map modes. */}
-      {!nav.pointInfo ? (
+      {!nav.pointInfo && !mapImmersive ? (
       <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>
         <Glass theme={chromeTheme} radius={16} intensity={30}>
           <View style={{ flexDirection: 'row', padding: 3, gap: 3 }}>
@@ -945,8 +1160,8 @@ export function DiscoverScreen({
       ) : null}
 
       {/* top-right chrome */}
-      {!nav.pointInfo ? (
-      <View style={{ position: 'absolute', top: insets.top + 8, right: 16, gap: 10 }}>
+      {!nav.pointInfo && !mapImmersive ? (
+      <View style={{ position: 'absolute', top: insets.top + 4, right: 16, gap: 10 }}>
         <Press
           accessibilityRole="button"
           accessibilityLabel={t('search.placeholder')}
@@ -956,7 +1171,7 @@ export function DiscoverScreen({
           <Search color={chromeTheme.text} size={25} strokeWidth={2.2} />
         </Press>
       </View>
-      ) : nav.pointInfo.kind === 'journey' ? (
+      ) : !mapImmersive && nav.pointInfo?.kind === 'journey' ? (
         <>
           <View style={{ position: 'absolute', top: insets.top + 5, left: 13 }}>
             <Press
@@ -966,13 +1181,13 @@ export function DiscoverScreen({
               onPress={() => {
                 if (routeEditorGroupKey) closeRouteEditor();
                 else if (nav.journeyVersionPreview) nav.closeJourneyVersionPreview();
-                else sheetRef.current?.dismiss();
+                else dismissPointSheet();
               }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
               <Icon name="chevronL" color={journeyChromeColor} size={27} />
             </Press>
-          </View>
+            </View>
           {!nav.journeyVersionPreview ? <View style={{ position: 'absolute', top: insets.top + 5, right: 13, flexDirection: 'row' }}>
             <Press
               accessibilityRole="button"
@@ -986,25 +1201,59 @@ export function DiscoverScreen({
             >
               <Icon name="share" color={journeyChromeColor} size={25} />
             </Press>
-            <Press
+            {nav.pointInfo?.mine ? <Press
               accessibilityRole="button"
               accessibilityLabel={t('journey.more.settings')}
               hitSlop={6}
-              onPress={() => nav.pointInfo && nav.openJourneySettings(nav.pointInfo)}
+              onPress={() => nav.pointInfo?.mine && nav.openJourneySettings(nav.pointInfo)}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
             >
               <Icon name="gearSettings" color={journeyChromeColor} size={25} />
-            </Press>
+            </Press> : null}
           </View> : null}
         </>
+      ) : null}
+
+      {mapImmersive ? (
+        <Press
+          onPress={() => setMapImmersive(false)}
+          accessibilityRole="button"
+          accessibilityLabel={t('journey.map.exitFullscreen')}
+          style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, zIndex: 20, elevation: 1 }}
+        >
+          <Minimize2 color={theme.text} size={20} strokeWidth={2} />
+        </Press>
       ) : null}
 
 
 
 
 
-      {journeyMapFull || routeMapFull ? (
+      {((pointMapControlsVisible && !mapImmersive) || mapImmersive) ? (
         <>
+          {pointMapControlsVisible && !mapImmersive ? (
+            <Press
+              onPress={() => {
+                setMapStylePickerOpen(false);
+                setMapImmersive(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.map.enterFullscreen')}
+              style={{
+                position: 'absolute',
+                right: space.md,
+                bottom: pointMapControlsBottom + 92,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.controlSurface,
+              }}
+            >
+              <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
+            </Press>
+          ) : null}
           <Press
             onPress={() => setMapStylePickerOpen((value) => !value)}
             accessibilityRole="button"
@@ -1013,18 +1262,13 @@ export function DiscoverScreen({
             style={{
               position: 'absolute',
               right: space.md,
-              bottom: journeyMinimum + space.md + 46,
-              width: 38,
-              height: 38,
-              borderRadius: 19,
+              bottom: mapImmersive ? journeyMinimum + space.md + 46 : pointMapControlsBottom + 46,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: theme.controlSurface,
-              shadowColor: '#000000',
-              shadowOpacity: theme.dark ? 0.20 : 0.08,
-              shadowRadius: 5,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 3,
             }}
           >
             <Icon name="layers" color={mapStylePickerOpen ? theme.accent : theme.text2} size={18} />
@@ -1038,18 +1282,13 @@ export function DiscoverScreen({
             style={{
               position: 'absolute',
               right: space.md,
-              bottom: journeyMinimum + space.md,
-              width: 38,
-              height: 38,
-              borderRadius: 19,
+              bottom: mapImmersive ? journeyMinimum + space.md : pointMapControlsBottom,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: theme.controlSurface,
-              shadowColor: '#000000',
-              shadowOpacity: theme.dark ? 0.20 : 0.08,
-              shadowRadius: 5,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 3,
             }}
           >
             <Icon name="locate" color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} />
@@ -1057,30 +1296,30 @@ export function DiscoverScreen({
         </>
       ) : null}
 
-      {!nav.pointInfo ? (
+      {!nav.pointInfo && !mapImmersive ? (
         <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56, gap: 10 }}>
           <MapToolButton
             theme={chromeTheme}
-            size={44}
+            size={36}
             onPress={() => setMapStylePickerOpen((value) => !value)}
             accessibilityLabel={t('journey.map.layerTitle')}
           >
-            <Icon name="layers" color={mapStylePickerOpen ? chromeTheme.accent : chromeTheme.text} size={20} />
+            <Icon name="layers" color={mapStylePickerOpen ? chromeTheme.accent : chromeTheme.text} size={18} />
           </MapToolButton>
           <MapToolButton
             theme={chromeTheme}
-            size={44}
+            size={36}
             onPress={locateCurrentPosition}
             accessibilityLabel={t('discover.toastLocate')}
           >
             {locating
               ? <ActivityIndicator size="small" color={chromeTheme.accent} />
-              : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={21} />}
+              : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
           </MapToolButton>
         </View>
       ) : null}
 
-      {sheetVisible && (
+      {sheetVisible && !mapImmersive && (
       <TrailSheet
         ref={sheetRef}
         key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
@@ -1095,7 +1334,8 @@ export function DiscoverScreen({
         } : undefined}
         header={nav.pointInfo ? <View /> : header}
         compact={false}
-        backgroundColor={nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
+        backgroundColor={nav.newJourneyOpen ? 'transparent' : nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
+        containerStyle={{ opacity: nav.newJourneyOpen ? 0 : 1 }}
         borderless={nav.pointInfo?.kind === 'route'}
         bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
         bottomOffset={0}
@@ -1107,13 +1347,14 @@ export function DiscoverScreen({
           } else {
             nav.closeSheet();
           }
+          restoreMapAfterPoint();
           setFocusReturnToList(false);
         }}
       >
-        {nav.pointInfo ? (
+        {nav.newJourneyOpen ? null : nav.pointInfo ? (
           <View style={{ paddingHorizontal: space.md, paddingBottom: nav.pointInfo.kind === 'journey' ? 76 : 0 }}>
             {nav.pointInfo.kind === 'route' ? (
-              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={() => sheetRef.current?.dismiss()} showActions={false} />
+              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)} />
             ) : (
               <SelectedPoiCard
                 theme={theme}
@@ -1188,15 +1429,17 @@ export function DiscoverScreen({
                           if (selectMode) toggleSelect(p.id);
                           else {
                             setFocusReturnToList(true);
-                            nav.openPoint(p);
+                            openPointFromCurrentMap(p);
                           }
                         }}
+                        onInvite={() => nav.openManageCompanions(p, 'invite')}
+                        inviteAccessibilityLabel={t('journey.manage.inviteParticipant')}
                         onLongPress={() => (selectMode ? toggleSelect(p.id) : enterSelect(p.id))}
                       />
                     ) : (
-                      <DiscoverRouteCard theme={theme} poi={p} onPress={() => {
+                      <DiscoverRouteCard theme={theme} poi={p} feedbackLabel={t('discover.routeFeedback')} onFeedback={() => setRouteFeedbackOpen(true)} onPress={() => {
                         setFocusReturnToList(true);
-                        nav.openPoint(p);
+                        openPointFromCurrentMap(p);
                       }} />
                     )}
                   </StaggerIn>
@@ -1230,8 +1473,8 @@ export function DiscoverScreen({
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
           value={mapStyle}
-          detailsTitle={t('journey.map.displayTitle')}
-          details={(journeyMapFull ? [
+          detailsTitle={nav.pointInfo ? t('journey.map.displayTitle') : undefined}
+          details={nav.pointInfo ? (nav.pointInfo.kind === 'journey' ? [
             {
               id: 'journey-stops',
               label: t('journey.map.journeyStops'),
@@ -1244,6 +1487,12 @@ export function DiscoverScreen({
               value: mapLabelsVisible,
               onChange: setMapLabelsVisible,
             },
+            {
+              id: 'distance-markers',
+              label: t('journey.map.distanceMarkers'),
+              value: mapDistanceMarkersVisible,
+              onChange: setMapDistanceMarkersVisible,
+            },
           ] : [
             {
               id: 'map-labels',
@@ -1251,7 +1500,19 @@ export function DiscoverScreen({
               value: mapLabelsVisible,
               onChange: setMapLabelsVisible,
             },
-          ]) satisfies MapDisplayOption[]}
+            {
+              id: 'distance-markers',
+              label: t('journey.map.distanceMarkers'),
+              value: mapDistanceMarkersVisible,
+              onChange: setMapDistanceMarkersVisible,
+            },
+            {
+              id: 'swap-start-end',
+              label: t('journey.map.swapStartEnd'),
+              value: routeReversed,
+              onChange: () => toggleRouteDirection(),
+            },
+          ]) satisfies MapDisplayOption[] : undefined}
           bottomInset={insets.bottom}
           onChange={setMapStyle}
           onClose={() => setMapStylePickerOpen(false)}
@@ -1409,7 +1670,7 @@ export function DiscoverScreen({
           onClose={() => setChecklistFilterMenuVisible(false)}
         />
       ) : null}
-      {nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
+      {nav.pointInfo?.kind === 'journey' && !mapImmersive && !nav.journeyVersionPreview && journeySheetIndex > 0 && !nav.blockingOverlayOpen && !externalOverlayOpen ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -1419,43 +1680,12 @@ export function DiscoverScreen({
             bottom: Math.max(insets.bottom, space.md),
             zIndex: 180,
             flexDirection: 'row',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             alignItems: 'center',
             gap: space.xs,
           }}
         >
-          {!timelineSelectionMode && !momentSelectionMode && !checklistSelectionMode && !planEditorOpen ? (
-            <Press
-              hitSlop={3}
-              onPress={() => {
-                if (!nav.pointInfo || nav.pointInfo.kind !== 'journey') return;
-                nav.openAssistant(
-                  t('agent.journeyPrompt'),
-                  nav.pointInfo.id,
-                );
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={t('agent.journeyEntry')}
-              style={{
-                height: 38,
-                maxWidth: 176,
-                marginRight: 'auto',
-                paddingHorizontal: space.sm,
-                borderRadius: radius.pill,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: space.xs,
-                backgroundColor: theme.accent,
-                boxShadow: theme.dark ? '0px 5px 14px rgba(0,0,0,0.42)' : '0px 5px 14px rgba(0,0,0,0.12)',
-              }}
-            >
-              <AssistantMark color="#FFFFFF" size={21} />
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                {t('agent.journeyEntry')}
-              </Text>
-            </Press>
-          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
           {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
             <>
               {!timelineSelectionMode ? (
@@ -1475,7 +1705,7 @@ export function DiscoverScreen({
                   if (timelineSelectionMode) setSelectedTimelineItemIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: timelineSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={timelineSelectionMode ? 'check' : 'edit'} label={timelineSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
@@ -1505,7 +1735,7 @@ export function DiscoverScreen({
                   setSelectedMomentIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: momentSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={momentSelectionMode ? 'check' : 'edit'} label={momentSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
@@ -1583,7 +1813,7 @@ export function DiscoverScreen({
                     setSelectedChecklistItemIds(new Set());
                   }}
                   accessibilityRole="button"
-                  style={{ height: 38, marginRight: checklistSelectionMode ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
                 >
                   <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'edit'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
                 </Press>
@@ -1641,7 +1871,7 @@ export function DiscoverScreen({
                   if (planEditorOpen) setSelectedPlanDays(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, marginRight: planEditorOpen ? 'auto' : undefined, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
               >
                 <JourneyFooterActionLabel theme={theme} icon={planEditorOpen ? 'check' : 'edit'} label={planEditorOpen ? t('common.done') : t('common.edit')} />
               </Press>
@@ -1652,9 +1882,41 @@ export function DiscoverScreen({
               ) : null}
             </>
           )}
+          </View>
+          {!timelineSelectionMode && !momentSelectionMode && !checklistSelectionMode && !planEditorOpen ? (
+            <Press
+              hitSlop={3}
+              onPress={() => {
+                if (!nav.pointInfo || nav.pointInfo.kind !== 'journey') return;
+                nav.openAssistant(
+                  t('agent.journeyPrompt'),
+                  nav.pointInfo.id,
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('agent.journeyEntry')}
+              style={{
+                height: 38,
+                maxWidth: 176,
+                paddingHorizontal: space.sm,
+                borderRadius: radius.pill,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: space.xs,
+                backgroundColor: theme.accent,
+                boxShadow: theme.dark ? '0px 5px 14px rgba(0,0,0,0.42)' : '0px 5px 14px rgba(0,0,0,0.12)',
+              }}
+            >
+              <AssistantMark color="#FFFFFF" size={21} />
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                {t('agent.journeyEntry')}
+              </Text>
+            </Press>
+          ) : null}
         </View>
       ) : null}
-      {nav.pointInfo?.kind === 'journey' && nav.journeyVersionPreview && journeySheetIndex > 0 && !externalOverlayOpen ? (
+      {nav.pointInfo?.kind === 'journey' && !mapImmersive && nav.journeyVersionPreview && journeySheetIndex > 0 && !externalOverlayOpen ? (
         <View
           style={{
             position: 'absolute',
@@ -1685,7 +1947,7 @@ export function DiscoverScreen({
           </Press>
         </View>
       ) : null}
-      {nav.pointInfo?.kind === 'route' && routeSheetIndex > 0 ? (
+      {nav.pointInfo?.kind === 'route' && !nav.newJourneyOpen && !mapImmersive && routeSheetIndex > 0 ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -1696,7 +1958,7 @@ export function DiscoverScreen({
             zIndex: 180,
           }}
         >
-          <RoutePreviewActions theme={theme} poi={nav.pointInfo} />
+          <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} />
         </View>
       ) : null}
       {selectMode ? (
@@ -1721,6 +1983,22 @@ export function DiscoverScreen({
           </View>
         </View>
       ) : null}
+      <Modal
+        visible={routeFeedbackOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setRouteFeedbackOpen(false)}
+      >
+        <FeedbackPage
+          theme={theme}
+          initialCategory={2}
+          onBack={() => setRouteFeedbackOpen(false)}
+          onSubmit={() => {
+            setRouteFeedbackOpen(false);
+            nav.showToast(t('me.feedbackThanks'));
+          }}
+        />
+      </Modal>
       <AppActionDialog
         theme={theme}
         visible={versionRestoreDialogOpen && Boolean(nav.journeyVersionPreview)}

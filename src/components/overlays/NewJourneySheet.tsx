@@ -30,7 +30,6 @@ import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
-import { TrackMap, TrackMapHandle } from './TrackMap';
 import { TrailSheet } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
 import { journeySchedulePatch } from '../../lib/journeySchedule';
@@ -43,7 +42,6 @@ import {
 import { buildTrackData } from '../../lib/trackParser';
 import { buildTrackDraft, parseTrackFile, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
 import { AssistantMark } from '../assistant/AssistantMark';
-import { isValidMapCoordinate } from '../maps/types';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
 
@@ -68,7 +66,12 @@ interface NJRoute {
   trackElevation?: Poi['trackElevation'];
   trackDurationMs?: Poi['trackDurationMs'];
   trackWaypoints?: Poi['trackWaypoints'];
+  trackFileName?: string;
   custom?: boolean;
+}
+
+interface NJDestination extends JourneyLocationValue {
+  route?: NJRoute;
 }
 
 function useRouteSuggestions(): NJRoute[] {
@@ -89,6 +92,7 @@ function useRouteSuggestions(): NJRoute[] {
     trackElevation: p.trackElevation,
     trackDurationMs: p.trackDurationMs,
     trackWaypoints: p.trackWaypoints,
+    trackFileName: p.trackFileName,
   })), [routes]);
 }
 
@@ -598,6 +602,7 @@ function presetToRoute(p: Poi): NJRoute {
     trackElevation: p.trackElevation,
     trackDurationMs: p.trackDurationMs,
     trackWaypoints: p.trackWaypoints,
+    trackFileName: p.trackFileName,
   };
 }
 
@@ -607,6 +612,14 @@ function presetToRoute(p: Poi): NJRoute {
 function NJPresetPlanner({
   theme,
   route,
+  selectedLocations,
+  locationQuery,
+  setLocationQuery,
+  routeSearchResults,
+  locationResults,
+  locationSearching,
+  addDestination,
+  removeLocation,
   tripName,
   setTripName,
   startDt,
@@ -620,6 +633,14 @@ function NJPresetPlanner({
 }: {
   theme: Theme;
   route: NJRoute;
+  selectedLocations: NJDestination[];
+  locationQuery: string;
+  setLocationQuery: (value: string) => void;
+  routeSearchResults: NJRoute[];
+  locationResults: JourneyLocationValue[];
+  locationSearching: boolean;
+  addDestination: (destination: NJDestination) => void;
+  removeLocation: (index: number) => void;
   tripName: string;
   setTripName: (value: string) => void;
   startDt: Date;
@@ -653,38 +674,15 @@ function NJPresetPlanner({
       hideSubscription.remove();
     };
   }, []);
-  const mapCoords = useMemo<[number, number][]>(() => {
-    const trackCoords = route.trackCoords?.filter(isValidMapCoordinate) ?? [];
-    if (trackCoords.length) return trackCoords;
-    const routeCoordinate: [number, number] = [route.lng ?? Number.NaN, route.lat ?? Number.NaN];
-    if (isValidMapCoordinate(routeCoordinate)) return [routeCoordinate];
-    return [];
-  }, [route.lat, route.lng, route.trackCoords]);
-  const hasMapLocation = mapCoords.length > 0;
-  const routeMetrics = [route.dist, route.asc ? `↑ ${(route.asc || '').replace('+', '')}` : ''].filter(Boolean);
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
   const nameValid = tripName.trim().length > 0;
   const visiblePlannerHeight = plannerHeight + keyboardHeight;
+  const sheetBottomPad = 24 + insets.bottom;
   // TrailSheet leaves paddingBottom = 24 + insets.bottom below the body content,
   // so the fixed-height card content must be that much shorter than the sheet
   // frame to fill it exactly without any scroll slack.
-  const cardContentHeight = visiblePlannerHeight - (24 + insets.bottom);
+  const cardContentHeight = visiblePlannerHeight - sheetBottomPad;
   const [sheetIndex, setSheetIndex] = useState(1);
-  const prevSheetIndex = useRef(1);
-  const mapRef = useRef<TrackMapHandle>(null);
-  // Frame the track above whatever the card covers and refit when it snaps to a
-  // new detent — the discover map does the same for journey details.
-  const routePadding: [number, number, number, number] = [
-    insets.top + 68,
-    34,
-    (sheetIndex === 0 ? minimizedHeight : visiblePlannerHeight) + space.md,
-    34,
-  ];
-  useEffect(() => {
-    if (prevSheetIndex.current === sheetIndex) return;
-    prevSheetIndex.current = sheetIndex;
-    mapRef.current?.fitRoute();
-  }, [sheetIndex]);
   const handleSheetIndexChange = useCallback((index: number) => {
     setSheetIndex(index);
     // Collapsing the card is a "look at the map" gesture — drop the keyboard so
@@ -693,37 +691,21 @@ function NJPresetPlanner({
   }, []);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface }]}>
-      {hasMapLocation ? (
-        <TrackMap
-          ref={mapRef}
-          fill
-          interactive
-          showLegend={false}
-          coords={mapCoords}
-          theme={theme}
-          accent={theme.accent}
-          routePadding={routePadding}
-        />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { bottom: sheetIndex === 0 ? minimizedHeight : visiblePlannerHeight, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }]}>
-          <Icon name="pin" color={theme.text2} size={24} />
-          <Text style={{ ...type.caption, color: theme.text2, marginTop: space.xs }}>{route.region}</Text>
-        </View>
-      )}
-
-      <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, height: 44, flexDirection: 'row', alignItems: 'center' }}>
-        <AppIconButton theme={theme} name="close" onPress={onClose} noShadow accessibilityLabel={t('common.close')} />
-      </View>
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
 
       <TrailSheet
         theme={theme}
         snapHeights={[minimizedHeight, visiblePlannerHeight]}
         initialIndex={1}
         dismissOnDrag={false}
+        // The route sheet has already supplied the replacement transition.
+        // Starting another entrance animation here leaves a visible pause at
+        // the minimized detent between the two cards.
+        entranceAnimation="none"
         onIndexChange={handleSheetIndexChange}
         backgroundColor={theme.groupedBg}
         header={<View />}
+        containerStyle={{ height: visiblePlannerHeight + sheetBottomPad, bottom: -sheetBottomPad }}
       >
         <View style={{ height: cardContentHeight }}>
           <Pressable
@@ -732,38 +714,52 @@ function NJPresetPlanner({
             accessibilityElementsHidden
             importantForAccessibility="no"
           />
-          <View style={{ paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.md }}>
-            {/* Identity header — the strip left visible when the card collapses,
-                mirroring the journey detail sheet's name + meta header. It
-                follows the name input while typing and falls back to the route
-                name only while the input is empty. */}
-            <Text numberOfLines={1} style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{tripName.trim() || route.name}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.xxs }}>
-              <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{route.region}</Text>
-              {routeMetrics.length > 0 ? (
-                <View style={{ flexDirection: 'row', gap: space.sm, flexShrink: 0 }}>
-                  {routeMetrics.map((metric, index) => <Text key={`${metric}-${index}`} style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{metric}</Text>)}
-                </View>
-              ) : null}
+          <View style={{ paddingHorizontal: space.md, paddingTop: space.xxs }}>
+            <View style={{ height: 44, alignItems: 'flex-end' }}>
+              <Press
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.close')}
+                hitSlop={6}
+                style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Icon name="close" color={theme.text} size={23} />
+              </Press>
             </View>
-
-            <View style={{ marginTop: layout.sectionGap }}>
-              <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.nameQuestion')}</Text>
-              <View style={{ height: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+            <View>
+              <Text style={[type.pageTitle, { marginTop: space.md, color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whereTitle')}</Text>
+              <View style={{ minHeight: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.xs }}>
+                  {selectedLocations.map((location, index) => (
+                    <View key={`${location.lng}-${location.lat}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minHeight: 38, paddingLeft: 13, paddingRight: 5, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
+                      <Text numberOfLines={1} style={{ maxWidth: 190, color: theme.text, fontSize: 14, fontWeight: '600' }}>{location.name}</Text>
+                      <Press accessibilityRole="button" accessibilityLabel={t('journeyEdit.form.removeLocation', { name: location.name })} onPress={() => removeLocation(index)} style={{ width: 25, height: 25, alignItems: 'center', justifyContent: 'center' }}>
+                        <Icon name="close" color={theme.text3} size={15} strokeWidth={2.4} />
+                      </Press>
+                    </View>
+                  ))}
+                </View>
                 <TextInput
-                  value={tripName}
-                  onChangeText={setTripName}
+                  value={locationQuery}
+                  onChangeText={setLocationQuery}
                   maxLength={32}
                   multiline
                   numberOfLines={2}
-                  placeholder={t('journeyEdit.details.namePlaceholder')}
+                  placeholder={t('journeyEdit.form.wherePlaceholder')}
                   placeholderTextColor={theme.text3}
                   style={{ width: '100%', height: 48, padding: 0, paddingRight: 28, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: '600', textAlignVertical: 'top' }}
                 />
-                <View style={{ height: 17, marginTop: space.xxs, justifyContent: 'center' }}>
-                  <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{route.region}</Text>
-                </View>
+                {locationSearching ? <ActivityIndicator size="small" color={theme.text2} style={{ position: 'absolute', right: space.md, top: space.md }} /> : null}
               </View>
+              {routeSearchResults.length || locationResults.length ? (
+                <View style={{ maxHeight: 180, marginTop: space.xs, borderRadius: radius.card, overflow: 'hidden', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
+                  {routeSearchResults.map((suggestion) => {
+                    const destination = locationFromPoi(suggestion.region || suggestion.name, suggestion.lng ?? 104, suggestion.lat ?? 35, suggestion.coord);
+                    return <Press key={`route-${suggestion.id}`} accessibilityRole="button" onPress={() => addDestination({ ...destination, name: suggestion.name, route: suggestion })} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{suggestion.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{suggestion.region}</Text></Press>;
+                  })}
+                  {locationResults.map((item, index) => <Press key={`location-${item.lng}-${item.lat}-${index}`} accessibilityRole="button" onPress={() => addDestination(item)} style={{ minHeight: 52, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}><Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text><Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{item.address || item.region}</Text></Press>)}
+                </View>
+              ) : null}
             </View>
 
           <View style={{ marginTop: layout.sectionGap }}>
@@ -891,6 +887,7 @@ function journeyDateSummary(start: Date, durationMins: number | undefined, local
 export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onSmartPlan: (poi: Poi, prompt: string) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
   const { t, resolved } = useI18n();
   const { userId, createTrack } = useData();
+  const routeSuggestions = useRouteSuggestions();
   const insets = useSafeAreaInsets();
   const presetRoute = useMemo(() => (preset ? presetToRoute(preset) : null), [preset]);
   const blankRoute = useMemo<NJRoute>(() => ({
@@ -908,7 +905,9 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const [tripName, setTripName] = useState('');
   const [startDt, setStartDt] = useState<Date>(() => preset ? njInitialPlannedStart() : njRoundedNow());
   const [durationMins, setDurationMins] = useState<number | undefined>();
-  const [flexibleDates, setFlexibleDates] = useState(true);
+  // Start with a concrete date range; users can switch to duration-only planning
+  // from the "什么时候出发" picker when the trip dates are not decided yet.
+  const [flexibleDates, setFlexibleDates] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
   const openTimePicker = () => {
     Keyboard.dismiss();
@@ -920,7 +919,20 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const [locationResults, setLocationResults] = useState<JourneyLocationValue[]>([]);
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationSearchFailed, setLocationSearchFailed] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<JourneyLocationValue | null>(null);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [selectedLocations, setSelectedLocations] = useState<NJDestination[]>(() => {
+    if (!presetRoute) return [];
+    const location = locationFromPoi(presetRoute.region || presetRoute.name, presetRoute.lng ?? 104, presetRoute.lat ?? 35, presetRoute.coord);
+    return [{ ...location, name: presetRoute.name, route: presetRoute }];
+  });
+  const selectedLocation = selectedLocations[0] || null;
+  const routeSearchResults = useMemo(() => {
+    const query = locationQuery.trim();
+    if (!query) return [];
+    return routeSuggestions
+      .filter((item) => item.name.includes(query) || item.region.includes(query))
+      .slice(0, 5);
+  }, [locationQuery, presetRoute, routeSuggestions]);
 
   const nameInit = useRef(false);
   useEffect(() => {
@@ -931,8 +943,8 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   }, [route, startDt, t, tripName]);
 
   useEffect(() => {
-    const query = tripName.trim();
-    if (presetRoute || query.length < 2 || query === selectedLocation?.name) {
+    const query = locationQuery.trim();
+    if (query.length < 2) {
       setLocationResults([]);
       setLocationSearching(false);
       setLocationSearchFailed(false);
@@ -969,17 +981,29 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       clearTimeout(timer);
       controller.abort();
     };
-  }, [presetRoute, resolved, route.lat, route.lng, selectedLocation?.name, trackSource, tripName]);
+  }, [locationQuery, presetRoute, resolved, route.lat, route.lng, selectedLocations, trackSource]);
 
   const nameValid = tripName.trim().length > 0;
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
   const submit = async (mode: 'manual' | 'smart') => {
     if (!nameValid || creatingMode) return;
     setCreatingMode(mode);
-    const effectiveRoute = route.custom && !selectedLocation
+    const destinationNames = selectedLocations.length
+      ? selectedLocations.map((location) => location.name).join('、')
+      : tripName.trim();
+    const effectiveRoute = selectedLocations.length
+      ? {
+          ...route,
+          name: destinationNames,
+          region: selectedLocations.map((location) => location.region || location.name).join(' / '),
+          lng: selectedLocations[0].lng,
+          lat: selectedLocations[0].lat,
+          coord: selectedLocations[0].coord,
+        }
+      : route.custom && !selectedLocation
       ? { ...route, region: tripName.trim() }
       : route;
-    const poi = buildJourney(effectiveRoute, tripName, startDt, durationMins, flexibleDates, t);
+    const poi = buildJourney(effectiveRoute, destinationNames, startDt, durationMins, flexibleDates, t);
     if (trackSource && userId) {
       try {
         // The track row has to exist before the journey can point at it.
@@ -992,12 +1016,47 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         setCreatingMode(null);
         return;
       }
+    } else if (route.trackCoords && route.trackCoords.length > 1 && userId) {
+      // Explore routes carry decimated geometry in the route catalog. Promote
+      // it to the user's track library so the new journey and AI share the
+      // same track contract as an uploaded GPX/KML file.
+      const distanceKm = Number.parseFloat(route.dist.replace(/[^0-9.]/g, ''));
+      const ascentM = Number.parseFloat(route.asc.replace(/[^0-9.]/g, ''));
+      const track = await createTrack({
+        name: route.name,
+        fileName: route.trackFileName || `${route.name}.kml`,
+        fileFormat: 'kml',
+        coords: route.trackCoords,
+        elevation: route.trackElevation,
+        durationMs: route.trackDurationMs,
+        waypoints: route.trackWaypoints,
+        distM: Number.isFinite(distanceKm) ? Math.round(distanceKm * 1000) : undefined,
+        ascM: Number.isFinite(ascentM) ? Math.round(ascentM) : undefined,
+        pointCount: route.trackCoords.length,
+      });
+      if (!track) {
+        onToast(t('journeyEdit.form.trackUploadFailed'));
+        setCreatingMode(null);
+        return;
+      }
+      poi.trackId = track.id;
     }
+    // Catalog routes are promoted to the track library above, but they do not
+    // populate `trackSource` (that field is only used for local uploads).
+    // Keep the planning prompt aligned with the journey we are about to save.
+    const hasRouteTrack = Boolean(route.trackCoords && route.trackCoords.length > 1);
+    const trackLabel = trackSource
+      ? `${trackSource.fileName} ${route.dist} ${route.asc}`
+      : hasRouteTrack
+      ? `${route.trackFileName || `${route.name}.kml`} ${route.dist} ${route.asc}`
+      : t('journeyEdit.form.noTrack');
     const prompt = t('journeyEdit.form.smartPrompt', {
-      name: tripName.trim(),
+      name: destinationNames,
       dates: flexibleDates ? t('journeyHome.dateUnset') : journeyDateSummary(startDt, durationMins, resolved),
       duration: totalDays == null ? t('journeyEdit.form.durationUnknownPrompt') : t('journeyEdit.form.durationDays', { count: totalDays }),
-      track: trackSource ? `${trackSource.fileName} ${route.dist} ${route.asc}` : t('journeyEdit.form.noTrack'),
+      track: selectedLocations.length > 1
+        ? `${selectedLocations.map((location, index) => `${index + 1}. ${location.name}`).join('；')}；${trackLabel}`
+        : trackLabel,
     });
     const created = mode === 'smart' ? await onSmartPlan(poi, prompt) : await onCreate(poi);
     if (!created) setCreatingMode(null);
@@ -1016,34 +1075,42 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         return;
       }
       setTrackBusy(true);
+      // Clear stale results before parsing, but do not clear them after the
+      // async parse: the user may continue typing another destination while
+      // the file is being processed.
+      setLocationResults([]);
+      setLocationSearchFailed(false);
       const parsed = await parseTrackFile(file, t);
       const stats = parsed.stats;
       const start = stats.points[0];
       const preview = buildTrackData(stats);
-      let boundLocation = selectedLocation;
-      if (!boundLocation) {
-        let trackLocation: JourneyLocationValue;
-        try {
-          trackLocation = await reverseJourneyLocation(
-            start.lon,
-            start.lat,
-            resolved === 'zh' ? 'zh' : 'en',
-          );
-        } catch (error) {
-          console.warn('[NewJourney] track location lookup failed:', error);
-          trackLocation = locationFromPoi(
-            parsed.name || tripName.trim() || t('journey.settings.locationUnnamed'),
-            start.lon,
-            start.lat,
-          );
-        }
-        const destinationName = tripName.trim() || parsed.name || trackLocation.name;
-        boundLocation = { ...trackLocation, name: destinationName };
-        setTripName(destinationName);
-        setSelectedLocation(boundLocation);
-        setLocationResults([]);
-        setLocationSearchFailed(false);
+      let trackLocation: JourneyLocationValue;
+      try {
+        trackLocation = await reverseJourneyLocation(
+          start.lon,
+          start.lat,
+          resolved === 'zh' ? 'zh' : 'en',
+        );
+      } catch (error) {
+        console.warn('[NewJourney] track location lookup failed:', error);
+        trackLocation = locationFromPoi(
+          parsed.name || tripName.trim() || t('journey.settings.locationUnnamed'),
+          start.lon,
+          start.lat,
+        );
       }
+      const uploadedDestination: NJDestination = {
+        ...trackLocation,
+        name: parsed.name || tripName.trim() || trackLocation.name,
+      };
+      const hasUploadedDestination = selectedLocations.some((location) => (
+        location.name === uploadedDestination.name
+        || (Math.abs(location.lng - uploadedDestination.lng) < 0.001 && Math.abs(location.lat - uploadedDestination.lat) < 0.001)
+      ));
+      const nextLocations = hasUploadedDestination ? selectedLocations : [...selectedLocations, uploadedDestination];
+      setSelectedLocations(nextLocations);
+      if (!selectedLocations.length) setTripName(uploadedDestination.name);
+      const boundLocation = selectedLocation || uploadedDestination;
       setRoute((current) => ({
         ...current,
         name: parsed.name || current.name,
@@ -1067,12 +1134,70 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     }
   };
 
+  const removeLocation = (index: number) => {
+    const next = selectedLocations.filter((_, locationIndex) => locationIndex !== index);
+    setSelectedLocations(next);
+    setTripName(next.map((location) => location.name).join('、'));
+    if (!next.length) {
+      setRoute(blankRoute);
+      return;
+    }
+    if (index === 0) {
+      const first = next[0];
+      setRoute((current) => ({
+        ...current,
+        name: first.name,
+        region: first.region || first.name,
+        lng: first.lng,
+        lat: first.lat,
+        coord: first.coord,
+      }));
+    }
+  };
+
+  const addDestination = (destination: NJDestination) => {
+    const alreadySelected = selectedLocations.some((location) => location.lng === destination.lng && location.lat === destination.lat);
+    const next = alreadySelected ? selectedLocations : [...selectedLocations, destination];
+    setSelectedLocations(next);
+    setTripName(next.map((location) => location.name).join('、'));
+    setLocationQuery('');
+    setLocationResults([]);
+    setLocationSearchFailed(false);
+    if (!selectedLocations.length) {
+      if (destination.route) {
+        setRoute(destination.route);
+      } else {
+        setRoute((current) => ({
+          ...current,
+          name: destination.name,
+          region: destination.region || destination.name,
+          lng: destination.lng,
+          lat: destination.lat,
+          coord: destination.coord,
+        }));
+      }
+    }
+    Keyboard.dismiss();
+  };
+
   if (presetRoute) {
     return (
-      <View style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
+      <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 200 }]}>
         <NJPresetPlanner
           theme={theme}
           route={route}
+          selectedLocations={selectedLocations}
+          locationQuery={locationQuery}
+          setLocationQuery={(value) => {
+            setLocationQuery(value);
+            setLocationResults([]);
+            setLocationSearchFailed(false);
+          }}
+          routeSearchResults={routeSearchResults}
+          locationResults={locationResults}
+          locationSearching={locationSearching}
+          addDestination={addDestination}
+          removeLocation={removeLocation}
           tripName={tripName}
           setTripName={setTripName}
           startDt={startDt}
@@ -1116,26 +1241,26 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.xxxl, paddingBottom: 120 + insets.bottom }}>
           <View>
             <Text style={[type.pageTitle, { color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whereTitle')}</Text>
-            <View style={{ height: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+            <View style={{ minHeight: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
+              {selectedLocations.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.xs }}>
+                  {selectedLocations.map((location, index) => (
+                    <View key={`${location.lng}-${location.lat}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minHeight: 38, paddingLeft: 13, paddingRight: 5, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
+                      <Text numberOfLines={1} style={{ maxWidth: 190, color: theme.text, fontSize: 14, fontWeight: '600' }}>{location.name}</Text>
+                      <Press accessibilityRole="button" accessibilityLabel={t('journeyEdit.form.removeLocation', { name: location.name })} onPress={() => removeLocation(index)} style={{ width: 25, height: 25, alignItems: 'center', justifyContent: 'center' }}>
+                        <Icon name="close" color={theme.text3} size={15} strokeWidth={2.4} />
+                      </Press>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
               <TextInput
-                value={tripName}
+                value={locationQuery}
                 onChangeText={(text) => {
-                  setTripName(text);
+                  setLocationQuery(text);
+                  if (!selectedLocations.length) setTripName(text);
                   setLocationResults([]);
                   setLocationSearchFailed(false);
-                  if (selectedLocation && text !== selectedLocation.name) {
-                    setSelectedLocation(null);
-                    setRoute((current) => {
-                      const trackStart = trackSource ? current.trackCoords?.[0] : undefined;
-                      return {
-                        ...current,
-                        region: t('journeyEdit.form.destinationUnset'),
-                        lng: trackStart?.[0] ?? blankRoute.lng,
-                        lat: trackStart?.[1] ?? blankRoute.lat,
-                        coord: undefined,
-                      };
-                    });
-                  }
                 }}
                 maxLength={32}
                 multiline
@@ -1144,39 +1269,46 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
                 placeholderTextColor={theme.text3}
                 style={{ width: '100%', height: 48, padding: 0, paddingRight: 28, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: '600', textAlignVertical: 'top' }}
               />
-              <View style={{ height: 17, marginTop: space.xxs, justifyContent: 'center' }}>
-                {selectedLocation ? (
-                  <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>
-                    {selectedLocation.address || selectedLocation.region}
-                  </Text>
-                ) : null}
-              </View>
               {locationSearching ? <ActivityIndicator size="small" color={theme.text2} style={{ position: 'absolute', right: space.md, top: space.md }} /> : null}
             </View>
-            {locationResults.length ? (
+            {routeSearchResults.length || locationResults.length ? (
               <View style={{ maxHeight: 300, marginTop: space.xs, borderRadius: radius.card, overflow: 'hidden', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
                 <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  {routeSearchResults.length ? (
+                    <View style={{ paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.xs }}>
+                      <Text style={{ color: theme.text3, fontSize: 10.5, fontWeight: '700' }}>{t('journeyEdit.form.routeSearchSection')}</Text>
+                    </View>
+                  ) : null}
+                  {routeSearchResults.map((routeSuggestion) => {
+                    const destination = locationFromPoi(routeSuggestion.region || routeSuggestion.name, routeSuggestion.lng ?? 104, routeSuggestion.lat ?? 35, routeSuggestion.coord);
+                    return (
+                      <View key={`route-${routeSuggestion.id}`}>
+                        <Press
+                          accessibilityRole="button"
+                          onPress={() => addDestination({ ...destination, name: routeSuggestion.name, route: routeSuggestion })}
+                          style={{ minHeight: 58, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}
+                        >
+                          <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{routeSuggestion.name}</Text>
+                          <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
+                            {[routeSuggestion.region, routeSuggestion.dist, routeSuggestion.asc].filter(Boolean).join('  ')}
+                            {'  '}{t('journeyEdit.form.routeLibraryResult')}
+                          </Text>
+                        </Press>
+                      </View>
+                    );
+                  })}
+                  {routeSearchResults.length && locationResults.length ? (
+                    <View style={{ paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xs }}>
+                      <Text style={{ color: theme.text3, fontSize: 10.5, fontWeight: '700' }}>{t('journeyEdit.form.locationSearchSection')}</Text>
+                    </View>
+                  ) : null}
                   {locationResults.map((item, index) => {
                     const detail = item.address || item.region;
                     return (
-                      <View key={`${item.lng}-${item.lat}-${index}`}>
-                        {index ? <View style={{ height: StyleSheet.hairlineWidth, marginLeft: space.md, backgroundColor: theme.hairline }} /> : null}
+                      <View key={`location-${item.lng}-${item.lat}-${index}`}>
                         <Press
                           accessibilityRole="button"
-                          onPress={() => {
-                            setTripName(item.name);
-                            setSelectedLocation(item);
-                            setLocationResults([]);
-                            setLocationSearchFailed(false);
-                            setRoute((current) => ({
-                              ...current,
-                              region: item.region || item.name,
-                              lng: item.lng,
-                              lat: item.lat,
-                              coord: item.coord,
-                            }));
-                            Keyboard.dismiss();
-                          }}
+                          onPress={() => addDestination(item)}
                           style={{ minHeight: 58, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'center' }}
                         >
                           <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{item.name}</Text>

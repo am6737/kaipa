@@ -873,7 +873,10 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
         overScrollMode="never"
         scrollEventThrottle={16}
         onLayout={() => onLayout(0)}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        // Keep scroll-driven header/day-tab updates off the JS frame path.
+        // Animated.Value listeners still receive native-driver updates when
+        // the visible day needs to be synchronized.
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         contentContainerStyle={{ paddingBottom: bottomPadding }}
       >
         {children}
@@ -2031,34 +2034,17 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 )}
               </View>
             ) : (
-              <AppCard
-                theme={theme}
+              <View
                 style={{
                   alignItems: 'center',
                   paddingHorizontal: space.xl,
-                  paddingVertical: space.xxl,
-                  backgroundColor: embeddedSurface,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: theme.fieldBorder,
+                  paddingVertical: space.xxxl,
                 }}
               >
-                <View
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: radius.pill,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: theme.accentSofter,
-                  }}
-                >
-                  <Icon name="camera" color={theme.accent} size={22} />
-                </View>
-                <Text style={[type.cardTitle, { color: theme.text, marginTop: space.md }]}>{t('journey.empty.moments')}</Text>
-                <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs, textAlign: 'center', lineHeight: 17 }]}>
-                  {t('journey.empty.momentsHint')}
-                </Text>
-              </AppCard>
+                <Icon name="photo" color={theme.text3} size={28} strokeWidth={1.65} />
+                <Text style={[type.cardTitle, { color: theme.text, marginTop: space.lg }]}>{t('journey.empty.moments')}</Text>
+                <Text style={[type.caption, { color: theme.text2, marginTop: space.xs, textAlign: 'center', lineHeight: 17 }]}>{t('journey.empty.momentsHint')}</Text>
+              </View>
             )}
           </View>
         ) : null}
@@ -2084,9 +2070,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       <FloatingIconButton icon={Heart} fill={poi.fav ? theme.trailMine : 'none'} color={poi.fav ? theme.trailMine : '#fff'} onPress={() => nav.toggleFav()} />
       <FloatingIconButton icon={Share2} onPress={onShare} />
       <FloatingIconButton
-        icon={isJourney ? Settings : MoreHorizontal}
+        icon={isJourney && poi.mine ? Settings : MoreHorizontal}
         onPress={() => {
-          if (isJourney) nav.openJourneySettings(poi);
+          if (isJourney && poi.mine) nav.openJourneySettings(poi);
           else nav.openActionSheet({ items: moreItems });
         }}
       />

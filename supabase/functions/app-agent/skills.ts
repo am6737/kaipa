@@ -1,8 +1,10 @@
 import { tool } from 'npm:@openai/agents@0.16.1';
 import { z } from 'npm:zod@4.1.12';
+import { tavilySkill } from './tavily-skill.ts';
 
 // Reviewed, versioned product guidance. Loading a skill never grants a capability.
 export const planningSkills = {
+  tavily: tavilySkill,
   routes: {
     description: 'Explore and compare destinations or routes; research current facts without requiring creation details.',
     body: `Explore with the facts available. Missing dates, duration or a GPX file do not block route search. Ask about destination or preferences only when needed to give useful choices, not as a fixed questionnaire.
@@ -50,12 +52,12 @@ Append ordinary itinerary items to the existing journey without deleting/reorder
   },
 } as const;
 
-export const skillNames = ['routes', 'hiking', 'packing', 'travel'] as const;
+export const skillNames = ['tavily', 'routes', 'hiking', 'packing', 'travel'] as const;
 export const skillCatalog = skillNames.map(name => `${name}: ${planningSkills[name].description}`).join('\n');
 
 export const loadPlanningSkill = tool({
   name: 'load_planning_skill',
   description: 'Load reviewed Kaipa domain guidance by name. Load only skills relevant to this task; this does not permit any business write.',
   parameters: z.object({ name: z.enum(skillNames) }),
-  execute: ({ name }) => ({ name, version: name === 'hiking' ? 6 : name === 'travel' ? 2 : 1, instructions: planningSkills[name].body }),
+  execute: ({ name }) => ({ name, version: name === 'tavily' ? 1 : name === 'hiking' ? 6 : name === 'travel' ? 2 : 1, instructions: planningSkills[name].body }),
 });

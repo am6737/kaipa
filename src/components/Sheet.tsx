@@ -43,13 +43,17 @@ interface Props {
   /** Optional control row rendered immediately above the sheet surface. */
   topAccessory?: React.ReactNode;
   topAccessoryHeight?: number;
+  /** Entrance animation style for overlays that are already replacing a visible sheet. */
+  entranceAnimation?: 'spring' | 'timing' | 'none';
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
     the map outside the card), reusing the same slide-down as the drag gesture */
 export interface TrailSheetHandle {
   dismiss: () => void;
-  snapTo: (index: number) => void;
+  hide: (onComplete?: () => void) => void;
+  snapTo: (index: number, onComplete?: () => void) => void;
+  transitionTo: (index: number, onComplete: () => void) => void;
   scrollTo: (y: number, animated?: boolean) => void;
 }
 
@@ -71,6 +75,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     bodyScrollY,
     topAccessory,
     topAccessoryHeight = 0,
+    entranceAnimation = 'spring',
   },
   ref
 ) {
@@ -99,13 +104,20 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     const id = translateY.addListener(({ value }) => {
       currentY.current = value;
     });
-    // entrance: slide up from off-screen to the initial detent
-    Animated.spring(translateY, {
-      toValue: openY,
-      useNativeDriver: true,
-      bounciness: 2,
-      speed: 16,
-    }).start();
+    // A replacing overlay can use a short linear entrance to avoid competing
+    // with the sheet it is replacing during the same render frame.
+    if (entranceAnimation === 'none') {
+      translateY.setValue(openY);
+    } else if (entranceAnimation === 'timing') {
+      Animated.timing(translateY, { toValue: openY, duration: 180, useNativeDriver: true }).start();
+    } else {
+      Animated.spring(translateY, {
+        toValue: openY,
+        useNativeDriver: true,
+        bounciness: 2,
+        speed: 16,
+      }).start();
+    }
     return () => translateY.removeListener(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -116,12 +128,45 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     });
   };
   // let the parent dismiss the sheet imperatively (tap-outside) with the same anim
-  useImperativeHandle(ref, () => ({ dismiss, snapTo, scrollTo: (y, animated = true) => scrollRef.current?.scrollTo({ y, animated }) }));
+  useImperativeHandle(ref, () => ({
+    dismiss,
+    hide: (onComplete) => {
+      Animated.timing(translateY, {
+        toValue: hiddenY,
+        duration: 180,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) onComplete?.();
+      });
+    },
+    snapTo: (index, onComplete) => snapTo(index, 0, onComplete),
+    transitionTo: (targetIndex, onComplete) => {
+      const clamped = Math.max(0, Math.min(snapHeights.length - 1, targetIndex));
+      Animated.timing(translateY, {
+        toValue: yFor(snapHeights[clamped]),
+        duration: 160,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) onComplete();
+      });
+    },
+    scrollTo: (y, animated = true) => scrollRef.current?.scrollTo({ y, animated }),
+  }));
 
-  const snapTo = (i: number, vy = 0) => {
+  const snapTo = (i: number, vy = 0, onComplete?: () => void) => {
     const clamped = Math.max(0, Math.min(snapHeights.length - 1, i));
     setIndex(clamped);
     onIndexChange?.(clamped);
+    if (onComplete) {
+      Animated.timing(translateY, {
+        toValue: yFor(snapHeights[clamped]),
+        duration: 220,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) onComplete();
+      });
+      return;
+    }
     Animated.spring(translateY, {
       toValue: yFor(snapHeights[clamped]),
       useNativeDriver: true,
@@ -323,6 +368,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               bounces={false}
               alwaysBounceVertical={false}
               overScrollMode="never"
+              keyboardShouldPersistTaps="handled"
               onScroll={onBodyScroll}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
@@ -371,6 +417,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
                 bounces={false}
                 alwaysBounceVertical={false}
                 overScrollMode="never"
+                keyboardShouldPersistTaps="handled"
                 onScroll={onBodyScroll}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}

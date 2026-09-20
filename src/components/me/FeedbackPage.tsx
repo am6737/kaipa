@@ -1,7 +1,7 @@
 // FeedbackPage.tsx — 帮助与反馈: category chips + free-text + 提交 in the nav bar.
 // Mirrors the prototype FeedbackPage.
 import React, { useState } from 'react';
-import { View, Text, TextInput } from 'react-native';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { useI18n, TKey } from '../../i18n';
 import { MePushPage } from './MePushPage';
@@ -19,24 +19,21 @@ export function FeedbackPage({
   theme,
   onBack,
   onSubmit,
+  initialCategory = 0,
 }: {
   theme: Theme;
   onBack: () => void;
   onSubmit: () => void;
+  initialCategory?: number;
 }) {
   const { t } = useI18n();
-  const [cat, setCat] = useState(0);
+  const [cat, setCat] = useState(initialCategory);
   const [val, setVal] = useState('');
   const canSubmit = val.trim().length > 0;
-
-  const submit = (
-    <Press onPress={() => canSubmit && onSubmit()} scaleTo={1} opacityTo={1} style={{ minWidth: 54, height: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: canSubmit ? theme.accentSoft : theme.fieldSurface, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 13, fontWeight: '700', color: canSubmit ? theme.accent : theme.text3 }}>{t('account.feedback.submit')}</Text>
-    </Press>
-  );
+  const maxLength = 500;
 
   return (
-    <MePushPage theme={theme} title={t('account.feedback.pageTitle')} onBack={onBack} right={submit}>
+    <MePushPage theme={theme} title={t('account.feedback.pageTitle')} onBack={onBack}>
       <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
         <Text style={[type.eyebrow, { color: theme.text3, marginBottom: space.sm }]}>{t('account.feedback.pageTitle')}</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.md }}>
@@ -52,34 +49,43 @@ export function FeedbackPage({
                   paddingHorizontal: space.md,
                   height: 38,
                   borderRadius: radius.pill,
-                  backgroundColor: on ? theme.accentSoft : theme.fieldSurface,
+                  backgroundColor: on ? theme.accent : '#FFFFFF',
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: on ? theme.accent : theme.fieldBorder,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? theme.accent : theme.text2 }}>{t(ck)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? '#FFFFFF' : theme.text2 }}>{t(ck)}</Text>
               </Press>
             );
           })}
         </View>
-        <TextInput
-          value={val}
-          onChangeText={setVal}
-          placeholder={t('account.feedback.placeholder')}
-          placeholderTextColor={theme.text3}
-          multiline
-          style={{
-            backgroundColor: theme.surfaceTop,
-            borderWidth: 0,
-            borderRadius: radius.feature,
-            paddingHorizontal: space.md,
-            paddingVertical: space.md,
-            fontSize: 15,
-            color: theme.text,
-            minHeight: 180,
-            textAlignVertical: 'top',
-          }}
-        />
+        <View style={{ backgroundColor: theme.surfaceTop, borderRadius: radius.feature, overflow: 'hidden' }}>
+          <TextInput
+            value={val}
+            onChangeText={setVal}
+            placeholder={t('account.feedback.placeholder')}
+            placeholderTextColor={theme.text3}
+            multiline
+            maxLength={maxLength}
+            style={{
+              paddingHorizontal: space.md,
+              paddingTop: space.md,
+              paddingBottom: space.sm,
+              fontSize: 15,
+              color: theme.text,
+              minHeight: 150,
+              textAlignVertical: 'top',
+            }}
+          />
+          <View style={{ minHeight: 48, paddingHorizontal: space.md, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 12, color: theme.text3 }}>{val.length}/{maxLength}</Text>
+            <Press onPress={() => canSubmit && onSubmit()} scaleTo={1} opacityTo={1} style={{ minWidth: 58, height: 34, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: canSubmit ? theme.accent : theme.fieldSurface, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: canSubmit ? '#FFFFFF' : theme.text3 }}>{t('account.feedback.submit')}</Text>
+            </Press>
+          </View>
+        </View>
         <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
           {t('account.feedback.helper', { email: 'hi@kaipa.app' })}
         </Text>

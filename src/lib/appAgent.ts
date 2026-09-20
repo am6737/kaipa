@@ -45,7 +45,7 @@ export interface AgentModelMetric {
   success: boolean;
 }
 
-export type AgentStageName = 'interpret' | 'research' | 'plan' | 'save' | 'packing' | 'respond';
+export type AgentStageName = 'interpret' | 'research' | 'transport' | 'plan' | 'save' | 'packing' | 'respond';
 
 /** Durable progress of a staged pipeline run; empty for the interactive path. */
 export interface AgentStage {
@@ -141,6 +141,10 @@ export function getAgentHistory(threadId: string) {
 
 export function retryAgentRun(runId: string) {
   return invoke<AgentTurnResponse>({ action: 'retry_run', runId });
+}
+
+export function cancelAgentRun(runId: string) {
+  return invoke<{ cancelled: true }>({ action: 'cancel_run', runId });
 }
 
 export async function getAgentThreads() {

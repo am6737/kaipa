@@ -551,9 +551,21 @@ export function TrackDetailContent({
       ) : null}
 
       {showMap && hasMap && (
-        <Press onPress={() => setMapFull(true)} style={{ paddingHorizontal: contentPaddingHorizontal }}>
-          <TrackMap coords={coords} theme={theme} height={232} scrubPt={showScrub ? scrubCoord : undefined} accent={ac} />
-        </Press>
+        <View style={{ paddingHorizontal: contentPaddingHorizontal }}>
+          <Press onPress={() => setMapFull(true)}>
+            <TrackMap coords={coords} theme={theme} height={232} scrubPt={showScrub ? scrubCoord : undefined} accent={ac} />
+          </Press>
+          <View style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, elevation: 10 }}>
+            <CircleBtn
+              theme={theme}
+              name="expand"
+              size={40}
+              softShadow
+              onPress={() => setMapFull(true)}
+              accessibilityLabel={t('journey.map.enterFullscreen')}
+            />
+          </View>
+        </View>
       )}
 
       {hasElevation ? (

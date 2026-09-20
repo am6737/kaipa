@@ -11,6 +11,8 @@ import { useI18n } from '../../i18n';
 import { GearItem, GearCat } from '../../data/gear';
 import { fetchGearLinkPreview, GearLinkPreview } from '../../lib/gearLinkPreview';
 import { recognizeGearImage } from '../../lib/gearImageRecognition';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import Svg, { Path } from 'react-native-svg';
 
 type ScanDisplay = {
   name: string;
@@ -297,22 +299,24 @@ function ScanningStage({ theme, top, product, stepN, error, onBack, onRetry, onM
 
 function CameraStage({ theme, top, bottom, onCancel, onImage }: { theme: Theme; top: number; bottom: number; onCancel: () => void; onImage: (asset: ImagePicker.ImagePickerAsset) => void }) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<'object' | 'tag'>('object');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const launchedRef = useRef(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView | null>(null);
+  const frameSize = Math.min(Dimensions.get('window').width - 56, 320);
 
   const takePhoto = async () => {
     setError('');
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setError(t('gear.editor.cameraPermission'));
+    if (!permission?.granted) {
+      const next = await requestPermission();
+      if (!next.granted) setError(t('gear.editor.cameraPermission'));
       return;
     }
+    if (!cameraRef.current) return;
     setBusy(true);
     try {
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.65, base64: true });
-      if (!result.canceled) onImage(result.assets[0]);
+      const result = await cameraRef.current.takePictureAsync({ quality: 0.65, base64: true });
+      if (result?.uri) onImage({ uri: result.uri, base64: result.base64, mimeType: 'image/jpeg' } as ImagePicker.ImagePickerAsset);
     } catch {
       setError(t('gear.add.imageReadFailed'));
     } finally {
@@ -338,36 +342,30 @@ function CameraStage({ theme, top, bottom, onCancel, onImage }: { theme: Theme; 
     }
   };
 
-  // Opening the recognition entry is the camera action; keep the shutter button as a retry.
   useEffect(() => {
-    if (launchedRef.current) return;
-    launchedRef.current = true;
-    void takePhoto();
-  }, []);
+    if (!permission) void requestPermission();
+  }, [permission, requestPermission]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0B0C0E' }]}>
-      <View style={{ paddingTop: top + 6, paddingHorizontal: 14 }}><Press accessibilityRole="button" onPress={onCancel} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="close" color="#FFFFFF" size={25} strokeWidth={2.2} /></Press></View>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 40 }}>
-        <View style={{ width: 280, height: 280, borderRadius: 34, backgroundColor: '#17181B', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="camera" color="rgba(255,255,255,0.3)" size={48} strokeWidth={1.25} />
-          <Corner pos="tl" color={theme.accent} /><Corner pos="tr" color={theme.accent} /><Corner pos="bl" color={theme.accent} /><Corner pos="br" color={theme.accent} />
-        </View>
-        <Text style={{ marginTop: 24, fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>{mode === 'object' ? t('gear.add.cameraObjectHint') : t('gear.add.cameraTagHint')}</Text>
-        <View style={{ flexDirection: 'row', marginTop: 18, padding: 4, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.1)' }}>
-          {(['object', 'tag'] as const).map((key) => <Press key={key} onPress={() => setMode(key)} style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 13, backgroundColor: mode === key ? '#FFFFFF' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '800', color: mode === key ? '#000000' : '#FFFFFF' }}>{key === 'object' ? t('gear.add.cameraObject') : t('gear.add.cameraTag')}</Text></Press>)}
-        </View>
-        {error ? <Text style={{ marginTop: 16, paddingHorizontal: 28, textAlign: 'center', fontSize: 13, lineHeight: 19, color: theme.danger }}>{error}</Text> : null}
+      {permission?.granted ? <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" /> : null}
+      <View style={{ paddingTop: top + 6, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Press accessibilityRole="button" accessibilityLabel={t('gear.add.cancel')} onPress={onCancel} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name="close" color="#FFFFFF" size={22} strokeWidth={2.2} /></Press>
+        <Text style={{ fontSize: 15, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.photoRecognize')}</Text>
+        <View style={{ width: 44 }} />
       </View>
-      <View style={{ paddingHorizontal: 24, paddingBottom: Math.max(bottom, 20) + 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 28 }}>
-        <Press accessibilityLabel={t('gear.add.choosePhoto')} onPress={busy ? undefined : choosePhoto} style={{ width: 76, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.12)' }}>
-          <Icon name="photo" color="#FFFFFF" size={21} />
-          <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.add.choosePhoto')}</Text>
-        </Press>
-        <Press accessibilityLabel={t('gear.add.takePhoto')} onPress={busy ? undefined : takePhoto} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
-          {busy ? <ActivityIndicator color="#FFFFFF" /> : <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFFFFF' }} />}
-        </Press>
-        <View style={{ width: 76 }} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 120 }}>
+        <View style={{ width: frameSize, height: frameSize }}>
+          <ScanCorners color="#FFFFFF" />
+        </View>
+        {error ? <Text style={{ marginTop: 12, paddingHorizontal: 28, textAlign: 'center', fontSize: 13, lineHeight: 19, color: '#FFB4AB' }}>{error}</Text> : null}
+      </View>
+      <View style={{ position: 'absolute', left: 24, right: 24, bottom: Math.max(bottom, 20) + 18, alignItems: 'center' }}>
+        <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Press accessibilityLabel={t('gear.add.choosePhoto')} onPress={busy ? undefined : choosePhoto} style={{ width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(78,78,78,0.82)' }}><Icon name="photo" color="#FFFFFF" size={22} /></Press>
+          <Press accessibilityLabel={t('gear.add.takePhoto')} onPress={busy ? undefined : takePhoto} style={{ width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#FFFFFF' }} />}</Press>
+          <View style={{ width: 52 }} />
+        </View>
       </View>
     </View>
   );
@@ -402,13 +400,15 @@ function ScanExtractStage({ theme, product, imageUri, phase, error, onCancel, on
   );
 }
 
-function Corner({ pos, color }: { pos: 'tl' | 'tr' | 'bl' | 'br'; color: string }) {
-  const style: any = { position: 'absolute', width: 34, height: 34, borderColor: color };
-  if (pos.includes('t')) style.top = -2; else style.bottom = -2;
-  if (pos.includes('l')) style.left = -2; else style.right = -2;
-  if (pos === 'tl') Object.assign(style, { borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 18 });
-  if (pos === 'tr') Object.assign(style, { borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 18 });
-  if (pos === 'bl') Object.assign(style, { borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 18 });
-  if (pos === 'br') Object.assign(style, { borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 18 });
-  return <View style={style} />;
+function ScanCorners({ color }: { color: string }) {
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Svg width="100%" height="100%" viewBox="0 0 100 100">
+        <Path d="M 20 4 H 13 Q 4 4 4 13 V 20" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M 80 4 H 87 Q 96 4 96 13 V 20" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M 4 80 V 87 Q 4 96 13 96 H 20" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M 96 80 V 87 Q 96 96 87 96 H 80" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    </View>
+  );
 }

@@ -8,6 +8,7 @@ import { AppCard, layout, radius, space, type } from '../../design-system';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
+import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
 
 type Filter = { id: string; label: string };
 
@@ -130,30 +131,43 @@ function HeaderButton({ theme, name, onPress }: { theme: Theme; name: IconName; 
   );
 }
 
-export function DiscoverRouteCard({ theme, poi, onPress }: { theme: Theme; poi: Poi; onPress: () => void }) {
+export function DiscoverRouteCard({ theme, poi, onPress, onFeedback, feedbackLabel = 'Feedback' }: { theme: Theme; poi: Poi; onPress: () => void; onFeedback?: () => void; feedbackLabel?: string }) {
   return (
-    <Press onPress={onPress} style={{ borderRadius: radius.card }}>
-      <View style={{ flexDirection: 'row', minHeight: 100, gap: space.sm, alignItems: 'flex-start' }}>
-        <PhotoTile tone={poi.tone} seed={poi.id} radius={radius.card} resWidth={280} style={{ width: 92, height: 92, flexShrink: 0 }}>
-          {poi.photoUris?.[0] ? <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-        </PhotoTile>
-        <View style={{ flex: 1, minWidth: 0, minHeight: 92, justifyContent: 'space-between' }}>
-          <View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16.5, lineHeight: 21, fontWeight: '800', letterSpacing: -0.2, color: theme.text }}>{poi.name}</Text>
-              {poi.mine ? <Icon name="user" color={theme.accent} size={14} /> : null}
+    <View style={{ borderRadius: radius.card }}>
+      <Press onPress={onPress} style={{ borderRadius: radius.card }}>
+        <View style={{ flexDirection: 'row', minHeight: 100, gap: space.sm, alignItems: 'flex-start' }}>
+          <PhotoTile tone={poi.tone} seed={poi.id} radius={radius.card} resWidth={280} style={{ width: 92, height: 92, flexShrink: 0 }}>
+            {poi.photoUris?.[0] ? <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
+          </PhotoTile>
+          <View style={{ flex: 1, minWidth: 0, minHeight: 92, justifyContent: 'space-between' }}>
+            <View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <Text numberOfLines={1} style={{ flex: 1, fontSize: 16.5, lineHeight: 21, fontWeight: '800', letterSpacing: -0.2, color: theme.text }}>{poi.name}</Text>
+                {poi.mine ? <Icon name="user" color={theme.accent} size={14} /> : null}
+              </View>
+              <MetaLine theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} />
+              {poi.desc ? <Text numberOfLines={2} style={{ marginTop: 5, fontSize: 12.5, lineHeight: 16, color: theme.text2 }}>{ROUTE_TEASERS[poi.id] || poi.desc}</Text> : null}
             </View>
-            <MetaLine theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} />
-            {poi.desc ? <Text numberOfLines={2} style={{ marginTop: 5, fontSize: 12.5, lineHeight: 16, color: theme.text2 }}>{ROUTE_TEASERS[poi.id] || poi.desc}</Text> : null}
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
-            <RouteStatPill theme={theme} text={poi.dist} mono />
-            <RouteStatPill theme={theme} text={`↑ ${poi.asc.replace('+', '')}`} mono />
-            {poi.diff ? <RouteStatPill theme={theme} text={poi.diff} accent /> : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
+              <RouteStatPill theme={theme} text={poi.dist} mono />
+              <RouteStatPill theme={theme} text={`↑ ${poi.asc.replace('+', '')}`} mono />
+              {poi.diff ? <RouteStatPill theme={theme} text={poi.diff} accent /> : null}
+            </View>
           </View>
         </View>
-      </View>
-    </Press>
+      </Press>
+      {onFeedback ? (
+        <Press
+          onPress={(event) => { event.stopPropagation(); onFeedback(); }}
+          accessibilityRole="button"
+          accessibilityLabel={feedbackLabel}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm, paddingTop: space.sm, paddingBottom: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+        >
+          <Icon name="flag" color={theme.accent} size={14} />
+          <Text style={{ fontSize: 12, fontWeight: '400', color: theme.accent }}>{feedbackLabel}</Text>
+        </Press>
+      ) : null}
+    </View>
   );
 }
 
@@ -161,6 +175,8 @@ export function DiscoverJourneyCard({
   theme,
   poi,
   onPress,
+  onInvite,
+  inviteAccessibilityLabel = 'Invite companions',
   onLongPress,
   selectMode,
   selected,
@@ -168,6 +184,8 @@ export function DiscoverJourneyCard({
   theme: Theme;
   poi: Poi;
   onPress: () => void;
+  onInvite?: () => void;
+  inviteAccessibilityLabel?: string;
   onLongPress?: () => void;
   selectMode?: boolean;
   selected?: boolean;
@@ -195,6 +213,7 @@ export function DiscoverJourneyCard({
                 <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, fontSize: 16, flex: 1 }]}>{poi.name}</Text>
                 {poi.fav ? <Icon name="heartFill" color={theme.trailMine} size={13} /> : null}
               </View>
+              <JourneyParticipants theme={theme} poi={poi} onInvite={onInvite} inviteAccessibilityLabel={inviteAccessibilityLabel} />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minWidth: 0, marginTop: 6 }}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <CompactMeta theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} />
@@ -210,6 +229,55 @@ export function DiscoverJourneyCard({
         </View>
       </AppCard>
     </Press>
+  );
+}
+
+function JourneyParticipants({
+  theme,
+  poi,
+  onInvite,
+  inviteAccessibilityLabel,
+}: {
+  theme: Theme;
+  poi: Poi;
+  onInvite?: () => void;
+  inviteAccessibilityLabel: string;
+}) {
+  const people = (poi.companionList || []).slice(0, 2);
+  if (!people.length && !onInvite) return null;
+  const size = 24;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', height: 28, marginTop: 6 }}>
+      {people.map((person, index) => (
+        <View key={`${person.id || person.ini}-${index}`} style={{ marginLeft: index ? -7 : 0, zIndex: people.length - index }}>
+          <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={size} backgroundColor={theme.groupedBg} ring ringColor={theme.surfaceTop} ringWidth={2} />
+        </View>
+      ))}
+      {onInvite ? (
+        <Press
+          onPress={(event) => {
+            event.stopPropagation();
+            onInvite();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={inviteAccessibilityLabel}
+          hitSlop={6}
+          style={{
+            width: size,
+            height: size,
+            marginLeft: people.length ? -7 : 0,
+            borderRadius: size / 2,
+            borderWidth: 1.5,
+            borderColor: theme.fieldBorder,
+            backgroundColor: theme.controlSurface,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="plus" color={theme.text2} size={14} strokeWidth={2.1} />
+        </Press>
+      ) : null}
+    </View>
   );
 }
 

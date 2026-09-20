@@ -9,7 +9,7 @@ import {
   type NativeMapPolyline,
 } from '../maps/NativeMap';
 
-export type MapStyleId = 'standard' | 'satellite';
+export type MapStyleId = 'standard' | 'terrain' | 'satellite';
 export type TrackMapWaypoint = { name: string; coord: [number, number]; km?: number };
 
 export interface TrackMapHandle {
@@ -123,9 +123,8 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   }, [accent, coords, scrubPt, selectedWaypoint, showWaypoints, theme, waypoints]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
-    { id: 'track-casing', coordinates: coords, color: theme.dark ? '#FFFFFF' : '#FFFFFF', width: 7 },
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
-  ] : [], [accent, coords, theme.dark]);
+  ] : [], [accent, coords]);
 
   if (!coords.length) return null;
   const containerStyle = fill

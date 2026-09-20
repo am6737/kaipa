@@ -88,6 +88,9 @@ export interface NavValue {
   journeyInviteScannerOpen: boolean;
   openJourneyInviteScanner: () => void;
   closeJourneyInviteScanner: () => void;
+  journeyCodeEntryOpen: boolean;
+  openJourneyCodeEntry: () => void;
+  closeJourneyCodeEntry: () => void;
 
   elevFull: OverlayCfg | null;
   openElevation: (c: OverlayCfg) => void;
@@ -207,6 +210,7 @@ export function NavProvider({
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [journeyInviteScannerOpen, setJourneyInviteScannerOpen] = useState(false);
+  const [journeyCodeEntryOpen, setJourneyCodeEntryOpen] = useState(false);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
   const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null>(null);
@@ -245,6 +249,7 @@ export function NavProvider({
     addRouteOpen ||
     newJourneyOpen ||
     journeyInviteScannerOpen ||
+    journeyCodeEntryOpen ||
     elevFull ||
     photoWall ||
     timelineAdd ||
@@ -274,6 +279,7 @@ export function NavProvider({
     setNewJourneyOpen(false);
     setNewJourneyPreset(null);
     setJourneyInviteScannerOpen(false);
+    setJourneyCodeEntryOpen(false);
     setElevFull(null);
     setPhotoWall(null);
     setTimelineAdd(null);
@@ -326,7 +332,7 @@ export function NavProvider({
   const removeCurrent = () => {
     const cur = pointInfo;
     const id = cur?.id;
-    if (id) {
+    if (id && cur?.kind === 'journey' && cur.mine === true) {
       const operation = db?.deleteJourney?.(id);
       void operation?.then(() => {
         setRemovedIds((s) => (s.includes(id) ? s : [...s, id]));
@@ -424,6 +430,9 @@ export function NavProvider({
       journeyInviteScannerOpen,
       openJourneyInviteScanner: () => setJourneyInviteScannerOpen(true),
       closeJourneyInviteScanner: () => setJourneyInviteScannerOpen(false),
+      journeyCodeEntryOpen,
+      openJourneyCodeEntry: () => setJourneyCodeEntryOpen(true),
+      closeJourneyCodeEntry: () => setJourneyCodeEntryOpen(false),
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
@@ -438,7 +447,11 @@ export function NavProvider({
       openEditJourney: (p) => setEditJourney(merged(p)),
       closeEditJourney: () => setEditJourney(null),
       journeySettings,
-      openJourneySettings: (p) => setJourneySettings(merged(p)),
+      openJourneySettings: (p) => {
+        const next = merged(p);
+        if (next.kind === 'journey' && next.mine !== true) return;
+        setJourneySettings(next);
+      },
       closeJourneySettings: () => setJourneySettings(null),
       journeyHistory,
       openJourneyHistory: (p) => setJourneyHistory(merged(p)),
@@ -550,6 +563,7 @@ export function NavProvider({
       newJourneyOpen,
       newJourneyPreset,
       journeyInviteScannerOpen,
+      journeyCodeEntryOpen,
       elevFull,
       photoWall,
       timelineAdd,

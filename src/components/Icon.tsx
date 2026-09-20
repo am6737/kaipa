@@ -468,23 +468,23 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         </Svg>
       );
     case 'expand':
-      // enter fullscreen — two diagonal out-arrows
+      // Standard four-corner fullscreen glyph.
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Polyline points="9 4 4 4 4 9" {...common} />
           <Polyline points="15 4 20 4 20 9" {...common} />
-          <Polyline points="9 20 4 20 4 15" {...common} />
-          <Line x1={20} y1={4} x2={13.5} y2={10.5} {...common} />
-          <Line x1={4} y1={20} x2={10.5} y2={13.5} {...common} />
+          <Polyline points="4 15 4 20 9 20" {...common} />
+          <Polyline points="20 15 20 20 15 20" {...common} />
         </Svg>
       );
     case 'shrink':
-      // exit fullscreen — two diagonal in-arrows
+      // Standard four-corner exit-fullscreen glyph.
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
-          <Polyline points="14 10 20 10 20 4" {...common} />
-          <Polyline points="10 14 4 14 4 20" {...common} />
-          <Line x1={20} y1={4} x2={13.5} y2={10.5} {...common} />
-          <Line x1={4} y1={20} x2={10.5} y2={13.5} {...common} />
+          <Polyline points="14 10 14 4 20 4" {...common} />
+          <Polyline points="10 10 4 10 4 4" {...common} />
+          <Polyline points="10 14 10 20 4 20" {...common} />
+          <Polyline points="14 14 20 14 20 20" {...common} />
         </Svg>
       );
     case 'livePhoto':

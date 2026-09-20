@@ -1,5 +1,6 @@
 import { Theme } from '../../theme/theme';
 import { Tone } from '../../data/tones';
+import type { NativeMapCamera } from '../maps/types';
 
 export interface GlobePoi {
   id: string;
@@ -16,11 +17,12 @@ export interface GlobePoi {
   label?: string;
 }
 
-export type GlobeMapStyle = 'standard' | 'satellite';
+export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
 
 export type GlobeCameraAction =
   | { type: 'fitRoute' | 'resetNorth'; revision: number }
-  | { type: 'locate'; revision: number; coordinate: [number, number] };
+  | { type: 'locate'; revision: number; coordinate: [number, number] }
+  | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 
 
 export interface GlobeRouteBoundary {
@@ -46,6 +48,8 @@ export interface GlobeProps {
   theme: Theme;
   size: number;
   pois: GlobePoi[];
+  /** keep native POI marker instances mounted while temporarily hiding them */
+  showPoiMarkers?: boolean;
   activePoiId?: string | null;
   onPoiPress?: (id: string) => void;
   /** tap on the empty map background (not a marker) — used to dismiss the sheet */
@@ -75,6 +79,7 @@ export interface GlobeProps {
   mapStyle?: GlobeMapStyle;
   /** hide ordinary place/road/POI labels while keeping the journey route */
   showMapLabels?: boolean;
+  showDistanceMarkers?: boolean;
   /** imperatively re-frame the journey route or restore north-up orientation */
   cameraAction?: GlobeCameraAction;
   /** bottom camera padding reserved for the journey detail sheet */
@@ -87,6 +92,7 @@ export interface GlobeProps {
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
   /** reports that the user has moved the camera away from its programmatic route framing */
   onCameraGestureStart?: () => void;
+  onCameraPositionChange?: (camera: NativeMapCamera) => void;
 }
 
 export function poiColor(p: GlobePoi, theme: Theme): { fill: string; hollow: boolean } {

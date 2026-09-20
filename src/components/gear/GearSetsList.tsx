@@ -5,6 +5,7 @@
 // weight/value vocabulary used by the redesigned gear detail pages.
 import React, { useMemo, useState } from 'react';
 import { Alert, View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import { InteractionManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MoreHorizontal, Package, Search, Weight, JapaneseYen, type LucideIcon } from 'lucide-react-native';
 import { Theme, rgba } from '../../theme/theme';
@@ -22,8 +23,12 @@ import { GearEmptyState } from './GearEmptyState';
 
 type LayoutMode = 'grid' | 'list';
 const SORT_STORAGE_KEY = '@kaipa/gear/sets-sort-v1';
+const INITIAL_RENDER_COUNT = 8;
 function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
+}
+function GearHeaderIconButton({ theme, icon, onPress, label, active = false }: { theme: Theme; icon: IconName; onPress: () => void; label: string; active?: boolean }) {
+  return <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name={icon} color={active ? theme.accent : theme.text} size={25} strokeWidth={2.2} /></Press>;
 }
 
 function setItems(set: GearSet, allItems: GearItem[]) {
@@ -43,6 +48,7 @@ export function GearSetsList({
   onBack,
   onOpenSet,
   onAdd,
+  onOpenAssistant,
   onDeleteSets,
   pinnedSetIds,
   onSetPinned,
@@ -56,6 +62,7 @@ export function GearSetsList({
   onBack: () => void;
   onOpenSet: (set: GearSet) => void;
   onAdd: () => void;
+  onOpenAssistant?: () => void;
   onDeleteSets: (ids: string[]) => void;
   pinnedSetIds: Set<string>;
   onSetPinned: (ids: string[], pinned: boolean) => void;
@@ -110,7 +117,25 @@ export function GearSetsList({
     return next;
   }, [allItems, pinnedSetIds, query, sets, sort]);
 
-  const columns = [rows.filter((_, i) => i % 2 === 0), rows.filter((_, i) => i % 2 === 1)];
+  const [visibleRowCount, setVisibleRowCount] = useState(INITIAL_RENDER_COUNT);
+  const [loadingCards, setLoadingCards] = useState(true);
+  React.useEffect(() => {
+    setVisibleRowCount(Math.min(INITIAL_RENDER_COUNT, rows.length));
+  }, [rows]);
+  React.useEffect(() => {
+    if (visibleRowCount >= rows.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setVisibleRowCount((count) => Math.min(count + INITIAL_RENDER_COUNT, rows.length));
+    });
+    return () => task.cancel();
+  }, [rows.length, visibleRowCount]);
+  React.useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setLoadingCards(false));
+    return () => task.cancel();
+  }, []);
+
+  const renderedRows = rows.slice(0, visibleRowCount);
+  const columns = [renderedRows.filter((_, i) => i % 2 === 0), renderedRows.filter((_, i) => i % 2 === 1)];
   const cardWidth = (width - 48) / 2;
   const selectableSetIds = rows.map((row) => row.set.id);
   const allSelected = picker
@@ -196,8 +221,8 @@ export function GearSetsList({
       onContentTouchStart={searchOpen ? closeSearch : undefined}
       right={selectMode ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
-          <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
+          <GearHeaderIconButton theme={theme} icon="checkAll" onPress={toggleAll} active={allSelected} label={t('common.selectAll')} />
+          <GearHeaderIconButton theme={theme} icon="close" onPress={exitSelect} label={t('common.close')} />
         </View>
       ) : pickerMode ? (
         <AppHeaderSearch
@@ -210,7 +235,7 @@ export function GearSetsList({
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
-              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+              <GearHeaderIconButton theme={theme} icon="checkAll" onPress={toggleAll} active={allSelected} label={t('common.selectAll')} />
             </View>
           )}
         />
@@ -303,6 +328,7 @@ export function GearSetsList({
                     weightUnit={weightUnit}
                     selectMode={pickerMode || selectMode}
                     selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)}
+                    loading={loadingCards}
                     onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)}
                     onLongPress={() => { if (!picker) enterSelect(row.set.id); }}
                   />
@@ -312,8 +338,8 @@ export function GearSetsList({
           </View>
         ) : rows.length ? (
           <View style={{ gap: 12 }}>
-            {rows.map((row) => (
-              <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={pickerMode || selectMode} selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)} onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => { if (!picker) enterSelect(row.set.id); }} />
+            {renderedRows.map((row) => (
+              <SetListCard key={row.set.id} theme={theme} row={row} weightUnit={weightUnit} selectMode={pickerMode || selectMode} selected={picker ? pickerSelectedIds.has(row.set.id) : selectedIds.has(row.set.id)} loading={loadingCards} onPress={() => picker ? togglePickerSet(row.set.id) : selectMode ? toggleSelected(row.set.id) : onOpenSet(row.set)} onLongPress={() => { if (!picker) enterSelect(row.set.id); }} />
             ))}
           </View>
         ) : query.trim() ? (
@@ -330,8 +356,9 @@ export function GearSetsList({
             theme={theme}
             icon="layers"
             title={t('gear.empty.noSetsYet')}
-            actionLabel={!picker ? t('gear.empty.createFirstSet') : undefined}
-            onAction={!picker ? onAdd : undefined}
+            actionLabel={!picker && onOpenAssistant ? t('gear.empty.askAiSet') : undefined}
+            actionIcon="send"
+            onAction={!picker ? onOpenAssistant : undefined}
           />
         )}
       </View>
@@ -339,9 +366,10 @@ export function GearSetsList({
   );
 }
 
-function SetListCard({ theme, row, weightUnit, onPress, onLongPress, selectMode, selected }: { theme: Theme; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean }) {
+function SetListCard({ theme, row, weightUnit, onPress, onLongPress, selectMode, selected, loading }: { theme: Theme; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean; loading: boolean }) {
   const { t } = useI18n();
   const handlers = useLongPressGuard(onPress, onLongPress);
+  if (loading) return <View style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}><View style={{ width: '62%', height: 17, borderRadius: 5, backgroundColor: theme.fieldSurface }} /><View style={{ width: '84%', height: 12, borderRadius: 4, backgroundColor: theme.fieldSurface }} /></View>;
   return (
     <Press {...handlers} style={{ minHeight: 96, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
@@ -449,10 +477,11 @@ type GalleryRow = {
   pinned: boolean;
 };
 
-function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPress, selectMode, selected }: { theme: Theme; width: number; tall: boolean; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean }) {
+function SetGalleryCard({ theme, width, tall, row, weightUnit, onPress, onLongPress, selectMode, selected, loading }: { theme: Theme; width: number; tall: boolean; row: GalleryRow; weightUnit: WeightUnit; onPress: () => void; onLongPress: () => void; selectMode: boolean; selected: boolean; loading: boolean }) {
   const { t } = useI18n();
   const handlers = useLongPressGuard(onPress, onLongPress);
   const height = tall ? 236 : 204;
+  if (loading) return <View style={{ width, height, padding: 16, borderRadius: 24, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}><View style={{ width: '72%', height: 18, borderRadius: 5, backgroundColor: theme.fieldSurface }} /><View style={{ width: '88%', height: 12, borderRadius: 4, backgroundColor: theme.fieldSurface }} /></View>;
   const foreground = theme.text;
   const secondary = theme.text2;
   return (

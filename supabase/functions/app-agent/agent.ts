@@ -28,7 +28,7 @@ export const assistantOutput = z.object({
   })).max(4).optional().describe('适合当前问题的快捷回复；不适用时为空数组'),
 });
 
-export const AGENT_VERSION = 'kaipa-harness-v1';
+export const AGENT_VERSION = 'kaipa-harness-v2-multi-route-transport';
 
 export function createAgentRuntime(config: { apiKey: string; baseUrl: string; model: string; flashModel?: string; useResponses?: boolean }, journeyMode = false, task?: TaskState, recordMetric?: (metric: ModelMetric) => Promise<void>) {
   setTracingDisabled(true);

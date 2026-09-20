@@ -39,9 +39,11 @@ export interface NativeMapPolyline {
 
 export interface NativeMapHandle {
   fitCoordinates: (coordinates: MapCoordinate[], padding?: [number, number, number, number], duration?: number) => void;
-  moveCamera: (coordinate: MapCoordinate, zoom?: number, duration?: number) => void;
+  moveCamera: (coordinate: MapCoordinate, zoom?: number, duration?: number, options?: { resetOrientation?: boolean }) => void;
   resetNorth: () => void;
 }
+
+export type NativeMapCamera = { center: MapCoordinate; zoom: number };
 
 export interface NativeMapProps {
   style?: StyleProp<ViewStyle>;
@@ -59,6 +61,7 @@ export interface NativeMapProps {
   onPress?: (coordinate: MapCoordinate) => void;
   onUserLocationChange?: (coordinate: MapCoordinate) => void;
   onCameraChange?: (heading: number, pitch: number) => void;
+  onCameraPositionChange?: (camera: NativeMapCamera) => void;
   onZoomChange?: (zoom: number) => void;
   onGestureStart?: () => void;
 }

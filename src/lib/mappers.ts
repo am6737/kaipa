@@ -175,11 +175,18 @@ export function toGearSet(
 }
 
 export function toNotif(r: any): Notif {
+  // Bucket notifications from their persisted timestamp. The legacy bucket
+  // column is kept as a fallback for rows created before created_at existed.
+  const createdAt = r.created_at ? new Date(r.created_at) : null;
+  const today = new Date();
+  const bucket: Notif['bucket'] = createdAt && !Number.isNaN(createdAt.getTime())
+    ? (createdAt.toDateString() === today.toDateString() ? 'today' : 'earlier')
+    : r.bucket;
   return {
     id: r.id,
     kind: r.kind,
     cat: r.cat,
-    bucket: r.bucket,
+    bucket,
     time: r.time,
     who: r.who,
     avatar: r.avatar,

@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kaipa 组合旅程创建原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f4f5;
+      --surface: #ffffff;
+      --surface-2: #f1f1f3;
+      --surface-3: #e7e7ea;
+      --text: #09090b;
+      --text-2: #65656d;
+      --text-3: #96969e;
+      --line: rgba(0,0,0,.08);
+      --accent: #087f8c;
+      --accent-soft: #dff1f1;
+      --orange: #e67827;
+      --green: #2f8f58;
+      --purple: #7664cf;
+      --danger: #d83a36;
+      --shadow: 0 24px 70px rgba(25, 30, 35, .18);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+    :root.dark {
+      color-scheme: dark;
+      --bg: #1c1c1e;
+      --surface: #29292d;
+      --surface-2: #343438;
+      --surface-3: #424247;
+      --text: #ffffff;
+      --text-2: rgba(235,235,245,.66);
+      --text-3: rgba(235,235,245,.38);
+      --line: rgba(255,255,255,.10);
+      --accent: #2fb3bc;
+      --accent-soft: rgba(47,179,188,.18);
+      --orange: #ff9a51;
+      --green: #56bd7d;
+      --purple: #9a8bec;
+      --danger: #ff6961;
+      --shadow: 0 24px 70px rgba(0,0,0,.45);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #dfe4e4; color: var(--text); }
+    body:has(:root.dark) { background: #101112; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .stage { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .phone { position: relative; width: min(430px, 100%); height: min(880px, calc(100vh - 48px)); min-height: 650px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 26px; box-shadow: var(--shadow); }
+    .app { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+    .topbar { padding: 18px 18px 10px; background: color-mix(in srgb, var(--bg) 92%, transparent); border-bottom: 1px solid transparent; }
+    .nav { height: 42px; display: grid; grid-template-columns: 42px 1fr 42px; align-items: center; }
+    .nav-title { text-align: center; font-size: 17px; font-weight: 750; }
+    .icon-btn { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; cursor: pointer; font-size: 22px; line-height: 1; }
+    .icon-btn:hover { background: var(--surface-2); }
+    .icon-btn:active, .primary:active, .choice:active, .route-row:active { transform: scale(.98); }
+    .stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 9px; }
+    .step { height: 3px; border-radius: 3px; background: var(--surface-3); transition: background .2s; }
+    .step.on { background: var(--accent); }
+    .content { overflow: auto; scrollbar-width: none; padding: 24px 20px 132px; }
+    .content::-webkit-scrollbar { display: none; }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; }
+    h1 { margin: 7px 0 7px; font-size: 28px; line-height: 1.18; letter-spacing: 0; }
+    .lead { margin: 0 0 25px; color: var(--text-2); font-size: 14px; line-height: 1.5; }
+    .label { margin: 24px 0 9px; font-size: 13px; font-weight: 750; }
+    .field { width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; outline: none; background: var(--surface); color: var(--text); }
+    .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .choice { min-height: 86px; padding: 13px; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+    .choice.selected { border-color: var(--accent); background: var(--accent-soft); }
+    .choice strong { display: block; font-size: 15px; }
+    .choice small { display: block; margin-top: 5px; color: var(--text-2); line-height: 1.35; }
+    .choice-icon { display: block; margin-bottom: 8px; color: var(--accent); font-size: 20px; }
+    .date-row { display: grid; grid-template-columns: 1fr 112px; gap: 9px; }
+    .date-box { height: 54px; padding: 0 14px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+    .date-box strong { font-size: 14px; }
+    .date-box span { color: var(--text-2); font-size: 13px; }
+    .search { position: relative; }
+    .search .field { padding-left: 42px; }
+    .search-mark { position: absolute; left: 15px; top: 16px; color: var(--text-2); }
+    .suggestions { display: grid; gap: 8px; margin-top: 10px; }
+    .route-row { min-height: 68px; padding: 10px 12px; display: grid; grid-template-columns: 42px 1fr auto; gap: 11px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+    .route-thumb { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 7px; color: #fff; font-weight: 850; }
+    .route-row strong { display: block; font-size: 14px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 4px; color: var(--text-2); font-size: 12px; }
+    .check { width: 24px; height: 24px; display: grid; place-items: center; border: 1.5px solid var(--surface-3); border-radius: 50%; color: transparent; }
+    .route-row.selected .check { color: white; border-color: var(--accent); background: var(--accent); }
+    .count-line { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 10px; }
+    .count-line strong { font-size: 18px; }
+    .count-line span { color: var(--text-2); font-size: 12px; }
+    .sequence { position: relative; display: grid; gap: 0; }
+    .segment { position: relative; min-height: 78px; padding: 12px 10px 12px 56px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+    .segment + .segment { margin-top: 8px; }
+    .segment-index { position: absolute; left: 14px; top: 17px; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 850; }
+    .segment-title { padding-right: 78px; font-size: 15px; font-weight: 760; }
+    .segment-actions { position: absolute; top: 9px; right: 7px; display: flex; }
+    .mini { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-2); cursor: pointer; }
+    .mini:hover { background: var(--surface-2); }
+    .connector { height: 78px; margin: 0 18px; padding: 9px 8px 9px 37px; position: relative; border-left: 2px dashed var(--text-3); color: var(--text-2); }
+    .connector-icon { position: absolute; left: -14px; top: 23px; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); }
+    .connector strong { display: block; margin-top: 4px; color: var(--text); font-size: 13px; }
+    .connector small { display: block; margin-top: 3px; font-size: 11px; }
+    .notice { margin-top: 18px; padding: 12px 13px; display: flex; gap: 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text-2); font-size: 12px; line-height: 1.45; }
+    .notice b { color: var(--accent); }
+    .summary-strip { display: grid; grid-template-columns: repeat(3,1fr); margin-bottom: 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .metric { padding: 13px 4px; text-align: center; }
+    .metric + .metric { border-left: 1px solid var(--line); }
+    .metric strong { display: block; font: 750 18px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .metric span { display: block; margin-top: 3px; color: var(--text-2); font-size: 11px; }
+    .tabs { padding: 3px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; border-radius: 8px; background: var(--surface-3); }
+    .tab { height: 34px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; font-weight: 700; }
+    .tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .schedule { margin-top: 16px; }
+    .day { display: grid; grid-template-columns: 48px 14px 1fr; min-height: 82px; }
+    .day-label { padding-top: 2px; font: 720 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
+    .rail { position: relative; }
+    .rail:before { content: ""; position: absolute; left: 6px; top: 13px; bottom: -8px; width: 2px; background: var(--surface-3); }
+    .day:last-child .rail:before { display: none; }
+    .dot { position: absolute; left: 2px; top: 7px; width: 10px; height: 10px; border: 2px solid var(--surface); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .day.transfer .dot { background: var(--orange); box-shadow: 0 0 0 1px var(--orange); }
+    .day.rest .dot { background: var(--green); box-shadow: 0 0 0 1px var(--green); }
+    .day-body { padding: 0 0 18px 9px; }
+    .day-title { font-size: 14px; font-weight: 760; }
+    .day-detail { margin-top: 5px; color: var(--text-2); font-size: 12px; line-height: 1.45; }
+    .tag { display: inline-block; margin-top: 7px; padding: 4px 7px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); font-size: 10px; font-weight: 750; }
+    .map { position: relative; height: 370px; margin-top: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--surface-2) 78%, #bdd9cd); }
+    .map-grid { position: absolute; inset: -20%; opacity: .55; background-image: linear-gradient(28deg, transparent 48%, var(--surface) 49%, var(--surface) 50%, transparent 51%), linear-gradient(110deg, transparent 48%, var(--surface) 49%, var(--surface) 50%, transparent 51%); background-size: 100px 90px, 130px 110px; transform: rotate(-5deg); }
+    .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .map-label { position: absolute; padding: 5px 7px; border-radius: 5px; background: var(--surface); box-shadow: 0 2px 8px rgba(0,0,0,.13); font-size: 10px; font-weight: 750; }
+    .legend { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 9px 10px; display: flex; gap: 15px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--text-2); font-size: 10px; }
+    .legend i { display: inline-block; width: 16px; height: 3px; margin-right: 5px; vertical-align: middle; background: var(--accent); }
+    .legend i.dash { background: repeating-linear-gradient(90deg, var(--orange) 0 4px, transparent 4px 7px); }
+    .setting { min-height: 58px; margin-top: 15px; padding: 10px 0; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); }
+    .setting strong { display: block; font-size: 14px; }
+    .setting small { color: var(--text-2); }
+    .switch { width: 48px; height: 28px; padding: 2px; border: 0; border-radius: 16px; background: var(--surface-3); cursor: pointer; }
+    .switch:before { content: ""; display: block; width: 24px; height: 24px; border-radius: 50%; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.22); transition: transform .18s; }
+    .switch.on { background: var(--green); }
+    .switch.on:before { transform: translateX(20px); }
+    .review-title { margin: 0 0 5px; font-size: 24px; }
+    .review-meta { color: var(--text-2); font-size: 13px; }
+    .review-section { padding: 20px 0; border-bottom: 1px solid var(--line); }
+    .review-section h2 { margin: 0 0 13px; font-size: 14px; }
+    .review-row { display: flex; justify-content: space-between; gap: 16px; margin-top: 10px; font-size: 13px; }
+    .review-row span:first-child { color: var(--text-2); }
+    .review-row strong { text-align: right; }
+    .route-stack { display: flex; gap: 7px; overflow: auto; padding-bottom: 2px; }
+    .route-chip { flex: 0 0 auto; padding: 8px 10px; border-radius: 7px; background: var(--surface-2); font-size: 12px; font-weight: 720; }
+    .warning { margin-top: 16px; padding: 12px; border-left: 3px solid var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); color: var(--text-2); font-size: 12px; line-height: 1.45; }
+    .footer { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 20px max(18px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 94%, transparent); border-top: 1px solid var(--line); backdrop-filter: blur(16px); }
+    .primary { width: 100%; height: 52px; border: 0; border-radius: 26px; background: var(--accent); color: white; cursor: pointer; font-weight: 780; }
+    .primary:disabled { background: var(--surface-3); color: var(--text-3); cursor: default; }
+    .footer-hint { min-height: 18px; margin-bottom: 7px; text-align: center; color: var(--text-2); font-size: 11px; }
+    .screen { display: none; }
+    .screen.active { display: block; animation: enter .2s ease; }
+    @keyframes enter { from { opacity: .45; transform: translateX(8px); } }
+    .toast { position: absolute; z-index: 20; left: 50%; bottom: 94px; width: max-content; max-width: calc(100% - 40px); padding: 10px 14px; transform: translate(-50%, 14px); border-radius: 8px; background: #171719; color: white; opacity: 0; pointer-events: none; font-size: 12px; transition: .2s; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    @media (max-width: 520px) {
+      .stage { padding: 0; }
+      .phone { width: 100%; height: 100vh; min-height: 560px; border: 0; border-radius: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section class="phone" aria-label="组合旅程创建交互原型">
+      <div class="app">
+        <header class="topbar">
+          <div class="nav">
+            <button class="icon-btn" id="back" aria-label="返回" title="返回">‹</button>
+            <div class="nav-title">新建旅程</div>
+            <button class="icon-btn" id="theme" aria-label="切换明暗模式" title="切换明暗模式">◐</button>
+          </div>
+          <div class="stepper" aria-label="创建进度">
+            <i class="step on"></i><i class="step"></i><i class="step"></i><i class="step"></i>
+          </div>
+        </header>
+
+        <div class="content" id="content">
+          <section class="screen active" data-step="0">
+            <div class="eyebrow">第 1 步，共 4 步</div>
+            <h1>这次想怎么走？</h1>
+            <p class="lead">先确定旅程类型。组合路线会自动规划路线之间的交通与休整。</p>
+
+            <div class="label">旅程名称</div>
+            <input class="field" id="tripName" value="川西三线秋日之旅" maxlength="32" aria-label="旅程名称">
+
+            <div class="label">旅程类型</div>
+            <div class="choice-row">
+              <button class="choice" data-mode="single">
+                <span class="choice-icon">⌁</span><strong>单条路线</strong><small>沿用当前快速创建方式</small>
+              </button>
+              <button class="choice selected" data-mode="multi">
+                <span class="choice-icon">⑶</span><strong>组合路线</strong><small>多条路线与中转计划</small>
+              </button>
+            </div>
+
+            <div class="label">出发时间与天数</div>
+            <div class="date-row">
+              <div class="date-box"><span>日历</span><strong>10月12日出发</strong></div>
+              <div class="date-box"><strong id="daysText">8 天</strong><button class="mini" id="daysMinus" aria-label="减少一天" title="减少一天">−</button><button class="mini" id="daysPlus" aria-label="增加一天" title="增加一天">+</button></div>
+            </div>
+          </section>
+
+          <section class="screen" data-step="1">
+            <div class="eyebrow">第 2 步，共 4 步</div>
+            <h1>选择要走的路线</h1>
+            <p class="lead">按计划顺序选择。下一步会根据路线起终点自动补全中转。</p>
+            <div class="search">
+              <span class="search-mark">⌕</span>
+              <input class="field" id="routeSearch" placeholder="搜索路线或地点" aria-label="搜索路线或地点">
+            </div>
+            <div class="suggestions" id="suggestions"></div>
+          </section>
+
+          <section class="screen" data-step="2">
+            <div class="eyebrow">第 3 步，共 4 步</div>
+            <h1>安排路线与中转</h1>
+            <p class="lead">系统已把不连续的路线连接起来。路线顺序调整后，中转会同步重算。</p>
+            <div class="count-line"><strong id="selectedCount">3 条路线</strong><span>可拖动排序（原型用箭头模拟）</span></div>
+            <div class="sequence" id="sequence"></div>
+            <div class="notice"><b>建议</b><span>雅拉温泉结束后不建议当天赶往桑措玉琼，已预留一晚休整。</span></div>
+          </section>
+
+          <section class="screen" data-step="3">
+            <div class="eyebrow">第 4 步，共 4 步</div>
+            <h1>检查完整行程</h1>
+            <p class="lead">徒步、中转和休整都属于这次旅程，后续可逐段编辑。</p>
+            <div class="summary-strip">
+              <div class="metric"><strong id="metricDays">8</strong><span>总天数</span></div>
+              <div class="metric"><strong id="metricRoutes">3</strong><span>徒步路线</span></div>
+              <div class="metric"><strong id="metricTransfers">2</strong><span>中转段</span></div>
+            </div>
+            <div class="tabs" role="tablist">
+              <button class="tab active" data-view="timeline">日程</button>
+              <button class="tab" data-view="map">地图</button>
+            </div>
+            <div id="timelineView" class="schedule"></div>
+            <div id="mapView" class="map" hidden>
+              <div class="map-grid"></div>
+              <svg viewBox="0 0 390 370" aria-label="路线与中转示意图">
+                <path d="M48 286 C85 247 105 278 137 230 S170 172 154 128" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round"/>
+                <path d="M154 128 C204 106 227 137 248 115" fill="none" stroke="var(--orange)" stroke-width="4" stroke-dasharray="8 7" stroke-linecap="round"/>
+                <path d="M248 115 C280 82 298 105 321 62" fill="none" stroke="var(--purple)" stroke-width="7" stroke-linecap="round"/>
+                <path d="M321 62 C346 113 313 155 291 196" fill="none" stroke="var(--orange)" stroke-width="4" stroke-dasharray="8 7" stroke-linecap="round"/>
+                <path d="M291 196 C269 228 294 254 333 283" fill="none" stroke="var(--green)" stroke-width="7" stroke-linecap="round"/>
+                <g fill="var(--surface)" stroke="var(--text)" stroke-width="3"><circle cx="48" cy="286" r="7"/><circle cx="154" cy="128" r="7"/><circle cx="248" cy="115" r="7"/><circle cx="321" cy="62" r="7"/><circle cx="291" cy="196" r="7"/><circle cx="333" cy="283" r="7"/></g>
+              </svg>
+              <span class="map-label" style="left:28px;top:294px">党岭</span>
+              <span class="map-label" style="left:219px;top:126px">雅拉温泉</span>
+              <span class="map-label" style="right:13px;top:284px">桑措玉琼</span>
+              <div class="legend"><span><i></i>徒步路线</span><span><i class="dash"></i>交通中转</span></div>
+            </div>
+            <div class="setting">
+              <div><strong>保留高海拔休整日</strong><small>安排在雅拉温泉之后</small></div>
+              <button class="switch on" id="restToggle" aria-label="保留高海拔休整日" aria-pressed="true"></button>
+            </div>
+          </section>
+
+          <section class="screen" data-step="4">
+            <div class="eyebrow">创建前确认</div>
+            <h1 class="review-title" id="reviewName">川西三线秋日之旅</h1>
+            <div class="review-meta">10月12日出发 · <span id="reviewDays">8天</span></div>
+            <div class="review-section">
+              <h2>路线顺序</h2>
+              <div class="route-stack" id="reviewRoutes"></div>
+            </div>
+            <div class="review-section">
+              <h2>行程构成</h2>
+              <div class="review-row"><span>徒步</span><strong id="reviewHike">4 天</strong></div>
+              <div class="review-row"><span>交通中转</span><strong id="reviewTransfer">2 段</strong></div>
+              <div class="review-row"><span>休整</span><strong id="reviewRest">1 天</strong></div>
+              <div class="review-row"><span>待确认</span><strong>包车时间、住宿</strong></div>
+            </div>
+            <div class="warning">创建后，中转段会标记为“待确认”。系统不会把估算交通时间当作已预订信息。</div>
+          </section>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-hint" id="footerHint">组合路线可稍后继续添加</div>
+          <button class="primary" id="next">下一步：选择路线</button>
+        </footer>
+      </div>
+      <div class="toast" id="toast"></div>
+    </section>
+  </main>
+
+  <script>
+    const routeCatalog = [
+      { id: 'dangling', name: '党岭', region: '四川 丹巴', days: 2, distance: '31 km', ascent: '1,860 m', color: '#087f8c', mark: '党' },
+      { id: 'yala', name: '雅拉温泉', region: '四川 康定', days: 1, distance: '16 km', ascent: '720 m', color: '#7664cf', mark: '雅' },
+      { id: 'sangcuo', name: '桑措玉琼', region: '四川 道孚', days: 1, distance: '14 km', ascent: '650 m', color: '#2f8f58', mark: '桑' },
+      { id: 'genie', name: '格聂南线', region: '四川 理塘', days: 5, distance: '78 km', ascent: '3,200 m', color: '#e67827', mark: '格' }
+    ];
+    let step = 0;
+    let days = 8;
+    let mode = 'multi';
+    let selected = ['dangling', 'yala', 'sangcuo'];
+    let keepRest = true;
+
+    const $ = (query) => document.querySelector(query);
+    const $$ = (query) => [...document.querySelectorAll(query)];
+    const route = (id) => routeCatalog.find(item => item.id === id);
+
+    function toast(message) {
+      $('#toast').textContent = message;
+      $('#toast').classList.add('show');
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 1800);
+    }
+
+    function renderSuggestions() {
+      const query = $('#routeSearch').value.trim().toLowerCase();
+      const items = routeCatalog.filter(item => !query || item.name.toLowerCase().includes(query) || item.region.toLowerCase().includes(query));
+      $('#suggestions').innerHTML = items.map(item => `
+        <button class="route-row ${selected.includes(item.id) ? 'selected' : ''}" data-route="${item.id}">
+          <span class="route-thumb" style="background:${item.color}">${item.mark}</span>
+          <span><strong>${item.name}</strong><span class="meta"><span>${item.region}</span><span>${item.days}天</span><span>${item.distance}</span></span></span>
+          <span class="check">✓</span>
+        </button>`).join('') || '<p class="lead">没有找到匹配路线</p>';
+      $$('#suggestions [data-route]').forEach(button => button.onclick = () => {
+        const id = button.dataset.route;
+        if (selected.includes(id)) selected = selected.filter(value => value !== id);
+        else selected.push(id);
+        renderSuggestions();
+        updateFooter();
+      });
+    }
+
+    function transferCopy(index) {
+      const from = route(selected[index]);
+      const to = route(selected[index + 1]);
+      const estimates = index % 2 ? ['约 3.5 小时', '建议包车，途中补给'] : ['约 4.5 小时', '建议包车，预留 1 小时缓冲'];
+      return `<div class="connector"><span class="connector-icon">↗</span><strong>${from.name} → ${to.name}</strong><small>${estimates[0]}　${estimates[1]}</small></div>`;
+    }
+
+    function renderSequence() {
+      $('#selectedCount').textContent = `${selected.length} 条路线`;
+      $('#sequence').innerHTML = selected.map((id, index) => {
+        const item = route(id);
+        return `<div class="segment">
+          <span class="segment-index">${index + 1}</span>
+          <div class="segment-title">${item.name}</div>
+          <div class="meta"><span>${item.region}</span><span>${item.days}天</span><span>${item.distance}</span><span>爬升 ${item.ascent}</span></div>
+          <div class="segment-actions">
+            <button class="mini move-up" data-index="${index}" aria-label="路线前移" title="路线前移">↑</button>
+            <button class="mini move-down" data-index="${index}" aria-label="路线后移" title="路线后移">↓</button>
+          </div>
+        </div>${index < selected.length - 1 ? transferCopy(index) : ''}`;
+      }).join('');
+      $$('.move-up').forEach(button => button.onclick = () => moveRoute(Number(button.dataset.index), -1));
+      $$('.move-down').forEach(button => button.onclick = () => moveRoute(Number(button.dataset.index), 1));
+    }
+
+    function moveRoute(index, direction) {
+      const target = index + direction;
+      if (target < 0 || target >= selected.length) return;
+      [selected[index], selected[target]] = [selected[target], selected[index]];
+      renderSequence();
+      toast('已重新计算中转顺序');
+    }
+
+    function scheduleData() {
+      const base = [
+        ['D1', '抵达成都', '集合、检查装备，住成都', '抵达'],
+        ['D2', `前往${route(selected[0])?.name || '第一条路线'}`, '包车转场，预计 6 小时', 'transfer']
+      ];
+      let day = 3;
+      selected.forEach((id, index) => {
+        const item = route(id);
+        for (let count = 0; count < item.days; count += 1) {
+          base.push([`D${day++}`, item.name, count ? '完成路线，返回住宿点' : `${item.distance}　爬升 ${item.ascent}`, 'route']);
+        }
+        if (index < selected.length - 1) base.push([`D${day++}`, `${item.name} → ${route(selected[index + 1]).name}`, '交通中转，时间与住宿待确认', 'transfer']);
+        if (keepRest && index === 1 && index < selected.length - 1) base.push([`D${day++}`, '高海拔休整', '补给、恢复与天气缓冲', 'rest']);
+      });
+      return base.slice(0, days);
+    }
+
+    function renderSchedule() {
+      const data = scheduleData();
+      $('#timelineView').innerHTML = data.map(item => `<div class="day ${item[3]}">
+        <div class="day-label">${item[0]}</div><div class="rail"><span class="dot"></span></div>
+        <div class="day-body"><div class="day-title">${item[1]}</div><div class="day-detail">${item[2]}</div><span class="tag">${item[3] === 'transfer' ? '交通中转' : item[3] === 'rest' ? '休整日' : item[3] === 'route' ? '徒步路线' : '行前安排'}</span></div>
+      </div>`).join('');
+      $('#metricDays').textContent = days;
+      $('#metricRoutes').textContent = selected.length;
+      $('#metricTransfers').textContent = Math.max(0, selected.length - 1);
+    }
+
+    function renderReview() {
+      $('#reviewName').textContent = $('#tripName').value.trim() || '未命名旅程';
+      $('#reviewDays').textContent = `${days}天`;
+      $('#reviewRoutes').innerHTML = selected.map((id, index) => `<span class="route-chip">${index + 1}　${route(id).name}</span>`).join('');
+      $('#reviewHike').textContent = `${selected.reduce((sum, id) => sum + route(id).days, 0)} 天`;
+      $('#reviewTransfer').textContent = `${Math.max(0, selected.length - 1)} 段`;
+      $('#reviewRest').textContent = keepRest ? '1 天' : '未安排';
+    }
+
+    function updateFooter() {
+      const button = $('#next');
+      const hints = ['组合路线可稍后继续添加', `已选择 ${selected.length} 条路线`, '中转时间均为规划估算', '确认后仍可逐段修改', ''];
+      const labels = ['下一步：选择路线', '下一步：规划中转', '下一步：查看完整行程', '下一步：确认创建', '创建组合旅程'];
+      $('#footerHint').textContent = hints[step];
+      button.textContent = labels[step];
+      button.disabled = (step === 0 && !$('#tripName').value.trim()) || (step === 1 && selected.length === 0);
+    }
+
+    function showStep(nextStep) {
+      step = Math.max(0, Math.min(4, nextStep));
+      $$('.screen').forEach(screen => screen.classList.toggle('active', Number(screen.dataset.step) === step));
+      $$('.step').forEach((item, index) => item.classList.toggle('on', index <= Math.min(step, 3)));
+      $('#content').scrollTop = 0;
+      $('.nav-title').textContent = step === 4 ? '确认旅程' : '新建旅程';
+      if (step === 1) renderSuggestions();
+      if (step === 2) renderSequence();
+      if (step === 3) renderSchedule();
+      if (step === 4) renderReview();
+      updateFooter();
+    }
+
+    $$('.choice').forEach(choice => choice.onclick = () => {
+      mode = choice.dataset.mode;
+      $$('.choice').forEach(item => item.classList.toggle('selected', item === choice));
+      if (mode === 'single') toast('单条路线将沿用现有快速创建流程');
+    });
+    $('#tripName').oninput = updateFooter;
+    $('#routeSearch').oninput = renderSuggestions;
+    $('#daysMinus').onclick = () => { days = Math.max(2, days - 1); $('#daysText').textContent = `${days} 天`; };
+    $('#daysPlus').onclick = () => { days = Math.min(30, days + 1); $('#daysText').textContent = `${days} 天`; };
+    $('#back').onclick = () => step === 0 ? toast('关闭新建旅程') : showStep(step - 1);
+    $('#theme').onclick = () => document.documentElement.classList.toggle('dark');
+    $('#next').onclick = () => {
+      if (step === 0 && mode === 'single') { toast('这里会进入现有单路线创建流程'); return; }
+      if (step < 4) showStep(step + 1);
+      else toast('旅程已创建：包含路线、中转与休整段');
+    };
+    $$('.tab').forEach(tab => tab.onclick = () => {
+      $$('.tab').forEach(item => item.classList.toggle('active', item === tab));
+      const map = tab.dataset.view === 'map';
+      $('#mapView').hidden = !map;
+      $('#timelineView').hidden = map;
+    });
+    $('#restToggle').onclick = () => {
+      keepRest = !keepRest;
+      $('#restToggle').classList.toggle('on', keepRest);
+      $('#restToggle').setAttribute('aria-pressed', String(keepRest));
+      days = keepRest ? Math.max(days, 8) : Math.max(2, days - 1);
+      $('#daysText').textContent = `${days} 天`;
+      renderSchedule();
+    };
+    updateFooter();
+  </script>
+</body>
+</html>

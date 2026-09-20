@@ -16,7 +16,6 @@ import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { useI18n } from '../i18n';
 import { Poi } from '../data/pois';
-import { EXPLORE_POIS } from '../data/pois';
 import { Icon } from '../components/Icon';
 import { Press } from '../components/Press';
 import { PoiRow } from '../components/ListRow';
@@ -94,8 +93,10 @@ export function SearchScreen({ theme }: { theme: Theme }) {
   const hasHits = routeHits.length > 0 || journeyHits.length > 0;
 
   const hot = useMemo(
-    () => [...EXPLORE_POIS].sort((a, b) => (b.reviews || 0) - (a.reviews || 0)).slice(0, showAllHot ? 8 : 4),
-    [showAllHot],
+    () => [...routes]
+      .sort((a, b) => (b.reviews || 0) - (a.reviews || 0))
+      .slice(0, showAllHot ? 8 : 4),
+    [routes, showAllHot],
   );
 
   const pick = useCallback((item: Poi) => {
@@ -151,7 +152,7 @@ export function SearchScreen({ theme }: { theme: Theme }) {
           <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{poi.region}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: 3 }}>
-          <Icon name="route" color={theme.text3} size={14} />
+          <Icon name="distance" color={theme.text3} size={14} />
           <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{poi.dist}</Text>
         </View>
       </View>
@@ -242,7 +243,7 @@ export function SearchScreen({ theme }: { theme: Theme }) {
             <AppCard theme={theme} style={{ marginTop: space.lg, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.sm, borderRadius: radius.feature }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.xs }}>
                 <Text style={[type.sectionTitle, { color: theme.text }]}>{t('search.hot')}</Text>
-                {EXPLORE_POIS.length > 4 ? (
+                {routes.length > 4 ? (
                   <Press onPress={() => setShowAllHot((value) => !value)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                     <Text style={[type.body, { color: theme.text3, fontWeight: '600' }]}>{showAllHot ? t('search.collapse') : t('search.more')}</Text>
                     <Icon name={showAllHot ? 'chevronDown' : 'chevronR'} color={theme.text3} size={17} />

@@ -19,7 +19,7 @@ import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { WEIGHT_UNITS, WeightUnit, itemPrice, itemWeight, fmtWeight } from '../data/gear';
-import { useNotifCenter } from '../data/notifications';
+import { useNotifCenter, Notif } from '../data/notifications';
 import { ColorDot } from '../components/me/parts';
 import { makeMeTheme } from '../components/me/appearance';
 import { AccountPage } from '../components/me/AccountPage';
@@ -38,8 +38,8 @@ import { KPState } from '../components/State';
 import { AppActionDialog, AppCard, AppMetricStrip, AppSectionHeader, DetailPage, layout, motion, radius, space, type, type AppMetric } from '../design-system';
 import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from '../lib/journeyInvite';
-import { formatTrackDistance, formatTrackAscent } from '../lib/trackParser';
 import type { Poi } from '../data/pois';
+import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 
 type MePage =
   | { type: 'scanLogin' }
@@ -179,6 +179,11 @@ function groupMapPoints(points: Poi[]) {
 function CollectionMap({ theme, points, onPointPress }: { theme: Theme; points: Poi[]; onPointPress?: (point: Poi) => void }) {
   const { resolved } = useI18n();
   const { width } = useWindowDimensions();
+  // Some native map implementations retain removed custom markers when their
+  // marker collection is updated in place. Remount only when the point set
+  // changes so a deleted journey cannot remain visible, while camera state is
+  // preserved for ordinary renders (theme, layout, or label updates).
+  const pointSetKey = points.map((point) => point.id).sort().join('|');
   const groups = groupMapPoints(points);
   const coordinates = groups.map((group) => mapCoordinate(group[0]));
   const center = coordinates.length ? {
@@ -203,6 +208,7 @@ function CollectionMap({ theme, points, onPointPress }: { theme: Theme; points: 
   return (
     <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }]}>
       <Globe
+        key={pointSetKey}
         theme={theme}
         size={Math.min(width * 0.86, 360)}
         pois={pois}
@@ -459,10 +465,14 @@ function JourneyRecordCard({
   theme,
   journey,
   onPress,
+  onInvite,
+  inviteAccessibilityLabel,
 }: {
   theme: Theme;
   journey: Poi;
   onPress: () => void;
+  onInvite?: () => void;
+  inviteAccessibilityLabel?: string;
 }) {
   const photos = journey.photoUris?.slice(0, 2) || [];
   const date = (journey.plannedDate || journey.date || journey.days || '—').replace(/\s*·\s*/g, ' ');
@@ -480,6 +490,7 @@ function JourneyRecordCard({
             <Text numberOfLines={2} style={{ fontSize: 16.5, lineHeight: 21, fontWeight: '800', color: theme.text }}>
               {journey.name}
             </Text>
+            <JourneyParticipants theme={theme} journey={journey} onInvite={onInvite} inviteAccessibilityLabel={inviteAccessibilityLabel} />
 
             <View style={{ marginTop: space.xs, gap: 5 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
@@ -522,6 +533,25 @@ function JourneyRecordCard({
         </View>
       </AppCard>
     </Press>
+  );
+}
+
+function JourneyParticipants({ theme, journey, onInvite, inviteAccessibilityLabel = 'Invite companions' }: { theme: Theme; journey: Poi; onInvite?: () => void; inviteAccessibilityLabel?: string }) {
+  const people = (journey.companionList || []).slice(0, 2);
+  const size = 24;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', height: 28, marginTop: space.xs }}>
+      {people.map((person, index) => (
+        <View key={`${person.id || person.ini}-${index}`} style={{ marginLeft: index ? -7 : 0, zIndex: people.length - index }}>
+          <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={size} backgroundColor={theme.groupedBg} ring ringColor={theme.fieldSurface} ringWidth={2} />
+        </View>
+      ))}
+      {onInvite ? (
+        <Press onPress={(event) => { event.stopPropagation(); onInvite(); }} accessibilityRole="button" accessibilityLabel={inviteAccessibilityLabel} hitSlop={6} style={{ width: size, height: size, marginLeft: people.length ? -7 : 0, borderRadius: size / 2, borderWidth: 1.5, borderColor: theme.fieldBorder, backgroundColor: theme.controlSurface, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="plus" color={theme.text2} size={14} strokeWidth={2.1} />
+        </Press>
+      ) : null}
+    </View>
   );
 }
 
@@ -616,6 +646,7 @@ function JourneysPage({
   journeys,
   onBack,
   onOpenJourney,
+  onInviteJourney,
   onCreateJourney,
   onDeleteJourney,
 }: {
@@ -623,6 +654,7 @@ function JourneysPage({
   journeys: Poi[];
   onBack: () => void;
   onOpenJourney: (journey: Poi) => void;
+  onInviteJourney: (journey: Poi) => void;
   onCreateJourney: () => void;
   onDeleteJourney: (journey: Poi) => Promise<void>;
 }) {
@@ -683,7 +715,7 @@ function JourneysPage({
                     />
                   )}
                 >
-                  <JourneyRecordCard theme={theme} journey={journey} onPress={() => onOpenJourney(journey)} />
+                  <JourneyRecordCard theme={theme} journey={journey} onPress={() => onOpenJourney(journey)} onInvite={() => onInviteJourney(journey)} inviteAccessibilityLabel={t('journey.manage.inviteParticipant')} />
                 </TwoStageSwipeable>
               ))}
             </View>
@@ -778,6 +810,33 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
     }
   };
 
+  const openNotificationTarget = (item: Notif) => {
+    const targetId = item.targetId;
+    if (!targetId) return;
+
+    const journey = data.journeys.find((candidate) => candidate.id === targetId);
+    if (journey) {
+      nav.setSubTab('memory');
+      nav.openPoint(journey);
+      return;
+    }
+
+    const route = data.routes.find((candidate) => candidate.id === targetId);
+    if (route) {
+      nav.setSubTab('explore');
+      nav.openPoint(route);
+      return;
+    }
+
+    const gearId = Number(targetId);
+    if (Number.isInteger(gearId) && gearId > 0) {
+      nav.openGearItem(gearId);
+      return;
+    }
+
+    showToast(t('account.inbox.toastTargetUnavailable'));
+  };
+
   const themeModes: { id: 'system' | 'light' | 'dark'; label: string }[] = [
     { id: 'system', label: t('me.themeSystem') },
     { id: 'light', label: t('me.themeLight') },
@@ -826,21 +885,13 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
 
   const favoriteRoutes = data.routes.filter((route) => route.fav).length;
   const savedRoutes = data.routes.filter((route) => route.fav);
-  // The tracks card previews content, not library aggregates: the two most
-  // recently added tracks with their own distance/ascent.
-  const tracksPreviewRows = [...data.tracks]
-    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
-    .slice(0, 2)
-    .map((track) => ({
-      id: track.id,
-      label: track.name || t('tracks.untitled'),
-      value: [
-        track.distM != null ? formatTrackDistance(track.distM) : null,
-        track.ascM != null && track.ascM > 0 ? formatTrackAscent(track.ascM) : null,
-      ]
-        .filter(Boolean)
-        .join(' · ') || t('tracks.meta.noGeometry'),
-    }));
+  const linkedTrackIds = new Set(data.journeys.map((journey) => journey.trackId).filter((id): id is string => Boolean(id)));
+  const unusedTrackCount = data.tracks.filter((track) => !linkedTrackIds.has(track.id)).length;
+  const latestTrack = [...data.tracks].sort((a, b) => (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? ''))[0];
+  const tracksPreviewRows = [
+    ...(unusedTrackCount > 0 ? [{ label: t('tracks.overview.unused', { count: unusedTrackCount }), value: '', inline: true }] : []),
+    { label: t('tracks.overview.recentPrefix'), value: latestTrack?.name || t('tracks.overview.noRecent'), inline: true },
+  ];
   const gearWeight = data.items.reduce((sum, item) => sum + itemWeight(item), 0);
   const gearValue = data.items.reduce((sum, item) => sum + itemPrice(item), 0);
   const checklistPreviewRows = data.sets.map((set) => {
@@ -944,6 +995,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             onBack={pop}
             onCreateJourney={() => nav.openNewJourney()}
             onDeleteJourney={(journey) => data.deleteJourney(journey.id)}
+            onInviteJourney={(journey) => nav.openManageCompanions(journey, 'invite')}
             onOpenJourney={(journey) => {
               nav.setSubTab('memory');
               nav.openPoint(journey);
@@ -1002,7 +1054,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
       case 'notif':
         return <NotifSettingsPage theme={theme} notif={notif} setNotif={setNotif} onBack={pop} />;
       case 'inbox':
-        return <NotifInboxPage theme={theme} onBack={pop} showToast={showToast} />;
+        return <NotifInboxPage theme={theme} onBack={pop} showToast={showToast} onOpenTarget={openNotificationTarget} />;
       case 'feedback':
         return (
           <FeedbackPage
@@ -1072,6 +1124,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <ProfileShortcut variant="tracks" theme={theme} icon="route" title={t('me.myTracks')} detail={t('me.tracksSummary', { count: data.tracks.length })}
                 items={[]}
+                trackItems={data.tracks}
                 previewRows={tracksPreviewRows}
                 onPress={() => push({ type: 'tracks' })} />
             </View>

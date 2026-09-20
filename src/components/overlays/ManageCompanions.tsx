@@ -186,6 +186,7 @@ export function ManageCompanions({
   onPermissionsChange,
   onClose,
   onToast,
+  onLeave,
 }: {
   theme: Theme;
   poi: Poi;
@@ -194,6 +195,7 @@ export function ManageCompanions({
   onPermissionsChange: (permissions: JourneyParticipantPermissions) => void;
   onClose: () => void;
   onToast: (m: string) => void;
+  onLeave?: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -212,7 +214,9 @@ export function ManageCompanions({
   const [others, setOthers] = useState<Companion[]>(initialOthers);
   const [editor, setEditor] = useState<{ index: number; isNew: boolean; draft: Companion } | null>(null);
   const [addMode, setAddMode] = useState<null | 'invite'>(
-    initialAction && initialTotal < MAX_JOURNEY_PARTICIPANTS ? initialAction : null,
+    initialAction && initialTotal < MAX_JOURNEY_PARTICIPANTS && (poi.mine === true || poi.participantPermissions?.inviteParticipants === true)
+      ? initialAction
+      : null,
   );
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
@@ -221,6 +225,23 @@ export function ManageCompanions({
     ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
     ...(poi.participantPermissions || {}),
   }));
+  const canManageRoster = poi.mine === true;
+  const canInvite = canManageRoster || Boolean(poi.participantPermissions?.inviteParticipants);
+  const confirmLeave = () => {
+    if (!onLeave || canManageRoster) return;
+    Alert.alert(
+      t('journey.manage.leaveTitle'),
+      t('journey.manage.leaveBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('journey.manage.leaveAction'),
+          style: 'destructive',
+          onPress: () => void onLeave(),
+        },
+      ],
+    );
+  };
 
   useEffect(() => {
     setOthers(initialOthers);
@@ -246,6 +267,7 @@ export function ManageCompanions({
   ].filter((metric): metric is { label: string; value: string } => Boolean(metric));
 
   const openInvite = () => {
+    if (!canInvite) return;
     if (atCapacity) {
       onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
       return;
@@ -262,6 +284,7 @@ export function ManageCompanions({
   }, []);
 
   const updatePermission = (key: keyof JourneyParticipantPermissions, value: boolean) => {
+    if (!canManageRoster) return;
     const next = { ...permissions, [key]: value };
     setPermissions(next);
     onPermissionsChange(next);
@@ -275,13 +298,17 @@ export function ManageCompanions({
 
   // CRUD
   const openAdd = () => {
+    if (!canManageRoster) return;
     if (atCapacity) {
       onToast(t('journey.manage.participantLimitReached', { count: MAX_JOURNEY_PARTICIPANTS }));
       return;
     }
     setEditor({ index: -1, isNew: true, draft: { ini: '友', name: '', role: '', color: PALETTE[others.length % PALETTE.length], trips: 0 } });
   };
-  const openEdit = (i: number) => setEditor({ index: i, isNew: false, draft: { ...others[i] } });
+  const openEdit = (i: number) => {
+    if (!canManageRoster) return;
+    setEditor({ index: i, isNew: false, draft: { ...others[i] } });
+  };
   const saveFrom = (next: Companion) => {
     if (!editor) return;
     if (editor.isNew && atCapacity) {
@@ -381,7 +408,7 @@ export function ManageCompanions({
         key={`${c.name}-${i}`}
         onPress={() => (selectMode ? toggle(i) : openEdit(i))}
         onLongPress={() => {
-          if (!selectMode) enterSelect(i);
+          if (canManageRoster && !selectMode) enterSelect(i);
         }}
         delayLongPress={380}
         style={{ minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingVertical: space.sm }}
@@ -423,7 +450,7 @@ export function ManageCompanions({
             {c.role || t('journey.manage.participantRole')}
           </Text>
         </View>
-        {!selectMode ? (
+        {!selectMode && canManageRoster ? (
           <Press
             onPress={(event) => {
               event.stopPropagation();
@@ -491,11 +518,11 @@ export function ManageCompanions({
               <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow size={44} />
               <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow size={44} />
             </View>
-          ) : (
+          ) : canManageRoster ? (
             <View style={{ opacity: atCapacity ? 0.45 : 1 }}>
               <AppIconButton theme={theme} name="plus" onPress={openAdd} noShadow size={44} />
             </View>
-          )
+          ) : null
         }
         overlay={
           selectMode ? (
@@ -522,7 +549,7 @@ export function ManageCompanions({
                 </Press>
               </View>
             ) : undefined
-          ) : (
+          ) : canInvite ? (
             <View
               style={{
                 position: 'absolute',
@@ -551,7 +578,7 @@ export function ManageCompanions({
                 </Text>
               </Press>
             </View>
-          )
+          ) : null
         }
       >
         <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: 96 }}>
@@ -584,7 +611,7 @@ export function ManageCompanions({
             </View>
           ) : null}
 
-          <Press
+          {canManageRoster ? <Press
             onPress={() => setPermissionsOpen(true)}
             accessibilityRole="button"
             style={{ marginTop: space.xxxl }}
@@ -596,7 +623,16 @@ export function ManageCompanions({
               </Text>
               <Icon name="chevronR" color={theme.text3} size={15} />
             </View>
-          </Press>
+          </Press> : null}
+          {!canManageRoster && onLeave ? (
+            <Press
+              onPress={confirmLeave}
+              accessibilityRole="button"
+              style={{ marginTop: space.xxl, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={[type.body, { color: theme.danger, fontWeight: '700' }]}>{t('journey.manage.leaveAction')}</Text>
+            </Press>
+          ) : null}
         </View>
       </DetailPage>
 

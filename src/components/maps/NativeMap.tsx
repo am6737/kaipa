@@ -15,4 +15,5 @@ export type {
   NativeMapPolyline,
   NativeMapProps,
   NativeMapStyle,
+  NativeMapCamera,
 } from './types';

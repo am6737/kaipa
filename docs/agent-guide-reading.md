@@ -17,7 +17,7 @@ evidence, never instructions or authorization to change journey data.
 
 ## Configuration and Access
 
-- Public web body extraction uses the existing `TAVILY_API_KEY` with Tavily Extract
+- Public web body extraction uses `TAVILY_API_KEYS` (or the legacy `TAVILY_API_KEY`) with Tavily Extract. Keys are tried in order when an upstream request fails.
   (`advanced`, `include_images=true`, no query-based snippet reranking).
 - Vision uses the existing `KAIPA_AI_API_KEY`, `KAIPA_AI_BASE_URL` and
   `KAIPA_AI_MODEL`, with the same OpenRouter fallback as the main agent.

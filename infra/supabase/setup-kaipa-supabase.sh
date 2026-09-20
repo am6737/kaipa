@@ -11,8 +11,8 @@ KONG_HTTP_PORT="${KAIPA_SUPABASE_KONG_HTTP_PORT:-8010}"
 KONG_HTTPS_PORT="${KAIPA_SUPABASE_KONG_HTTPS_PORT:-8453}"
 POSTGRES_PORT="${KAIPA_SUPABASE_POSTGRES_PORT:-5434}"
 POOLER_PORT="${KAIPA_SUPABASE_POOLER_PORT:-6544}"
-TEST_EMAIL="${KAIPA_TEST_EMAIL:-test@kaipa.app}"
-TEST_PASSWORD="${KAIPA_TEST_PASSWORD:-kaipa123}"
+TEST_EMAIL="${KAIPA_TEST_EMAIL:-demo@kaipa.app}"
+TEST_PASSWORD="${KAIPA_TEST_PASSWORD:-demo123456}"
 TEST_USER_ID="${KAIPA_TEST_USER_ID:-9bc22e65-7352-4936-8f8a-68d02c88a403}"
 UPDATE_APP_ENV=1
 START_STACK=1
@@ -182,10 +182,16 @@ ai_env='''      # app-agent：服务端模型凭证与 OpenAI 兼容端点
       KAIPA_AI_API_KEY: "${KAIPA_AI_API_KEY:-}"
       KAIPA_AI_BASE_URL: "${KAIPA_AI_BASE_URL:-https://ai.dootask.com/v1}"
       KAIPA_AI_MODEL: "${KAIPA_AI_MODEL:-gpt-5.6-sol}"
+      KAIPA_AI_USE_RESPONSES: "${KAIPA_AI_USE_RESPONSES:-}"
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
+      TAVILY_API_KEYS: "${TAVILY_API_KEYS:-}"
       TRAVEL_SEARCH_SOURCES: "${TRAVEL_SEARCH_SOURCES:-tavily}"
       TRAVEL_SEARCH_TIMEOUT_MS: "${TRAVEL_SEARCH_TIMEOUT_MS:-8000}"
       TRAVEL_SEARCH_MAX_RESULTS: "${TRAVEL_SEARCH_MAX_RESULTS:-10}"
+      TRAVEL_SEARCH_CACHE_TTL_SECONDS: "${TRAVEL_SEARCH_CACHE_TTL_SECONDS:-900}"
+      TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS: "${TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS:-2592000}"
+      RAIL_CACHE_TTL_SECONDS: "${RAIL_CACHE_TTL_SECONDS:-86400}"
+      FLIGHT_CACHE_TTL_SECONDS: "${FLIGHT_CACHE_TTL_SECONDS:-300}"
       MEDIACRAWLER_SEARCH_URL: "${MEDIACRAWLER_SEARCH_URL:-}"
       MEDIACRAWLER_API_KEY: "${MEDIACRAWLER_API_KEY:-}"
 '''
@@ -209,7 +215,7 @@ transport_env='''      # Production-only flight offers; never expose these to th
       AMADEUS_CLIENT_SECRET: "${AMADEUS_CLIENT_SECRET:-}"
       AMADEUS_ENVIRONMENT: "${AMADEUS_ENVIRONMENT:-}"
 '''
-if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s or 'AMADEUS_CLIENT_ID:' not in s:
+if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'TAVILY_API_KEYS:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s or 'AMADEUS_CLIENT_ID:' not in s:
     marker='      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"\n'
     if marker not in s:
         raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
@@ -221,6 +227,8 @@ if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:'
     else:
         if 'TAVILY_API_KEY:' not in s:
             missing+='      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"\n'
+        if 'TAVILY_API_KEYS:' not in s:
+            missing+='      TAVILY_API_KEYS: "${TAVILY_API_KEYS:-}"\n'
         if 'MEDIACRAWLER_SEARCH_URL:' not in s:
             missing+='''      TRAVEL_SEARCH_SOURCES: "${TRAVEL_SEARCH_SOURCES:-tavily}"
       TRAVEL_SEARCH_TIMEOUT_MS: "${TRAVEL_SEARCH_TIMEOUT_MS:-8000}"
@@ -284,10 +292,16 @@ agent_env={
  'KAIPA_AI_API_KEY': configured('KAIPA_AI_API_KEY'),
  'KAIPA_AI_BASE_URL': configured('KAIPA_AI_BASE_URL', 'https://ai.dootask.com/v1'),
  'KAIPA_AI_MODEL': configured('KAIPA_AI_MODEL', 'gpt-5.6-sol'),
+ 'KAIPA_AI_USE_RESPONSES': configured('KAIPA_AI_USE_RESPONSES'),
  'TAVILY_API_KEY': configured('TAVILY_API_KEY'),
+ 'TAVILY_API_KEYS': configured('TAVILY_API_KEYS'),
  'TRAVEL_SEARCH_SOURCES': configured('TRAVEL_SEARCH_SOURCES', 'tavily'),
  'TRAVEL_SEARCH_TIMEOUT_MS': configured('TRAVEL_SEARCH_TIMEOUT_MS', '8000'),
  'TRAVEL_SEARCH_MAX_RESULTS': configured('TRAVEL_SEARCH_MAX_RESULTS', '10'),
+ 'TRAVEL_SEARCH_CACHE_TTL_SECONDS': configured('TRAVEL_SEARCH_CACHE_TTL_SECONDS', '900'),
+ 'TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS': configured('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', '2592000'),
+ 'RAIL_CACHE_TTL_SECONDS': configured('RAIL_CACHE_TTL_SECONDS', '86400'),
+ 'FLIGHT_CACHE_TTL_SECONDS': configured('FLIGHT_CACHE_TTL_SECONDS', '300'),
  'MEDIACRAWLER_SEARCH_URL': configured('MEDIACRAWLER_SEARCH_URL'),
  'MEDIACRAWLER_API_KEY': configured('MEDIACRAWLER_API_KEY'),
  'AMADEUS_CLIENT_ID': configured('AMADEUS_CLIENT_ID'),
@@ -369,6 +383,7 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908120000_agent_packing_drafts.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908130000_fix_agent_track_summary.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260916120000_tracks_library.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919170000_agent_external_cache.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

@@ -1,5 +1,5 @@
 -- kaipa seed data — mirrors the hardcoded mock arrays.
--- Test user: test@kaipa.app / kaipa123  (id = 9bc22e65-7352-4936-8f8a-68d02c88a403)
+-- Test user: demo@kaipa.app / demo123456  (id = 9bc22e65-7352-4936-8f8a-68d02c88a403)
 
 do $$
 declare
@@ -123,13 +123,6 @@ insert into gear_set_items (set_id, item_id)
 select 's4', id from gear_items where user_id = uid and name in ('Big Agnes Copper Spur HV UL2', 'Nemo Disco 15 羽绒睡袋', 'GPS 手表 Fenix 7', '充电宝 20000mAh', 'TOAKS 钛锅 750ml');
 
 -- ─── notifications ──────────────────────────────────────────────────────────
-insert into notifications (id, user_id, kind, cat, bucket, time, who, avatar, color, verb, target, target_id, action, thumb) values
-  ('n1', uid, 'invite', 'social', 'today',    '刚刚',      '林深见鹿', '林', '#2E7D5B', '邀请你加入旅程', '贡嘎西坡转山', 'm3', '查看', 'snow'),
-  ('n2', uid, 'join',   'social', 'today',    '25 分钟前',  '老周',     '周', '#0A84FF', '加入了你发起的', '武功山三日穿越', 'm2', '查看', 'ridge'),
-  ('n3', uid, 'photo',  'social', 'today',    '2 小时前',   'Mia',      'M',  '#FF9F0A', '在旅程里上传了 8 张照片', '武功山三日穿越', 'm2', '查看', 'forest'),
-  ('n4', uid, 'like',   'social', 'earlier',  '昨天',       '雪线之上',  '雪', '#5E5CE6', '赞了你的路线', '哈巴雪山大本营', 'e5', '查看', null),
-  ('n5', uid, 'safety', 'system', 'earlier',  '2 天前',     null,       null, null,      '武功山区域将有强降雨，注意行程安全', null, null, '了解', null),
-  ('n6', uid, 'system', 'system', 'earlier',  '3 天前',     null,       null, null,      'kaipa 1.2 已更新：装备库支持批量识别', null, null, '了解', null);
 
 -- ─── timeline_rows (SYNTH entries for each journey) ─────────────────────────
 -- m1 timeline

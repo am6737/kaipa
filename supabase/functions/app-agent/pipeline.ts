@@ -9,17 +9,18 @@
 import { assistantOutput } from './agent.ts';
 import { planningSkills } from './skills.ts';
 import { travelContextSchema } from './travel-context-schema.ts';
-import { planDocumentSchema, planDraftFrom, researchBriefSchema, saveToolNames, type PlanDocument, type ResearchBrief } from './plan-document.ts';
+import { planDocumentSchema, planDraftFrom, researchBriefSchema, saveToolNames, transportPlanSchema, type PlanDocument, type ResearchBrief, type TransportPlan } from './plan-document.ts';
 import { boundJourneyId, runSaveStage, type SaveArtifact } from './save-stage.ts';
+import { contextPrompt, readJourneySections } from './context.ts';
 import { runPackingStage, type PackingArtifact } from './packing-stage.ts';
-import { getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, readTravelGuide, readTravelGuideImages, searchJourneys, searchRoutes, searchTransport, searchTravelWeb } from './tools.ts';
+import { getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, readTravelGuide, readTravelGuideImages, searchJourneys, searchRoutes, searchTravelWeb } from './tools.ts';
 import { reviewTransport } from './transport-tool.ts';
 import { draftPatchSchema } from './packing-draft.ts';
 import { packingProposalSchema } from './packing-stage.ts';
 import type { TaskDecision, TaskState } from './task.ts';
 import type { AgentContext } from './types.ts';
 
-export type StageName = 'interpret' | 'research' | 'plan' | 'save' | 'packing' | 'respond';
+export type StageName = 'interpret' | 'research' | 'transport' | 'plan' | 'save' | 'packing' | 'respond';
 
 // Stage budgets sum below the worker's fetch timeout and the job lease. Two
 // stages are near-synchronous: interpret returns the already-prepared decision
@@ -28,8 +29,11 @@ export type StageName = 'interpret' | 'research' | 'plan' | 'save' | 'packing' |
 export const STAGE_BUDGETS: Record<StageName, number> = {
   interpret: 60_000,
   research: 120_000,
+  transport: 30_000,
   plan: 180_000,
-  save: 30_000,
+  // Saving may need one deterministic evidence downgrade plus a complete
+  // versioned write round; 30s routinely aborted valid repairs mid-flight.
+  save: 60_000,
   packing: 150_000,
   respond: 90_000,
 };
@@ -90,6 +94,15 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   const domain = pipeline.task.decision.domain ?? 'general';
   const transport = domain === 'transport';
 
+  // A full hiking plan must be based on the current journey and its real
+  // track. Keep this deterministic: relying on the plan model to remember a
+  // read-only tool call allowed generic "front half / back half" plans to be
+  // saved even when a valid track was already attached.
+  if (pipeline.task.decision.fullHikingPlan && pipeline.context.currentJourneyId) {
+    await readJourneySections(pipeline.client, pipeline.context, pipeline.context.currentJourneyId, ['journey', 'track', 'itinerary']);
+    pipeline.userInput += `\n\n服务端已强制核验当前旅程与轨迹；以下快照是本轮规划的事实来源：${contextPrompt(pipeline.context)}`;
+  }
+
   const interpret = await runStage({ name: 'interpret', state, pipeline, execute: async () => pipeline.task.decision });
   if (interpret.aborted) return aborted();
 
@@ -99,9 +112,23 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   });
   if (research.aborted) return aborted();
 
+  const multiRoute = isMultiRouteRequest(pipeline.task.decision.destination);
+  const transportPlan = multiRoute ? await runStage<TransportPlan>({
+    name: 'transport', state, pipeline,
+    execute: signal => runTransport(pipeline, signal, research.artifact),
+  }) : { artifact: null as TransportPlan | null, aborted: false };
+  if (transportPlan.aborted) return aborted();
+
+  // Keep the user's omission distinct from the researched estimate. The
+  // estimate is still auditable in the ResearchBrief and can be revised by a
+  // later user instruction without pretending they supplied a duration.
+  if (pipeline.task.decision.days == null) {
+    pipeline.task.decision.derivedDays = transportPlan.artifact?.recommendedDays ?? research.artifact?.suggestedDays ?? null;
+  }
+
   let plan = await runStage<PlanDocument>({
     name: 'plan', state, pipeline,
-    execute: signal => runPlan(pipeline, signal, research.artifact, transport),
+    execute: signal => runPlan(pipeline, signal, research.artifact, transport, transportPlan.artifact),
   });
   if (plan.aborted) return aborted();
 
@@ -218,25 +245,96 @@ async function stageCall<T>(pipeline: PipelineDeps, agent: unknown, input: Agent
 const researchTools = [searchTravelWeb, readTravelGuide, readTravelGuideImages, searchRoutes, searchJourneys];
 const planTools = [getAppContext, getJourneyDetails, listGear, readConversationHistory, searchRoutes];
 
+function isMultiRouteRequest(destination: string | null) {
+  if (!destination) return false;
+  return destination.split(/[、，,;/；|]/).map(item => item.trim()).filter(Boolean).length > 1;
+}
+
 async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transport: boolean): Promise<ResearchBrief> {
   const agent = pipeline.stageAgent({
     name: 'Kaipa Research',
     instructions: [
       researchInstructions,
+      planningSkills.tavily.body,
       planningSkills.routes.body,
       transport ? planningSkills.travel.body : planningSkills.hiking.body,
     ].join('\n\n'),
-    tools: transport ? [...researchTools, searchTransport] : researchTools,
+    tools: researchTools,
     outputType: researchBriefSchema,
     model: pipeline.flashModel,
     stage: 'research',
     temperature: 0.25,
   });
   const text = [pipeline.userInput, '', '本轮只做资料检索与阅读，不保存任何数据，也不向用户提问。请输出 ResearchBrief。'].join('\n');
-  return stageCall(pipeline, agent, stageInput(pipeline.agentInput, text), { maxTurns: 10, signal }, value => researchBriefSchema.parse(value));
+  // Research must yield a structured handoff before the transport and plan
+  // stages can start. A long multi-route search that keeps opening sources
+  // indefinitely used to consume the whole stage budget and abort repeatedly.
+  try {
+    return await stageCall(pipeline, agent, stageInput(pipeline.agentInput, text), {
+      // This is an infrastructure ceiling, not a requirement to stop after a
+      // fixed number of sources. Completion is determined by route coverage.
+      maxTurns: 10,
+      signal,
+      reask: { maxTurns: 1, allowTools: false, note: '资料已经足够时立即输出 ResearchBrief；不要继续搜索。' },
+    }, value => researchBriefSchema.parse(value));
+  } catch (error) {
+    // Search providers and guide readers are external dependencies. If the
+    // model has already collected usable results but misses the stage budget,
+    // keep those results as an explicitly incomplete handoff so transport and
+    // planning can still explain the gaps instead of retrying for six minutes.
+    if (!/Request was aborted|AbortError|signal is aborted/i.test(error instanceof Error ? error.message : String(error))) throw error;
+    const calls = await pipeline.client.from('agent_tool_calls')
+      .select('tool_name,output,status').eq('run_id', pipeline.runId).eq('status', 'completed');
+    const facts: Array<{ fact: string; sourceUrl: string | null }> = [];
+    for (const call of calls.data || []) {
+      if (call.tool_name !== 'search_routes' && call.tool_name !== 'search_travel_web' && call.tool_name !== 'read_travel_guide') continue;
+      const output = call.output && typeof call.output === 'object' ? call.output as Record<string, unknown> : null;
+      const results = Array.isArray(output?.results) ? output.results : [];
+      for (const result of results.slice(0, 8)) {
+        if (!result || typeof result !== 'object') continue;
+        const item = result as Record<string, unknown>;
+        const title = typeof item.title === 'string' ? item.title : '';
+        const snippet = typeof item.snippet === 'string' ? item.snippet.slice(0, 450) : '';
+        if (title || snippet) facts.push({ fact: [title, snippet].filter(Boolean).join('：'), sourceUrl: typeof item.url === 'string' ? item.url : null });
+      }
+    }
+    return researchBriefSchema.parse({
+      destination: pipeline.task.decision.destination || '',
+      routes: (pipeline.task.decision.destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean).map(name => ({
+        name,
+        summary: '',
+        unresolved: ['研究阶段超时，路线资料未完成核验'],
+      })),
+      facts: facts.slice(0, 30),
+      unresolved: ['资料搜集阶段超时，部分路线、起终点和营地信息仍需核实；以下规划不得把缺失信息当作已确认事实。'],
+      suggestedDays: null,
+      durationBasis: '',
+    });
+  }
 }
 
-async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, transport: boolean): Promise<PlanDocument> {
+async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null): Promise<TransportPlan> {
+  // Route-to-route mountain transport is not a live rail/flight booking
+  // problem. Keep this handoff deterministic: the plan stage receives explicit
+  // unknown legs instead of waiting on another model/tool loop that may ignore
+  // cancellation after an external search returns.
+  void signal;
+  void research;
+  const names = (pipeline.task.decision.destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean);
+  return transportPlanSchema.parse({
+    segments: names.slice(1).map((name, index) => ({
+      fromRoute: names[index], toRoute: name, from: names[index], to: name,
+      mode: 'unknown', durationMinutes: null, overnightRequired: false, verified: false,
+      sourceUrl: null, note: '路线起终点和接驳时间待核实',
+    })),
+    totalTransportMinutes: null,
+    recommendedDays: null,
+    basis: '当前任务不安排往返大交通；路线间接驳需要根据实际起终点和当地车辆确认。',
+    unresolved: ['路线间交通起终点和耗时尚未核实，不将铁路或航班结果代替山路接驳。'],
+  });
+}
+
+async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, transport: boolean, transportPlan: TransportPlan | null): Promise<PlanDocument> {
   const domain = pipeline.task.decision.domain ?? 'general';
   const skill = domain === 'transport' ? planningSkills.travel
     : domain === 'packing' ? planningSkills.packing
@@ -252,23 +350,45 @@ async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: Re
     temperature: 0.25,
   });
   const facts = pipeline.task.decision;
+  const effectiveDays = facts.days ?? facts.derivedDays;
   const text = [
     pipeline.userInput,
     research ? `\n上一阶段检索结果（ResearchBrief，事实来源）：${JSON.stringify(research)}` : '',
+    transportPlan ? `\n独立交通阶段结果（TransportPlan，路线之间的交通事实）：${JSON.stringify(transportPlan)}` : '',
     // The decision stage already confirmed these against the user message, so
     // the planner fills journey straight from them instead of re-deriving
     // (and occasionally misreading) the calendar facts through tool calls.
-    `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定（用户同意）' : '无')}；天数=${facts.days ?? '无'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
+    `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定' : '无')}；用户指定天数=${facts.days ?? '无'}；系统根据路线与中转推算天数=${facts.derivedDays ?? '无'}；本次编排采用天数=${effectiveDays ?? '无'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
     '',
     '本轮只输出一份 PlanDocument，不保存任何数据。只使用上面的检索结果与已核验上下文；没有证据的内容写入 unverified，不要编造。',
   ].join('\n');
   return stageCall(pipeline, agent, text, { maxTurns: 12, signal, reask: { maxTurns: 2, allowTools: true, note: '上一轮已有的 blocker 或 pendingQuestion 保持不变；只修正本轮校验问题，不要因为需要重读数据而放弃输出。' } }, value => {
     const plan = planDocumentSchema.parse(value);
+    if ((transportPlan?.recommendedDays ?? research?.suggestedDays) != null) {
+      const estimateDays = transportPlan?.recommendedDays ?? research?.suggestedDays;
+      const basis = transportPlan?.basis || research?.durationBasis || '已核验路线时长与路线衔接信息';
+      const estimate = `系统按路线徒步时长、中转与必要缓冲估算 ${estimateDays} 天：${basis}`;
+      if (!plan.assumptions.some(item => item.includes('系统按路线徒步时长'))) {
+        plan.assumptions = [...plan.assumptions, estimate].slice(0, 12);
+      }
+    }
     // A plan that drops the journey without a bound one and without a stated
     // reason would silently save nothing; surface it as a concrete issue so
     // the re-ask either fills the journey or records a blocker.
     if (plan.journey === null && !boundJourneyId(pipeline.context) && !plan.blocker && !plan.pendingQuestion) {
-      throw { issues: [{ path: ['journey'], message: '不能为 null：任务事实已确认时填写旅程，确有缺漏则写入 blocker 或 pendingQuestion 说明原因' }] };
+      if (effectiveDays == null) {
+        plan.pendingQuestion = '路线建议已经整理好，但无法从现有路线资料可靠推算总天数。请补充总天数或更完整的轨迹资料。';
+      } else {
+        throw { issues: [{ path: ['journey'], message: '不能为 null：任务事实已确认时填写旅程，确有缺漏则写入 blocker 或 pendingQuestion 说明原因' }] };
+      }
+    }
+    const journeyId = pipeline.context.currentJourneyId;
+    const track = journeyId
+      ? pipeline.context.dataContext?.snapshots[`${journeyId}:track`]?.data.trackSummary
+      : undefined;
+    const requiredDays = Number(effectiveDays || (pipeline.context.dataContext?.snapshots[`${journeyId || ''}:journey`]?.data.journey as { total_days?: number } | undefined)?.total_days || 0);
+    if (pipeline.task.decision.fullHikingPlan && track && requiredDays > 0 && plan.endpoints.length < requiredDays && !plan.blocker && !plan.pendingQuestion) {
+      throw { issues: [{ path: ['endpoints'], message: `已读取有效轨迹，完整徒步计划必须为每个徒步日提供真实轨迹终点（需要 ${requiredDays} 个，当前 ${plan.endpoints.length} 个）` }] };
     }
     return plan;
   });
@@ -354,16 +474,17 @@ async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: 
   return stageCall(pipeline, agent, text, { maxTurns: 1, signal }, value => value);
 }
 
-const researchInstructions = `你是 Kaipa 的资料检索阶段，只负责取证。没有保存权限，也不要向用户提问。工具调用最多 9 轮，最后一轮必须直接输出 ResearchBrief JSON，不允许用文字代替。
-一次专注搜索后读取 1-3 篇最相关的正文，只有正文留下具体缺口时才读取图片。不要用近义关键词反复检索，不要因为来源不可用而循环重试。
+const researchInstructions = `你是 Kaipa 的资料检索阶段，只负责取证。没有保存权限，也不要向用户提问。完成路线覆盖后直接输出 ResearchBrief JSON，不要为了增加来源而继续搜索。
+先为每个用户选择的路线建立一条独立研究条目，再读取能够填补该路线关键字段的来源。资料不足时保留路线条目并填写 unresolved，不要为了凑齐资料反复搜索。研究完成的判断是路线覆盖完整，不是读取了多少篇文章；满足覆盖后直接输出 JSON。
 把每条事实与它的来源链接一起记录；无法核实的写入 unresolved。区分攻略与轨迹标注点提供的候选过夜位置，不要凭距离或时长平均分配。
+当用户没有提供总天数时，综合已核验的各路线徒步时长、必要住宿转换和安全缓冲，输出 suggestedDays（1-30 的整数）以及 durationBasis；路线之间的交通耗时由独立的 Transport 阶段处理。只能基于检索到的证据估算；证据不足时两者留空，并把缺口写入 unresolved。
 输出只包含 ResearchBrief 结构化结果。`;
 
 const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查询并输出方案，不保存任何数据，也不向用户提问。
 工具调用轮次有限，最后一轮必须直接输出 PlanDocument JSON，不允许用文字代替。
 先用只读工具读取当前旅程与轨迹的已核验数据，再编排方案。
 硬性约束：
-- journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）；缺少出发日期或天数时不要创建旅程，改为在 blocker 或 pendingQuestion 中说明。
+- journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）。用户未填写日期时可保持 plannedDate=null；用户未填写天数时，若 ResearchBrief 提供了有依据的 suggestedDays，则使用系统推算天数创建，并在 assumptions 中说明依据，不要追问用户。
 - planProfile 之外的行程与装备判断都写入 itineraryItems 与 endpoints。
 - 多日徒步：先确定真实轨迹上的过夜点，再据此推导当日里程；禁止按天数或时长平均分配；每天一个终点。
 - 交通接驳段作为普通 itineraryItems 记录，不要为交通单独设置徒步日终点。

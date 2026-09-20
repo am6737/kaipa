@@ -15,6 +15,15 @@ import type { PlanDraft } from './task.ts';
 // a model that omits an empty section must not fail a run whose work is done.
 export const researchBriefSchema = z.object({
   destination: z.string().max(200).default('').describe('目的地，未知时留空字符串'),
+  routes: z.array(z.object({
+    name: z.string().min(1).max(120),
+    routeId: z.string().max(100).nullable().default(null),
+    hikingDays: z.number().int().min(1).max(30).nullable().default(null),
+    distanceKm: z.number().positive().max(10000).nullable().default(null),
+    summary: z.string().max(800).default(''),
+    sourceUrls: z.array(z.string().max(1000)).max(8).default([]),
+    unresolved: z.array(z.string().max(300)).max(8).default([]),
+  })).max(12).default([]).describe('每个用户选择的路线都必须有一条独立研究结论；资料不足也要保留条目并填写 unresolved'),
   chosenRoute: z.object({
     routeId: z.string().max(100).nullable().default(null),
     routeName: z.string().max(120).nullable().default(null),
@@ -49,8 +58,35 @@ export const researchBriefSchema = z.object({
     })).max(12).default([]),
   })).max(4).default([]).describe('仅交通域填写，来自 search_transport 的实际查询结果'),
   unresolved: z.array(z.string().max(300)).max(12).default([]).describe('仍未解决的事实缺口，必须如实记录'),
+  suggestedDays: z.number().int().min(1).max(30).nullable().default(null)
+    .describe('根据路线徒步时长、路线之间交通和必要缓冲推算的建议总天数；无法可靠估算时为 null'),
+  durationBasis: z.string().max(800).default('')
+    .describe('建议天数的计算依据，简述各路线耗时、中转耗时和缓冲；没有建议天数时留空'),
 });
 export type ResearchBrief = z.infer<typeof researchBriefSchema>;
+
+// Dedicated handoff for moving between independent routes. Keeping this out
+// of ResearchBrief prevents route facts and transport assumptions from being
+// mixed together or silently omitted by the itinerary planner.
+export const transportPlanSchema = z.object({
+  segments: z.array(z.object({
+    fromRoute: z.string().min(1).max(120),
+    toRoute: z.string().min(1).max(120),
+    from: z.string().min(1).max(200),
+    to: z.string().min(1).max(200),
+    mode: z.enum(['rail', 'flight', 'bus', 'shuttle', 'taxi', 'car', 'walk', 'unknown']),
+    durationMinutes: z.number().int().min(0).max(43200).nullable().default(null),
+    overnightRequired: z.boolean().default(false),
+    verified: z.boolean().default(false),
+    sourceUrl: z.string().max(1000).nullable().default(null),
+    note: z.string().max(500).default(''),
+  })).max(12).default([]),
+  totalTransportMinutes: z.number().int().min(0).max(200000).nullable().default(null),
+  recommendedDays: z.number().int().min(1).max(30).nullable().default(null),
+  basis: z.string().max(1000).default(''),
+  unresolved: z.array(z.string().max(300)).max(12).default([]),
+});
+export type TransportPlan = z.infer<typeof transportPlanSchema>;
 
 export const planDocumentSchema = z.object({
   // Exactly the create_journey parameters, so assertCreationFacts keeps holding.
@@ -91,7 +127,7 @@ export const planDocumentSchema = z.object({
   // stage already read the journey and itinerary, so it owns this judgement.
   packingProfile: packingPlanProfile.nullable().default(null),
   assumptions: z.array(z.string().max(300)).max(12).default([]),
-  unverified: z.array(z.string().max(300)).max(12).default([]),
+  unverified: z.array(z.string().max(300)).max(30).default([]),
   blocker: z.string().max(1000).nullable().default(null),
   pendingQuestion: z.string().max(1000).nullable().default(null),
 });

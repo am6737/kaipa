@@ -37,7 +37,7 @@ infra/supabase/setup-kaipa-supabase.sh
 
 The script copies a self-hosted Supabase Docker template, patches it to use Kaipa
 container names/ports, generates fresh JWT/API keys, starts Docker, applies Kaipa
-schema/migrations, creates `test@kaipa.app / kaipa123`, seeds demo data, and writes
+schema/migrations, creates `demo@kaipa.app / demo123456`, seeds demo data, and writes
 Kaipa's public URL + anon key into the app `.env`.
 
 If the script cannot find a source Supabase Docker folder automatically, pass one:

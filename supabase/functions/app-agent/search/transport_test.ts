@@ -1,7 +1,7 @@
 import { queryTransport, type TransportQuery } from './transport.ts';
 import { searchPurpose } from './routing.ts';
 import { createTravelSearchProviders } from './registry.ts';
-import { createTavilyProvider } from './providers/tavily.ts';
+import { createTavilyProvider, tavilyApiKeys } from './providers/tavily.ts';
 
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 const query: TransportQuery = { mode: 'flight', origin: 'NNG', destination: 'KWL', departureDate: '2026-10-15', adults: 2 };
@@ -76,5 +76,21 @@ Deno.test('transport web references filter community URLs but never become live 
     };
     const result = await createTavilyProvider('key', true).search('高铁', new AbortController().signal);
     assert(result.results.length === 1 && result.results[0].reliability === 'web');
+  } finally { globalThis.fetch = original; }
+});
+
+Deno.test('Tavily search accepts multiple deduplicated keys and falls back in order', async () => {
+  assert(tavilyApiKeys(' first,second\nfirst ', 'legacy').join() === 'first,second,legacy');
+  const original = globalThis.fetch;
+  const authorizations: string[] = [];
+  try {
+    globalThis.fetch = async (_url, init) => {
+      authorizations.push(new Headers(init?.headers).get('Authorization') || '');
+      if (authorizations.length === 1) return new Response('', { status: 429 });
+      return Response.json({ results: [{ title: 'Fallback result', url: 'https://example.com/fallback' }] });
+    };
+    const result = await createTavilyProvider(['first', 'second']).search('徒步', new AbortController().signal);
+    assert(result.available && result.results.length === 1);
+    assert(authorizations.join() === 'Bearer first,Bearer second');
   } finally { globalThis.fetch = original; }
 });

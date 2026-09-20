@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kaipa 多地点旅程创建原型</title>
+  <style>
+    :root { color-scheme: light; --bg:#f4f4f5; --surface:#fff; --field:#f0f0f2; --text:#09090b; --text2:#686870; --text3:#9999a1; --line:rgba(0,0,0,.08); --accent:#0a84ff; --soft:rgba(10,132,255,.11); --orange:#df7629; --shadow:0 24px 70px rgba(30,35,40,.18); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; }
+    :root.dark { color-scheme:dark; --bg:#1c1c1e; --surface:#2c2c2e; --field:#38383b; --text:#fff; --text2:rgba(235,235,245,.65); --text3:rgba(235,235,245,.36); --line:rgba(255,255,255,.1); --accent:#4da3ff; --soft:rgba(77,163,255,.17); --orange:#ff9c5b; --shadow:0 24px 70px rgba(0,0,0,.48); }
+    * { box-sizing:border-box; } body { margin:0; min-height:100vh; background:#dfe4e4; color:var(--text); }
+    button,input { font:inherit; color:inherit; } button { cursor:pointer; }
+    .stage { min-height:100vh; display:grid; place-items:center; padding:24px; } .phone { position:relative; width:min(430px,100%); height:min(880px,calc(100vh - 48px)); min-height:650px; overflow:hidden; border:1px solid var(--line); border-radius:26px; background:var(--bg); box-shadow:var(--shadow); }
+    .app { height:100%; display:grid; grid-template-rows:auto 1fr auto; } .top { padding:18px 18px 11px; } .nav { height:42px; display:grid; grid-template-columns:42px 1fr 42px; align-items:center; } .nav-title { text-align:center; font-size:17px; font-weight:750; } .icon { width:38px; height:38px; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; font-size:22px; } .icon:hover { background:var(--field); }
+    .content { overflow:auto; scrollbar-width:none; padding:27px 20px 140px; } .content::-webkit-scrollbar { display:none; } h1 { margin:0 0 8px; font-size:28px; line-height:1.2; } .lead { margin:0 0 26px; color:var(--text2); font-size:14px; line-height:1.5; } .label { margin:23px 0 9px; font-size:13px; font-weight:750; }
+    .field-wrap { position:relative; } .field { width:100%; min-height:82px; padding:13px 44px 13px 16px; border:1px solid var(--line); border-radius:9px; outline:none; resize:none; background:var(--surface); color:var(--text); line-height:1.45; } .field:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--soft); } .field-hint { position:absolute; right:15px; top:16px; color:var(--text3); font-size:18px; }
+    .results { display:grid; margin-top:8px; overflow:hidden; border:1px solid var(--line); border-radius:9px; background:var(--surface); } .result { min-height:55px; padding:9px 14px; display:flex; align-items:center; justify-content:space-between; border:0; border-bottom:1px solid var(--line); background:transparent; text-align:left; } .result:last-child { border-bottom:0; } .result:hover { background:var(--field); } .result b { display:block; font-size:14px; } .result small { display:block; margin-top:3px; color:var(--text2); font-size:12px; } .result span { color:var(--accent); font-size:20px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:11px; } .chip { min-height:36px; padding:0 10px 0 12px; display:inline-flex; align-items:center; gap:7px; border-radius:18px; background:var(--soft); color:var(--accent); font-size:13px; font-weight:700; } .chip button { width:20px; height:20px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--accent); font-size:17px; line-height:1; }
+    .location-summary { margin-top:13px; padding:12px 13px; border-radius:8px; background:var(--field); color:var(--text2); font-size:12px; line-height:1.5; } .location-summary strong { color:var(--text); }
+    .date-row { height:54px; padding:0 15px; display:flex; align-items:center; gap:11px; border:1px solid var(--line); border-radius:9px; background:var(--surface); } .date-row b { font-size:14px; } .date-row span { color:var(--text2); font-size:13px; }
+    .track-row { min-height:64px; padding:0 15px; display:flex; align-items:center; gap:11px; border:1px solid var(--line); border-radius:9px; background:var(--surface); } .track-mark { width:29px; height:29px; display:grid; place-items:center; border-radius:50%; background:var(--field); font-size:17px; } .track-row b { display:block; font-size:14px; } .track-row small { display:block; margin-top:3px; color:var(--text2); }
+    .plan-card { margin-top:16px; padding:14px; border:1px solid var(--line); border-radius:9px; background:var(--surface); } .plan-head { display:flex; justify-content:space-between; align-items:center; } .plan-head b { font-size:14px; } .plan-head span { color:var(--text2); font-size:12px; } .plan-line { position:relative; margin-top:15px; padding-left:30px; } .plan-line:before { content:""; position:absolute; left:7px; top:9px; bottom:6px; border-left:2px dashed var(--text3); } .stop { position:relative; min-height:34px; padding-bottom:10px; font-size:13px; font-weight:700; } .stop:before { content:""; position:absolute; left:-27px; top:2px; width:9px; height:9px; border:2px solid var(--surface); border-radius:50%; background:var(--accent); box-shadow:0 0 0 1px var(--accent); } .stop.transfer { color:var(--text2); font-weight:500; } .stop.transfer:before { background:var(--orange); box-shadow:0 0 0 1px var(--orange); } .stop small { display:block; margin-top:3px; color:var(--text2); font-weight:400; font-size:11px; }
+    .footer { position:absolute; left:0; right:0; bottom:0; padding:10px 20px max(18px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:color-mix(in srgb,var(--bg) 94%,transparent); backdrop-filter:blur(16px); } .actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; } .primary,.secondary { height:52px; border-radius:27px; font-size:15px; font-weight:750; } .primary { border:0; background:var(--accent); color:#fff; } .secondary { border:1px solid var(--line); background:var(--surface); } .primary:active,.secondary:active,.result:active { transform:scale(.98); }
+    .toast { position:absolute; left:50%; bottom:91px; z-index:5; max-width:calc(100% - 40px); padding:10px 14px; transform:translate(-50%,15px); border-radius:8px; background:#171719; color:#fff; opacity:0; pointer-events:none; font-size:12px; transition:.2s; } .toast.show { opacity:1; transform:translate(-50%,0); }
+    @media (max-width:520px) { .stage{padding:0}.phone{width:100%;height:100vh;min-height:560px;border:0;border-radius:0;box-shadow:none} }
+  </style>
+</head>
+<body>
+  <main class="stage"><section class="phone" aria-label="多地点旅程创建原型"><div class="app">
+    <header class="top"><div class="nav"><button class="icon" id="close" aria-label="关闭">‹</button><div class="nav-title">新建旅程</div><button class="icon" id="theme" aria-label="切换明暗模式">◐</button></div></header>
+    <div class="content">
+      <h1>你想去哪里？</h1>
+      <p class="lead">可以添加多个地点，系统会把路线和中转安排在同一次旅程中。</p>
+      <div class="field-wrap"><textarea id="search" class="field" rows="2" placeholder="例如：党岭、雅拉温泉、桑措玉琼" aria-label="搜索地点"></textarea><span class="field-hint">⌕</span></div>
+      <div id="results" class="results" hidden></div>
+      <div id="chips" class="chips" aria-label="已添加地点"></div>
+      <div id="summary" class="location-summary"><strong>添加多个地点</strong><br>路线顺序会按照你的添加顺序保留，也可以在智能规划时重新建议。</div>
+
+      <div class="label">什么时候出发？</div><div class="date-row"><span>日历</span><b>10月12日出发</b><span>8天</span></div>
+      <div class="label">路线文件（可选）</div><div class="track-row"><span class="track-mark">↑</span><div><b>上传 GPX / KML</b><small>没有路线文件也可以直接规划</small></div><span style="margin-left:auto;color:var(--text3)">›</span></div>
+      <div class="plan-card"><div class="plan-head"><b>当前路线预览</b><span id="planMeta">添加地点后生成</span></div><div id="plan" class="plan-line"><div class="stop" style="color:var(--text2);font-weight:500">等待添加地点<small>路线之间的中转会显示在这里</small></div></div></div>
+    </div>
+    <footer class="footer"><div class="actions"><button class="secondary" id="manual">手动规划</button><button class="primary" id="smart">智能规划</button></div></footer>
+  </div><div id="toast" class="toast"></div></section></main>
+  <script>
+    const places = [
+      { id:'dangling', name:'党岭', detail:'四川 丹巴 · 徒步路线', days:'2天' },
+      { id:'yala', name:'雅拉温泉', detail:'四川 康定 · 徒步路线', days:'1天' },
+      { id:'sangcuo', name:'桑措玉琼', detail:'四川 道孚 · 徒步路线', days:'1天' },
+      { id:'chengdu', name:'成都', detail:'四川 · 出发地 / 集合点', days:'—' },
+      { id:'luding', name:'泸定', detail:'四川 甘孜 · 中转地点', days:'—' }
+    ];
+    let selected = [];
+    const $ = q => document.querySelector(q);
+    const place = id => places.find(item => item.id === id);
+    function toast(message) { const el=$('#toast'); el.textContent=message; el.classList.add('show'); clearTimeout(window.timer); window.timer=setTimeout(()=>el.classList.remove('show'),1700); }
+    function renderResults() {
+      const query=$('#search').value.trim().toLowerCase();
+      if (!query) { $('#results').hidden=true; return; }
+      const matches=places.filter(item=>item.name.toLowerCase().includes(query)||item.detail.toLowerCase().includes(query)).slice(0,4);
+      $('#results').innerHTML=matches.length ? matches.map(item=>`<button class="result" data-id="${item.id}"><span><b>${item.name}</b><small>${item.detail}</small></span><span>＋</span></button>`).join('') : '<div style="padding:14px;color:var(--text2);font-size:13px">没有找到地点，可以继续输入后使用智能规划</div>';
+      $('#results').hidden=false;
+      document.querySelectorAll('.result').forEach(item=>item.onclick=()=>addPlace(item.dataset.id));
+    }
+    function addPlace(id) { if (!selected.includes(id)) selected.push(id); $('#search').value=''; $('#results').hidden=true; render(); }
+    function removePlace(id) { selected=selected.filter(item=>item!==id); render(); }
+    function render() {
+      $('#chips').innerHTML=selected.map((id,index)=>`<span class="chip">${index+1}. ${place(id).name}<button data-remove="${id}" aria-label="移除${place(id).name}">×</button></span>`).join('');
+      document.querySelectorAll('[data-remove]').forEach(item=>item.onclick=()=>removePlace(item.dataset.remove));
+      $('#summary').innerHTML=selected.length ? `<strong>已添加 ${selected.length} 个地点</strong><br>顺序：${selected.map(id=>place(id).name).join(' → ')}。可继续添加或移除。` : '<strong>添加多个地点</strong><br>路线顺序会按照你的添加顺序保留，也可以在智能规划时重新建议。';
+      $('#planMeta').textContent=selected.length ? `${selected.length} 个地点` : '添加地点后生成';
+      $('#plan').innerHTML=selected.length ? selected.map((id,index)=>`<div class="stop">${place(id).name}<small>${place(id).detail}</small></div>${index<selected.length-1?`<div class="stop transfer">中转：${place(id).name} → ${place(selected[index+1]).name}<small>系统将估算交通时间，创建后可调整</small></div>`:''}`).join('') : '<div class="stop" style="color:var(--text2);font-weight:500">等待添加地点<small>路线之间的中转会显示在这里</small></div>';
+    }
+    $('#search').oninput=renderResults;
+    $('#search').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const first=document.querySelector('.result'); if(first) first.click(); } };
+    $('#theme').onclick=()=>document.documentElement.classList.toggle('dark');
+    $('#close').onclick=()=>toast('关闭新建旅程');
+    $('#manual').onclick=()=>selected.length ? toast('已带着多个地点进入手动规划') : toast('请先添加至少一个地点');
+    $('#smart').onclick=()=>selected.length ? toast(`正在为 ${selected.map(id=>place(id).name).join('、')} 规划路线与中转`) : toast('请先添加至少一个地点');
+    render();
+  </script>
+</body>
+</html>

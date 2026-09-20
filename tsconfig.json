@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["dist", "supabase/functions", "supabase/tests"]
+  "exclude": ["dist", "admin", "supabase/functions", "supabase/tests"]
 }

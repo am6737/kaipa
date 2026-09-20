@@ -7,7 +7,7 @@ import { Icon } from './Icon';
 import { Press } from './Press';
 import { NJBottomSheet } from './overlays/NewJourneyParts';
 
-export type MapPresentationStyle = 'standard' | 'satellite';
+export type MapPresentationStyle = 'standard' | 'terrain' | 'satellite';
 
 export interface MapDisplayOption {
   id: string;
@@ -214,6 +214,18 @@ function MapStylePreviewArtwork({ dark, styleId }: { dark: boolean; styleId: Map
         <Path d="M49 -8C65 44 100 65 142 88C188 113 231 127 330 135" fill="none" stroke="#E3DBC2" strokeWidth="2.5" opacity="0.86" />
         <Path d="M230 -12C208 43 220 81 247 109C268 131 279 166 271 230" fill="none" stroke="#306D78" strokeWidth="9" opacity="0.9" />
         <Path d="M230 -12C208 43 220 81 247 109C268 131 279 166 271 230" fill="none" stroke="#72A5A6" strokeWidth="3" opacity="0.8" />
+      </Svg>
+    );
+  }
+
+  if (styleId === 'terrain') {
+    return (
+      <Svg width="100%" height="100%" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid slice">
+        <Path d="M0 0H320V220H0Z" fill={dark ? '#48513F' : '#DCE7C8'} />
+        <Path d="M0 166C50 124 88 142 132 102C174 65 215 80 320 28V220H0Z" fill={dark ? '#5D6848' : '#C4D69F'} />
+        <Path d="M-10 190C52 145 92 157 137 119C184 80 228 91 330 43" fill="none" stroke={dark ? '#9AA66D' : '#AABF7A'} strokeWidth="2" opacity="0.8" />
+        <Path d="M-10 210C52 165 92 177 137 139C184 100 228 111 330 63" fill="none" stroke={dark ? '#9AA66D' : '#AABF7A'} strokeWidth="2" opacity="0.8" />
+        <Path d="M-12 194C46 166 71 136 112 109C157 79 212 70 332 37" fill="none" stroke={dark ? '#D6C58E' : '#FFFFFF'} strokeWidth="5" opacity="0.9" />
       </Svg>
     );
   }

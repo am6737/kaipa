@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { FolderPlus, LockKeyhole, MapPinned, Plus, type LucideIcon } from 'lucide-react-native';
+import { FolderPlus, LockKeyhole, Plus, type LucideIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../../theme/theme';
 import { layout, motion, radius, space, type } from '../../design-system';
@@ -11,12 +11,10 @@ type JourneyCreateMenuProps = {
   visible: boolean;
   onClose: () => void;
   onCreate: () => void;
-  onParse: () => void;
   onUseCode: () => void;
   labels: {
     close: string;
     create: string;
-    parse: string;
     useCode: string;
   };
 };
@@ -62,7 +60,7 @@ function MenuAction({
   );
 }
 
-export function JourneyCreateMenu({ theme, visible, onClose, onCreate, onParse, onUseCode, labels }: JourneyCreateMenuProps) {
+export function JourneyCreateMenu({ theme, visible, onClose, onCreate, onUseCode, labels }: JourneyCreateMenuProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
@@ -135,7 +133,6 @@ export function JourneyCreateMenu({ theme, visible, onClose, onCreate, onParse, 
           ]}
         >
           <MenuAction theme={theme} icon={FolderPlus} label={labels.create} primary onPress={() => close(onCreate)} />
-          <MenuAction theme={theme} icon={MapPinned} label={labels.parse} onPress={() => close(onParse)} />
           <MenuAction theme={theme} icon={LockKeyhole} label={labels.useCode} onPress={() => close(onUseCode)} />
         </Animated.View>
       </View>

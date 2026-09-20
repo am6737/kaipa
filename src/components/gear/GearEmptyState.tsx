@@ -5,6 +5,7 @@ import { radius, space, type } from '../../design-system';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
+import { AssistantMark } from '../assistant/AssistantMark';
 
 export function GearEmptyState({
   theme,
@@ -26,28 +27,22 @@ export function GearEmptyState({
   return (
     <View
       style={{
-        minHeight: compact ? 190 : 300,
-        paddingHorizontal: compact ? space.lg : space.xl,
-        paddingVertical: compact ? space.xl : space.xxxl,
-        borderRadius: radius.feature,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.fieldBorder,
-        backgroundColor: theme.surfaceTop,
+        minHeight: compact ? 136 : 190,
+        paddingHorizontal: compact ? space.md : space.xl,
+        paddingVertical: compact ? space.lg : space.xxl,
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
       <View
         style={{
-          width: compact ? 52 : 64,
-          height: compact ? 52 : 64,
-          borderRadius: compact ? 18 : 22,
+          width: compact ? 44 : 52,
+          height: compact ? 44 : 52,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: theme.accentSofter,
         }}
       >
-        <Icon name={icon} color={theme.accent} size={compact ? 23 : 28} strokeWidth={1.7} />
+        <Icon name={icon} color={theme.text3} size={compact ? 21 : 24} strokeWidth={1.8} />
       </View>
       <Text style={[type.cardTitle, { marginTop: space.md, color: theme.text, textAlign: 'center' }]}>
         {title}
@@ -57,19 +52,23 @@ export function GearEmptyState({
           accessibilityRole="button"
           onPress={onAction}
           style={{
-            minHeight: 44,
-            marginTop: space.lg,
+            minHeight: 42,
+            marginTop: space.md,
             paddingHorizontal: space.lg,
             borderRadius: radius.pill,
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
             gap: space.xs,
-            backgroundColor: theme.accent,
+            backgroundColor: actionIcon === 'send' ? theme.accent : theme.controlSurface,
           }}
         >
-          <Icon name={actionIcon} color="#FFFFFF" size={17} strokeWidth={2.2} />
-          <Text style={{ fontSize: 14, fontWeight: '800', color: '#FFFFFF' }}>{actionLabel}</Text>
+          {actionIcon === 'send' ? (
+            <AssistantMark color="#FFFFFF" accentColor="#FFFFFF" size={22} />
+          ) : (
+            <Icon name={actionIcon} color={theme.text2} size={15} strokeWidth={2.1} />
+          )}
+          <Text style={{ fontSize: 13, fontWeight: '700', color: actionIcon === 'send' ? '#FFFFFF' : theme.text }}>{actionLabel}</Text>
         </Press>
       ) : null}
     </View>

@@ -1,4 +1,4 @@
-import { createTavilyProvider } from './search/providers/tavily.ts';
+import { createTavilyProvider, tavilyApiKeys } from './search/providers/tavily.ts';
 import { analyzeGuideImages, readGuide, type GuideContent } from './search/guide-reader.ts';
 
 // Public source artifacts only. Credentials come from --env-file, never args
@@ -8,7 +8,7 @@ const artifact = '/tmp/kaipa-guide-live.json';
 const [mode, value] = Deno.args;
 const started = Date.now();
 if (mode === 'search') {
-  const result = await createTavilyProvider(env('TAVILY_API_KEY')).search(value || '哈天线 徒步 七天 营地 攻略', AbortSignal.timeout(30000));
+  const result = await createTavilyProvider(tavilyApiKeys(env('TAVILY_API_KEYS'), env('TAVILY_API_KEY'))).search(value || '哈天线 徒步 七天 营地 攻略', AbortSignal.timeout(30000));
   console.log(JSON.stringify({ stage: mode, elapsedMs: Date.now() - started, ...result }, null, 2));
   if (!result.available || !result.results.length) Deno.exitCode = 1;
 } else if (mode === 'read' && value) {
@@ -29,7 +29,7 @@ if (mode === 'search') {
     if (!response.ok) {
       const payload = await response.clone().json().catch(() => ({}));
       let message = String(payload.error?.message || payload.message || '');
-      for (const name of ['KAIPA_AI_API_KEY', 'OPENROUTER_API_KEY', 'TAVILY_API_KEY']) {
+      for (const name of ['KAIPA_AI_API_KEY', 'OPENROUTER_API_KEY', 'TAVILY_API_KEYS', 'TAVILY_API_KEY']) {
         const key = env(name);
         if (key) message = message.replaceAll(key, '[redacted]');
       }

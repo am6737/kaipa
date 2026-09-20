@@ -15,7 +15,11 @@ export const taskDomains = ['hiking', 'transport', 'packing', 'routes', 'general
 export type TaskDomain = typeof taskDomains[number];
 
 export const taskDecisionSchema = z.object({
-  objective: z.string().min(1).max(1000),
+  // Some compatible structured-output providers omit this descriptive field
+  // even though all executable scope is present. The server fills it from the
+  // current user message before persisting the task, so that omission must not
+  // abort an otherwise valid planning request.
+  objective: z.string().max(1000).default(''),
   mode: z.enum(['discuss', 'execute', 'stop']),
   domain: z.enum(taskDomains).optional().describe('Task domain: hiking for a full hiking itinerary/replan, transport when the deliverable is a travel connection chain, packing for a checklist-only task, routes for exploration/comparison, general otherwise.'),
   domainQuote: z.string().max(1000).optional().describe('Exact span of the latest user message stating chain-level scope, only when domain is transport; empty otherwise.'),
@@ -28,6 +32,9 @@ export const taskDecisionSchema = z.object({
   plannedDate: z.string().nullable().describe('YYYY-MM-DD resolved using request-local time; null if unknown or explicitly undecided.'),
   dateUndecided: z.boolean().describe('Only true when the user explicitly allows an undated trip.'),
   days: z.number().int().min(1).max(30).nullable(),
+  // Filled by the research stage when the user did not specify a duration.
+  // This is an estimate, not a user commitment, and is kept separate from days.
+  derivedDays: z.number().int().min(1).max(30).nullable().default(null),
   trackAttachmentName: z.string().max(160).nullable().describe('Exact available track filename selected for this task; null to not use a track.'),
   packingMode: z.enum(['none', 'incremental', 'full']),
   activeHoursPerDay: z.number().min(0.25).max(24).nullish().describe('Explicit user-stated active hiking hours per day, not travel or hotel time. For a one-day hike, its stated duration. Null when unknown; never infer from dates or generic preferences.'),
@@ -39,7 +46,7 @@ export const planDraftSchema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().min(1).max(16000).describe('The complete proposed plan, not a promise to plan later. This is not saved journey data.'),
   assumptions: z.array(z.string().max(300)).max(12),
-  unverified: z.array(z.string().max(300)).max(12),
+  unverified: z.array(z.string().max(300)).max(30),
 });
 export type PlanDraft = z.infer<typeof planDraftSchema>;
 export type TaskOutcome = {
@@ -127,10 +134,11 @@ export function assertTaskWrite(task: TaskState | undefined, tool: string, journ
 }
 
 export function assertCreationFacts(task: TaskState | undefined, args: { plannedDate?: string; days: number; trackAttachmentName?: string }) {
-  if (!task?.decision.destination || task.decision.days == null) throw new Error('Creating a journey requires a known destination and duration; ask only for the missing facts.');
+  const expectedDays = task?.decision.days ?? task?.decision.derivedDays;
+  if (!task?.decision.destination || expectedDays == null) throw new Error('Creating a journey requires a known destination and duration; ask only for the missing facts.');
   const decision = task.decision;
-  if ((!decision.plannedDate && !decision.dateUndecided) || (args.plannedDate || null) !== decision.plannedDate || args.days !== decision.days) {
-    throw new Error('Creation date/duration must match the interpreted user requirements; missing dates require clarification or explicit date-TBD consent.');
+  if ((args.plannedDate || null) !== decision.plannedDate || args.days !== expectedDays) {
+    throw new Error('Creation date/duration must match the interpreted user requirements or the server-derived route estimate.');
   }
   if ((args.trackAttachmentName || null) !== decision.trackAttachmentName) throw new Error('Use exactly the track selected for this task, or no track when none was selected.');
 }

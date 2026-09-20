@@ -54,6 +54,8 @@ function agentModelConfig() {
       || 'openai/gpt-4.1-mini',
     // 轻角色（解释、检索、清单、记忆）模型；未配置时回退主模型。
     flashModel: Deno.env.get('KAIPA_AI_FLASH_MODEL')?.trim() || undefined,
+    // DeepSeek 官方 API 必须走 Responses API（chat completions 不支持 json_schema 结构化输出）。
+    useResponses: Deno.env.get('KAIPA_AI_USE_RESPONSES')?.trim() === 'true',
   };
 }
 
@@ -355,7 +357,15 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   const changedJourneyId = previewJourneyId(calls.data || [], currentJourneyId);
   const planPreview = typeof changedJourneyId === "string" ? await loadSavedPlanPreview(client, changedJourneyId) : undefined;
 
-  const activities: AgentRunActivity[] = (calls.data || []).map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
+  // A deterministic save repair may retry one operation with safer arguments
+  // (for example, dropping an unverified guide quote). Do not present the
+  // superseded failed attempt as a final failure when a later call of the same
+  // tool completed in this run.
+  const rawCalls = calls.data || [];
+  const activities: AgentRunActivity[] = rawCalls
+    .filter((call: any, index: number) => !(call.status === 'failed'
+      && rawCalls.slice(index + 1).some((later: any) => later.tool_name === call.tool_name && later.status === 'completed')))
+    .map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
   const modelMetrics: AgentModelMetric[] = (metricsResult.data || []).map(metricRow);
 
   return {
@@ -398,7 +408,7 @@ Deno.serve(async (req) => {
     activeUserId = user.id;
 
     let body = await req.json().catch(() => ({})) as {
-      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run';
+      action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run' | 'cancel_run';
       leaseToken?: string;
       threadId?: string;
       runId?: string;
@@ -421,6 +431,33 @@ Deno.serve(async (req) => {
       const retried = await client.rpc('retry_agent_job', { p_run_id: body.runId });
       if (retried.error) return json({ error: { code: 'retry_unavailable', message: '这次规划无法继续，请在当前对话发送新的需求。' } }, 409);
       return json(retried.data);
+    }
+
+    if (body.action === 'cancel_run') {
+      if (!body.runId) return json({ error: { code: 'run_required', message: '请选择要停止的处理' } }, 400);
+      const cancelled = await client.from('agent_runs').update({
+        status: 'failed',
+        error: 'cancelled_by_user',
+        updated_at: new Date().toISOString(),
+      }).eq('id', body.runId).eq('user_id', user.id).eq('status', 'running').select('id').maybeSingle();
+      if (cancelled.error) throw cancelled.error;
+      if (cancelled.data) {
+        const jobAdmin = createClient(supabaseUrl, env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false, autoRefreshToken: false } });
+        const job = await jobAdmin.from('agent_jobs').update({ state: 'failed', last_error: 'cancelled_by_user', lease_token: null, lease_until: null }).eq('run_id', body.runId);
+        if (job.error) console.warn('Could not cancel agent job', job.error);
+        // Fail rows the pipeline could otherwise resume on the next attempt.
+        const calls = await client.from('agent_tool_calls')
+          .update({ status: 'failed', error: 'cancelled_by_user', updated_at: new Date().toISOString() })
+          .eq('run_id', body.runId).eq('status', 'running');
+        if (calls.error) console.warn('Could not cancel agent tool calls', calls.error);
+        // agent_stages has no UPDATE policy for users, so the service-role
+        // client is required here.
+        const stages = await jobAdmin.from('agent_stages')
+          .update({ status: 'failed', error: 'cancelled_by_user' })
+          .eq('run_id', body.runId).eq('status', 'running');
+        if (stages.error) console.warn('Could not cancel agent stages', stages.error);
+      }
+      return json({ cancelled: true });
     }
 
     if (body.action === 'execute_job') {
@@ -693,7 +730,9 @@ Deno.serve(async (req) => {
       },
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    bindRunClient(runId, agentClient);
+    // Tool reads/writes use the user-scoped client; shared external cache access
+    // is isolated behind service-role RPCs and never exposed to the client JWT.
+    bindRunClient(runId, agentClient, jobAdmin);
     bindPackingDraftStore(runId, jobAdmin);
     const touchedThread = await client.from('agent_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
     if (touchedThread.error) throw touchedThread.error;
@@ -829,7 +868,12 @@ Deno.serve(async (req) => {
     if (jobLease && jobAdmin && activeRunId) {
       const errorText = error instanceof Error ? error.message : String(error);
       const invalidTrack = error instanceof InvalidTrackError;
-      const retryable = !invalidTrack && !/\b(400|401|403|404|422)\b/.test(errorText);
+      // A stage budget abort is deterministic for the same input. Retrying the
+      // research stage repeats the same expensive searches and leaves the UI
+      // looking stuck for three lease attempts, without adding evidence.
+      const retryable = !invalidTrack
+        && !/Request was aborted|AbortError|signal is aborted/i.test(errorText)
+        && !/\b(400|401|403|404|422)\b/.test(errorText);
       const ui = activeClient ? await messageUiForRun(activeClient, activeRunId, []).catch(() => ({} as AgentMessageUi)) : {};
       const finished = await jobAdmin.rpc('finish_agent_job', {
         p_run_id: activeRunId, p_lease: jobLease, p_error: invalidTrack ? `invalid_track:${errorText}` : errorText,

@@ -55,7 +55,7 @@ flight API alone is not evidence of comprehensive domestic airline coverage.
 ## Credentials and Current Limits
 
 At inspection, the running Edge Functions container had no populated
-`TAVILY_API_KEY` and no Amadeus credentials. The subsequent railway sidecar
+`TAVILY_API_KEYS` (or the legacy `TAVILY_API_KEY`) and no Amadeus credentials. The subsequent railway sidecar
 deployment activates rail snapshots only; live flight access is still unconfigured.
 
 Server-only configuration (no `EXPO_PUBLIC_` variables):
@@ -63,7 +63,7 @@ Server-only configuration (no `EXPO_PUBLIC_` variables):
 - `AMADEUS_CLIENT_ID`
 - `AMADEUS_CLIENT_SECRET`
 - `AMADEUS_ENVIRONMENT=production`
-- `TAVILY_API_KEY` for web references, not live inventory
+- `TAVILY_API_KEYS` (comma/newline-separated; `TAVILY_API_KEY` remains supported) for web references, not live inventory
 - `RAIL_QUERY_URL=http://rail-query:8787`, set by the railway Compose override
 
 The self-hosted setup script now supports these names. Existing deployments also

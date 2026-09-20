@@ -1,13 +1,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { CalendarDays, Pin, Route, TrendingUp, UserRound } from 'lucide-react-native';
+import { CalendarDays, Pin, Plus, Route, TrendingUp } from 'lucide-react-native';
 import type { Poi } from '../../data/pois';
 import { radius, space } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
+import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
 
 export type JourneyStatus = 'planned' | 'active' | 'completed' | 'unscheduled';
 
@@ -54,6 +55,8 @@ export function JourneyPlanCard({
   journey,
   pinned = false,
   onPress,
+  onInvite,
+  inviteAccessibilityLabel = 'Invite companions',
   pressFeedback = true,
   showStatus = true,
 }: {
@@ -61,13 +64,15 @@ export function JourneyPlanCard({
   journey: Poi;
   pinned?: boolean;
   onPress?: () => void;
+  onInvite?: () => void;
+  inviteAccessibilityLabel?: string;
   pressFeedback?: boolean;
   showStatus?: boolean;
 }) {
   const { t } = useI18n();
   const status = journeyStatus(journey);
   const coverUri = journey.photoUris?.[0];
-  const companion = journey.companionList?.[0];
+  const companions = journey.companionList?.slice(0, 2) || [];
   const date = journey.plannedDate || journey.date || t('journeyEdit.time.datePending');
   const duration = journey.totalDays ? t('journeyEdit.meta.days', { count: journey.totalDays }) : journey.days || undefined;
   const statusVisible = showStatus && (status === 'planned' || status === 'active');
@@ -127,12 +132,24 @@ export function JourneyPlanCard({
           </View>
         </View>
       </View>
-      <View style={[styles.avatar, { backgroundColor: theme.controlSurface }]}>
-        {companion?.avatarUrl ? (
-          <Image source={{ uri: companion.avatarUrl }} contentFit="cover" style={StyleSheet.absoluteFill} />
-        ) : (
-          <UserRound color={theme.text3} size={18} />
-        )}
+      <View style={styles.participantRow}>
+        {(companions.length ? companions : [{ avatarUrl: undefined }]).map((person, index) => (
+          <View key={`${person.avatarUrl || 'participant'}-${index}`} style={[styles.participantAvatar, index > 0 && { marginLeft: -11 }]}>
+            {index > 0 ? <View pointerEvents="none" style={[styles.avatarSeparator, { backgroundColor: journeyCardBackground(theme, status) }]} /> : null}
+            <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={36} backgroundColor={theme.controlSurface} />
+          </View>
+        ))}
+        {onInvite ? (
+          <Press
+            onPress={(event) => { event.stopPropagation(); onInvite(); }}
+            accessibilityRole="button"
+            accessibilityLabel={inviteAccessibilityLabel}
+            hitSlop={6}
+            style={[styles.inviteButton, { backgroundColor: theme.controlSurface, borderColor: theme.progressTrack }]}
+          >
+            <Plus color={theme.text2} size={15} strokeWidth={2.2} />
+          </Press>
+        ) : null}
       </View>
       {coverUri ? (
         <Image source={{ uri: coverUri }} contentFit="cover" transition={180} style={styles.cover} />
@@ -174,6 +191,9 @@ const styles = StyleSheet.create({
   metaSecondary: { fontSize: 13.5, lineHeight: 19, fontWeight: '600', letterSpacing: 0 },
   routeMetrics: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   routeMetric: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  avatar: { position: 'absolute', left: 18, bottom: 16, width: 29, height: 29, borderRadius: radius.pill, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  participantRow: { position: 'absolute', left: 18, bottom: 14, height: 40, flexDirection: 'row', alignItems: 'center', zIndex: 3 },
+  participantAvatar: { width: 36, height: 36 },
+  avatarSeparator: { position: 'absolute', top: -2, right: -2, bottom: -2, left: -2, borderRadius: 20 },
+  inviteButton: { width: 36, height: 36, marginLeft: -11, borderRadius: radius.pill, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   cover: { position: 'absolute', width: 120, height: 82, right: -7, bottom: -4, borderRadius: 17, transform: [{ rotate: '-8deg' }] },
 });

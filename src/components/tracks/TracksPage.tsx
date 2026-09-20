@@ -6,13 +6,15 @@
 // every journey that referenced it, which is why the count is shown before the
 // confirm and not after.
 import React, { useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppActionDialog, AppHeaderSearch, AppIconButton, AppProgressBar, DetailPage, radius } from '../../design-system';
+import { AppActionDialog, AppHeaderSearch, AppProgressBar, DetailPage, radius } from '../../design-system';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
 import { KPSkeletonLine } from '../State';
+import { Glass } from '../Glass';
+import { GearMenuTransition } from '../gear/GearMenuTransition';
 import { useData } from '../../data/DataContext';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
@@ -28,47 +30,12 @@ import { TrackThumbnail } from './TrackThumbnail';
 export type TrackFilter = 'all' | 'unused' | 'applied';
 export type TrackSort = 'created' | 'distance' | 'name';
 
-function HeaderButton({ theme, icon, label, onPress, active }: { theme: Theme; icon: IconName; label: string; onPress: () => void; active?: boolean }) {
-  return <AppIconButton theme={theme} name={icon} onPress={onPress} noShadow active={active} accessibilityLabel={label} />;
-}
-
-// The library's three totals read as one row of tiles rather than a bare strip,
-// so they carry the same weight as the gear and checklist summaries.
-function StatPill({ theme, icon, label, value }: { theme: Theme; icon: IconName; label: string; value: string }) {
+// The gear pages keep the header to bare 44x44 icons and give the primary
+// actions the bottom bar instead, so this mirrors GearHeaderButton.
+function HeaderButton({ theme, icon, label, onPress, active = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; active?: boolean }) {
   return (
-    <View style={{ flex: 1, minWidth: 0, height: 82, paddingHorizontal: 17, paddingVertical: 13, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Icon name={icon} color={theme.text3} size={15} strokeWidth={1.8} />
-        <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{label}</Text>
-      </View>
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ fontFamily: MONO, fontSize: 20, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{value}</Text>
-    </View>
-  );
-}
-
-// Used vs unused is the one distinction worth a permanent control: it is the
-// difference between the routes already spoken for and the ones still free.
-function FilterChip({ theme, label, selected, dot, onPress }: { theme: Theme; label: string; selected: boolean; dot: string; onPress: () => void }) {
-  return (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      accessibilityLabel={label}
-      style={{
-        height: 36,
-        paddingHorizontal: 15,
-        borderRadius: 18,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 7,
-        backgroundColor: selected ? theme.accent : theme.controlSurface,
-      }}
-    >
-      <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: selected ? '#FFFFFF' : dot }} />
-      <Text style={{ fontSize: 13.5, fontWeight: selected ? '700' : '600', color: selected ? '#FFFFFF' : theme.text2 }}>{label}</Text>
-      {selected ? <Icon name="check" color="#FFFFFF" size={13} strokeWidth={2.4} /> : null}
+    <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name={icon} color={active ? theme.accent : theme.text} size={25} strokeWidth={2.2} />
     </Press>
   );
 }
@@ -104,7 +71,24 @@ function TracksEmptyCard({ theme, icon, title, body, action }: {
 
 // Rows only arrive after the first fetch, so the page holds their shape instead
 // of flashing the empty state at someone who has tracks.
-function TracksSkeleton({ theme }: { theme: Theme }) {
+function TracksSkeleton({ theme, layout, gridCardWidth }: { theme: Theme; layout: 'grid' | 'list'; gridCardWidth: number }) {
+  if (layout === 'grid') {
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+        {[0, 1].map((column) => (
+          <View key={column} style={{ flex: 1, gap: 14 }}>
+            {[0, 1].map((row) => (
+              <View key={row} style={{ borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+                <KPSkeletonLine theme={theme} width="100%" height={Math.max(0, gridCardWidth - 28)} radius={18} />
+                <KPSkeletonLine theme={theme} width="72%" height={15} style={{ marginTop: 12 }} />
+                <KPSkeletonLine theme={theme} width="46%" height={12} style={{ marginTop: 10 }} />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    );
+  }
   return (
     <View style={{ gap: 12 }}>
       {[0, 1, 2].map((index) => (
@@ -123,7 +107,6 @@ function TracksSkeleton({ theme }: { theme: Theme }) {
 function TrackRow({
   theme,
   track,
-  usage,
   selectMode,
   selected,
   onPress,
@@ -131,7 +114,6 @@ function TrackRow({
 }: {
   theme: Theme;
   track: Track;
-  usage: Poi[];
   selectMode: boolean;
   selected: boolean;
   onPress: () => void;
@@ -143,13 +125,12 @@ function TrackRow({
   const facts: { icon: IconName; text: string }[] = [
     track.distM != null ? { icon: 'distance' as IconName, text: formatTrackDistance(track.distM) } : null,
     track.ascM != null && track.ascM > 0 ? { icon: 'arrowUp' as IconName, text: formatTrackAscent(track.ascM) } : null,
-    track.pointCount ? { icon: 'pin' as IconName, text: t('tracks.meta.points', { count: track.pointCount }) } : null,
   ].filter(Boolean) as { icon: IconName; text: string }[];
 
   return (
     <Press onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={track.name}
       style={{ minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
-      <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
+      <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         <TrackThumbnail theme={theme} coords={track.coords} size={84} />
       </View>
 
@@ -158,9 +139,9 @@ function TrackRow({
           <Text numberOfLines={2} style={{ flexShrink: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>
             {track.name || t('tracks.untitled')}
           </Text>
-          {track.fileFormat ? (
-            <View style={{ flexShrink: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, backgroundColor: theme.accentSoft }}>
-              <Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '800', color: theme.accent, letterSpacing: 0.4 }}>
+          {track.fileFormat && !selectMode ? (
+            <View style={{ flexShrink: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, backgroundColor: theme.controlSurface }}>
+              <Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '800', color: theme.text2, letterSpacing: 0.4 }}>
                 {track.fileFormat.toUpperCase()}
               </Text>
             </View>
@@ -176,13 +157,6 @@ function TrackRow({
           )) : (
             <Text style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3 }}>{t('tracks.meta.noGeometry')}</Text>
           )}
-        </View>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <Icon name="link" color={usage.length ? theme.accent : theme.text3} size={15} strokeWidth={1.8} />
-          <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 12, fontWeight: '600', color: usage.length ? theme.accent : theme.text3 }}>
-            {usage.length ? t('tracks.usage.applied', { count: usage.length }) : t('tracks.usage.unused')}
-          </Text>
         </View>
       </View>
 
@@ -201,14 +175,150 @@ function TrackRow({
         >
           {selected ? <Icon name="check" color="#FFFFFF" size={16} strokeWidth={2.4} /> : null}
         </View>
-      ) : (
-        <Icon name="chevronR" color={theme.text3} size={17} strokeWidth={2.2} />
-      )}
+      ) : null}
 
       {selected ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} />
       ) : null}
     </Press>
+  );
+}
+
+// The gallery twin of TrackRow: the thumbnail becomes the hero and the pill and
+// facts sit under it, the same shape as the gear item cards.
+function TrackGridCard({
+  theme,
+  track,
+  width,
+  selectMode,
+  selected,
+  onPress,
+  onLongPress,
+}: {
+  theme: Theme;
+  track: Track;
+  width: number;
+  selectMode: boolean;
+  selected: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  const { t } = useI18n();
+  const facts: { icon: IconName; text: string }[] = [
+    track.distM != null ? { icon: 'distance' as IconName, text: formatTrackDistance(track.distM) } : null,
+    track.ascM != null && track.ascM > 0 ? { icon: 'arrowUp' as IconName, text: formatTrackAscent(track.ascM) } : null,
+  ].filter(Boolean) as { icon: IconName; text: string }[];
+
+  return (
+    <Press onPress={onPress} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={track.name}
+      style={{ width, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      <View style={{ minHeight: 42, flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+        <Text numberOfLines={2} style={{ flex: 1, fontSize: 15, lineHeight: 21, fontWeight: '800', color: theme.text }}>
+          {track.name || t('tracks.untitled')}
+        </Text>
+        {track.fileFormat && !selectMode ? (
+          <View style={{ flexShrink: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5, backgroundColor: theme.controlSurface }}>
+            <Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '800', color: theme.text2, letterSpacing: 0.4 }}>
+              {track.fileFormat.toUpperCase()}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={{ height: Math.max(116, width - 28), marginTop: 12, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        <TrackThumbnail theme={theme} coords={track.coords} size={Math.max(116, width - 28)} />
+      </View>
+      <View accessible accessibilityLabel={facts.map((fact) => fact.text).join(', ')} style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 7, marginTop: 10 }}>
+        {facts.length ? facts.map((fact) => (
+          <View key={fact.icon} style={{ flexShrink: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Icon name={fact.icon} color={theme.text2} size={13} strokeWidth={1.8} />
+            <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{fact.text}</Text>
+          </View>
+        )) : (
+          <Text style={{ fontFamily: MONO, fontSize: 11, color: theme.text3 }}>{t('tracks.meta.noGeometry')}</Text>
+        )}
+      </View>
+      {selectMode ? (
+        <View style={{ position: 'absolute', top: 10, right: 10, width: 25, height: 25, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: selected ? theme.accent : '#FFFFFF', backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.22)' }}>
+          {selected ? <Icon name="check" color="#FFFFFF" size={16} strokeWidth={2.4} /> : null}
+        </View>
+      ) : null}
+      {selected ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderWidth: 1.5, borderColor: theme.accent }]} /> : null}
+    </Press>
+  );
+}
+
+// The page's three popovers copy the gear list menus row for row: rows carry an
+// icon and a selected check instead of a flat action sheet, and the shells are
+// glass cards anchored to the button that opened them.
+function TrackMenuCaption({ theme, text, spaced = false }: { theme: Theme; text: string; spaced?: boolean }) {
+  return <Text style={{ paddingHorizontal: 24, paddingTop: spaced ? 20 : 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{text}</Text>;
+}
+
+function TrackMenuRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
+  return (
+    <Press onPress={onPress} scaleTo={0.985} style={{ minHeight: 56, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ width: 28, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={21} strokeWidth={1.9} /></View>
+      <Text numberOfLines={1} style={{ flex: 1, marginLeft: 18, fontSize: 15, color: theme.text }}>{label}</Text>
+      {selected ? <Icon name="check" color={theme.accent} size={17} strokeWidth={2.2} /> : null}
+    </Press>
+  );
+}
+
+function TrackCompactRow({ theme, icon, label, onPress, selected = false }: { theme: Theme; icon: IconName; label: string; onPress: () => void; selected?: boolean }) {
+  return (
+    <Press onPress={onPress} scaleTo={0.985} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ width: 25, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
+      <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{label}</Text>
+      {selected ? <View style={{ marginLeft: 'auto' }}><Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /></View> : null}
+    </Press>
+  );
+}
+
+function TrackChoiceRow({ theme, label, selected, color, onPress }: { theme: Theme; label: string; selected: boolean; color: string; onPress: () => void }) {
+  return (
+    <Press onPress={onPress} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: color }} />
+      <Text numberOfLines={1} style={{ flex: 1, marginLeft: 15, fontSize: 14.5, color: theme.text }}>{label}</Text>
+      {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.2} /> : null}
+    </Press>
+  );
+}
+
+// Anchored under the header more button, like the gear pages' FloatingMenu.
+function TrackDropMenu({ theme, visible, top, width, onClose, children }: { theme: Theme; visible: boolean; top: number; width: number; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      positionStyle={{ position: 'absolute', top, right: 14, width, borderRadius: 26, overflow: 'hidden', boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)' }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
+        <View style={{ paddingVertical: 13, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>{children}</View>
+      </Glass>
+    </GearMenuTransition>
+  );
+}
+
+// Anchored to the header filter button or the bottom sort pill, like
+// CompactFilterMenu / CompactChoiceMenu.
+function TrackChoiceMenu({ theme, visible, title, placement, positionStyle, onClose, children }: { theme: Theme; visible: boolean; title: string; placement: 'top' | 'bottom'; positionStyle: { right: number; width: number; top?: number; bottom?: number }; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <GearMenuTransition
+      theme={theme}
+      visible={visible}
+      onClose={onClose}
+      placement={placement}
+      backdropColor="transparent"
+      positionStyle={{ position: 'absolute', right: positionStyle.right, width: positionStyle.width, top: positionStyle.top, bottom: positionStyle.bottom, borderRadius: 24, boxShadow: theme.dark ? '0px 14px 38px rgba(0,0,0,0.50)' : '0px 14px 38px rgba(0,0,0,0.16)' }}
+    >
+      <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
+        <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
+          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          {children}
+        </View>
+      </Glass>
+    </GearMenuTransition>
   );
 }
 
@@ -242,6 +352,13 @@ export function TracksPage({
   // visible and scrollable while it works.
   const [progress, setProgress] = useState<{ done: number; total: number; fileName: string } | null>(null);
   const [summary, setSummary] = useState<{ ok: number; failed: string[] } | null>(null);
+  // The gallery reads better for browsing and the list for long libraries, so
+  // both stay one tap away instead of one winning outright.
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const { width } = useWindowDimensions();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   // Which journeys feed off each track. Built once per journey change rather than
   // per row so a long library stays linear.
@@ -275,18 +392,17 @@ export function TracksPage({
     return sorted;
   }, [data.tracks, usageByTrack, filter, query, sort]);
 
+  // Two columns share the width the list rows use; the left column takes the
+  // even rows so a deletion does not shuffle the whole page.
+  const columns = useMemo(() => [
+    rows.filter((_, index) => index % 2 === 0),
+    rows.filter((_, index) => index % 2 === 1),
+  ], [rows]);
+  const gridCardWidth = (width - 48 - 14) / 2;
+  const sortLabel = sort === 'created' ? t('tracks.sort.created') : t('tracks.sort.distance');
+
   const selectableIds = useMemo(() => rows.map((track) => track.id), [rows]);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
-
-  const stats = useMemo(() => {
-    const totalM = data.tracks.reduce((sum, track) => sum + (track.distM ?? 0), 0);
-    const totalAsc = data.tracks.reduce((sum, track) => sum + (track.ascM ?? 0), 0);
-    return [
-      { icon: 'route' as IconName, label: t('tracks.stat.count'), value: String(data.tracks.length) },
-      { icon: 'distance' as IconName, label: t('tracks.stat.distance'), value: totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m` },
-      { icon: 'arrowUp' as IconName, label: t('tracks.stat.ascent'), value: `+${Math.round(totalAsc)} m` },
-    ];
-  }, [data.tracks, t]);
 
   // A long press also fires onPress on RN, so the next tap is swallowed.
   const ignorePress = useRef(false);
@@ -316,22 +432,12 @@ export function TracksPage({
     setQuery('');
     setSearchOpen(false);
   };
-  const openFilter = () => nav.openActionSheet({
-    title: t('tracks.filter.title'),
-    items: ([
-      ['all', t('tracks.filter.all')],
-      ['unused', t('tracks.filter.unused')],
-      ['applied', t('tracks.filter.applied')],
-    ] as [TrackFilter, string][]).map(([id, label]) => ({ label, onPress: () => setFilter(id) })),
-  });
-  const openSort = () => nav.openActionSheet({
-    title: t('tracks.sort.title'),
-    items: ([
-      ['created', t('tracks.sort.created')],
-      ['distance', t('tracks.sort.distance')],
-      ['name', t('tracks.sort.name')],
-    ] as [TrackSort, string][]).map(([id, label]) => ({ label, onPress: () => setSort(id) })),
-  });
+  // Menus close first and act on a small delay so the pressed row is visible
+  // for a beat before the page reacts, matching the gear list menus.
+  const closeMoreThen = (action: () => void) => {
+    setMoreOpen(false);
+    setTimeout(action, 140);
+  };
 
   const confirmDelete = async () => {
     const ids = [...selectedIds];
@@ -387,27 +493,6 @@ export function TracksPage({
     }
   };
 
-  const openMore = () => nav.openActionSheet({
-    // The page title above it already says 我的轨迹, so the sheet names what it is
-    // for rather than repeating where it came from.
-    title: t('journey.section.manage'),
-    // The web picker is a stub, so the entry is dropped there and the sheet says
-    // why rather than leaving a button that would do nothing.
-    message: Platform.OS === 'web' ? t('tracks.import.webHint') : undefined,
-    items: [
-      ...(Platform.OS === 'web' ? [] : [{
-        label: t('tracks.action.import'),
-        icon: 'upload',
-        onPress: () => void runImport(),
-      }]),
-      ...(data.tracks.length ? [{
-        label: t('tracks.action.select'),
-        icon: 'checkAll',
-        onPress: () => setSelectMode(true),
-      }] : []),
-    ],
-  });
-
   return (
     <DetailPage
       theme={theme}
@@ -419,15 +504,14 @@ export function TracksPage({
       right={
         selectMode ? (
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            <AppIconButton
+            <HeaderButton
               theme={theme}
-              name="checkAll"
+              icon="checkAll"
               onPress={() => setSelectedIds(allSelected ? new Set() : new Set(selectableIds))}
               active={allSelected}
-              noShadow
-              accessibilityLabel={t('tracks.filter.all')}
+              label={t('tracks.filter.all')}
             />
-            <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow accessibilityLabel={t('common.close')} />
+            <HeaderButton theme={theme} icon="close" onPress={exitSelect} label={t('common.close')} />
           </View>
         ) : (
           <AppHeaderSearch
@@ -439,62 +523,155 @@ export function TracksPage({
             onClose={closeSearch}
             actions={(
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <HeaderButton theme={theme} icon="filter" onPress={openFilter} label={t('tracks.filter.title')} active={filter !== 'all'} />
-                <HeaderButton theme={theme} icon="arrowDown" onPress={openSort} label={t('tracks.sort.title')} active={sort !== 'created'} />
+                <HeaderButton theme={theme} icon="filter" onPress={() => setFilterOpen(true)} label={t('tracks.filter.title')} />
                 <HeaderButton theme={theme} icon="search" onPress={() => setSearchOpen(true)} label={t('common.search')} />
-                <HeaderButton theme={theme} icon="more" onPress={openMore} label={t('journey.section.more')} />
+                <HeaderButton theme={theme} icon="more" onPress={() => setMoreOpen(true)} label={t('journey.section.more')} />
               </View>
             )}
           />
         )
       }
-      overlay={selectMode ? (
+      overlay={(
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', gap: 12 }}>
-            {selectedIds.size ? (
-              <Press
-                onPress={() => void exportZip()}
-                opacityTo={1}
-                accessibilityRole="button"
-                accessibilityLabel={t('tracks.action.exportZip')}
-                style={{
-                  flex: 1,
-                  height: 52,
-                  borderRadius: 26,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  backgroundColor: theme.controlSurface,
-                  opacity: exporting ? 0.5 : 1,
-                }}
-              >
-                <Icon name="download" color={theme.text} size={18} strokeWidth={2.1} />
-                <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>
-                  {t('tracks.action.exportZip')}
-                </Text>
-              </Press>
-            ) : null}
-            <Press
-              onPress={selectedIds.size ? () => setDeleteOpen(true) : undefined}
-              accessibilityRole="button"
-              accessibilityLabel={selectedIds.size ? t('tracks.select.deleteConfirm', { count: selectedIds.size }) : t('tracks.select.deletePrompt')}
-              style={{
-                flex: 1,
-                height: 52,
-                borderRadius: 26,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: selectedIds.size ? theme.danger : theme.controlSurface,
-              }}
-            >
-              <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>
-                {selectedIds.size ? t('tracks.select.deleteConfirm', { count: selectedIds.size }) : t('tracks.select.deletePrompt')}
-              </Text>
-            </Press>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 22, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 14) + 4, flexDirection: 'row', gap: 12, justifyContent: selectMode ? undefined : 'space-between' }}>
+            {selectMode ? (
+              <>
+                {selectedIds.size ? (
+                  <Press
+                    onPress={() => void exportZip()}
+                    opacityTo={1}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('tracks.action.exportZip')}
+                    style={{
+                      flex: 1,
+                      height: 52,
+                      borderRadius: 26,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      backgroundColor: theme.controlSurface,
+                      opacity: exporting ? 0.5 : 1,
+                    }}
+                  >
+                    <Icon name="download" color={theme.text} size={18} strokeWidth={2.1} />
+                    <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>
+                      {t('tracks.action.exportZip')}
+                    </Text>
+                  </Press>
+                ) : null}
+                <Press
+                  onPress={selectedIds.size ? () => setDeleteOpen(true) : undefined}
+                  accessibilityRole="button"
+                  accessibilityLabel={selectedIds.size ? t('tracks.select.deleteConfirm', { count: selectedIds.size }) : t('tracks.select.deletePrompt')}
+                  style={{
+                    flex: 1,
+                    height: 52,
+                    borderRadius: 26,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: selectedIds.size ? theme.danger : theme.controlSurface,
+                  }}
+                >
+                  <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>
+                    {selectedIds.size ? t('tracks.select.deleteConfirm', { count: selectedIds.size }) : t('tracks.select.deletePrompt')}
+                  </Text>
+                </Press>
+              </>
+            ) : (
+              <>
+                {Platform.OS !== 'web' ? (
+                  <Press
+                    onPress={() => void runImport()}
+                    opacityTo={1}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('tracks.action.import')}
+                    style={{
+                      height: 52,
+                      minWidth: 126,
+                      paddingHorizontal: 22,
+                      borderRadius: 26,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 9,
+                      backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF',
+                    }}
+                  >
+                    <Icon name="upload" color={theme.text} size={19} strokeWidth={2.1} />
+                    <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>
+                      {t('tracks.action.import')}
+                    </Text>
+                  </Press>
+                ) : null}
+                <Press
+                  onPress={() => setSortOpen(true)}
+                  opacityTo={1}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('tracks.sort.title')}
+                  style={{
+                    height: 52,
+                    minWidth: 150,
+                    paddingHorizontal: 22,
+                    borderRadius: 26,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 9,
+                    backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF',
+                  }}
+                >
+                  <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />
+                  <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>
+                    {sortLabel}
+                  </Text>
+                </Press>
+              </>
+            )}
           </View>
+
+          <TrackDropMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(216, width - 28)} onClose={() => setMoreOpen(false)}>
+            {data.tracks.length ? (
+              <>
+                <TrackMenuCaption theme={theme} text={t('journey.section.manage')} />
+                <TrackMenuRow theme={theme} icon="checkAll" label={t('tracks.action.select')} onPress={() => closeMoreThen(() => setSelectMode(true))} />
+              </>
+            ) : null}
+            <TrackMenuCaption theme={theme} text={t('tracks.view.title')} spaced={!data.tracks.length} />
+            <TrackMenuRow theme={theme} icon="grid" label={t('tracks.view.grid')} selected={layout === 'grid'} onPress={() => closeMoreThen(() => setLayout('grid'))} />
+            <TrackMenuRow theme={theme} icon="list" label={t('tracks.view.list')} selected={layout === 'list'} onPress={() => closeMoreThen(() => setLayout('list'))} />
+          </TrackDropMenu>
+
+          <TrackChoiceMenu
+            theme={theme}
+            visible={filterOpen}
+            title={t('tracks.filter.title')}
+            placement="top"
+            positionStyle={{ right: 68, width: 220, top: insets.top + 62 }}
+            onClose={() => setFilterOpen(false)}
+          >
+            <TrackChoiceRow theme={theme} label={t('tracks.filter.all')} selected={filter === 'all'} color={theme.text3} onPress={() => { setFilter('all'); setFilterOpen(false); }} />
+            <TrackChoiceRow theme={theme} label={t('tracks.filter.unused')} selected={filter === 'unused'} color={theme.text3} onPress={() => { setFilter('unused'); setFilterOpen(false); }} />
+            <TrackChoiceRow theme={theme} label={t('tracks.filter.applied')} selected={filter === 'applied'} color={theme.accent} onPress={() => { setFilter('applied'); setFilterOpen(false); }} />
+          </TrackChoiceMenu>
+
+          <TrackChoiceMenu
+            theme={theme}
+            visible={sortOpen}
+            title={t('tracks.sort.title')}
+            placement="bottom"
+            positionStyle={{ right: 22, width: 210, bottom: Math.max(insets.bottom, 14) + 70 }}
+            onClose={() => setSortOpen(false)}
+          >
+            {([
+              ['created', t('tracks.sort.created'), 'clock'],
+              ['distance', t('tracks.sort.distance'), 'distance'],
+            ] as [TrackSort, string, IconName][]).map(([id, label, icon]) => (
+              <TrackCompactRow key={id} theme={theme} icon={icon} label={label} selected={sort === id} onPress={() => { setSort(id); setSortOpen(false); }} />
+            ))}
+          </TrackChoiceMenu>
         </View>
-      ) : null}
+      )}
     >
       <View style={{ paddingHorizontal: 24 }}>
         <View style={{ marginTop: 10, marginBottom: 22 }}>
@@ -508,20 +685,6 @@ export function TracksPage({
               </Text>
             ) : null}
           </View>
-          {!selectMode && data.tracks.length ? (
-            <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
-              <FilterChip theme={theme} label={t('tracks.filter.all')} selected={filter === 'all'} dot={theme.text3} onPress={() => setFilter('all')} />
-              <FilterChip theme={theme} label={t('tracks.filter.unused')} selected={filter === 'unused'} dot={theme.text3} onPress={() => setFilter('unused')} />
-              <FilterChip theme={theme} label={t('tracks.filter.applied')} selected={filter === 'applied'} dot={theme.accent} onPress={() => setFilter('applied')} />
-            </View>
-          ) : null}
-          {!selectMode && data.tracks.length ? (
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 15 }}>
-              {stats.map((stat) => (
-                <StatPill key={stat.label} theme={theme} icon={stat.icon} label={stat.label} value={stat.value} />
-              ))}
-            </View>
-          ) : null}
         </View>
 
         {progress || summary ? (
@@ -566,7 +729,26 @@ export function TracksPage({
         ) : null}
 
         {data.tracksLoading && !data.tracks.length ? (
-          <TracksSkeleton theme={theme} />
+          <TracksSkeleton theme={theme} layout={layout} gridCardWidth={gridCardWidth} />
+        ) : rows.length && layout === 'grid' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+            {columns.map((column, columnIndex) => (
+              <View key={columnIndex} style={{ flex: 1, gap: 14 }}>
+                {column.map((track) => (
+                  <TrackGridCard
+                    key={track.id}
+                    theme={theme}
+                    track={track}
+                    width={gridCardWidth}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(track.id)}
+                    onPress={() => (selectMode ? toggleSelected(track.id) : openTrack(track))}
+                    onLongPress={() => (selectMode ? undefined : enterSelect(track.id))}
+                  />
+                ))}
+              </View>
+            ))}
+          </View>
         ) : rows.length ? (
           <View style={{ gap: 12 }}>
             {rows.map((track) => (
@@ -574,7 +756,6 @@ export function TracksPage({
                 key={track.id}
                 theme={theme}
                 track={track}
-                usage={usageByTrack.get(track.id) ?? []}
                 selectMode={selectMode}
                 selected={selectedIds.has(track.id)}
                 onPress={() => (selectMode ? toggleSelected(track.id) : openTrack(track))}

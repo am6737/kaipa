@@ -23,17 +23,23 @@ export async function prepareTask(
   if (prior.error) throw prior.error;
   if (history.error) throw history.error;
   const bound = args.journeyId
-    ? await client.from('journeys').select('tracks ( file_name, coords )').eq('id', args.journeyId).is('deleted_at', null).maybeSingle()
+    ? await client.from('journeys').select('track_id, tracks ( file_name, coords )').eq('id', args.journeyId).is('deleted_at', null).maybeSingle()
     : { data: null, error: null };
   if (bound.error) throw bound.error;
-  const boundTrack = bound.data?.tracks as { file_name?: string | null; coords?: [number, number][] | null } | null;
-  const hasBoundTrack = Array.isArray(boundTrack?.coords) && boundTrack.coords.length >= 2;
+  // PostgREST can represent the FK relation as either an object or a
+  // single-element array depending on the generated relationship metadata.
+  // The journey's track_id is authoritative even when the related row is
+  // hidden by a policy, while the coordinates prove the cached track is usable.
+  const relatedTrack = Array.isArray(bound.data?.tracks) ? bound.data.tracks[0] : bound.data?.tracks;
+  const boundTrack = relatedTrack as { file_name?: string | null; coords?: [number, number][] | null } | null;
+  const hasBoundTrack = Boolean(bound.data?.track_id)
+    || (Array.isArray(boundTrack?.coords) && boundTrack.coords.length >= 2);
   const previous = (prior.data?.state || null) as TaskState | null;
   const recentMessages = [...(history.data || [])].reverse().map((message: { role: string; content: string }) => ({
     role: message.role,
     content: message.content.slice(0, 800),
   }));
-  const decision = constrainTaskDecision(await interpret({
+  const interpreted = await interpret({
     latestMessage: args.message,
     appIntent: args.intent || null,
     currentJourneyId: args.journeyId,
@@ -42,7 +48,11 @@ export async function prepareTask(
     availableAttachments: args.attachments,
     previousTask: previous,
     recentMessages,
-  }), args.message, previous, args.journeyId, { hasBoundTrack, intent: args.intent });
+  });
+  const decision = constrainTaskDecision({
+    ...interpreted,
+    objective: interpreted.objective?.trim() || args.message.trim().slice(0, 1000),
+  }, args.message, previous, args.journeyId, { hasBoundTrack, intent: args.intent });
   const state: TaskState = { runId: args.runId, journeyId: args.journeyId, decision, outcome: null };
   // Only the authenticated worker's service client can persist interpreted scope.
   // Retries reuse it rather than reinterpreting an already partially executed task.

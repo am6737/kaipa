@@ -34,6 +34,7 @@ export interface DataValue {
   deleteJourney: (id: string) => Promise<void>;
   restoreJourney: (id: string) => Promise<void>;
   permanentlyDeleteJourney: (id: string) => Promise<void>;
+  leaveJourney: (id: string) => Promise<void>;
   toggleFav: (id: string, current: boolean) => Promise<void>;
   refetchJourneys: () => Promise<Poi[]>;
   refetchRoutes: () => Promise<void>;
@@ -75,7 +76,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
   } = useTracks(userId);
   const {
     journeys, trashedJourneys, loading: journeysLoading,
-    createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav,
+    createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
     refetch: refetchJourneys,
   } = useJourneys(userId);
   const {
@@ -113,7 +114,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
     tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,
-    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, toggleFav, refetchJourneys, refetchRoutes,
+    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,

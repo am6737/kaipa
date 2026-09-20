@@ -38,6 +38,28 @@ function point(coordinate: [number, number]) {
   return { longitude, latitude };
 }
 
+function shiftedTarget(
+  center: { longitude: number; latitude: number },
+  zoom: number,
+  layout: { width: number; height: number },
+  edgePadding: [number, number, number, number],
+) {
+  const [top, right, bottom, left] = edgePadding;
+  const visibleLeft = Math.max(0, Math.min(layout.width - 1, left));
+  const visibleTop = Math.max(0, Math.min(layout.height - 1, top));
+  const visibleRight = Math.max(visibleLeft + 1, Math.min(layout.width, layout.width - right));
+  const visibleBottom = Math.max(visibleTop + 1, Math.min(layout.height, layout.height - bottom));
+  const offsetX = (layout.width / 2) - ((visibleLeft + visibleRight) / 2);
+  const offsetY = (layout.height / 2) - ((visibleTop + visibleBottom) / 2);
+  const worldSize = 256 * (2 ** zoom);
+  const x = center.longitude / 360 + 0.5 + offsetX / worldSize;
+  const normalizedY = (1 - Math.log(Math.tan((center.latitude * Math.PI) / 180) + 1 / Math.cos((center.latitude * Math.PI) / 180)) / Math.PI) / 2;
+  const y = normalizedY + offsetY / worldSize;
+  const latitude = (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI;
+  const longitude = ((((x % 1) + 1) % 1) - 0.5) * 360;
+  return { longitude, latitude };
+}
+
 export const NATIVE_MAP_AVAILABLE = !!AMap;
 
 export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function NativeMap({
@@ -56,14 +78,20 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onPress,
   onUserLocationChange,
   onCameraChange,
+  onCameraPositionChange,
   onZoomChange,
   onGestureStart,
 }, ref) {
   const mapRef = useRef<MapViewRef>(null);
   const fitted = useRef(false);
   const programmaticUntil = useRef(0);
+  // Fires onGestureStart once per user gesture instead of on every throttled
+  // camera-move event (iOS fires it only at pan start). Reset when the map
+  // settles so the next gesture is detected again.
+  const gestureStartFired = useRef(false);
   const mapReady = useRef(false);
   const hasLayout = useRef(false);
+  const layoutSize = useRef({ width: 390, height: 844 });
   const pendingCameraAction = useRef<(() => void) | null>(null);
   const module = AMap;
 
@@ -86,16 +114,40 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   useImperativeHandle(ref, () => ({
     fitCoordinates: (coordinates, edgePadding, duration = 600) => {
       if (!coordinates.length) return;
-      const totalPadding = edgePadding ? Math.max(...edgePadding) : 28;
+      const padding = edgePadding ?? [28, 28, 28, 28];
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        void mapRef.current?.fitToCoordinates(coordinates.map(point), { duration, paddingPx: totalPadding });
+        const points = coordinates.map(point);
+        const [top, right, bottom, left] = padding;
+        const viewportWidthPx = Math.max(1, layoutSize.current.width - left - right);
+        const viewportHeightPx = Math.max(1, layoutSize.current.height - top - bottom);
+        const bounds = module?.getRouteBounds?.(points, {
+          viewportWidthPx,
+          viewportHeightPx,
+          paddingPx: 0,
+        });
+        if (!bounds) return;
+        const map = mapRef.current;
+        if (!map) return;
+        void map.getCameraPosition().then((camera) => {
+          const target = shiftedTarget(bounds.center, bounds.recommendedZoom, layoutSize.current, padding);
+          void map.moveCamera({
+            target,
+            zoom: bounds.recommendedZoom,
+            bearing: camera.bearing,
+            tilt: camera.tilt,
+          }, duration);
+        }).catch(() => undefined);
       });
     },
-    moveCamera: (coordinate, zoom = 11, duration = 500) => {
+    moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        void mapRef.current?.moveCamera({ target: point(coordinate), zoom }, duration);
+        void mapRef.current?.moveCamera({
+          target: point(coordinate),
+          zoom,
+          ...(options?.resetOrientation ? { bearing: 0, tilt: 0 } : {}),
+        }, duration);
       });
     },
     resetNorth: () => {
@@ -120,23 +172,27 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       style={style}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
+        layoutSize.current = { width, height };
         hasLayout.current = width > 0 && height > 0;
         flushCameraAction();
       }}
-      onTouchMove={() => onGestureStart?.()}
     >
     <MapView
-      ref={mapRef}
+          ref={mapRef}
       style={StyleSheet.absoluteFill}
       mapType={nativeMapType}
       initialCameraPosition={{ target: point(initialCenter), zoom: initialZoom, bearing: 0, tilt: 0 }}
       labelsEnabled={showLabels}
-      buildingsEnabled={mapStyle !== 'terrain'}
+      // 3D building extrusion is expensive during gestures and does not add
+      // useful information to the discovery map.
+      buildingsEnabled={false}
       compassEnabled={false}
       scaleControlsEnabled={false}
       zoomControlsEnabled={false}
       myLocationButtonEnabled={false}
-      myLocationEnabled={showUserLocation}
+      // Android renders the shared app marker from MapGlobe instead of AMap's
+      // platform-specific blue location indicator.
+      myLocationEnabled={false}
       followUserLocation={followUserLocation}
       userLocationRepresentation={{
         showsAccuracyRing: false,
@@ -148,14 +204,32 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       zoomGesturesEnabled={interactive}
       rotateGesturesEnabled={interactive}
       tiltGesturesEnabled={interactive}
+      // Camera events cross the JS bridge. Keep live updates sparse while the
+      // native map remains responsible for rendering the gesture at 60fps.
+      // 10Hz is plenty for the quarter-zoom quantizer and the distance-step
+      // bucket check; it keeps gesture-time JS work off the low-end devices.
+      cameraEventThrottleMs={100}
       onLoad={() => {
         mapReady.current = true;
         if (!fitted.current && initialFitCoordinates?.length) {
           fitted.current = true;
-          const totalPadding = initialPadding ? Math.max(...initialPadding) : 28;
           markProgrammaticMove(0);
           pendingCameraAction.current = () => {
-            void mapRef.current?.fitToCoordinates(initialFitCoordinates.map(point), { duration: 0, paddingPx: totalPadding });
+            const padding = initialPadding ?? [28, 28, 28, 28];
+            const [top, right, bottom, left] = padding;
+            const points = initialFitCoordinates.map(point);
+            const bounds = module.getRouteBounds?.(points, {
+              viewportWidthPx: Math.max(1, layoutSize.current.width - left - right),
+              viewportHeightPx: Math.max(1, layoutSize.current.height - top - bottom),
+              paddingPx: 0,
+            });
+            if (!bounds) return;
+            void mapRef.current?.moveCamera({
+              target: shiftedTarget(bounds.center, bounds.recommendedZoom, layoutSize.current, padding),
+              zoom: bounds.recommendedZoom,
+              bearing: 0,
+              tilt: 0,
+            }, 0);
           };
         }
         flushCameraAction();
@@ -171,7 +245,20 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onCameraMove={(event) => {
         const camera = event.nativeEvent.cameraPosition;
         if (typeof camera.zoom === 'number') onZoomChange?.(camera.zoom);
-        if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
+        if (!followUserLocation && Date.now() > programmaticUntil.current && !gestureStartFired.current) {
+          gestureStartFired.current = true;
+          onGestureStart?.();
+        }
+      }}
+      onCameraIdle={(event) => {
+        gestureStartFired.current = false;
+        const camera = event.nativeEvent.cameraPosition;
+        if (typeof camera.zoom === 'number' && camera.target) {
+          onCameraPositionChange?.({
+            center: gcj02ToWgs84([camera.target.longitude, camera.target.latitude]),
+            zoom: camera.zoom,
+          });
+        }
         onCameraChange?.(camera.bearing || 0, camera.tilt || 0);
       }}
     >
@@ -191,7 +278,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           anchor={marker.anchor}
           title={marker.title}
           pinColor={marker.content ? undefined : 'red'}
-          opacity={marker.opacity}
           cacheKey={marker.id}
           onMarkerPress={() => marker.onPress?.()}
         >

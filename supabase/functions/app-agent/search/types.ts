@@ -42,4 +42,5 @@ export type AggregatedTravelSearch = {
   results: TravelSearchResult[];
   sources: ProviderReport[];
   error?: string;
+  cached?: boolean;
 };

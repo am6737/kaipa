@@ -298,6 +298,7 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
               entryVariant={pg.entry === 'pull' ? 'continuationX' : 'push'}
               onOpenSet={(set) => pushPage({ type: 'set', set })}
               onAdd={() => setSetEditor({ mode: 'new' })}
+              onOpenAssistant={() => nav.openAssistant('我还没有装备清单，请先询问我出行场景、天数、季节和携带偏好，再帮我创建一份合适的装备清单。', undefined, true)}
               pinnedSetIds={pinnedSetIds}
               onSetPinned={setSetsPinned}
               onDeleteSets={(ids) => {
@@ -315,6 +316,7 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
               entryVariant={pg.entry === 'pull' ? 'continuationY' : 'push'}
               onOpenItem={(item) => pushPage({ type: 'item', item })}
               onAdd={() => setAddChoose(true)}
+              onOpenAssistant={() => nav.openAssistant('我还没有装备，请先询问我常见的出行场景、预算和偏好，再帮我创建适合我的装备。', undefined, true)}
               onAddCategory={() => setCatEditor({ mode: 'new' })}
               onEditCategory={(cat) => setCatEditor({ mode: 'edit', cat })}
               onDeleteCategory={(cat) => {

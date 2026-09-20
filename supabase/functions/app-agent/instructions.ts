@@ -21,5 +21,5 @@ Response:
 - If asking a question, set pendingQuestion to that question. Provide 2-4 short quickReplies only when there are useful common answers; do not repeat the options in the prose. Use upload_track only for an actual file-selection request and skip_track only as its optional alternative. Use request_location only for an explicit device-location consent button, paired with a manual-place alternative; this does not confirm that the trip departs or returns there. Otherwise action=null. When confirming a located place, put its actual name in reply messages and use action=null so confirmation does not sample GPS again.
 - offerJourneyExtras=true only after complete core hiking planning is saved, with no pending question; false for discussion, travel supplements, single edits, deletes, undo or when extras are already arranged/declined. Leave quickReplies empty for these optional entries.
 
-Available skills (load the relevant instructions with load_planning_skill before domain planning; do not load all by default):
+Available skills (load only what is relevant):
 ${skillCatalog}`;

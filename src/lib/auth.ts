@@ -5,8 +5,27 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { supabase, supabaseAnonKey, supabaseUrl } from './supabase';
 
+function isNetworkAuthError(error: unknown) {
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? error);
+  const normalized = message.toLowerCase();
+  return normalized.includes('network') || normalized.includes('fetch') || normalized.includes('timeout') || normalized.includes('econnrefused');
+}
+
+async function withNetworkRetry<T extends { error: unknown }>(operation: () => Promise<T>) {
+  let result = await operation();
+  // iOS may finish the local-network permission prompt after the first
+  // request has already failed. Retry only transport failures, never auth
+  // failures such as invalid credentials.
+  for (const delayMs of [500, 1500]) {
+    if (!result.error || !isNetworkAuthError(result.error)) return result;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = await operation();
+  }
+  return result;
+}
+
 export async function signInWithEmail(email: string, password: string) {
-  return supabase.auth.signInWithPassword({ email, password });
+  return withNetworkRetry(() => supabase.auth.signInWithPassword({ email, password }));
 }
 
 export async function signUpWithEmail(email: string, password: string) {

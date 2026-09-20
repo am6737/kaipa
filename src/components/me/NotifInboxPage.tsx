@@ -3,7 +3,7 @@
 // thumbnail-or-action-chip trailing. Mirrors the prototype NotifInbox, adapted
 // to the app's Notif shape (data/notifications.ts).
 import React, { useState } from 'react';
-import { View, Text } from 'react-native';
+import { InteractionManager, View, Text } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -127,10 +127,12 @@ export function NotifInboxPage({
   theme,
   onBack,
   showToast,
+  onOpenTarget,
 }: {
   theme: Theme;
   onBack: () => void;
   showToast: (m: string) => void;
+  onOpenTarget: (item: Notif) => void;
 }) {
   const nc = useNotifCenter();
   const { t } = useI18n();
@@ -144,6 +146,12 @@ export function NotifInboxPage({
 
   const tap = (item: Notif) => {
     nc.markRead(item.id);
+    if (item.targetId) {
+      // Let the row press animation and optimistic read update finish before
+      // mounting the full-screen journey/map detail layer.
+      InteractionManager.runAfterInteractions(() => onOpenTarget(item));
+      return;
+    }
     if (item.action) showToast(item.kind === 'invite' ? t('account.inbox.toastViewedInvite') : t('account.inbox.toastViewed'));
   };
 

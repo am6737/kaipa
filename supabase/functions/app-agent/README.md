@@ -16,8 +16,14 @@ supabase secrets set \
   KAIPA_AI_MODEL=gpt-5.6-sol \
   AMAP_WEB_KEY=... \
   TRAVEL_SEARCH_SOURCES=tavily \
-  TAVILY_API_KEY=...
+  TAVILY_API_KEYS=key-1,key-2
 ```
+
+`TAVILY_API_KEYS` accepts comma- or newline-separated keys. The legacy
+`TAVILY_API_KEY` remains supported; when both are set, keys are tried in the
+order listed, with the legacy key included after the new list. Search and
+article extraction move to the next key when a Tavily request fails (for
+example, quota exhaustion), and report unavailable only after all keys fail.
 
 `AMAP_WEB_KEY` is also used by the separate authenticated `map-search` function
 for client place search and reverse geocoding. Deploy it after setting secrets:

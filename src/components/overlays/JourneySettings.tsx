@@ -561,6 +561,7 @@ export function JourneySettings({
   };
 
   const save = async () => {
+    if (poi.mine !== true) return;
     const trimmedName = name.trim();
     if (!trimmedName) {
       onToast(t("record.hero.nameRequired"));
@@ -817,7 +818,7 @@ export function JourneySettings({
             </View>
           ) : null}
 
-          <Press
+          {poi.mine ? <Press
             onPress={confirmDelete}
             style={{
               alignSelf: "stretch",
@@ -841,7 +842,7 @@ export function JourneySettings({
             >
               {t("journey.settings.deleteJourney")}
             </Text>
-          </Press>
+          </Press> : null}
         </View>
       </DetailPage>
       {locationPickerOpen ? (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Share, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -11,7 +11,7 @@ import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 
-export function RoutePreviewPanel({ theme, poi, onClose, showActions = true }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean }) {
+export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const route = nav.merged(poi);
@@ -48,28 +48,51 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true }: {
         </View>
       ) : null}
 
-      {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} /> : null}
+      {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} /> : null}
+      {onFeedback ? (
+        <Press
+          onPress={onFeedback}
+          accessibilityRole="button"
+          accessibilityLabel={t('discover.routeFeedback')}
+          style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: space.md, paddingVertical: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+        >
+          <View style={{ width: 23, height: 23, borderRadius: 12, borderWidth: 1.5, borderColor: theme.text2, alignItems: 'center', justifyContent: 'center', marginRight: space.sm }}>
+            <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 17, fontWeight: '400' }}>?</Text>
+          </View>
+          <Text style={{ flex: 1, fontSize: 14, fontWeight: '400', color: theme.text2 }}>{t('discover.routeFeedback')}</Text>
+          <Icon name="chevronR" color={theme.text3} size={16} strokeWidth={1.5} />
+        </Press>
+      ) : null}
     </View>
   );
 }
 
-export function RoutePreviewActions({ theme, poi, style }: { theme: Theme; poi: Poi; style?: object }) {
+export function RoutePreviewActions({ theme, poi, style, onPlanRoute }: { theme: Theme; poi: Poi; style?: object; onPlanRoute?: (route: Poi) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const route = nav.merged(poi);
+  const shareRoute = async () => {
+    const message = `${route.name}\n${[route.region, route.dist, route.asc].filter(Boolean).join(' · ')}`;
+    try {
+      await Share.share({ title: route.name, message });
+    } catch (error: any) {
+      if (error?.message !== 'User did not share') console.warn('[RoutePreviewPanel] share error:', error);
+    }
+  };
   return (
     <View style={[{ flexDirection: 'row', justifyContent: 'flex-start', gap: space.xs, marginHorizontal: space.xs }, style]}>
       <ActionPill
         theme={theme}
         icon={route.fav ? 'heartFill' : 'heart'}
-        label={route.fav ? t('journey.more.unfavorite') : t('journey.more.favorite')}
+        label={t('journey.more.favorite')}
         active={!!route.fav}
+        preserveStyle
         onPress={() => nav.toggleFav()}
       />
-      <ActionPill theme={theme} icon="share" label={t('common.share')} onPress={() => nav.openSharePanel(route)} />
+      <ActionPill theme={theme} icon="share" label={t('common.share')} onPress={() => void shareRoute()} />
       <Press
         hitSlop={3}
-        onPress={() => nav.openNewJourney(route)}
+        onPress={() => onPlanRoute ? onPlanRoute(route) : nav.openNewJourney(route)}
         accessibilityRole="button"
         style={{ flexShrink: 1, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
       >
@@ -82,25 +105,6 @@ export function RoutePreviewActions({ theme, poi, style }: { theme: Theme; poi: 
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-// "5-6月 · 9-10月" — collapse adjacent months into ranges.
-function monthRanges(months: number[]) {
-  const sorted = [...new Set(months)].sort((a, b) => a - b);
-  const ranges: string[] = [];
-  let start = sorted[0];
-  let prev = sorted[0];
-  for (let i = 1; i <= sorted.length; i++) {
-    const m = sorted[i];
-    if (m === prev + 1) {
-      prev = m;
-      continue;
-    }
-    ranges.push(start === prev ? `${start}月` : `${start}-${prev}月`);
-    start = m;
-    prev = m;
-  }
-  return ranges.join(' · ');
-}
-
 // A 12-cell month strip highlighting the route's best season, with the
 // current month ringed and the free-form note (封山期, 雨季…) below.
 function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; note?: string }) {
@@ -111,7 +115,6 @@ function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; 
     <View style={{ marginTop: space.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
         <Text style={{ fontSize: 13, fontWeight: '800', color: theme.text }}>{t('route.seasonTitle')}</Text>
-        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text2 }}>{monthRanges(months)}</Text>
       </View>
       <View style={{ flexDirection: 'row', gap: 4 }}>
         {MONTHS.map((m) => {
@@ -152,9 +155,10 @@ function InfoPill({ theme, icon, text, accent, mono }: { theme: Theme; icon?: Ic
   );
 }
 
-function ActionPill({ theme, icon, label, active, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; onPress: () => void }) {
+function ActionPill({ theme, icon, label, active, preserveStyle = false, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; preserveStyle?: boolean; onPress: () => void }) {
+  const containerActive = active && !preserveStyle;
   return (
-    <Press hitSlop={3} onPress={onPress} accessibilityRole="button" style={{ flexShrink: 1, minWidth: 0, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: active ? theme.accentSoft : theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: active ? theme.accent : theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
+    <Press hitSlop={3} onPress={onPress} accessibilityRole="button" style={{ flexShrink: 1, minWidth: 0, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: containerActive ? theme.accentSoft : theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: containerActive ? theme.accent : theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
       <Icon name={icon} color={active ? theme.accent : theme.text} size={16} />
       <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: active ? theme.accent : theme.text }}>{label}</Text>
     </Press>

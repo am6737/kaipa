@@ -217,6 +217,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
       <ScrollView
         style={{ marginTop: insets.top }}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
         contentContainerStyle={{ paddingTop: space.xs }}
         refreshControl={(
           <RefreshControl
@@ -341,6 +342,8 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
                     if (suppressedCardIdsRef.current.has(journey.id)) return;
                     nav.openPoint(journey);
                   }}
+                  onInvite={() => nav.openManageCompanions(journey, 'invite')}
+                  inviteAccessibilityLabel={t('journey.manage.inviteParticipant')}
                 />
               </ReanimatedSwipeable>
             )) : (
@@ -371,7 +374,6 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
           setDeletingId(candidate.id);
           void data.deleteJourney(candidate.id).then(() => {
             setPinned([candidate.id], false);
-            nav.showToast(t('journeyHome.action.deleted'));
             setDeleteCandidate(null);
           }).catch(() => nav.showToast(t('journeyHome.action.deleteFailed'))).finally(() => setDeletingId(undefined));
         }}
@@ -381,12 +383,10 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
         visible={createMenuOpen}
         onClose={() => setCreateMenuOpen(false)}
         onCreate={() => nav.openNewJourney()}
-        onParse={() => nav.openAssistant(t('journeyHome.createMenu.parsePrompt'))}
-        onUseCode={() => nav.openJourneyInviteScanner()}
+        onUseCode={() => nav.openJourneyCodeEntry()}
         labels={{
           close: t('journeyHome.createMenu.close'),
           create: t('journeyHome.createMenu.create'),
-          parse: t('journeyHome.createMenu.parse'),
           useCode: t('journeyHome.createMenu.useCode'),
         }}
       />

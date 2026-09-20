@@ -1,8 +1,10 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
 import type { NativeMapHandle, NativeMapProps } from './types';
+import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
-function point([longitude, latitude]: [number, number]) {
+function point(coordinate: [number, number]) {
+  const [longitude, latitude] = wgs84ToGcj02(coordinate);
   return { longitude, latitude };
 }
 
@@ -37,6 +39,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   onPress,
   onUserLocationChange,
   onCameraChange,
+  onCameraPositionChange,
   onZoomChange,
   onGestureStart,
 }, ref) {
@@ -71,9 +74,15 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         mapRef.current?.fitToCoordinates(coordinates.map(point), { edgePadding: padding(edgePadding), animated: duration > 0 });
       });
     },
-    moveCamera: (coordinate, zoom = 11, duration = 500) => {
+    moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
-      runWhenMapIsUsable(() => mapRef.current?.animateToRegion(region(coordinate, zoom), duration));
+      runWhenMapIsUsable(() => {
+        if (options?.resetOrientation) {
+          mapRef.current?.animateCamera({ center: point(coordinate), zoom, heading: 0, pitch: 0 }, { duration });
+        } else {
+          mapRef.current?.animateToRegion(region(coordinate, zoom), duration);
+        }
+      });
     },
     resetNorth: () => {
       markProgrammaticMove(360);
@@ -119,11 +128,14 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         }
         flushCameraAction();
       }}
-      onPress={(event) => onPress?.([event.nativeEvent.coordinate.longitude, event.nativeEvent.coordinate.latitude])}
+      onPress={(event) => {
+        const coordinate = event.nativeEvent.coordinate;
+        onPress?.(gcj02ToWgs84([coordinate.longitude, coordinate.latitude]));
+      }}
       onUserLocationChange={(event) => {
         const coordinate = event.nativeEvent.coordinate;
         if (!coordinate) return;
-        onUserLocationChange?.([coordinate.longitude, coordinate.latitude]);
+        onUserLocationChange?.(gcj02ToWgs84([coordinate.longitude, coordinate.latitude]));
       }}
       onPanDrag={onGestureStart ? () => onGestureStart() : undefined}
       onRegionChange={(visibleRegion) => {
@@ -131,6 +143,12 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       }}
       onRegionChangeComplete={(visibleRegion) => {
         if (visibleRegion.longitudeDelta > 0) onZoomChange?.(Math.log2(360 / visibleRegion.longitudeDelta));
+        if (visibleRegion.longitudeDelta > 0) {
+          onCameraPositionChange?.({
+            center: gcj02ToWgs84([visibleRegion.longitude, visibleRegion.latitude]),
+            zoom: Math.log2(360 / visibleRegion.longitudeDelta),
+          });
+        }
         if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
         if (onCameraChange) {
           void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));
@@ -151,7 +169,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           key={marker.id}
           coordinate={point(marker.coordinate)}
           anchor={marker.anchor}
-          title={marker.title}
           pinColor={marker.content ? undefined : marker.color}
           opacity={marker.opacity}
           onPress={() => marker.onPress?.()}

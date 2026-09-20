@@ -1,5 +1,5 @@
 import { createMediaCrawlerProvider } from './providers/mediacrawler.ts';
-import { createTavilyProvider } from './providers/tavily.ts';
+import { createTavilyProvider, tavilyApiKeys } from './providers/tavily.ts';
 import type { TravelSearchProvider, TravelSearchSource } from './types.ts';
 import type { SearchPurpose } from './routing.ts';
 
@@ -14,13 +14,14 @@ function enabledSources(getEnv: EnvGetter) {
 }
 
 export function createTravelSearchProviders(getEnv: EnvGetter, purpose: SearchPurpose = 'guide'): TravelSearchProvider[] {
+  const tavilyKeys = tavilyApiKeys(getEnv('TAVILY_API_KEYS'), getEnv('TAVILY_API_KEY'));
   // Transport evidence never fans out to community crawlers, regardless of config.
-  if (purpose === 'transport') return [createTavilyProvider(getEnv('TAVILY_API_KEY')?.trim(), true)];
+  if (purpose === 'transport') return [createTavilyProvider(tavilyKeys, true)];
   const endpoint = getEnv('MEDIACRAWLER_SEARCH_URL')?.trim();
   const apiKey = getEnv('MEDIACRAWLER_API_KEY')?.trim();
   const maxResults = travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30);
   return enabledSources(getEnv).map((source) => {
-    if (source === 'tavily') return createTavilyProvider(getEnv('TAVILY_API_KEY')?.trim());
+    if (source === 'tavily') return createTavilyProvider(tavilyKeys);
     return createMediaCrawlerProvider({ source, endpoint, apiKey, maxResults });
   });
 }

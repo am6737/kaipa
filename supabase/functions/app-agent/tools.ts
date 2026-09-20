@@ -53,6 +53,7 @@ type UploadedTrackData = {
 };
 
 const requestClients = new Map<string, Client>();
+const cacheClients = new Map<string, Client>();
 const travelSearches = new Map<string, Map<string, Promise<unknown>>>();
 const guideReads = new Map<string, Promise<unknown>>();
 const journeyWrites = new Map<string, Promise<unknown>>();
@@ -69,9 +70,13 @@ export function parseJsonString(value: unknown): unknown {
   }
 }
 
-export function bindRunClient(runId: string, client: Client) { requestClients.set(runId, client); }
+export function bindRunClient(runId: string, client: Client, cacheClient?: Client) {
+  requestClients.set(runId, client);
+  if (cacheClient) cacheClients.set(runId, cacheClient);
+}
 export function releaseRunClient(runId: string) {
   requestClients.delete(runId);
+  cacheClients.delete(runId);
   travelSearches.delete(runId);
   guideReads.delete(runId);
   journeyWrites.delete(runId);
@@ -107,6 +112,66 @@ function stable(value: unknown): string {
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function readExternalCache(client: Client, cacheKey: string): Promise<any | null> {
+  const result = await client.rpc('read_agent_external_cache', { p_cache_key: cacheKey });
+  if (result.error) throw result.error;
+  return result.data ?? null;
+}
+
+async function writeExternalCache(client: Client, cacheKey: string, payload: unknown, ttlSeconds: number) {
+  if (!payload || typeof payload !== 'object') return;
+  const now = Date.now();
+  const result = await client.rpc('write_agent_external_cache', {
+    p_cache_key: cacheKey, p_payload: payload, p_ttl_seconds: ttlSeconds,
+  });
+  if (result.error) throw result.error;
+}
+
+function cacheClientFor(runId: string, fallback: Client): Client | null {
+  return cacheClients.get(runId) || (cacheClients.has(runId) ? fallback : null);
+}
+
+function cacheTtl(name: string, fallback: number, min: number, max: number) {
+  const value = Number(Deno.env.get(name));
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
+}
+
+function errorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
+function knowledgeCacheTtl() {
+  return cacheTtl('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', 2592000, 86400, 63072000);
+}
+
+function knowledgeTopic(query: string, purpose: 'guide' | 'transport') {
+  if (purpose === 'transport') return 'access';
+  const value = query.toLocaleLowerCase();
+  if (/营地|露营|住宿|扎营|客栈/.test(value)) return 'camp';
+  if (/水源|补水|取水|饮水/.test(value)) return 'water';
+  if (/交通|班车|接驳|进山|出山|自驾|包车|拼车/.test(value)) return 'access';
+  if (/季节|月份|天气|雨季|雪季|开放/.test(value)) return 'season';
+  if (/安全|风险|封闭|高反|危险|救援/.test(value)) return 'safety';
+  if (/装备|穿着|物资|清单/.test(value)) return 'equipment';
+  return 'route';
+}
+
+async function knowledgeCacheIdentity(client: Client, context: AgentContext, query: string, purpose: 'guide' | 'transport') {
+  const normalizedQuery = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  const locale = /[\u3400-\u9fff]/.test(query) ? 'zh' : 'en';
+  if (!context.currentJourneyId) return { routeKey: `query:${normalizedQuery}`, topic: knowledgeTopic(query, purpose), locale };
+  const journey = await client.from('journeys').select('route_id,track_id,name,region')
+    .eq('id', context.currentJourneyId).is('deleted_at', null).maybeSingle();
+  if (journey.error) throw journey.error;
+  const row = journey.data;
+  const routeKey = row?.route_id ? `route:${row.route_id}`
+    : row?.track_id ? `track:${row.track_id}`
+    : `journey:${String(row?.name || row?.region || normalizedQuery).trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`;
+  return { routeKey, topic: knowledgeTopic(query, purpose), locale };
 }
 
 function isUndoableResult<T>(value: T | UndoableResult<T>): value is UndoableResult<T> {
@@ -327,14 +392,14 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
     if (saved.error) throw saved.error;
     return output;
   } catch (error) {
-    await client.from('agent_tool_calls').update({ status: 'failed', error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString() }).eq('id', recorded.data.id).neq('status', 'completed');
+    await client.from('agent_tool_calls').update({ status: 'failed', error: errorText(error), updated_at: new Date().toISOString() }).eq('id', recorded.data.id).neq('status', 'completed');
     throw error;
   }
 }
 
 export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
-  title: z.string().min(1).max(40).describe('简短的地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
+  title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
   timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
   timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
 });
@@ -501,12 +566,23 @@ export const searchTravelWeb = tool({
             error: 'This source requires manual browser verification. No further platform request was made in this task.' }) }
           : provider);
         const hasCrawlerSource = providers.some((provider) => provider.source === 'xhs' || provider.source === 'douyin');
+        const maxResults = travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30);
+        const identity = await knowledgeCacheIdentity(client, context, query, resolvedPurpose);
+        const cacheKey = `travel-search:v2:${await sha256(stable({ purpose: resolvedPurpose, ...identity,
+          sources: providers.map(provider => provider.source).sort(), maxResults }))}`;
+        const cacheClient = cacheClientFor(context.runId, client);
+        const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
+        if (cached?.available) return { ...cached, purpose: resolvedPurpose, cached: true,
+          ...(resolvedPurpose === 'guide' ? { nextAction: 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again.' } : {}),
+        };
         const result = await aggregateTravelSearch({
           query,
           providers,
           timeoutMs: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 60000 : 8000, 2000, 120000),
-          maxResults: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30),
+          maxResults,
         });
+        if (result.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, result,
+          resolvedPurpose === 'guide' ? knowledgeCacheTtl() : cacheTtl('TRAVEL_SEARCH_CACHE_TTL_SECONDS', 900, 60, 86400));
         return { ...result, purpose: resolvedPurpose, ...(resolvedPurpose === 'guide' ? {
           nextAction: result.results.length
             ? 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again. Read selected images only if needed; snippets do not include image or video understanding. Finish with existing evidence and disclose missing facts.'
@@ -562,9 +638,15 @@ export const readTravelGuide = tool({
       if (new Set(calls.filter(call => call.tool_name === 'read_travel_guide').map(call => call.arguments.url)).size > GUIDE_LIMITS.pages) {
         return { available: false, status: 'budget_exhausted', url, limitation: 'Article read budget reached. Reuse existing guides and report remaining gaps; do not keep searching to bypass this limit.' };
       }
+      const cacheClient = cacheClientFor(context.runId, client);
+      const cacheKey = `travel-guide:v1:${await sha256(url)}`;
+      const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
+      if (cached?.available) return { ...cached, cached: true, title: source.title, publishedAt: source.publishedAt };
       const result = await readGuide(url, name => Deno.env.get(name));
-      return { ...result, title: source.title, publishedAt: source.publishedAt,
+      const output = { ...result, title: source.title, publishedAt: source.publishedAt,
         results: result.available ? [{ title: source.title, url, source: source.source, publishedAt: source.publishedAt }] : [] };
+      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, output, knowledgeCacheTtl());
+      return output;
     }));
   },
 });
@@ -596,8 +678,14 @@ export const readTravelGuideImages = tool({
       const pending = images.filter((image): image is NonNullable<typeof image> => Boolean(image && !cached.has(image.id)));
       if (!pending.length) return { available: true, status: 'completed', sourceUrl: url, images: ids.map(id => cached.get(id)!), cached: true,
         limitation: 'Reused image observations, not current safety verification or exact GPX distances. No video was read.' };
+      const cacheClient = cacheClientFor(context.runId, client);
+      const cacheKey = `travel-guide-images:v1:${await sha256(stable({ url, ids }))}`;
+      const external = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
+      if (external?.available) return { ...external, cached: true };
       const result = await analyzeGuideImages(url, pending, name => Deno.env.get(name));
-      return { ...result, images: [...ids.flatMap(id => cached.has(id) ? [cached.get(id)!] : []), ...result.images] };
+      const output = { ...result, images: [...ids.flatMap(id => cached.has(id) ? [cached.get(id)!] : []), ...result.images] };
+      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, output, knowledgeCacheTtl());
+      return output;
     }));
   },
 });
@@ -615,7 +703,21 @@ export const searchTransport = tool({
     viaStation: z.string().min(1).max(40).nullable().optional().describe('Rail only: exact Chinese interchange arrival station to query two-leg candidates. Null means direct. Resolve a plausible hub from route context; no silent city/station substitution. Partial one-page coverage; empty is not exhaustive.'),
   }),
   execute: (args, runContext) => mutate('search_transport', args, runContext as RunContext,
-    async () => queryTransport(args, name => Deno.env.get(name))),
+    async (client) => {
+      const cacheKey = `transport:v1:${await sha256(stable(args))}`;
+      const cacheClient = cacheClientFor(contextFor(runContext as RunContext).runId, client);
+      const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
+      if (cached?.available || cached?.status === 'empty') return { ...cached, cached: true };
+      const result = await queryTransport(args, name => Deno.env.get(name));
+      if ((result.available || result.status === 'empty') && cacheClient) {
+        const isRail = args.mode === 'rail';
+        await writeExternalCache(cacheClient, cacheKey, result,
+          isRail
+            ? cacheTtl('RAIL_CACHE_TTL_SECONDS', 86400, 300, 604800)
+            : cacheTtl('FLIGHT_CACHE_TTL_SECONDS', 300, 15, 3600));
+      }
+      return result;
+    }),
 });
 
 export const addGear = tool({

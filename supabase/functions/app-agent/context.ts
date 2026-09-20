@@ -89,7 +89,10 @@ export async function readAgentGear(client: Client, context: AgentContext, query
   const journeyId = context.currentJourneyId || '';
   const versions = await refreshContextVersions(client, context, journeyId);
   let snapshot = state(context).snapshots.gear;
-  if (!snapshot || snapshot.revision !== versions.gear) {
+  // Name-scoped checks are used immediately before add_gear. Always read the
+  // current table for these checks so a stale thread snapshot cannot make a
+  // new item look like an existing one.
+  if (query?.trim() || !snapshot || snapshot.revision !== versions.gear) {
     const result = await client.rpc('read_agent_gear');
     if (result.error) throw result.error;
     const { version, ...data } = result.data;

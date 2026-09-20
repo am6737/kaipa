@@ -504,6 +504,13 @@ export function useJourneys(userId: string | undefined) {
     setTrashedJourneys((prev) => prev.filter((journey) => journey.id !== id));
   };
 
+  const leaveJourney = async (id: string) => {
+    const { data, error } = await supabase.rpc("leave_journey", { target_journey_id: id });
+    if (error) throw error;
+    if (data !== true) throw new Error("JOURNEY_LEAVE_FORBIDDEN");
+    setJourneys((prev) => prev.filter((journey) => journey.id !== id));
+  };
+
   const toggleFav = async (id: string, current: boolean) => {
     await supabase.from("journeys").update({ fav: !current }).eq("id", id);
     setJourneys((prev) =>
@@ -520,6 +527,7 @@ export function useJourneys(userId: string | undefined) {
     deleteJourney,
     restoreJourney,
     permanentlyDeleteJourney,
+    leaveJourney,
     toggleFav,
     refetch: fetchJourneys,
   };

@@ -62,6 +62,7 @@ function planningHarness(message: string, currentJourneyId?: string) {
       const chain = {
         select: () => chain,
         eq: () => chain,
+        gt: () => chain,
         neq: () => chain,
         in: () => chain,
         ilike: () => chain,

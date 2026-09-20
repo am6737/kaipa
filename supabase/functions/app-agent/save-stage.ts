@@ -112,7 +112,30 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
       continue;
     }
     const args = { journeyId, ...operation.args };
-    const outcome = await execute(operation.tool, args, runContext);
+    let outcome = await execute(operation.tool, args, runContext);
+    // A model may summarize a guide instead of quoting its exact text. That
+    // cannot prove campsite provenance, but it must not block a valid track
+    // candidate endpoint. Retry deterministically without optional evidence;
+    // the saved point remains explicitly marked as unverified.
+    if (outcome.error && operation.tool === 'set_itinerary_group_endpoints'
+      && /过夜引文|水源描述缺少|overnight quote|water description/i.test(outcome.error)) {
+      const endpoints = Array.isArray((operation.args as { endpoints?: unknown }).endpoints)
+        ? (operation.args as { endpoints: Array<Record<string, unknown>> }).endpoints.map((endpoint) => {
+          if (!endpoint.overnightReview) return endpoint;
+          const review = endpoint.overnightReview as Record<string, unknown>;
+          return {
+            ...endpoint,
+            overnightReview: {
+              waterStatus: 'unknown',
+              waterQuote: '',
+              waterPlan: review.waterPlan,
+              effortAssessment: review.effortAssessment,
+            },
+          };
+        })
+        : [];
+      outcome = await execute(operation.tool, { journeyId, endpoints }, runContext);
+    }
     if (outcome.error) {
       artifact.failed.push({ tool: operation.tool, error: outcome.error });
       if (operation.tool === 'add_itinerary_items') itineraryFailed = true;

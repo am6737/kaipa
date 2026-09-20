@@ -10,6 +10,7 @@ import {
   StyleSheet,
   PanResponder,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +23,7 @@ import { Companion } from '../../data/pois';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { useI18n, TKey, TVars } from '../../i18n';
-import { supabase } from '../../lib/supabase';
+import { ensureJourneyShare, journeyShareUrl, type JourneyShareInfo } from '../../lib/journeyShare';
 import { radius, space, type } from '../../design-system';
 
 type TFn = (key: TKey, vars?: TVars) => string;
@@ -517,31 +518,37 @@ export function NJSharePanel({
   backgroundColor?: string;
 }) {
   const { t } = useI18n();
-  const { slug, code, fullUrl } = useMemo(() => {
+  const [share, setShare] = useState<JourneyShareInfo | null>(null);
+  const [shareFailed, setShareFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
+  // Display-only fallback for the unsaved-journey preview (no journeyId yet);
+  // the moment a journey exists the server-generated code takes over.
+  const fallbackUrl = useMemo(() => {
     const s = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
     const c = String(1000 + (Math.abs(hashSeed(tripName)) % 9000));
     const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
-    const path = `/j/${s}-${c}`;
-    return { slug: s, code: c, fullUrl: `${base}${path}` };
+    return `${base}/j/${s}-${c}`;
   }, [tripName]);
+
+  const fullUrl = share ? journeyShareUrl(share) : journeyId ? '' : fallbackUrl;
 
   useEffect(() => {
     if (!journeyId) return;
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await supabase.from('journey_shares').upsert(
-          { journey_id: journeyId, user_id: user.id, slug, code, active: true },
-          { onConflict: 'slug,code' },
-        );
-      } catch (e) {
-        console.warn('[NJSharePanel] persist share error:', e);
-      }
-    })();
-  }, [journeyId, slug, code]);
+    let cancelled = false;
+    setShareFailed(false);
+    void ensureJourneyShare(journeyId).then((info) => {
+      if (cancelled) return;
+      if (info) setShare(info);
+      else setShareFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [journeyId, retryKey]);
 
   const doCopy = async () => {
+    if (!fullUrl) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(fullUrl);
@@ -555,6 +562,7 @@ export function NJSharePanel({
   };
 
   const doShare = async () => {
+    if (!fullUrl) return;
     await Share.share({
       title: tripName,
       message: `${t('journeyEdit.share.shareMessage', { tripName })}\n${fullUrl}`,
@@ -639,7 +647,19 @@ export function NJSharePanel({
               boxShadow: theme.dark ? '0px 8px 24px rgba(0,0,0,0.32)' : '0px 8px 24px rgba(0,0,0,0.08)',
             }}
           >
-            <QRCode value={fullUrl} size={104} backgroundColor="#FFFFFF" color="#000000" />
+            {fullUrl ? (
+              <QRCode value={fullUrl} size={104} backgroundColor="#FFFFFF" color="#000000" />
+            ) : (
+              <View style={{ width: 104, height: 104, alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                {shareFailed ? (
+                  <Press accessibilityRole="button" onPress={() => setRetryKey((key) => key + 1)} style={{ alignItems: 'center', padding: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#000000' }}>{t('passphrase.retry')}</Text>
+                  </Press>
+                ) : (
+                  <ActivityIndicator size="small" color="#000000" />
+                )}
+              </View>
+            )}
           </View>
         </View>
 

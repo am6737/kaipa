@@ -25,11 +25,13 @@ export function photoPinScaleForZoom(zoom: number): number {
   return 0.65 + Math.max(0, Math.min(1, (zoom - 3) / 8)) * 0.35;
 }
 
-export function PhotoPin({ theme, poi, active, mapScale = 1, entranceDelayMs }: {
+export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = false, entranceDelayMs }: {
   theme: Theme;
   poi: GlobePoi;
   active?: boolean;
   mapScale?: number | Animated.Value;
+  /** Avoid transforms when a native map snapshots this view into a bitmap. */
+  staticRender?: boolean;
   /** per-index entrance delay so pins pop in one-by-one on the first data load */
   entranceDelayMs?: number;
 }) {
@@ -80,9 +82,9 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, entranceDelayMs }: 
         height: PHOTO_PIN_HEIGHT,
         alignItems: 'center',
         // Scale around the photo center so its geographic anchor stays fixed.
-        transformOrigin: [PHOTO_PIN_WIDTH / 2, PHOTO_SIZE / 2, 0],
-        transform: [{ scale: Animated.multiply(Animated.multiply(scale, mapScale), entrance) }],
-        opacity: entrance,
+        transformOrigin: staticRender ? undefined : [PHOTO_PIN_WIDTH / 2, PHOTO_SIZE / 2, 0],
+        transform: staticRender ? undefined : [{ scale: Animated.multiply(Animated.multiply(scale, mapScale), entrance) }],
+        opacity: staticRender ? 1 : entrance,
       }}
     >
       <View

@@ -5,8 +5,10 @@ import type { Theme } from '../../theme/theme';
 import { AppCard, radius, space, type } from '../../design-system';
 import { Icon, type IconName } from '../Icon';
 import type { Poi } from '../../data/pois';
+import type { Track } from '../../data/tracks';
 import { Press } from '../Press';
 import { Avatar } from '../Avatar';
+import { TrackThumbnail } from '../tracks/TrackThumbnail';
 
 export function ProfileIdentity({ theme, avatarUri, nick, username, bio, label, onPress }: {
   theme: Theme;
@@ -37,12 +39,13 @@ export function ProfileIdentity({ theme, avatarUri, nick, username, bio, label, 
   );
 }
 
-export function ProfileShortcut({ theme, title, detail, items, previewRows, icon, variant, onPress, stats, badge }: {
+export function ProfileShortcut({ theme, title, detail, items, trackItems, previewRows, icon, variant, onPress, stats, badge }: {
   theme: Theme;
   title: string;
   detail: string;
   items: Pick<Poi, 'id' | 'photoUris'>[];
-  previewRows?: { id?: string; label: string; value: string }[];
+  trackItems?: Pick<Track, 'id' | 'coords'>[];
+  previewRows?: { id?: string; label: string; value: string; inline?: boolean }[];
   icon: IconName;
   variant: 'journeys' | 'favorites' | 'gear' | 'checklist' | 'trash' | 'tracks';
   onPress: () => void;
@@ -54,6 +57,7 @@ export function ProfileShortcut({ theme, title, detail, items, previewRows, icon
   const isFavorites = variant === 'favorites';
   const isTrash = variant === 'trash';
   const isGear = variant === 'gear';
+  const isTracks = variant === 'tracks';
   const surface = theme.fieldSurface;
 
   if (isTrash) return (
@@ -112,12 +116,26 @@ export function ProfileShortcut({ theme, title, detail, items, previewRows, icon
                 }}><Icon name="photo" color={theme.text2} size={18} /></View>
               ))}
             </View>
+          ) : isTracks && trackItems?.length ? (
+            <View style={{ width: 104, height: 66, maxWidth: '100%' }}>
+              {Array.from({ length: 3 }, (_, index) => trackItems[index]).map((item, index) => (
+                <View key={item?.id ?? `track-placeholder-${index}`} style={{
+                  position: 'absolute', right: index * 16, top: index === 0 ? 5 : 0,
+                  width: 58, height: 58, borderRadius: space.xxs, borderWidth: 3, borderColor: theme.surfaceTop,
+                  overflow: 'hidden', backgroundColor: theme.fieldSurface,
+                  alignItems: 'center', justifyContent: 'center',
+                  transform: [{ rotate: `${index === 0 ? 8 : -8}deg` }],
+                }}>
+                  {item ? <TrackThumbnail theme={theme} coords={item.coords} size={52} /> : <Icon name="route" color={theme.text2} size={21} strokeWidth={1.7} />}
+                </View>
+              ))}
+            </View>
           ) : previewRows?.length ? (
             <View style={{ width: '100%', gap: space.xs }}>
               {previewRows.slice(0, 3).map((row) => (
                 <View key={row.id ?? row.label} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                  <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flex: 1 }]}>{row.label}</Text>
-                  <Text numberOfLines={1} style={[type.caption, { color: theme.text, textAlign: 'right' }]}>{row.value}</Text>
+                  <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flex: row.inline ? undefined : 1 }]}>{row.label}</Text>
+                  {row.value ? <Text numberOfLines={1} style={[type.caption, { color: theme.text, textAlign: row.inline ? 'left' : 'right', flex: row.inline ? 1 : undefined }]}>{row.value}</Text> : null}
                 </View>
               ))}
             </View>

@@ -1,5 +1,6 @@
 import { z } from 'npm:zod@4.1.12';
 import { guideImageInput } from './guide-image-input.ts';
+import { tavilyApiKeys } from './providers/tavily.ts';
 
 export const GUIDE_LIMITS = { pages: 3, text: 24000, candidates: 12, images: 6, batch: 4 } as const;
 type Env = (name: string) => string | undefined;
@@ -118,17 +119,27 @@ export async function readGuide(urlInput: string, env: Env, request: Fetch = fet
     text: '', truncated: false, images: [], imagesTruncated: false,
     limitation: 'Page content could not be extracted. Do not substitute a search snippet or bypass login, paywalls or access restrictions. Reuse other sources.' };
   if (douyinContentId(url)) return readDouyinGuide(base, env, request);
-  const apiKey = env('TAVILY_API_KEY')?.trim();
-  if (!apiKey) return { ...base, status: 'not_configured', limitation: 'Article extraction is not configured. Search snippets are not full articles.' };
+  const apiKeys = tavilyApiKeys(env('TAVILY_API_KEYS'), env('TAVILY_API_KEY'));
+  if (!apiKeys.length) return { ...base, status: 'not_configured', limitation: 'Article extraction is not configured. Search snippets are not full articles.' };
   try {
-    const response = await request('https://api.tavily.com/extract', {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25000),
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      // Do not pass query: that asks Extract for short ranked chunks, not a body.
-      body: JSON.stringify({ urls: [url], extract_depth: 'advanced', include_images: true, format: 'markdown', timeout: 20 }),
-    });
-    if (!response.ok) { await response.body?.cancel(); return base; }
-    const payload = extractionSchema.parse(await boundedJson(response, 1_000_000));
+    let payload: z.infer<typeof extractionSchema> | undefined;
+    const signal = AbortSignal.timeout(25000);
+    for (const apiKey of apiKeys) {
+      try {
+        const response = await request('https://api.tavily.com/extract', {
+          method: 'POST', redirect: 'error', signal,
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          // Do not pass query: that asks Extract for short ranked chunks, not a body.
+          body: JSON.stringify({ urls: [url], extract_depth: 'advanced', include_images: true, format: 'markdown', timeout: 20 }),
+        });
+        if (!response.ok) { await response.body?.cancel(); continue; }
+        payload = extractionSchema.parse(await boundedJson(response, 1_000_000));
+        break;
+      } catch {
+        if (signal.aborted) break;
+      }
+    }
+    if (!payload) return base;
     const page = payload.results?.find(page => publicGuideUrl(page.url) === url);
     if (!page) return base;
     const text = page.raw_content.trim();

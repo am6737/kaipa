@@ -15,7 +15,7 @@ import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
-import { deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
+import { cancelAgentRun, deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
 import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
 import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
@@ -186,11 +186,50 @@ function modelStageLabel(stage: string) {
     packing_commit_decision: '装备清单提交检查',
     // Staged pipeline metric names.
     research: '资料搜集',
+    transport: '路线交通规划',
     plan: '方案编排',
     packing: '装备清单生成',
     respond: '回复生成',
   };
   return labels[stage] || stage;
+}
+
+/** Model metrics are emitted once per model call, so retries and tool turns can
+ * produce several rows for the same user-facing stage. Keep the detailed
+ * records for the total, but show one concise row per stage in the UI. */
+function aggregateModelMetrics(metrics: AgentModelMetric[]) {
+  const aggregated = new Map<string, AgentModelMetric>();
+  for (const metric of metrics) {
+    const existing = aggregated.get(metric.stage);
+    if (!existing) {
+      aggregated.set(metric.stage, { ...metric });
+      continue;
+    }
+    existing.durationMs += metric.durationMs;
+    existing.success = existing.success && metric.success;
+  }
+  return [...aggregated.values()];
+}
+
+function collapsePresentedSteps(steps: Array<ResearchStep & { elapsed?: number }>) {
+  const collapsed = new Map<string, ResearchStep & { elapsed?: number }>();
+  for (const step of steps) {
+    // A rendered label represents a user-facing phase. Several guide URLs or
+    // route lookups can therefore share one row even when their call statuses
+    // differ; the underlying activity records remain available for timing and
+    // recovery.
+    const key = step.text;
+    const existing = collapsed.get(key);
+    if (!existing) {
+      collapsed.set(key, { ...step });
+      continue;
+    }
+    if (step.status === 'failed' || (step.status === 'running' && existing.status === 'completed')) {
+      existing.status = step.status;
+    }
+    if (step.elapsed != null) existing.elapsed = (existing.elapsed || 0) + step.elapsed;
+  }
+  return [...collapsed.values()];
 }
 
 function activityFingerprint(activities: AgentRunActivity[]) {
@@ -341,6 +380,7 @@ function stageLabel(stages: AgentStage[] | undefined, t: ReturnType<typeof useI1
   const keys: Record<AgentStage['stage'], TKey> = {
     interpret: 'agent.stage.interpret',
     research: 'agent.stage.research',
+    transport: 'agent.stage.transport',
     plan: 'agent.stage.plan',
     save: 'agent.stage.save',
     packing: 'agent.stage.packing',
@@ -388,28 +428,34 @@ function sourceLabel(source: string, t: ReturnType<typeof useI18n>['t']) {
   return source;
 }
 
+function markdownInline(text: string, color: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    const bold = (part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'));
+    const code = part.startsWith('`') && part.endsWith('`');
+    const value = bold ? part.slice(2, -2) : code ? part.slice(1, -1) : part;
+    return <Text key={`${index}_${part}`} style={bold ? { fontWeight: '700' } : code ? { fontFamily: 'monospace', color } : undefined}>{value}</Text>;
+  });
+}
+
 function SelectableMessageText({ text, theme }: { text: string; theme: Theme }) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
   return (
-    <View>
-      <Text
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-        style={[type.body, styles.messageMeasure, { lineHeight: 22 }]}
-      >
-        {text}
-      </Text>
-      <TextInput
-        accessibilityLabel={text}
-        caretHidden
-        multiline
-        scrollEnabled={false}
-        showSoftInputOnFocus={false}
-        value={text}
-        onChangeText={() => undefined}
-        selectionColor={theme.accent}
-        style={[StyleSheet.absoluteFill, type.body, styles.messageInput, { color: theme.text, lineHeight: 22 }]}
-      />
-    </View>
+    <Text selectable accessibilityLabel={text} style={[type.body, { color: theme.text, lineHeight: 22 }]}>
+      {lines.map((line, index) => {
+        const heading = line.match(/^\s{0,3}#{1,6}\s+(.+)$/)?.[1];
+        const bullet = line.match(/^\s*[-*+]\s+(.+)$/)?.[1];
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        const content = heading || bullet || ordered?.[1] || line;
+        const prefix = bullet ? '• ' : ordered ? `${line.match(/^\s*(\d+)[.)]/)?.[1] || ''}. ` : '';
+        return (
+          <Text key={`${index}_${line}`} style={heading ? { fontWeight: '700' } : undefined}>
+            {prefix}{markdownInline(content, theme.text)}
+            {index < lines.length - 1 ? '\n' : ''}
+          </Text>
+        );
+      })}
+    </Text>
   );
 }
 
@@ -524,12 +570,17 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
   const totalElapsed = showTiming ? runElapsed(activities, now, runTiming) : undefined;
   const modelElapsed = modelMetrics.reduce((sum, metric) => sum + metric.durationMs, 0);
   const toolElapsed = activities.reduce((sum, activity) => sum + (activityElapsed(activity, now) || 0), 0);
-  const timedSteps = visibleSteps.map((step) => {
+  const aggregatedModelMetrics = aggregateModelMetrics(modelMetrics);
+  const timedSteps = collapsePresentedSteps(visibleSteps.map((step) => {
     const activityIndex = activities.findIndex((activity, index) => step.key === `${activity.toolName}_${index}` || step.key.startsWith(`${activity.toolName}_${index}_`));
     const activity = activityIndex >= 0 ? activities[activityIndex] : undefined;
     const elapsed = activity ? activityElapsed(activity, now) : undefined;
     return { ...step, elapsed };
-  });
+  }));
+  const orderedTimedSteps = [
+    ...timedSteps.filter((step) => step.status !== 'running'),
+    ...timedSteps.filter((step) => step.status === 'running'),
+  ];
   const toggleExpanded = () => {
     const next = !expanded;
     arrowProgress.stopAnimation();
@@ -568,7 +619,22 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
           <ChevronDown size={17} color={theme.text3} />
         </Animated.View>
       </Press>
-      {expanded ? timedSteps.map((step) => (
+      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => (
+        <View key={step.key} style={styles.researchLine}>
+          {step.status === 'completed' ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}</Text>
+        </View>
+      )) : null}
+      {showTiming && expanded && (modelElapsed || toolElapsed) ? (
+        <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
+      ) : null}
+      {showTiming && expanded ? aggregatedModelMetrics.map((metric) => (
+        <View key={`model_${metric.stage}`} style={styles.researchLine}>
+          {metric.success ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.success ? '' : ' · 失败'}</Text>
+        </View>
+      )) : null}
+      {expanded ? orderedTimedSteps.filter((step) => step.status === 'running').map((step) => (
         <View key={step.key} style={styles.researchLine}>
           {step.status === 'running'
             ? <LoadingDots color={theme.text3} />
@@ -576,15 +642,6 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
             ? <Check size={14} color={theme.text3} strokeWidth={2} />
             : <X size={14} color={theme.text3} strokeWidth={2} />}
           <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}</Text>
-        </View>
-      )) : null}
-      {showTiming && expanded && (modelElapsed || toolElapsed) ? (
-        <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
-      ) : null}
-      {showTiming && expanded ? modelMetrics.map((metric, index) => (
-        <View key={`model_${metric.stage}_${index}`} style={styles.researchLine}>
-          {metric.success ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.success ? '' : ' · 失败'}</Text>
         </View>
       )) : null}
     </View>
@@ -652,6 +709,38 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
       </Press>
     </View>
   );
+}
+
+function ActionResultCard({ theme, title, detail, openLabel, onOpen }: { theme: Theme; title: string; detail: string; openLabel: string; onOpen: () => void }) {
+  return (
+    <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${openLabel}：${title}`} style={[styles.actionResultCard, { backgroundColor: theme.surfaceTop }]}>
+      <View style={styles.actionResultIcon}><Check size={18} color={theme.text} strokeWidth={2.2} /></View>
+      <View style={styles.actionResultCopy}>
+        <Text style={[styles.actionResultTitle, { color: theme.text }]} numberOfLines={2}>{title}</Text>
+        <Text style={[styles.actionResultDetail, { color: theme.text3 }]} numberOfLines={2}>{detail}</Text>
+      </View>
+      <View style={styles.actionResultOpen}>
+        <Text style={[styles.actionResultOpenText, { color: theme.text }]}>{openLabel}</Text>
+        <ArrowUpRight size={17} color={theme.text} strokeWidth={2} />
+      </View>
+    </Press>
+  );
+}
+
+function actionResultForTurn(turn: Turn) {
+  const activities = turn.activities || [];
+  const gear = [...activities].reverse().find((activity) => activity.toolName === 'add_gear' && activity.status === 'completed');
+  if (gear && gear.output && typeof gear.output === 'object') {
+    const output = gear.output as { name?: unknown };
+    return { kind: 'gear' as const, name: String(output.name || '装备'), detail: '已添加到装备库' };
+  }
+  const packing = [...activities].reverse().find((activity) => (activity.toolName === 'add_packing_items' || activity.toolName === 'commit_packing_draft') && activity.status === 'completed');
+  if (packing && packing.output && typeof packing.output === 'object') {
+    const output = packing.output as { added?: unknown; journeyId?: unknown };
+    const added = Number(output.added);
+    return { kind: 'packing' as const, name: '', added: Number.isFinite(added) ? added : undefined, journeyId: typeof output.journeyId === 'string' ? output.journeyId : undefined };
+  }
+  return undefined;
 }
 
 function firstPhoto(value: unknown): string | undefined {
@@ -769,7 +858,7 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
@@ -779,6 +868,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   onClose: () => void;
   onClearPrompt: () => void;
   onOpenJourney: (journeyId: string) => void;
+  onOpenGear: (page: 'sets' | 'items') => void;
 }) {
   const { resolved, t } = useI18n();
   const data = useData();
@@ -861,6 +951,20 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const voiceActive = speech.isStarting || speech.isListening;
   const voiceMode = voiceHolding || voiceActive;
   const canSend = Boolean(input.trim() || selectedAttachments.length);
+  const cancelProcessing = useCallback(() => {
+    const runId = activeRunId;
+    if (!loading || !runId) return;
+    // Invalidate all outstanding callbacks before updating the server-side run.
+    submitGenerationRef.current++;
+    pendingRequestRef.current = undefined;
+    requestInFlightRef.current = false;
+    setLoading(false);
+    setActiveRunId(undefined);
+    setRunActivities([]);
+    setRunModelMetrics([]);
+    setRunTiming(undefined);
+    void cancelAgentRun(runId).catch((error) => console.warn('[AppAgent] cancel failed', error));
+  }, [activeRunId, loading]);
   const trackAttachmentSelected = selectedAttachments.some((attachment) => isTrackAttachmentName(attachment.name));
   const startVoiceInput = () => {
     inputRef.current?.blur();
@@ -1834,6 +1938,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               ) : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
               {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} /> : null}
+              {turn.role === 'assistant' && actionResultForTurn(turn) ? (() => {
+                const result = actionResultForTurn(turn)!;
+                return <ActionResultCard
+                  theme={theme}
+                  title={result.kind === 'gear' ? result.name : t('agent.checklistUpdated')}
+                  detail={result.kind === 'gear' ? t('agent.gearAddedToLibrary') : result.added != null ? t('agent.checklistItemsAdded', { count: result.added }) : t('agent.checklistSaved')}
+                  openLabel={t(result.kind === 'gear' ? 'agent.viewGear' : 'agent.viewChecklist')}
+                  onOpen={() => onOpenGear(result.kind === 'gear' ? 'items' : 'sets')}
+                />;
+              })() : null}
               {turn.role === 'assistant' ? (
                 <View style={styles.messageActions}>
                   <Press
@@ -1920,13 +2034,15 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               </View>
               <Press
                 pointerEvents={voiceHolding ? 'none' : 'auto'}
-                disabled={loading || attachmentUploading}
-                accessibilityLabel={voiceActive ? t('agent.stopVoiceInput') : canSend ? t('agent.send') : t('agent.voiceInput')}
-                accessibilityState={{ disabled: loading || attachmentUploading, selected: voiceActive }}
-                onPress={voiceActive ? speech.stop : canSend ? () => void submit() : startVoiceInput}
-                style={[styles.composerAction, (canSend || voiceActive) && { backgroundColor: theme.accent }, voiceHolding && styles.voiceActionHidden]}
+                disabled={attachmentUploading}
+                accessibilityLabel={loading ? t('common.cancel') : voiceActive ? t('agent.stopVoiceInput') : canSend ? t('agent.send') : t('agent.voiceInput')}
+                accessibilityState={{ disabled: attachmentUploading, selected: voiceActive }}
+                onPress={loading ? cancelProcessing : voiceActive ? speech.stop : canSend ? () => void submit() : startVoiceInput}
+                style={[styles.composerAction, (loading || canSend || voiceActive) && { backgroundColor: theme.accent }, voiceHolding && styles.voiceActionHidden]}
               >
-                {attachmentUploading
+                {loading
+                  ? <Square size={16} color="#FFFFFF" fill="#FFFFFF" strokeWidth={2} />
+                  : attachmentUploading
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
                   : voiceActive
                   ? <Square size={16} color="#FFFFFF" fill="#FFFFFF" strokeWidth={2} />
@@ -2121,6 +2237,13 @@ const styles = StyleSheet.create({
   planItemText: { flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 19, letterSpacing: 0 },
   viewJourney: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   viewJourneyText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  actionResultCard: { marginTop: space.md, minHeight: 72, borderRadius: radius.card, padding: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
+  actionResultIcon: { width: 36, height: 36, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(128,128,128,0.12)' },
+  actionResultCopy: { flex: 1, minWidth: 0, gap: 2 },
+  actionResultTitle: { fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0 },
+  actionResultDetail: { fontSize: 13, lineHeight: 18, letterSpacing: 0 },
+  actionResultOpen: { flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 },
+  actionResultOpenText: { fontSize: 13, lineHeight: 18, fontWeight: '700', letterSpacing: 0 },
   copyAction: { alignSelf: 'flex-start', minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.xxs, marginTop: space.xs },
   messageActions: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   copyText: { fontSize: 13, lineHeight: 17, letterSpacing: 0 },

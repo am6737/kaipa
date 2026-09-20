@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { KeyRound } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -6,19 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Poi } from '../../data/pois';
 import { motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
-import { supabase } from '../../lib/supabase';
+import { ensureJourneyShare, journeyShareUrl, type JourneyShareInfo } from '../../lib/journeyShare';
 import { Theme } from '../../theme/theme';
 import { Icon, IconName } from '../Icon';
 import { Press } from '../Press';
 import { WeChatIcon } from '../WeChatIcon';
-
-function hashShareSeed(value: string): number {
-  let seed = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    seed = ((seed << 5) - seed + value.charCodeAt(index)) | 0;
-  }
-  return seed || 1;
-}
 
 function FeatureAction({
   theme,
@@ -77,6 +69,7 @@ export function JourneyShareSheet({
   onToast,
   onCollaborate,
   onPoster,
+  onPassphrase,
 }: {
   theme: Theme;
   poi: Poi;
@@ -84,6 +77,7 @@ export function JourneyShareSheet({
   onToast: (message: string) => void;
   onCollaborate: () => void;
   onPoster: () => void;
+  onPassphrase: () => void;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -91,12 +85,8 @@ export function JourneyShareSheet({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  const shareInfo = useMemo(() => {
-    const slug = (poi.name || 'kaipa').replace(/\s+/g, '').slice(0, 8);
-    const code = String(1000 + (Math.abs(hashShareSeed(poi.name)) % 9000));
-    const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
-    return { slug, code, url: `${base}/j/${slug}-${code}` };
-  }, [poi.name]);
+  const [share, setShare] = useState<JourneyShareInfo | null>(null);
+  const shareUrl = useMemo(() => (share ? journeyShareUrl(share) : null), [share]);
 
   useEffect(() => {
     Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...motion.pageSpring }).start();
@@ -104,19 +94,15 @@ export function JourneyShareSheet({
 
   useEffect(() => {
     if (poi.kind !== 'journey' || !poi.id) return;
+    let cancelled = false;
     void (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await supabase.from('journey_shares').upsert(
-          { journey_id: poi.id, user_id: user.id, slug: shareInfo.slug, code: shareInfo.code, active: true },
-          { onConflict: 'slug,code' },
-        );
-      } catch (error) {
-        console.warn('[JourneyShareSheet] persist share error:', error);
-      }
+      const info = await ensureJourneyShare(poi.id);
+      if (!cancelled && info) setShare(info);
     })();
-  }, [poi.id, poi.kind, shareInfo.code, shareInfo.slug]);
+    return () => {
+      cancelled = true;
+    };
+  }, [poi.id, poi.kind]);
 
   const pan = useRef(
     PanResponder.create({
@@ -135,20 +121,21 @@ export function JourneyShareSheet({
   ).current;
 
   const shareJourney = useCallback(async (message: string) => {
+    if (!shareUrl) return;
     try {
-      await Share.share({ title: poi.name, message: `${message}\n${shareInfo.url}`, url: shareInfo.url });
+      await Share.share({ title: poi.name, message: `${message}\n${shareUrl}`, url: shareUrl });
     } catch (error: any) {
       if (error?.message !== 'User did not share') console.warn('[JourneyShareSheet] share error:', error);
     }
-  }, [poi.name, shareInfo.url]);
+  }, [poi.name, shareUrl]);
 
   const copyLink = useCallback(async () => {
-    await Clipboard.setStringAsync(shareInfo.url);
+    if (!shareUrl) return;
+    await Clipboard.setStringAsync(shareUrl);
     onToast(t('poster.menu.linkCopied'));
-  }, [onToast, shareInfo.url, t]);
+  }, [onToast, shareUrl, t]);
 
   const regularMessage = t('poster.menu.shareMessage', { tripName: poi.name });
-  const passphraseMessage = t('poster.menu.passphraseMessage', { tripName: poi.name, code: shareInfo.code });
   return (
     <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 60 }]}>
       <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
@@ -186,7 +173,7 @@ export function JourneyShareSheet({
 
         <View style={styles.quickActions}>
           <QuickAction theme={theme} icon="link" label={t('poster.menu.copyLink')} onPress={() => void copyLink()} />
-          <QuickAction theme={theme} icon="keyRound" label={t('poster.menu.passphrase')} onPress={() => void shareJourney(passphraseMessage)} />
+          <QuickAction theme={theme} icon="keyRound" label={t('poster.menu.passphrase')} onPress={onPassphrase} />
           <QuickAction theme={theme} icon="share" label={t('poster.menu.shareTo')} onPress={() => void shareJourney(regularMessage)} />
           <QuickAction theme={theme} icon="wechat" label={t('poster.menu.wechat')} onPress={() => void shareJourney(regularMessage)} />
         </View>

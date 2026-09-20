@@ -5,6 +5,7 @@
 // set detail pages.
 import React, { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Image } from 'expo-image';
@@ -27,8 +28,12 @@ import { GearEmptyState } from './GearEmptyState';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
+const INITIAL_RENDER_COUNT = 12;
 function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
+}
+function GearHeaderIconButton({ theme, icon, onPress, label, active = false }: { theme: Theme; icon: IconName; onPress: () => void; label: string; active?: boolean }) {
+  return <Press accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Icon name={icon} color={active ? theme.accent : theme.text} size={25} strokeWidth={2.2} /></Press>;
 }
 type LayoutMode = 'list' | 'grid';
 type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
@@ -53,6 +58,7 @@ function GearItemsListView({
   onBack,
   onOpenItem,
   onAdd,
+  onOpenAssistant,
   onAddCategory,
   onEditCategory,
   onDeleteCategory,
@@ -67,6 +73,7 @@ function GearItemsListView({
   onBack: () => void;
   onOpenItem: (item: GearItem) => void;
   onAdd: () => void;
+  onOpenAssistant?: () => void;
   onAddCategory: () => void;
   onEditCategory: (cat: GearCat) => void;
   onDeleteCategory: (cat: GearCat) => void;
@@ -154,9 +161,31 @@ function GearItemsListView({
     return next.map(({ item }) => item);
   }, [catMap, category, items, query, sort, t]);
 
+  // The list is currently hosted by DetailPage's keyboard-aware scroll view,
+  // so mounting every image card in the same frame can stall Android's first
+  // navigation frame. Keep the first viewport responsive, then complete the
+  // list after the entry interaction has yielded.
+  const [visibleItemCount, setVisibleItemCount] = useState(INITIAL_RENDER_COUNT);
+  const [imagesReady, setImagesReady] = useState(false);
+  React.useEffect(() => {
+    setVisibleItemCount(Math.min(INITIAL_RENDER_COUNT, rows.length));
+  }, [rows]);
+  React.useEffect(() => {
+    if (visibleItemCount >= rows.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setVisibleItemCount((count) => Math.min(count + INITIAL_RENDER_COUNT, rows.length));
+    });
+    return () => task.cancel();
+  }, [rows.length, visibleItemCount]);
+  React.useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setImagesReady(true));
+    return () => task.cancel();
+  }, []);
+  const renderedRows = rows.slice(0, visibleItemCount);
+
   const hasActiveFilter = query.trim().length > 0 || category != null;
   const totalWeight = items.reduce((sum, item) => sum + itemWeight(item), 0);
-  const itemColumns = [rows.filter((_, index) => index % 2 === 0), rows.filter((_, index) => index % 2 === 1)];
+  const itemColumns = [renderedRows.filter((_, index) => index % 2 === 0), renderedRows.filter((_, index) => index % 2 === 1)];
   const gridCardWidth = (width - 48 - 12) / 2;
   const totalValue = items.reduce((sum, item) => sum + itemPrice(item), 0);
   const selectableIds = rows.map((item) => item.id).filter((id): id is number => id != null);
@@ -262,14 +291,14 @@ function GearItemsListView({
               {picker?.onAdd ? <GearHeaderButton icon={Plus} onPress={picker.onAdd} label={t('gear.itemList.newItem')} color={theme.text} /> : null}
               <GearHeaderButton icon={Filter} onPress={() => setFilterOpen(true)} label={t('common.filter')} color={theme.text} />
               <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
-              <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
+              <GearHeaderIconButton theme={theme} icon="checkAll" onPress={toggleAll} active={allSelected} label={t('common.selectAll')} />
             </View>
           )}
         />
       ) : selectMode ? (
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <AppIconButton theme={theme} name="checkAll" onPress={toggleAll} active={allSelected} noShadow />
-          <AppIconButton theme={theme} name="close" onPress={exitSelect} noShadow />
+          <GearHeaderIconButton theme={theme} icon="checkAll" onPress={toggleAll} active={allSelected} label={t('common.selectAll')} />
+          <GearHeaderIconButton theme={theme} icon="close" onPress={exitSelect} label={t('common.close')} />
         </View>
       ) : (
         <AppHeaderSearch
@@ -414,6 +443,8 @@ function GearItemsListView({
                     selectMode={effectiveSelectMode}
                     selected={picker ? pickerSelectedNames.has(item.name) : item.id != null && selectedIds.has(item.id)}
                     showImage={displaySettings.images}
+                    showPhoto={imagesReady}
+                    loading={!imagesReady}
                     showWeight={displaySettings.weight}
                     showValue={displaySettings.value}
                     onPress={() => picker ? togglePickerItem(item.name) : item.id != null && selectMode ? toggleSelected(item.id) : onOpenItem(item)}
@@ -425,7 +456,7 @@ function GearItemsListView({
           </View>
         ) : rows.length ? (
           <View style={{ gap: 12 }}>
-            {rows.map((item) => (
+            {renderedRows.map((item) => (
               <ItemCard
                 key={item.id || item.name}
                 theme={theme}
@@ -435,6 +466,8 @@ function GearItemsListView({
                 selectMode={effectiveSelectMode}
                 selected={picker ? pickerSelectedNames.has(item.name) : item.id != null && selectedIds.has(item.id)}
                 showImage={displaySettings.images}
+                showPhoto={imagesReady}
+                loading={!imagesReady}
                 showWeight={displaySettings.weight}
                 showValue={displaySettings.value}
                 onPress={() => picker ? togglePickerItem(item.name) : item.id != null && selectMode ? toggleSelected(item.id) : onOpenItem(item)}
@@ -460,8 +493,9 @@ function GearItemsListView({
             theme={theme}
             icon="bag"
             title={t('gear.empty.noItemsYet')}
-            actionLabel={picker?.onAdd || !picker ? t('gear.empty.addFirstItem') : undefined}
-            onAction={picker?.onAdd ?? (!picker ? onAdd : undefined)}
+            actionLabel={!picker && onOpenAssistant ? t('gear.empty.askAiItems') : undefined}
+            actionIcon="send"
+            onAction={!picker ? onOpenAssistant : undefined}
           />
         )}
       </View>
@@ -535,7 +569,7 @@ function CategoryManager({ theme, visible, categories, items, onClose, onAdd, on
   );
 }
 
-function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMode, selected, showImage, showWeight, showValue }: { theme: Theme; item: GearItem; cat?: GearCat; weightUnit: WeightUnit; onPress: () => void; onLongPress?: () => void; selectMode: boolean; selected: boolean; showImage: boolean; showWeight: boolean; showValue: boolean }) {
+function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMode, selected, showImage, showPhoto, loading, showWeight, showValue }: { theme: Theme; item: GearItem; cat?: GearCat; weightUnit: WeightUnit; onPress: () => void; onLongPress?: () => void; selectMode: boolean; selected: boolean; showImage: boolean; showPhoto: boolean; loading: boolean; showWeight: boolean; showValue: boolean }) {
   const { t } = useI18n();
   const ignorePressAfterLongPress = React.useRef(false);
   const photo = item.photos?.[0];
@@ -555,11 +589,20 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
     }
     onPress();
   };
+  if (loading) {
+    return <View style={{ minHeight: showImage ? 112 : 88, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: showImage ? 15 : 0, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      {showImage ? <View style={{ width: 84, height: 84, borderRadius: 16, backgroundColor: theme.fieldSurface }} /> : null}
+      <View style={{ flex: 1, gap: 12 }}>
+        <View style={{ width: '68%', height: 17, borderRadius: 5, backgroundColor: theme.fieldSurface }} />
+        <View style={{ width: '84%', height: 12, borderRadius: 4, backgroundColor: theme.fieldSurface }} />
+      </View>
+    </View>;
+  }
   return (
     <Press onPress={handlePress} onLongPress={handleLongPress} style={{ minHeight: showImage ? 112 : 88, borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: showImage ? 15 : 0, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       {showImage ? <View style={{ width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
         <Package color={accent} size={25} strokeWidth={1.6} opacity={0.6} />
-        {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
+        {photo && showPhoto ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
       </View> : null}
       <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
         <Text numberOfLines={2} style={{ fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>{item.name}</Text>
@@ -589,7 +632,7 @@ function ItemCard({ theme, item, cat, weightUnit, onPress, onLongPress, selectMo
 }
 
 
-function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPress, selectMode, selected, showImage, showWeight, showValue }: { theme: Theme; item: GearItem; cat?: GearCat; weightUnit: WeightUnit; width: number; onPress: () => void; onLongPress?: () => void; selectMode: boolean; selected: boolean; showImage: boolean; showWeight: boolean; showValue: boolean }) {
+function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPress, selectMode, selected, showImage, showPhoto, loading, showWeight, showValue }: { theme: Theme; item: GearItem; cat?: GearCat; weightUnit: WeightUnit; width: number; onPress: () => void; onLongPress?: () => void; selectMode: boolean; selected: boolean; showImage: boolean; showPhoto: boolean; loading: boolean; showWeight: boolean; showValue: boolean }) {
   const { t } = useI18n();
   const ignorePressAfterLongPress = React.useRef(false);
   const photo = item.photos?.[0];
@@ -609,12 +652,21 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
     }
     onPress();
   };
+  if (loading) {
+    return <View style={{ width, minHeight: showImage ? 246 : 164, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+      {showImage ? <View style={{ width: '100%', aspectRatio: 1, borderRadius: 16, backgroundColor: theme.fieldSurface }} /> : null}
+      <View style={{ marginTop: 14, gap: 9 }}>
+        <View style={{ width: '78%', height: 16, borderRadius: 5, backgroundColor: theme.fieldSurface }} />
+        <View style={{ width: '58%', height: 11, borderRadius: 4, backgroundColor: theme.fieldSurface }} />
+      </View>
+    </View>;
+  }
   return (
     <Press onPress={handlePress} onLongPress={handleLongPress} style={{ width, minHeight: showImage ? 246 : 164, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       {showImage ? (
         <View style={{ height: Math.max(116, width - 28), borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>
           <Package color={accent} size={28} strokeWidth={1.6} opacity={0.6} />
-          {photo ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
+          {photo && showPhoto ? <Image source={{ uri: photo }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
         </View>
       ) : null}
       <View style={{ marginTop: showImage ? 14 : 0, gap: 10 }}>
