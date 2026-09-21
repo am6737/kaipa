@@ -4,7 +4,7 @@ export type PackingPlanProfile = {
   accommodation: 'day_trip' | 'indoors' | 'camping' | 'unknown';
   waterRefill: 'none' | 'treated' | 'natural' | 'unknown';
   mealPreparation: 'no_cook' | 'cook' | 'provided' | 'unknown';
-  conditions?: Array<'hot' | 'cold' | 'wet' | 'snow' | 'high_altitude'>;
+  conditions?: Array<'hot' | 'cold' | 'wet' | 'snow' | 'high_altitude'> | null;
 };
 
 export type PackingCoverageItem = PackingItemDraft & {

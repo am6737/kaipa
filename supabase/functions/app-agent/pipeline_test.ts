@@ -9,7 +9,7 @@ function decisionOf(patch: Partial<TaskDecision>): TaskDecision {
   return taskDecisionSchema.parse({
     objective: '任务', mode: 'execute', continuation: false, authorizationQuote: '帮我安排',
     operations: [], requiredOperations: [], fullHikingPlan: false, destination: null, plannedDate: null,
-    dateUndecided: false, days: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
+    dateUndecided: false, days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
     ...patch,
   });
 }
@@ -41,7 +41,7 @@ Deno.test('long-form work goes to the pipeline and single edits stay interactive
 Deno.test('a legacy task state without a domain still resolves one', () => {
   const stored = { objective: '任务', mode: 'execute', continuation: false, authorizationQuote: '帮我安排',
     operations: ['create_journey'], requiredOperations: ['create_journey'], fullHikingPlan: false,
-    destination: null, plannedDate: null, dateUndecided: false, days: null, trackAttachmentName: null,
+    destination: null, plannedDate: null, dateUndecided: false, days: null, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [] } as TaskDecision;
   const normalized = constrainTaskDecision(stored, '帮我安排', null, null, { hasBoundTrack: false });
   assert(normalized.domain === 'general', `a plain edit must default to general, got ${normalized.domain}`);

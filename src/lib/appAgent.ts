@@ -50,7 +50,9 @@ export type AgentStageName = 'interpret' | 'research' | 'transport' | 'plan' | '
 /** Durable progress of a staged pipeline run; empty for the interactive path. */
 export interface AgentStage {
   stage: AgentStageName;
-  status: 'queued' | 'running' | 'completed' | 'skipped' | 'failed';
+  // 'degraded' is a finished stage whose artifact is usable but incomplete,
+  // such as a plan that fell back to the journey without any itinerary.
+  status: 'queued' | 'running' | 'completed' | 'skipped' | 'failed' | 'degraded';
   attempt: number;
   startedAt?: string;
   finishedAt?: string;

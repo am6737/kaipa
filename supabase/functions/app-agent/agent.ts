@@ -20,12 +20,12 @@ export const assistantOutput = z.object({
   pendingQuestion: z.string().max(1000).nullable().optional(),
   blocker: z.string().max(1000).nullable().optional().describe('When requested changes cannot be completed, explain the specific blocker, such as conflicting saved times. Only the reason, not a completion claim, promise, question or internal error; otherwise null.'),
   draft: planDraftSchema.nullable().optional(),
-  offerJourneyExtras: z.boolean().optional().describe('仅完整保存核心徒步/户外规划后为 true，由 App 提供补充交通和住宿入口。追问、补充规划、单项编辑、删除、撤销、已安排完整出行或用户不需要额外安排时为 false。'),
+  offerJourneyExtras: z.boolean().nullable().optional().describe('仅完整保存核心徒步/户外规划后为 true，由 App 提供补充交通和住宿入口。追问、补充规划、单项编辑、删除、撤销、已安排完整出行或用户不需要额外安排时为 false。'),
   quickReplies: z.array(z.object({
     label: z.string().max(24).describe('按钮上显示的简短文字'),
     message: z.string().max(200).describe('点击按钮后作为用户消息发送的完整文本'),
     action: z.enum(['upload_track', 'skip_track', 'request_location']).nullable().optional(),
-  })).max(4).optional().describe('适合当前问题的快捷回复；不适用时为空数组'),
+  })).max(4).nullable().optional().describe('适合当前问题的快捷回复；不适用时为空数组'),
 });
 
 export const AGENT_VERSION = 'kaipa-harness-v2-multi-route-transport';

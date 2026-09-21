@@ -37,6 +37,8 @@ export default function MapGlobe({
   focusBoundaries,
   selectionPin,
   focusConnector,
+  focusConnectors,
+  transportSegments,
   onRouteBoundaryPress,
   pin,
   followUserLocation = false,
@@ -107,6 +109,10 @@ export default function MapGlobe({
     () => focusBoundaries?.filter((boundary) => isValidMapCoordinate(boundary.coordinate)),
     [focusBoundaries],
   );
+  const validTransportSegments = useMemo(
+    () => transportSegments?.map((segment) => ({ ...segment, coordinates: segment.coordinates.filter(isValidMapCoordinate) })).filter((segment) => segment.coordinates.length >= 2),
+    [transportSegments],
+  );
   const activeSegment = validFocusSegments?.find((segment) => segment.active);
   const activeBoundary = validFocusBoundaries?.find((boundary) => boundary.active);
   const hasFocusedRoutePart = (validFocusSegments?.some((segment) => !segment.active) ?? false)
@@ -154,7 +160,7 @@ export default function MapGlobe({
 
   const polylines = useMemo<NativeMapPolyline[]>(() => {
     const values: NativeMapPolyline[] = [];
-    if (validFocusCoords && validFocusCoords.length >= 2) {
+    if (validFocusCoords && validFocusCoords.length >= 2 && !validFocusSegments?.length) {
       values.push({
         id: 'discover-focus-route',
         coordinates: validFocusCoords,
@@ -180,72 +186,61 @@ export default function MapGlobe({
         dashed: true,
       });
     }
+    focusConnectors?.forEach((connector) => {
+      values.push({
+        id: `journey-connector-${connector.id}`,
+        coordinates: connector.coordinates,
+        color: connector.color,
+        width: 2.2,
+        opacity: connector.active ? 0.78 : 0.3,
+        dashed: true,
+      });
+    });
+    validTransportSegments?.forEach((segment) => {
+      values.push({
+        id: `journey-transport-${segment.id}`,
+        coordinates: segment.coordinates,
+        color: segment.color,
+        width: segment.active ? 3 : 2,
+        opacity: segment.active ? 0.9 : 0.3,
+        dashed: true,
+      });
+    });
     return values;
-  }, [focusConnector, validFocusCoords, validFocusSegments, theme]);
+  }, [focusConnector, focusConnectors, validFocusCoords, validFocusSegments, theme, validTransportSegments]);
 
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
     if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return [];
-    const measure = measureTrack(validFocusCoords);
-    if (!measure || measure.totalMeters < 1000) return [];
-    const totalKm = measure.totalMeters / 1000;
-    // Long routes use larger overview marks, then progressively reveal 10/5/1
-    // km marks as the map is zoomed in.
-    const preferredStepKm = distanceStepKm >= 50
-      ? (totalKm >= 250 ? 50 : totalKm >= 100 ? 25 : 10)
-      : distanceStepKm;
-    // Keep short tracks readable even when the map is zoomed out: a 6 km
-    // route should still expose a 1 km marker rather than only its endpoint.
-    let stepKm = measure.totalMeters < preferredStepKm * 1000
-      ? (totalKm <= 10 ? 1 : totalKm <= 50 ? 5 : 10)
-      : preferredStepKm;
-    stepKm = cappedStepKm(stepKm, measure.totalMeters);
     const values: NativeMapMarker[] = [];
-    for (let km = stepKm; km * 1000 < measure.totalMeters - 120; km += stepKm) {
-      const position = positionAtDistance(measure, km * 1000);
-      values.push({
-        id: `route-distance-${km}`,
-        coordinate: position.coordinate,
-        anchor: { x: 0.5, y: 1 },
-        content: (
+    const tracks = validFocusSegments && validFocusSegments.length > 1
+      ? validFocusSegments
+      : [{ id: 'route', coordinates: validFocusCoords }];
+    tracks.forEach((track) => {
+      const measure = measureTrack(track.coordinates);
+      if (!measure || measure.totalMeters < 1000) return;
+      const totalKm = measure.totalMeters / 1000;
+      const preferredStepKm = distanceStepKm >= 50 ? (totalKm >= 250 ? 50 : totalKm >= 100 ? 25 : 10) : distanceStepKm;
+      let stepKm = measure.totalMeters < preferredStepKm * 1000 ? (totalKm <= 10 ? 1 : totalKm <= 50 ? 5 : 10) : preferredStepKm;
+      stepKm = cappedStepKm(stepKm, measure.totalMeters);
+      for (let km = stepKm; km * 1000 < measure.totalMeters - 120; km += stepKm) {
+        const position = positionAtDistance(measure, km * 1000);
+        values.push({ id: `route-distance-${track.id}-${km}`, coordinate: position.coordinate, anchor: { x: 0.5, y: 1 }, content: (
           <View style={styles.distanceMarkerWrap}>
-            <View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}>
-              <Text style={[styles.distanceText, { color: theme.text }]}>{km} km</Text>
-            </View>
+            <View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{km} km</Text></View>
             <View style={[styles.distanceDot, { backgroundColor: theme.accent }]} />
           </View>
-        ),
-      });
-    }
-    // Keep the route total visible at the endpoint too.
-    const finalDistanceKm = Math.round(totalKm * 10) / 10;
-    const finalPosition = positionAtDistance(measure, measure.totalMeters);
-    values.push({
-      id: 'route-distance-end',
-      coordinate: finalPosition.coordinate,
-      // iOS keeps the side label so it does not cover the endpoint marker.
-      // Android uses the centered variant because side-aligned marker bitmaps
-      // can be clipped when they cross the viewport edge.
-      anchor: Platform.OS === 'android' ? { x: 0.5, y: 1 } : { x: 0, y: 0.5 },
-      content: (
-        Platform.OS === 'android' ? (
-          <View style={styles.distanceMarkerWrap}>
-            <View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}>
-              <Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text>
-            </View>
-            <View style={[styles.distanceDot, { backgroundColor: theme.accent }]} />
-          </View>
-        ) : (
-          <View style={styles.distanceMarkerSideWrap}>
-            <View style={styles.distanceMarkerEndpointSpacer} />
-            <View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}>
-              <Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text>
-            </View>
-          </View>
-        )
-      ),
+        ) });
+      }
+      const finalDistanceKm = Math.round(totalKm * 10) / 10;
+      const finalPosition = positionAtDistance(measure, measure.totalMeters);
+      values.push({ id: `route-distance-${track.id}-end`, coordinate: finalPosition.coordinate, anchor: Platform.OS === 'android' ? { x: 0.5, y: 1 } : { x: 0, y: 0.5 }, content: Platform.OS === 'android' ? (
+        <View style={styles.distanceMarkerWrap}><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View><View style={[styles.distanceDot, { backgroundColor: theme.accent }]} /></View>
+      ) : (
+        <View style={styles.distanceMarkerSideWrap}><View style={styles.distanceMarkerEndpointSpacer} /><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View></View>
+      ) });
     });
     return values;
-  }, [distanceStepKm, showDistanceMarkers, theme, validFocusCoords]);
+  }, [distanceStepKm, showDistanceMarkers, theme, validFocusCoords, validFocusSegments]);
 
   const markers = useMemo<NativeMapMarker[]>(() => {
     const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi, index) => {
@@ -339,11 +334,34 @@ export default function MapGlobe({
       });
     }
 
-    if (validFocusCoords?.[0]) {
+    focusConnectors?.forEach((connector) => {
+      const [start, end] = connector.coordinates;
+      values.push({
+        id: `journey-connector-marker-${connector.id}`,
+        coordinate: [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2],
+        anchor: { x: 0.5, y: 0.5 },
+        opacity: connector.active ? 1 : 0.42,
+        content: (
+          <View
+            style={[styles.connectorMarker, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}
+          >
+            <Icon name="link" size={13} color={theme.text2} strokeWidth={2} />
+          </View>
+        ),
+      });
+    });
+
+    if (validFocusSegments && validFocusSegments.length > 1) {
+      validFocusSegments.forEach((segment, index) => {
+        const start = segment.coordinates[0];
+        const end = segment.coordinates[segment.coordinates.length - 1];
+        if (!start || !end) return;
+        values.push({ id: `focus-start-${segment.id}-${index}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
+        values.push({ id: `focus-end-${segment.id}-${index}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+      });
+    } else if (validFocusCoords?.[0]) {
       values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-      if (!validFocusBoundaries?.length && validFocusCoords.length > 1) {
-        values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
-      }
+      if (!validFocusBoundaries?.length && validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
     }
     return values;
     // staggerPins is deliberately not a dependency: it only picks the
@@ -353,7 +371,7 @@ export default function MapGlobe({
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePoiId, distanceMarkers, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords]);
+  }, [activePoiId, distanceMarkers, focusConnectors, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments, validTransportSegments]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
@@ -402,6 +420,7 @@ const styles = StyleSheet.create({
   distanceDot: { width: 5, height: 5, marginTop: -1, borderRadius: 3, borderWidth: 1.5, borderColor: '#FFFFFF' },
   boundaryChevron: { marginLeft: 2.5, fontSize: 12.5, fontWeight: '500', lineHeight: 15 },
   selectionPin: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
+  connectorMarker: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, shadowColor: '#000000', shadowOpacity: 0.14, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
 });

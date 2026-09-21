@@ -44,6 +44,21 @@ export interface GlobeRouteSegment {
   active: boolean;
 }
 
+export interface GlobeRouteConnector {
+  id: string;
+  coordinates: [[number, number], [number, number]];
+  color: string;
+  active: boolean;
+}
+
+export interface GlobeTransportSegment {
+  id: string;
+  coordinates: [number, number][];
+  color: string;
+  active: boolean;
+  mode?: 'car' | 'taxi' | 'bus' | 'shuttle' | 'walk' | 'unknown';
+}
+
 export interface GlobeProps {
   theme: Theme;
   size: number;
@@ -67,6 +82,10 @@ export interface GlobeProps {
   selectionPin?: { coordinate: [number, number]; color: string };
   /** visual link from the projected track boundary to an off-track endpoint */
   focusConnector?: { coordinates: [[number, number], [number, number]]; color: string };
+  /** dashed links between a recorded track endpoint and a journey stop */
+  focusConnectors?: GlobeRouteConnector[];
+  /** navigation geometry from structured transport itinerary items */
+  transportSegments?: GlobeTransportSegment[];
   /** switch the itinerary tab when a route endpoint label is pressed */
   onRouteBoundaryPress?: (groupKey: string) => void;
   /** show the current-location pin at this coordinate */

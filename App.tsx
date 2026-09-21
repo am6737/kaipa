@@ -8,8 +8,8 @@ import { AppearanceProvider } from './src/theme/AppearanceContext';
 import { AppRoot } from './src/AppRoot';
 
 function useWebTapReset() {
+  if (Platform.OS !== 'web') return;
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
     const style = document.createElement('style');
     style.textContent = '*, *::before, *::after { -webkit-tap-highlight-color: transparent !important; }';
     document.head.appendChild(style);

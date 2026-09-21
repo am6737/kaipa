@@ -14,6 +14,7 @@ supabase secrets set \
   KAIPA_AI_API_KEY=... \
   KAIPA_AI_BASE_URL=https://ai.dootask.com/v1 \
   KAIPA_AI_MODEL=gpt-5.6-sol \
+  KAIPA_AI_FLASH_MODEL=gpt-5.6-luna \
   AMAP_WEB_KEY=... \
   TRAVEL_SEARCH_SOURCES=tavily \
   TAVILY_API_KEYS=key-1,key-2

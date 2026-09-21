@@ -144,8 +144,13 @@ function errorText(error: unknown) {
   try { return JSON.stringify(error); } catch { return String(error); }
 }
 
-function knowledgeCacheTtl() {
-  return cacheTtl('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', 2592000, 86400, 63072000);
+function knowledgeCacheTtl(topic?: string) {
+  const base = cacheTtl('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', 15552000, 86400, 63072000);
+  // Most route knowledge changes slowly. Keep operational and safety-sensitive
+  // topics fresher without making evergreen route guidance miss the cache often.
+  if (topic === 'safety' || topic === 'access') return Math.min(base, 604800);
+  if (topic === 'season') return Math.min(base, 2592000);
+  return base;
 }
 
 function knowledgeTopic(query: string, purpose: 'guide' | 'transport') {
@@ -163,15 +168,37 @@ function knowledgeTopic(query: string, purpose: 'guide' | 'transport') {
 async function knowledgeCacheIdentity(client: Client, context: AgentContext, query: string, purpose: 'guide' | 'transport') {
   const normalizedQuery = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
   const locale = /[\u3400-\u9fff]/.test(query) ? 'zh' : 'en';
-  if (!context.currentJourneyId) return { routeKey: `query:${normalizedQuery}`, topic: knowledgeTopic(query, purpose), locale };
+  const topic = knowledgeTopic(query, purpose);
+  if (!context.currentJourneyId) return { routeKey: `query:${normalizedQuery}`, topic, locale, knowledgeVersion: 'global' };
   const journey = await client.from('journeys').select('route_id,track_id,name,region')
     .eq('id', context.currentJourneyId).is('deleted_at', null).maybeSingle();
   if (journey.error) throw journey.error;
   const row = journey.data;
+  const revisions = await client.from('agent_journey_revisions').select('journey,track')
+    .eq('journey_id', context.currentJourneyId).maybeSingle();
+  if (revisions.error) throw revisions.error;
   const routeKey = row?.route_id ? `route:${row.route_id}`
     : row?.track_id ? `track:${row.track_id}`
     : `journey:${String(row?.name || row?.region || normalizedQuery).trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`;
-  return { routeKey, topic: knowledgeTopic(query, purpose), locale };
+  // Route facts can be shared, but a changed route/track must get a new key.
+  // Itinerary and packing revisions are intentionally excluded: they are user
+  // state, not changes to the underlying route knowledge.
+  const knowledgeVersion = revisions.data
+    ? `journey-${revisions.data.journey}:track-${revisions.data.track}`
+    : 'unknown';
+  return { routeKey, topic, locale, knowledgeVersion };
+}
+
+function cacheMetadata(identity: { routeKey: string; topic: string; locale: string; knowledgeVersion: string }, cacheHit: boolean) {
+  return {
+    layer: 'route_knowledge',
+    routeKey: identity.routeKey,
+    topic: identity.topic,
+    locale: identity.locale,
+    knowledgeVersion: identity.knowledgeVersion,
+    observedAt: new Date().toISOString(),
+    cacheHit,
+  };
 }
 
 function isUndoableResult<T>(value: T | UndoableResult<T>): value is UndoableResult<T> {
@@ -292,6 +319,37 @@ async function uploadedTrackForRun(client: Client, context: AgentContext, reques
 // A chat attachment becomes a track library row the first time it is bound to a
 // journey. Later bindings of the same file reuse that row, so two journeys
 // planned from one uploaded GPX share a single track.
+// A journey never carries geometry of its own; it points at a library track.
+// The app materializes one when a route is imported into the library, so a
+// journey created from a catalog route must do the same: without a track the
+// journey has no map, and set_itinerary_group_endpoints has no waypoint index
+// to resolve, which is what left multi-day plans with day titles and no
+// endpoints. Reuses the user's existing copy of the same route file.
+async function routeTrackId(client: Client, context: AgentContext, route: Record<string, unknown>): Promise<string | null> {
+  const coords = Array.isArray(route.track_coords) ? route.track_coords : [];
+  if (coords.length < 3) return null;
+  const name = String(route.name);
+  const fileName = typeof route.track_file_name === 'string' && route.track_file_name ? route.track_file_name : `${name}.gpx`;
+  const existing = await client.from('tracks').select('id').eq('user_id', context.userId).eq('name', name).eq('file_name', fileName).limit(1).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return existing.data.id;
+  const extension = fileName.split('.').pop()?.toLocaleLowerCase();
+  const durationMs = Number(route.track_duration_ms);
+  const inserted = await client.from('tracks').insert({
+    user_id: context.userId,
+    name,
+    file_name: fileName,
+    file_format: extension === 'kmz' || extension === 'kml' ? extension : 'gpx',
+    coords,
+    elevation: Array.isArray(route.track_elevation) ? route.track_elevation : null,
+    duration_ms: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null,
+    waypoints: Array.isArray(route.track_waypoints) ? route.track_waypoints : null,
+    point_count: coords.length,
+  }).select('id').single();
+  if (inserted.error) throw inserted.error;
+  return inserted.data.id;
+}
+
 async function libraryTrackId(client: Client, context: AgentContext, track: UploadedTrackData): Promise<string> {
   const existing = await client.from('tracks').select('id').eq('user_id', context.userId).eq('file_url', track.fileUrl).limit(1).maybeSingle();
   if (existing.error) throw existing.error;
@@ -400,8 +458,23 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
 export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
-  timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
-  timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
+  routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；交通项留空'),
+  timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional().describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
+  timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional().describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
+  kind: z.enum(['activity', 'transport', 'stay', 'custom']).default('activity'),
+  transport: z.object({
+    mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
+    from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().optional(), latitude: z.number().min(-90).max(90).nullable().optional(), address: z.string().max(300).nullable().optional() }),
+    to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().optional(), latitude: z.number().min(-90).max(90).nullable().optional(), address: z.string().max(300).nullable().optional() }),
+    distanceMeters: z.number().nonnegative().max(2_000_000).nullable().optional(),
+    durationMinutes: z.number().int().nonnegative().max(100_000).nullable().optional(),
+    // Object points keep the generated JSON Schema compatible with providers
+    // that reject tuple/array item schemas in structured output.
+    geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).max(20_000).nullable().optional(),
+    status: z.enum(['verified', 'estimated', 'unknown']).default('unknown'),
+    source: z.string().max(500).nullable().optional(),
+    note: z.string().max(500).nullable().optional(),
+  }).nullable().optional().describe('kind=transport 时填写；普通行程项省略'),
 });
 
 
@@ -431,13 +504,13 @@ const packingDeletionTarget = z.object({
 
 export const itineraryGroupEndpoint = z.object({
   day: z.string().min(1).max(40).describe('要设置终点的行程组，标准日序使用 Day 1、Day 2'),
-  waypointIndex: z.number().int().min(0).optional().describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
-  trackFinish: z.boolean().optional().describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
-  endDistanceKm: z.number().positive().max(10000).optional().describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
-  locationName: z.string().min(1).max(120).optional().describe('轨迹标注点名称；没有可靠名称时省略'),
-  estimateBasis: z.string().trim().min(1).max(80).optional().describe('已停用，必须省略；暂估分段写入会被拒绝'),
-  userDistanceQuote: z.string().trim().min(1).max(500).optional().describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
-  overnightReview: overnightReviewSchema.optional().describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
+  waypointIndex: z.number().int().min(0).nullable().optional().describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
+  trackFinish: z.boolean().nullable().optional().describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
+  endDistanceKm: z.number().positive().max(10000).nullable().optional().describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
+  locationName: z.string().min(1).max(120).nullable().optional().describe('轨迹标注点名称；没有可靠名称时省略'),
+  estimateBasis: z.string().trim().min(1).max(80).nullable().optional().describe('已停用，必须省略；暂估分段写入会被拒绝'),
+  userDistanceQuote: z.string().trim().min(1).max(500).nullable().optional().describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
+  overnightReview: overnightReviewSchema.nullable().optional().describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
 });
 
 async function assertDeleteContext(client: Client, context: AgentContext, journeyId: string) {
@@ -467,7 +540,7 @@ export const getAppContext = tool({
 export const searchJourneys = tool({
   name: 'search_journeys',
   description: 'Find a different existing journey by name or region when no current journey is open. Never use this to resolve the current journey from its display title; use get_app_context instead.',
-  parameters: z.object({ query: z.string().max(80).optional() }),
+  parameters: z.object({ query: z.string().max(80).nullable().optional() }),
   execute: async ({ query }, runContext) => mutate('search_journeys', { query }, runContext as RunContext, async (client) => {
     const columns = 'id,name,region,planned_date,date,days,total_days,dist,asc_,diff,desc';
     if (!query?.trim()) {
@@ -506,8 +579,8 @@ export const searchRoutes = tool({
 export const listGear = tool({
   name: 'list_gear',
   description: 'Read the user\'s gear library and categories. Use before recommending or adding gear.',
-  parameters: z.object({ query: z.string().max(80).optional() }),
-  execute: async ({ query }, runContext) => mutate('list_gear', { query }, runContext as RunContext, async (client, context) => readAgentGear(client, context, query)),
+  parameters: z.object({ query: z.string().max(80).nullable().optional() }),
+  execute: async ({ query }, runContext) => mutate('list_gear', { query }, runContext as RunContext, async (client, context) => readAgentGear(client, context, query ?? undefined)),
 });
 
 export const getJourneyDetails = tool({
@@ -536,15 +609,20 @@ export const searchTravelWeb = tool({
   description: 'Search destination guides or transport reference pages. For guides, first verify the destination against journey/track context, then make one discovery search covering the task. Further guide queries reuse that result, including after recovery: read its articles/images, do not rephrase keywords. State unresolved gaps instead of inventing facts. Use purpose=transport only for actual transport evidence; community crawlers are excluded. For dated train/flight schedules, seats and fares use search_transport first. Web pages are not live availability or ticket quotes.',
   parameters: z.object({
     query: z.string().min(2).max(200),
-    purpose: z.enum(['guide', 'transport']).optional(),
+    purpose: z.enum(['guide', 'transport']).nullable().optional(),
   }),
   execute: async ({ query, purpose }, runContext) => {
-    const resolvedPurpose = searchPurpose(query, purpose);
+    const resolvedPurpose = searchPurpose(query, purpose ?? undefined);
     const context = contextFor(runContext as RunContext);
     const perform = async () => {
       if (resolvedPurpose === 'guide') {
+        // The staged pipeline's deterministic research collector registers its
+        // fixed per-route queries in advance; those bypass the one-discovery
+        // guard so every route gets its own discovery pass. All other callers
+        // (the interactive loop) keep the single-search discipline.
+        const planned = plannedGuideQueries.get(context.runId)?.has(query.trim().replace(/\s+/g, ' ').toLocaleLowerCase()) === true;
         const history = await guideHistory(clientFor(runContext as RunContext), context.runId);
-        const previous = history.find(call => call.tool_name === 'search_travel_web' && call.status === 'completed'
+        const previous = planned ? undefined : history.find(call => call.tool_name === 'search_travel_web' && call.status === 'completed'
           && (call.output?.purpose ?? searchPurpose(call.arguments.query || '', call.arguments.purpose)) === 'guide'
           && Array.isArray(call.output?.results));
         if (previous) return { ...previous.output, reused: true,
@@ -573,6 +651,7 @@ export const searchTravelWeb = tool({
         const cacheClient = cacheClientFor(context.runId, client);
         const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
         if (cached?.available) return { ...cached, purpose: resolvedPurpose, cached: true,
+          cacheMeta: { ...(cached.cacheMeta || {}), cacheHit: true },
           ...(resolvedPurpose === 'guide' ? { nextAction: 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again.' } : {}),
         };
         const result = await aggregateTravelSearch({
@@ -581,9 +660,12 @@ export const searchTravelWeb = tool({
           timeoutMs: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 60000 : 8000, 2000, 120000),
           maxResults,
         });
-        if (result.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, result,
-          resolvedPurpose === 'guide' ? knowledgeCacheTtl() : cacheTtl('TRAVEL_SEARCH_CACHE_TTL_SECONDS', 900, 60, 86400));
-        return { ...result, purpose: resolvedPurpose, ...(resolvedPurpose === 'guide' ? {
+        const cacheableResult = resolvedPurpose === 'guide'
+          ? { ...result, cacheMeta: cacheMetadata(identity, false) }
+          : result;
+        if (result.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, cacheableResult,
+          resolvedPurpose === 'guide' ? knowledgeCacheTtl(identity.topic) : cacheTtl('TRAVEL_SEARCH_CACHE_TTL_SECONDS', 900, 60, 86400));
+        return { ...cacheableResult, purpose: resolvedPurpose, ...(resolvedPurpose === 'guide' ? {
           nextAction: result.results.length
             ? 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again. Read selected images only if needed; snippets do not include image or video understanding. Finish with existing evidence and disclose missing facts.'
             : 'No usable guide results. Do not repeat near-identical queries or retry unavailable sources. Use existing evidence and state the missing facts.',
@@ -603,7 +685,37 @@ export const searchTravelWeb = tool({
   },
 });
 
+// Programmatic entry point for the staged pipeline's deterministic research
+// collector. It reuses the tool's own invoke path — argument parsing, journal
+// receipts, provider guards and read budgets — so the pipeline cannot drift
+// from the interactive code path. On a tool error the SDK's default error
+// function returns an error string instead of throwing; aborts still throw.
+export const runSearchTravelWeb = async (args: { query: string; purpose?: 'guide' | 'transport' | null }, runContext: RunContext): Promise<unknown> =>
+  searchTravelWeb.invoke(runContext as never, JSON.stringify(args), undefined);
+
 type GuideCall = { tool_name: string; status: string; arguments: { query?: string; purpose?: 'guide' | 'transport'; url?: string; imageIds?: number[] }; output?: any };
+
+// Fixed per-route discovery queries registered by the staged pipeline's
+// deterministic research collector. The interactive one-search guard stays in
+// force for every query that was not planned in advance.
+const plannedGuideQueries = new Map<string, Set<string>>();
+export function allowGuideQueries(runId: string, queries: string[]): void {
+  plannedGuideQueries.set(runId, new Set(queries.map(query => query.trim().replace(/\s+/g, ' ').toLocaleLowerCase())));
+}
+// The deterministic research collector registers the guide URLs it will read
+// before reading them, the same way it registers queries: the interactive
+// per-run page budget must not silently truncate a multi-route pipeline's
+// evidence collection. The collector's own deadline still bounds the work.
+const plannedGuideReads = new Map<string, Set<string>>();
+export function allowGuideReads(runId: string, urls: string[]): void {
+  const set = plannedGuideReads.get(runId) || new Set<string>();
+  for (const url of urls) set.add(url);
+  plannedGuideReads.set(runId, set);
+}
+export function clearGuideQueries(runId: string): void {
+  plannedGuideQueries.delete(runId);
+  plannedGuideReads.delete(runId);
+}
 
 async function guideHistory(client: Client, runId: string): Promise<GuideCall[]> {
   const result = await client.from('agent_tool_calls').select('tool_name,status,arguments,output').eq('run_id', runId)
@@ -635,21 +747,27 @@ export const readTravelGuide = tool({
         try { return typeof source.url === 'string' && publicGuideUrl(source.url) === url; } catch { return false; }
       });
       if (!source) throw new Error('Select an exact URL returned by search_travel_web in this task');
-      if (new Set(calls.filter(call => call.tool_name === 'read_travel_guide').map(call => call.arguments.url)).size > GUIDE_LIMITS.pages) {
+      const plannedRead = plannedGuideReads.get(context.runId)?.has(url) === true;
+      if (!plannedRead && new Set(calls.filter(call => call.tool_name === 'read_travel_guide').map(call => call.arguments.url)).size > GUIDE_LIMITS.pages) {
         return { available: false, status: 'budget_exhausted', url, limitation: 'Article read budget reached. Reuse existing guides and report remaining gaps; do not keep searching to bypass this limit.' };
       }
       const cacheClient = cacheClientFor(context.runId, client);
       const cacheKey = `travel-guide:v1:${await sha256(url)}`;
       const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-      if (cached?.available) return { ...cached, cached: true, title: source.title, publishedAt: source.publishedAt };
+      if (cached?.available) return { ...cached, cached: true,
+        cacheMeta: { ...(cached.cacheMeta || {}), cacheHit: true }, title: source.title, publishedAt: source.publishedAt };
       const result = await readGuide(url, name => Deno.env.get(name));
       const output = { ...result, title: source.title, publishedAt: source.publishedAt,
         results: result.available ? [{ title: source.title, url, source: source.source, publishedAt: source.publishedAt }] : [] };
-      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, output, knowledgeCacheTtl());
-      return output;
+      const cacheableOutput = { ...output, cacheMeta: { layer: 'guide_document', sourceUrl: url, observedAt: new Date().toISOString(), cacheHit: false } };
+      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, cacheableOutput, knowledgeCacheTtl());
+      return cacheableOutput;
     }));
   },
 });
+
+export const runReadTravelGuide = async (args: { url: string }, runContext: RunContext): Promise<unknown> =>
+  readTravelGuide.invoke(runContext as never, JSON.stringify(args), undefined);
 
 export const readTravelGuideImages = tool({
   name: 'read_travel_guide_images',
@@ -690,6 +808,9 @@ export const readTravelGuideImages = tool({
   },
 });
 
+export const runReadTravelGuideImages = async (args: { url: string; imageIds: number[] }, runContext: RunContext): Promise<unknown> =>
+  readTravelGuideImages.invoke(runContext as never, JSON.stringify(args), undefined);
+
 export const searchTransport = tool({
   name: 'search_transport',
   description: 'Read-only dated rail/flight query, never community timetables. Rail uses exact Chinese station names within 15 days including today in Shanghai; default direct trains, or set viaStation for one-page two-leg connection candidates. Inspect each connection.status: buffer_met means only a conservative 45-minute same-station time floor, not guaranteed transfer or ticket access. Never recommend same_train_split, insufficient_buffer or station_change_unverified as validated transfers. Prices are per adult per leg, not through/group fares. Use earliestHour for evening returns. Flights need verified IATA codes and production Amadeus. No booking; empty never means no service.',
@@ -707,11 +828,13 @@ export const searchTransport = tool({
       const cacheKey = `transport:v1:${await sha256(stable(args))}`;
       const cacheClient = cacheClientFor(contextFor(runContext as RunContext).runId, client);
       const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-      if (cached?.available || cached?.status === 'empty') return { ...cached, cached: true };
+      if (cached?.available || cached?.status === 'empty') return { ...cached, cached: true,
+        cacheMeta: { ...(cached.cacheMeta || {}), layer: 'transport', cacheHit: true } };
       const result = await queryTransport(args, name => Deno.env.get(name));
       if ((result.available || result.status === 'empty') && cacheClient) {
         const isRail = args.mode === 'rail';
-        await writeExternalCache(cacheClient, cacheKey, result,
+        await writeExternalCache(cacheClient, cacheKey, { ...result,
+          cacheMeta: { layer: 'transport', observedAt: new Date().toISOString(), cacheHit: false } },
           isRail
             ? cacheTtl('RAIL_CACHE_TTL_SECONDS', 86400, 300, 604800)
             : cacheTtl('FLIGHT_CACHE_TTL_SECONDS', 300, 15, 3600));
@@ -730,7 +853,7 @@ export const addGear = tool({
     priceCny: z.number().min(0).max(10000000).default(0),
     quantity: z.number().int().min(1).max(999).default(1),
     status: z.enum(['packed', 'worn', 'consumable', 'optional']).default('packed'),
-    note: z.string().max(500).optional(),
+    note: z.string().max(500).nullable().optional(),
   }),
   execute: async (args, runContext) => mutate('add_gear', args, runContext as RunContext, async (client, context) => {
     const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: args.categoryId || null, weight: args.weightKg, price: args.priceCny, qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
@@ -772,7 +895,7 @@ export const runCreateJourney = async (args: z.infer<typeof createJourneyParams>
     const resolvedLocation = route || uploadedTrack ? null : await maybeGeocodeJourneyMapLocation(args.region || args.name);
     const id = `j_${crypto.randomUUID()}`;
     const startLocation = uploadedTrack?.start;
-    const trackId = uploadedTrack ? await libraryTrackId(client, context, uploadedTrack) : null;
+    const trackId = uploadedTrack ? await libraryTrackId(client, context, uploadedTrack) : route ? await routeTrackId(client, context, route) : null;
     const journeyPayload = {
       id, user_id: context.userId, route_id: route?.id || null, name: args.name, region: args.region || route?.region || resolvedLocation?.region || uploadedTrack?.name || '',
       coord: startLocation ? coordinateLabel(startLocation.lng, startLocation.lat) : route?.coord || resolvedLocation?.coord || '',
@@ -804,7 +927,7 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
       client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
-      client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins').eq('journey_id', args.journeyId),
+      client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,transport').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name').eq('journey_id', args.journeyId),
     ]);
     if (journey.error) throw journey.error;
@@ -830,6 +953,12 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       title: item.title, day: item.day,
       time_mins: itineraryMinutes(item.timeStart) ?? null,
       time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
+      item_kind: item.kind ?? 'activity',
+      route_id: item.kind === 'activity' ? item.routeId || null : null,
+      transport: item.kind === 'transport' && item.transport ? {
+        ...item.transport,
+        geometry: item.transport.geometry?.map((point) => [point.longitude, point.latitude]),
+      } : null,
       is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
     }));
     const groupNames = [...new Set(uniqueItems.map((item) => item.day))];
@@ -857,7 +986,7 @@ export const addItinerary = tool({
 export const updateJourneyScheduleParams = z.object({
   journeyId: z.string().min(1).max(100),
   totalDays: z.number().int().min(1).max(365),
-  plannedDate: z.string().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
+  plannedDate: z.string().nullable().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
   dayAssignments: z.array(z.object({
     from: z.string().min(1).max(100).describe('Exact existing day/group name'),
     toDay: z.number().int().min(1).max(365),
@@ -865,8 +994,11 @@ export const updateJourneyScheduleParams = z.object({
 });
 export const runUpdateJourneySchedule = async (args: z.infer<typeof updateJourneyScheduleParams>, runContext?: RunContext): Promise<unknown> => mutate('update_journey_schedule', args, runContext, async (client, context) => {
   await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
-  if (args.plannedDate !== undefined && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
-  return commitJourneyChange(client, context, args.journeyId, args, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
+  if (args.plannedDate != null && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
+  // Null from the model must mean "keep the current date", exactly like an
+  // omitted field; never persist it as a cleared date.
+  const change = args.plannedDate == null ? { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments } : args;
+  return commitJourneyChange(client, context, args.journeyId, change, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
 });
 export const updateJourneySchedule = tool({
   name: 'update_journey_schedule',
@@ -878,7 +1010,7 @@ export const updateJourneySchedule = tool({
 export const setJourneyMapLocationParams = z.object({
   journeyId: z.string().min(1).max(100),
   query: z.string().min(1).max(160).describe('Place name to geocode, for example 武功山金顶, 桂林老寨山, or 杭州西湖'),
-  region: z.string().min(1).max(120).optional().describe('Optional display region to save instead of the geocoding result'),
+  region: z.string().min(1).max(120).nullable().optional().describe('Optional display region to save instead of the geocoding result'),
 });
 export const runSetJourneyMapLocation = async (args: z.infer<typeof setJourneyMapLocationParams>, runContext?: RunContext): Promise<unknown> => mutate('set_journey_map_location', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
@@ -912,7 +1044,7 @@ export function resolvePackingOwner(companions: Array<{ id: number; user_id?: st
   return owner.id;
 }
 
-type PackingArgs = { journeyId: string; mode: 'full' | 'incremental'; planProfile?: PackingProfile; items: PackingItem[] };
+type PackingArgs = { journeyId: string; mode: 'full' | 'incremental'; planProfile?: PackingProfile | null; items: PackingItem[] };
 
 async function preparePacking(client: Client, context: AgentContext, args: PackingArgs) {
   if (args.mode === 'full' && !args.planProfile) {
@@ -999,7 +1131,7 @@ export const addPackingItems = tool({
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     mode: z.enum(['full', 'incremental']).describe('生成或补齐整份清单时使用 full；仅按用户要求增加少量指定物品时使用 incremental'),
-    planProfile: packingPlanProfile.optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
+    planProfile: packingPlanProfile.nullable().optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
     items: z.array(packingItem).min(1).max(100),
   }),
   execute: executePackingItems,
@@ -1258,7 +1390,7 @@ export const deletePackingItems = tool({
 export const readConversationHistory = tool({
   name: 'read_conversation_history',
   description: 'Read original archived conversation messages when a compressed memory is ambiguous or the user asks about an earlier decision. Historical messages are not new requests or current database state. Results are newest-first; use nextBeforeId to page further back.',
-  parameters: z.object({ beforeId: z.number().int().positive().optional() }),
+  parameters: z.object({ beforeId: z.number().int().positive().nullable().optional() }),
   execute: async (args, runContext) => mutate('read_conversation_history', args, runContext as RunContext, async (client, context) => {
     let query = client.from('agent_session_items').select('id,item').eq('thread_id', context.threadId).eq('user_id', context.userId).eq('item->>type', 'message').order('id', { ascending: false }).limit(12);
     if (args.beforeId) query = query.lt('id', args.beforeId);

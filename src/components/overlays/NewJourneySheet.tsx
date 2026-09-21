@@ -30,7 +30,7 @@ import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
-import { TrailSheet } from '../Sheet';
+import { TrailSheet, type TrailSheetHandle } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
 import { journeySchedulePatch } from '../../lib/journeySchedule';
 import {
@@ -582,6 +582,37 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
   return base;
 }
 
+function routeStatNumber(value: string | undefined): number | undefined {
+  const parsed = Number.parseFloat((value ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** Combine all catalog routes selected as destinations into one journey track. */
+function combineSelectedRoutes(base: NJRoute, destinations: NJDestination[]): NJRoute {
+  const routes = destinations.map((destination) => destination.route).filter((item): item is NJRoute => Boolean(item?.trackCoords?.length));
+  if (routes.length < 2) return base;
+
+  const coordinates = routes.flatMap((item, index) => {
+    const points = item.trackCoords ?? [];
+    // Do not duplicate a shared endpoint, while retaining separate route legs.
+    return index > 0 && points.length > 0 ? points.slice(1) : points;
+  });
+  const distances = routes.map((item) => routeStatNumber(item.dist)).filter((value): value is number => value != null);
+  const ascents = routes.map((item) => routeStatNumber(item.asc)).filter((value): value is number => value != null);
+  const elevation = routes.flatMap((item, index) => {
+    const offset = routes.slice(0, index).reduce((sum, previous) => sum + (routeStatNumber(previous.dist) ?? 0), 0);
+    return (item.trackElevation ?? []).map((point) => ({ km: point.km + offset, ele: point.ele }));
+  });
+  return {
+    ...base,
+    trackCoords: coordinates,
+    trackElevation: elevation.length ? elevation : undefined,
+    dist: distances.length === routes.length ? `${distances.reduce((sum, value) => sum + value, 0).toFixed(1)} km` : base.dist,
+    asc: ascents.length === routes.length ? `+${Math.round(ascents.reduce((sum, value) => sum + value, 0))} m` : base.asc,
+    trackFileName: `${routes.map((item) => item.name).join('-')}.kml`,
+  };
+}
+
 // Seed the route picker from an existing journey/route (再次出发 / 开始旅程).
 // We clone the route facts onto a fresh planned journey, so reuse the journey's
 // original routeId when it has one, otherwise its own id.
@@ -683,6 +714,10 @@ function NJPresetPlanner({
   // frame to fill it exactly without any scroll slack.
   const cardContentHeight = visiblePlannerHeight - sheetBottomPad;
   const [sheetIndex, setSheetIndex] = useState(1);
+  const sheetRef = useRef<TrailSheetHandle>(null);
+  const closeSheet = useCallback(() => {
+    sheetRef.current?.hide(onClose);
+  }, [onClose]);
   const handleSheetIndexChange = useCallback((index: number) => {
     setSheetIndex(index);
     // Collapsing the card is a "look at the map" gesture — drop the keyboard so
@@ -694,16 +729,18 @@ function NJPresetPlanner({
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
 
       <TrailSheet
+        ref={sheetRef}
         theme={theme}
         snapHeights={[minimizedHeight, visiblePlannerHeight]}
         initialIndex={1}
         dismissOnDrag={false}
-        // The route sheet has already supplied the replacement transition.
-        // Starting another entrance animation here leaves a visible pause at
-        // the minimized detent between the two cards.
-        entranceAnimation="none"
+        // The route sheet has already completed its exit, so use a short
+        // entrance transition for the replacement card rather than mounting it
+        // at the expanded position in a single frame.
+        entranceAnimation="timing"
         onIndexChange={handleSheetIndexChange}
         backgroundColor={theme.groupedBg}
+        borderless
         header={<View />}
         containerStyle={{ height: visiblePlannerHeight + sheetBottomPad, bottom: -sheetBottomPad }}
       >
@@ -715,9 +752,10 @@ function NJPresetPlanner({
             importantForAccessibility="no"
           />
           <View style={{ paddingHorizontal: space.md, paddingTop: space.xxs }}>
-            <View style={{ height: 44, alignItems: 'flex-end' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <Text style={[type.pageTitle, { flex: 1, color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whereTitle')}</Text>
               <Press
-                onPress={onClose}
+                onPress={closeSheet}
                 accessibilityRole="button"
                 accessibilityLabel={t('common.close')}
                 hitSlop={6}
@@ -727,7 +765,6 @@ function NJPresetPlanner({
               </Press>
             </View>
             <View>
-              <Text style={[type.pageTitle, { marginTop: space.md, color: theme.text, letterSpacing: 0 }]}>{t('journeyEdit.form.whereTitle')}</Text>
               <View style={{ minHeight: 96, marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop }}>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.xs }}>
                   {selectedLocations.map((location, index) => (
@@ -993,7 +1030,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       : tripName.trim();
     const effectiveRoute = selectedLocations.length
       ? {
-          ...route,
+          ...combineSelectedRoutes(route, selectedLocations),
           name: destinationNames,
           region: selectedLocations.map((location) => location.region || location.name).join(' / '),
           lng: selectedLocations[0].lng,

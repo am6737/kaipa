@@ -203,6 +203,7 @@ export function toNotif(r: any): Notif {
 export function toTLRow(r: any): TLRow {
   return {
     id: r.id,
+    routeId: r.route_id ?? undefined,
     title: r.title,
     day: r.day,
     media: r.media as TLMedia[] | undefined,
@@ -211,6 +212,8 @@ export function toTLRow(r: any): TLRow {
     synth: r.is_synth ?? false,
     custom: r.is_custom ?? false,
     checked: r.checked ?? false,
+    kind: r.item_kind === 'transport' || r.item_kind === 'stay' || r.item_kind === 'custom' ? r.item_kind : 'activity',
+    transport: r.transport && typeof r.transport === 'object' ? r.transport : undefined,
   };
 }
 

@@ -16,6 +16,7 @@ export const en: SameShape<typeof zh> = {
     share: "Share",
     back: "Back",
     close: "Close",
+    clearComparison: "Clear route comparison",
     on: "On",
     off: "Off",
     all: "All",
@@ -424,6 +425,11 @@ export const en: SameShape<typeof zh> = {
   },
 
   gear: {
+    square: {
+      discover: "Discover",
+      items: "Gear Square",
+      sets: "Shared Lists",
+    },
     home: {
       mySets: "My sets",
       myGear: "My gear",

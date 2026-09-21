@@ -116,7 +116,7 @@ Deno.test('create_journey still rejects missing basics and duplicate creation in
     h.context.task = { runId: h.context.runId, journeyId: journeyId || null, outcome: null, decision: {
       objective: 'Create', mode: 'execute', continuation: false, authorizationQuote: 'create',
       operations: ['create_journey'], requiredOperations: ['create_journey'], destination: null,
-      days: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'none', constraints: [],
+      days: null, derivedDays: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'none', constraints: [],
     } };
     try {
       await createJourney.invoke({ context: h.context } as never, JSON.stringify({ name: '漓江', plannedDate: '2026-09-08', days: 1 }));
@@ -156,7 +156,7 @@ Deno.test('packing mode mismatch is rejected before receipt replay or database a
   h.context.task = { runId: h.context.runId, journeyId: 'journey', outcome: null, decision: {
     objective: 'Add cable', mode: 'execute', continuation: false, authorizationQuote: 'Add',
     operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], destination: null,
-    days: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'incremental', constraints: [],
+    days: null, derivedDays: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'incremental', constraints: [],
   } };
   try {
     const result = await addPackingItems.invoke({ context: h.context } as never, JSON.stringify({ journeyId: 'journey', mode: 'full',

@@ -367,6 +367,7 @@ function AppShell() {
         initialPrompt={nav.assistantPrompt}
         initialDisplayPrompt={nav.assistantDisplayPrompt}
         autoSubmitInitialPrompt={nav.assistantAutoSubmit}
+        startNewConversation={nav.assistantStartNewConversation}
         currentJourneyId={nav.assistantJourneyId}
         onClearPrompt={() => nav.clearAssistantPrompt()}
         onClose={() => nav.closeAssistant()}

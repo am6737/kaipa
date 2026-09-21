@@ -63,6 +63,7 @@ function GearItemsListView({
   onEditCategory,
   onDeleteCategory,
   onDeleteItems,
+  onOpenSquare,
   entryVariant,
   picker,
 }: {
@@ -78,6 +79,7 @@ function GearItemsListView({
   onEditCategory: (cat: GearCat) => void;
   onDeleteCategory: (cat: GearCat) => void;
   onDeleteItems: (ids: number[]) => void;
+  onOpenSquare?: () => void;
   entryVariant?: 'push' | 'continuationY';
   picker?: GearPickerConfig;
 }) {
@@ -108,7 +110,7 @@ function GearItemsListView({
   }, [picker?.selectedNames]);
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [373, 543]),
+    height: interpolate(displayProgress.value, [0, 1], [onOpenSquare ? 421 : 373, onOpenSquare ? 591 : 543]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
@@ -343,7 +345,12 @@ function GearItemsListView({
           </View>
 
           <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, width - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
-            <MenuCaption theme={theme} text={t('gear.itemList.manage')} />
+            {onOpenSquare ? <>
+              <MenuCaption theme={theme} text={t('gear.square.discover')} />
+              <MenuRow theme={theme} icon="globe" label={t('gear.square.items')} onPress={() => closeMoreThen(onOpenSquare)} />
+              <MenuCaption theme={theme} text={t('gear.itemList.manage')} spaced />
+            </> : null}
+            {!onOpenSquare ? <MenuCaption theme={theme} text={t('gear.itemList.manage')} /> : null}
             <MenuRow theme={theme} icon="checkAll" label={t('gear.itemList.batchManage')} onPress={() => closeMoreThen(beginSelect)} />
             <MenuRow theme={theme} icon="gearSettings" label={t('gear.category.manage')} onPress={() => closeMoreThen(() => setCategoryManagerOpen(true))} />
             <MenuCaption theme={theme} text={t('gear.setList.display')} spaced />

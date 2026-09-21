@@ -10,7 +10,7 @@ import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, photoP
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 
-export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin, staggerPins = false }: GlobeProps) {
+export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin, focusSegments, transportSegments, staggerPins = false }: GlobeProps) {
   const t = theme;
   const R = size / 2;
   const cx = R;
@@ -56,6 +56,22 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
             <Polyline key={i} points={pts} fill="none" stroke={t.globeGrid} strokeWidth={0.6} />
           ))}
           <Circle cx={cx} cy={cy} r={R} fill="url(#globeHi)" />
+          {(transportSegments ?? []).map((segment) => {
+            const points = segment.coordinates
+              .map(([lon, lat]) => project(lon, lat, lon0, lat0, R - 4, cx, cy))
+              .filter((point) => point.visible)
+              .map((point) => `${point.x},${point.y}`)
+              .join(' ');
+            return points ? <Polyline key={`transport-${segment.id}`} points={points} fill="none" stroke={segment.color} strokeWidth={segment.active ? 2.2 : 1.5} strokeDasharray="6 5" opacity={segment.active ? 0.9 : 0.35} /> : null;
+          })}
+          {(focusSegments ?? []).map((segment) => {
+            const points = segment.coordinates
+              .map(([lon, lat]) => project(lon, lat, lon0, lat0, R - 4, cx, cy))
+              .filter((point) => point.visible)
+              .map((point) => `${point.x},${point.y}`)
+              .join(' ');
+            return points ? <Polyline key={`focus-${segment.id}`} points={points} fill="none" stroke={segment.color} strokeWidth={segment.active ? 2.8 : 1.8} opacity={segment.active ? 0.95 : 0.3} /> : null;
+          })}
         </G>
         <Circle cx={cx} cy={cy} r={R} fill="none" stroke={t.globeRim} strokeWidth={1} />
       </Svg>

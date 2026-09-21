@@ -16,7 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
-import { TLRow, TLMedia, TLGroup } from '../../data/timeline';
+import { TLRow, TLMedia, TLGroup, TimelineTransportMode } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
@@ -32,6 +32,7 @@ import { AppCard, motion, radius, space, type } from '../../design-system';
 import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../../lib/routeSegments';
 import { JourneyRouteBoundarySheet } from './JourneyRouteBoundarySheet';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
+import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -154,6 +155,86 @@ function TimeWheel({ theme, value, onChange, compact }: { theme: Theme; value: n
 }
 
 const fmtRange = (s?: number, e?: number) => (s == null ? '' : e == null || e === s ? fmtMins(s) : `${fmtMins(s)}-${fmtMins(e)}`);
+const transportModeLabel = (mode?: TimelineTransportMode) => ({ car: '驾车', taxi: '打车', bus: '巴士', shuttle: '接驳', walk: '步行', unknown: '交通' }[mode ?? 'unknown']);
+const transportSummary = (row: TLRow) => {
+  if (row.kind !== 'transport' || !row.transport) return null;
+  const parts = [transportModeLabel(row.transport.mode), row.transport.from.name && row.transport.to.name ? `${row.transport.from.name} → ${row.transport.to.name}` : null];
+  if (row.transport.distanceMeters != null) parts.push(`${(row.transport.distanceMeters / 1000).toFixed(1)} km`);
+  if (row.transport.durationMinutes != null) parts.push(`${Math.floor(row.transport.durationMinutes / 60)}小时${row.transport.durationMinutes % 60 ? `${row.transport.durationMinutes % 60}分` : ''}`);
+  return parts.filter(Boolean).join('  ');
+};
+
+function TransportPlaceInput({ theme, value, placeholder, onPress }: {
+  theme: Theme;
+  value: { name: string; longitude?: number; latitude?: number; address?: string };
+  placeholder: string;
+  onPress: () => void;
+}) {
+  return (
+    <Press onPress={onPress} style={{ minHeight: 46, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+      <Text numberOfLines={1} style={{ color: value.name ? theme.text : theme.text3, fontSize: 15, fontWeight: value.name ? '600' : '400' }}>{value.name || placeholder}</Text>
+      {value.address ? <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 11, marginTop: 2 }}>{value.address}</Text> : null}
+    </Press>
+  );
+}
+
+function TransportPlacePicker({ theme, initialQuery, onSelect, onClose }: {
+  theme: Theme;
+  initialQuery: string;
+  onSelect: (location: JourneyLocationValue | { name: string; source: 'custom' }) => void;
+  onClose: () => void;
+}) {
+  const { resolved } = useI18n();
+  const [query, setQuery] = useState(initialQuery);
+  const [results, setResults] = useState<JourneyLocationValue[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); setError(false); return; }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setSearching(true); setError(false);
+      searchJourneyLocations(query.trim(), resolved === 'zh' ? 'zh' : 'en', undefined, controller.signal)
+        .then(setResults)
+        .catch(() => { if (!controller.signal.aborted) { setResults([]); setError(true); } })
+        .finally(() => { if (!controller.signal.aborted) setSearching(false); });
+    }, 280);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, resolved]);
+  const chooseCustom = () => {
+    if (!query.trim()) return;
+    onSelect({ name: query.trim(), source: 'custom' });
+    onClose();
+  };
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 120, justifyContent: 'flex-end' }]}>
+      <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={StyleSheet.absoluteFill} /></Press>
+      <View style={{ maxHeight: '82%', minHeight: 430, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12, paddingBottom: 18, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 14 }}>
+        <View style={{ alignItems: 'center', paddingBottom: 10 }}><View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.text3, opacity: 0.35 }} /></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingBottom: 12 }}>
+          <View style={{ paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center' }}><Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>国内</Text><Text style={{ color: theme.text2, fontSize: 18, marginLeft: 6 }}>⇄</Text></View>
+          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭" style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}><Icon name="close" size={18} color={theme.text2} /></Press>
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 92 }}>
+          {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>正在搜索地点</Text></View> : null}
+          {!searching && results.map((result, index) => (
+            <Press key={`${result.lng}-${result.lat}-${index}`} onPress={() => { onSelect(result); onClose(); }} style={{ paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
+              <Text numberOfLines={1} style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}><Text style={{ color: theme.accent }}>{result.region ? `${result.region.replace(/\s+/g, '')}` : ''}</Text>{result.name}</Text>
+              <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>{result.address || result.region}</Text>
+            </Press>
+          ))}
+          {!searching && !results.length && query.trim().length >= 2 ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? '地点搜索暂时不可用' : '没有匹配的地图地点'}</Text></View> : null}
+          {query.trim() ? <Press onPress={chooseCustom} style={{ marginTop: 12, minHeight: 46, borderRadius: 14, backgroundColor: theme.fieldSurface, justifyContent: 'center', paddingHorizontal: 14 }}><Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>使用“{query.trim()}”作为自定义地点</Text><Text style={{ color: theme.text3, fontSize: 12, marginTop: 3 }}>没有坐标，不生成导航路线</Text></Press> : null}
+        </ScrollView>
+        <View style={{ position: 'absolute', left: 18, right: 18, bottom: 18, height: 52, borderRadius: 16, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14 }}>
+          <Icon name="search" size={20} color={theme.text2} />
+          <TextInput autoFocus value={query} onChangeText={setQuery} placeholder="搜索地点" placeholderTextColor={theme.text3} style={{ flex: 1, marginLeft: 10, color: theme.text, fontSize: 17, paddingVertical: 0 }} />
+          {query ? <Press onPress={() => setQuery('')} hitSlop={8}><Icon name="close" size={17} color={theme.text3} /></Press> : null}
+        </View>
+      </View>
+    </View>
+  );
+}
 
 
 // Start/end time-of-day picker — both wheels side by side (开始 至 结束), with a
@@ -1013,6 +1094,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     <View style={{ flex: 1, minWidth: 0 }}>
       {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
       <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
+      {transportSummary(row) ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{transportSummary(row)}</Text> : null}
       {media.length > 0 ? (
         <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
           {media.map((item, index) => {
@@ -1034,6 +1116,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     <View style={{ flex: 1, minWidth: 0 }}>
       {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
       <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
+      {transportSummary(row) ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{transportSummary(row)}</Text> : null}
       {media.length > 0 ? (
         <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
           {media.map((item, index) => {
@@ -1480,6 +1563,11 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   const { t, resolved } = useI18n();
   const initDay = editRow ? (editRow.day || defaultDay) : initialDay?.trim() || defaultDay;
   const [text, setText] = useState(editRow?.title ?? '');
+  const [kind, setKind] = useState<'activity' | 'transport'>(editRow?.kind === 'transport' ? 'transport' : 'activity');
+  const [transportMode, setTransportMode] = useState<TimelineTransportMode>(editRow?.transport?.mode ?? 'car');
+  const [transportFrom, setTransportFrom] = useState(editRow?.transport?.from ?? { name: '' });
+  const [transportTo, setTransportTo] = useState(editRow?.transport?.to ?? { name: '' });
+  const [activePlace, setActivePlace] = useState<'from' | 'to' | null>(null);
   const [media, setMedia] = useState<TLMedia[]>(editRow?.media ?? []);
   const [day, setDay] = useState(initDay);
   const [dayOpen, setDayOpen] = useState(false);
@@ -1604,12 +1692,25 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
     setShowTime(true);
   };
   const clearTime = () => { setShowTime(false); setStartMins(null); setEndMins(null); };
-  const can = text.trim().length > 0 && !submitting;
+  const can = text.trim().length > 0 && (kind !== 'transport' || (transportFrom.name.trim().length > 0 && transportTo.name.trim().length > 0)) && !submitting;
   const submit = async () => {
     if (!can) return;
     setSubmitting(true);
     try {
-      await onSubmit({ title: text.trim(), day: day.trim() || defaultDay, media: media.length ? media : undefined, timeStart: startMins ?? undefined, timeEnd: endMins ?? undefined });
+      await onSubmit({
+        title: text.trim(),
+        day: day.trim() || defaultDay,
+        media: media.length ? media : undefined,
+        timeStart: startMins ?? undefined,
+        timeEnd: endMins ?? undefined,
+        kind,
+        transport: kind === 'transport' ? {
+          mode: transportMode,
+          from: transportFrom,
+          to: transportTo,
+          status: 'unknown',
+        } : undefined,
+      });
       animateClose();
     } catch (error) {
       console.warn('Failed to save journey timeline media', error);
@@ -1695,6 +1796,38 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
               style={{ marginTop: 12, minHeight: 76, maxHeight: 150, fontSize: 16.5, lineHeight: 24, color: theme.text, padding: 0 }}
             />
 
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              {([
+                ['activity', '普通行程'],
+                ['transport', '交通'],
+              ] as const).map(([value, label]) => (
+                <Press
+                  key={value}
+                  onPress={() => setKind(value)}
+                  style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, justifyContent: 'center', backgroundColor: kind === value ? theme.accent : subtle }}
+                >
+                  <Text style={{ color: kind === value ? '#fff' : theme.text2, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+                </Press>
+              ))}
+            </View>
+
+            {kind === 'transport' ? (
+              <View style={{ marginTop: 10, gap: 8 }}>
+                <TransportPlaceInput theme={theme} value={transportFrom} placeholder="出发地点" onPress={() => setActivePlace('from')} />
+                <TransportPlaceInput theme={theme} value={transportTo} placeholder="到达地点" onPress={() => setActivePlace('to')} />
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {([
+                    ['car', '驾车'], ['taxi', '打车'], ['bus', '巴士'], ['shuttle', '接驳'], ['walk', '步行'],
+                  ] as const).map(([value, label]) => (
+                    <Press key={value} onPress={() => setTransportMode(value)} style={{ flex: 1, minWidth: 0, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: transportMode === value ? theme.fieldSurface : 'transparent', borderWidth: transportMode === value ? 1 : 0, borderColor: theme.accent }}>
+                      <Text numberOfLines={1} style={{ color: transportMode === value ? theme.text : theme.text3, fontSize: 11.5, fontWeight: '700' }}>{label}</Text>
+                    </Press>
+                  ))}
+                </View>
+                <Text style={{ color: theme.text3, fontSize: 12 }}>地点路线可稍后补充，当前先保存为待确认交通项</Text>
+              </View>
+            ) : null}
+
             {/* photos */}
             {media.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8, paddingVertical: 4 }} style={{ marginTop: 4 }}>
@@ -1722,6 +1855,21 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
               <TimeRangePicker theme={theme} start={startMins ?? 540} end={endMins ?? (startMins ?? 540) + 60} onChange={(s, e) => { setStartMins(s); setEndMins(e); }} onClear={clearTime} />
             </Collapsible>
           </View>
+
+          {activePlace ? (
+            <TransportPlacePicker
+              theme={theme}
+              initialQuery={activePlace === 'from' ? transportFrom.name : transportTo.name}
+              onSelect={(location) => {
+                const next = 'lng' in location
+                  ? { name: location.name, source: 'map' as const, longitude: location.lng, latitude: location.lat, address: location.address }
+                  : location;
+                if (activePlace === 'from') setTransportFrom(next);
+                else setTransportTo(next);
+              }}
+              onClose={() => setActivePlace(null)}
+            />
+          ) : null}
 
           {/* toolbar — quick pills (time · photos) + done */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: compactToolbar ? 6 : 8, paddingHorizontal: compactToolbar ? 12 : 14, paddingTop: 10, marginTop: 6 }}>

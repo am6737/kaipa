@@ -3,13 +3,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { ArrowUp, ChevronRight, JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
+import { ArrowUp, ChevronRight, Compass, JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
 import Svg, { Circle } from 'react-native-svg';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
 import { Press } from '../components/Press';
+import { Icon } from '../components/Icon';
 import { useNav } from '../nav/NavContext';
 import { useI18n } from '../i18n';
 import { GearCat, GearItem, GearSet, GearSetOverride, itemWeight, itemPrice, WeightUnit, fmtWeight, splitWeight } from '../data/gear';
@@ -24,18 +25,74 @@ import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { GearEmptyState } from '../components/gear/GearEmptyState';
 import { usePinnedSets } from '../components/gear/usePinnedSets';
-import { layout, motion, radius, space, type } from '../design-system';
+import { AppIconButton, DetailPage, layout, motion, radius, space, type } from '../design-system';
 
 type GearPage =
   | { type: 'item'; item: GearItem }
   | { type: 'set'; set: GearSet }
   | { type: 'setsList'; entry?: 'pull' }
-  | { type: 'itemsList'; entry?: 'pull' };
+  | { type: 'itemsList'; entry?: 'pull' }
+  | { type: 'squareItems' }
+  | { type: 'squareSets' };
 
 // ── Derived theme tokens (mirror gxThemeFromKaipa) ──────────────────────────
 const fieldBg = (t: Theme) => t.fieldSurface;
 const homePageBg = (t: Theme) => t.groupedBg;
 const homeCardBg = (t: Theme) => t.featureSurface;
+
+function GearSquarePage({ theme, kind, items, sets, onBack, onOpenItems, onOpenSets }: { theme: Theme; kind: 'items' | 'sets'; items: GearItem[]; sets: GearSet[]; onBack: () => void; onOpenItems: () => void; onOpenSets: () => void }) {
+  const isItems = kind === 'items';
+  const previewItems = items.length ? items : [
+    { name: 'HMG 2400 Southwest', cat: 'pack', w: 0.78, p: 2980, attrs: [['容量', '40 L']] },
+    { name: 'Nemo Disco 15 羽绒睡袋', cat: 'sleep', w: 0.96, p: 2200, attrs: [['温标', '-9°C']] },
+    { name: 'MSR PocketRocket 2 炉头', cat: 'cook', w: 0.073, p: 360 },
+    { name: 'Garmin inReach Mini 2', cat: 'elec', w: 0.1, p: 3280 },
+    { name: 'Big Agnes Copper Spur HV UL2', cat: 'shelter', w: 1.32, p: 3380 },
+    { name: 'Arc’teryx Beta AR 冲锋衣', cat: 'cloth', w: 0.44, p: 4200 },
+  ] as GearItem[];
+  const previewSets = sets.length ? sets : [
+    { id: 'preview-high', name: '高海拔三天两夜', items: ['HMG 2400 Southwest', 'Nemo Disco 15 羽绒睡袋', 'Big Agnes Copper Spur HV UL2', 'Garmin inReach Mini 2'] },
+    { id: 'preview-light', name: '周末轻量徒步', items: ['HMG 2400 Southwest', 'MSR PocketRocket 2 炉头', 'Arc’teryx Beta AR 冲锋衣'] },
+    { id: 'preview-camp', name: '摄影露营基础清单', items: ['Big Agnes Copper Spur HV UL2', 'Nemo Disco 15 羽绒睡袋', 'MSR PocketRocket 2 炉头'] },
+  ] as GearSet[];
+  const entries = isItems
+    ? previewItems.slice(0, 6).map((item, index) => ({ title: item.name, meta: `${index % 2 ? '睡眠系统' : '背负系统'}  ·  ${fmtWeight(itemWeight(item), 'kg')}`, note: index % 2 ? '高海拔' : '轻量徒步', photo: item.photos?.[0] }))
+    : previewSets.slice(0, 6).map((set, index) => ({ title: set.name, meta: `${set.items.length} 件  ·  ${fmtWeight(set.items.reduce((sum, name) => sum + itemWeight(previewItems.find((item) => item.name === name) || { w: 0, qty: 1 } as GearItem), 0), 'kg')}`, note: index % 2 ? '轻量化' : '高海拔', photo: set.items.map((name) => previewItems.find((item) => item.name === name)?.photos?.[0]).find(Boolean) }));
+  const fallback = entries.length ? entries[0] : { title: isItems ? '轻量化背包系统' : '周末轻徒步', meta: isItems ? '背负系统  ·  0.78 kg' : '12 件  ·  4.2 kg', note: '精选内容', photo: undefined };
+  const rest = entries.slice(1);
+
+  return (
+    <DetailPage theme={theme} title={isItems ? '装备广场' : '广场清单'} onBack={onBack} right={<AppIconButton theme={theme} name="search" onPress={() => {}} noShadow accessibilityLabel="搜索" />} backgroundColor={theme.groupedBg}>
+      <View style={{ paddingHorizontal: layout.pagePadding, paddingBottom: 120 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 24, height: 42, marginBottom: space.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
+          <Press onPress={onOpenItems} style={{ height: 42, minWidth: 48, justifyContent: 'center', alignItems: 'center' }}><Text style={{ fontSize: 15, fontWeight: isItems ? '800' : '600', color: isItems ? theme.text : theme.text3 }}>装备</Text>{isItems ? <View style={{ position: 'absolute', left: 4, right: 4, bottom: -1, height: 3, borderRadius: 2, backgroundColor: theme.accent }} /> : null}</Press>
+          <Press onPress={onOpenSets} style={{ height: 42, minWidth: 48, justifyContent: 'center', alignItems: 'center' }}><Text style={{ fontSize: 15, fontWeight: !isItems ? '800' : '600', color: !isItems ? theme.text : theme.text3 }}>清单</Text>{!isItems ? <View style={{ position: 'absolute', left: 4, right: 4, bottom: -1, height: 3, borderRadius: 2, backgroundColor: theme.accent }} /> : null}</Press>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: space.lg }}>
+          {['推荐', '最新', isItems ? '轻量化' : '高海拔', '露营'].map((label, index) => <View key={label} style={{ paddingHorizontal: 13, height: 32, borderRadius: radius.pill, justifyContent: 'center', backgroundColor: index === 0 ? theme.text : theme.fieldSurface }}><Text style={{ fontSize: 12.5, fontWeight: '700', color: index === 0 ? theme.bg : theme.text2 }}>{label}</Text></View>)}
+        </View>
+        <Press style={{ height: 178, borderRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.featureSurface }} onPress={() => {}}>
+          {fallback.photo ? <Image source={{ uri: fallback.photo }} contentFit="cover" style={[StyleSheet.absoluteFill, { opacity: theme.dark ? 0.58 : 0.82 }]} /> : <View style={[StyleSheet.absoluteFill, { alignItems: 'flex-end', justifyContent: 'center', paddingRight: 28 }]}><Compass color={theme.dark ? '#FFFFFF' : theme.text} size={86} strokeWidth={0.8} opacity={0.16} /></View>}
+          <View style={{ flex: 1, justifyContent: 'space-between', padding: 20, backgroundColor: theme.dark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.18)' }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.dark ? '#FFFFFF' : theme.text, opacity: 0.72 }}>本周精选</Text>
+            <View><Text numberOfLines={2} style={{ maxWidth: '72%', fontSize: 22, lineHeight: 27, fontWeight: '800', color: theme.dark ? '#FFFFFF' : theme.text }}>{fallback.title}</Text><Text style={{ marginTop: 6, fontFamily: MONO, fontSize: 12.5, color: theme.dark ? '#FFFFFF' : theme.text, opacity: 0.8 }}>{fallback.meta}</Text></View>
+          </View>
+        </Press>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 28, marginBottom: 12 }}><Text style={{ fontSize: 20, fontWeight: '800', color: theme.text }}>正在被收藏</Text><Text style={{ fontSize: 12.5, color: theme.text3 }}>公开内容</Text></View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          {rest.map((card) => <Press key={card.title} onPress={() => {}} style={{ width: '48%', minHeight: isItems ? 246 : 204, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
+            {isItems ? <View style={{ height: 116, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>{card.photo ? <Image source={{ uri: card.photo }} contentFit="cover" style={StyleSheet.absoluteFill} /> : <Compass color={theme.accent} size={28} strokeWidth={1.5} opacity={0.6} />}</View> : null}
+            <View style={{ marginTop: isItems ? 13 : 0, flex: 1, justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}><Text numberOfLines={3} style={{ flex: 1, fontSize: isItems ? 15 : 18, lineHeight: isItems ? 20 : 24, fontWeight: '800', color: theme.text }}>{card.title}</Text>{!isItems ? <View style={{ paddingHorizontal: 7, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{card.meta.split(' ')[0]} 件</Text></View> : null}</View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}><Weight color={theme.text2} size={13} strokeWidth={1.7} /><Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{card.meta}</Text></View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}><Icon name="heart" color={theme.text3} size={13} /><Text style={{ fontSize: 11.5, color: theme.text3 }}>{card.note}  ·  128</Text></View>
+            </View>
+          </Press>)}
+        </View>
+      </View>
+    </DetailPage>
+  );
+}
 
 // ── Metric-agnostic value + formatting (qty-free, matching the prototype) ───
 const compactWan = (value: number) => {
@@ -288,6 +345,10 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
               onEdit={() => setSetEditor({ mode: 'edit', set: pg.set })}
               onDuplicate={() => duplicateSet(pg.set)}
             />
+          ) : pg.type === 'squareItems' ? (
+            <GearSquarePage theme={theme} kind="items" items={allItems} sets={sets} onBack={popPage} onOpenItems={() => {}} onOpenSets={() => pushPage({ type: 'squareSets' })} />
+          ) : pg.type === 'squareSets' ? (
+            <GearSquarePage theme={theme} kind="sets" items={allItems} sets={sets} onBack={popPage} onOpenItems={() => pushPage({ type: 'squareItems' })} onOpenSets={() => {}} />
           ) : pg.type === 'setsList' ? (
             <GearSetsList
               theme={theme}
@@ -298,9 +359,10 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
               entryVariant={pg.entry === 'pull' ? 'continuationX' : 'push'}
               onOpenSet={(set) => pushPage({ type: 'set', set })}
               onAdd={() => setSetEditor({ mode: 'new' })}
-              onOpenAssistant={() => nav.openAssistant('我还没有装备清单，请先询问我出行场景、天数、季节和携带偏好，再帮我创建一份合适的装备清单。', undefined, true)}
+              onOpenAssistant={() => nav.openAssistant('我还没有装备清单，请先询问我出行场景、天数、季节和携带偏好，再帮我创建一份合适的装备清单。', undefined, true, undefined, true)}
               pinnedSetIds={pinnedSetIds}
               onSetPinned={setSetsPinned}
+              onOpenSquare={() => pushPage({ type: 'squareSets' })}
               onDeleteSets={(ids) => {
                 ids.forEach((id) => data.deleteSet(id));
                 nav.showToast(t('gear.toast.setsDeleted', { count: ids.length }));
@@ -316,7 +378,7 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
               entryVariant={pg.entry === 'pull' ? 'continuationY' : 'push'}
               onOpenItem={(item) => pushPage({ type: 'item', item })}
               onAdd={() => setAddChoose(true)}
-              onOpenAssistant={() => nav.openAssistant('我还没有装备，请先询问我常见的出行场景、预算和偏好，再帮我创建适合我的装备。', undefined, true)}
+              onOpenAssistant={() => nav.openAssistant('我还没有装备，请先询问我常见的出行场景、预算和偏好，再帮我创建适合我的装备。', undefined, true, undefined, true)}
               onAddCategory={() => setCatEditor({ mode: 'new' })}
               onEditCategory={(cat) => setCatEditor({ mode: 'edit', cat })}
               onDeleteCategory={(cat) => {
@@ -327,6 +389,7 @@ export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initi
                 ids.forEach((id) => data.deleteItem(id));
                 nav.showToast(t('gear.toast.itemsDeleted', { count: ids.length }));
               }}
+              onOpenSquare={() => pushPage({ type: 'squareItems' })}
             />
           )}
         </View>

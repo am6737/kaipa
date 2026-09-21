@@ -38,8 +38,20 @@ while (!stopping) {
     });
     await response.arrayBuffer();
     console.log(`Planning run ${job.runId}: HTTP ${response.status}`);
-    // A transport error does not mean the Edge worker stopped. The twelve-minute
-    // lease outlives this timeout, so a run is only reclaimed after its lease.
+    // The Edge Function owns retry classification and normally finalizes the
+    // job itself. Do not turn every gateway 5xx into a retry: an aborted model
+    // stage is deliberately non-retryable, and replaying it doubles the wait.
+    // A lease expiry remains the fallback for a process that dies before it
+    // can finalize the job.
+    if (response.status >= 500) {
+      await rpc('finish_agent_job', {
+        p_run_id: job.runId,
+        p_lease: job.leaseToken,
+        p_error: `Worker request failed: HTTP ${response.status}`,
+        p_retryable: false,
+        p_activities: [],
+      });
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Worker request failed');
     await sleep(2000);

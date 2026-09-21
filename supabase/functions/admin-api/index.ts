@@ -19,8 +19,9 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string };
-      if (!body.action || (body.action !== 'broadcast-notification' && !body.id)) return json({ error: 'invalid_request' }, 400);
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string };
+      const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user';
+      if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
       if (!editors.includes(role)) return json({ error: 'write_forbidden' }, 403);
       if (body.action === 'set-user-role') {
@@ -84,6 +85,19 @@ Deno.serve(async (req) => {
         const deleted = await service.from('inspo_media').delete().eq('id', body.id).select('id').maybeSingle();
         if (deleted.error) throw deleted.error;
         if (!deleted.data) return json({ error: 'content_not_found' }, 404);
+      } else if (body.action === 'create-gear' || body.action === 'update-gear') {
+        if (!body.name?.trim() || !body.user_id || body.weight == null || body.price == null) return json({ error: 'gear_name_user_weight_price_required' }, 400);
+        const gear = { name: body.name.trim(), user_id: body.user_id, weight: Number(body.weight), price: Number(body.price), qty: Math.max(1, Number(body.qty || 1)) };
+        if (!Number.isFinite(gear.weight) || !Number.isFinite(gear.price)) return json({ error: 'gear_weight_and_price_must_be_numbers' }, 400);
+        const result = body.action === 'create-gear'
+          ? await service.from('gear_items').insert(gear).select('id').single()
+          : await service.from('gear_items').update(gear).eq('id', body.id).select('id').maybeSingle();
+        if (result.error) throw result.error;
+        if (!result.data) return json({ error: 'gear_not_found' }, 404);
+      } else if (body.action === 'delete-gear') {
+        const deleted = await service.from('gear_items').delete().eq('id', body.id).select('id').maybeSingle();
+        if (deleted.error) throw deleted.error;
+        if (!deleted.data) return json({ error: 'gear_not_found' }, 404);
       } else if (body.action === 'broadcast-notification') {
         if (role === 'viewer' || role === 'editor') return json({ error: 'admin_required' }, 403);
         if (!body.title || !body.message) return json({ error: 'title_and_message_required' }, 400);
@@ -99,8 +113,12 @@ Deno.serve(async (req) => {
         if (deleted.error) throw deleted.error;
         if (!deleted.data) return json({ error: 'notification_not_found' }, 404);
       } else if (body.action === 'create-route' || body.action === 'update-route') {
-        if (!body.name || !body.region) return json({ error: 'route_name_and_region_required' }, 400);
-        const route = { name: body.name, region: body.region, dist: body.dist || null, asc_: body.asc_ || null, diff: body.diff || null, tone: body.tone || 'forest', lng: Number(body.lng || 0), lat: Number(body.lat || 0), created_by: auth.user.id };
+        if (!body.name) return json({ error: 'route_name_required' }, 400);
+        const jsonValue = (value?: string) => {
+          if (!value) return null;
+          try { return JSON.parse(value); } catch { return null; }
+        };
+        const route = { name: body.name, region: body.region || '未分类', coord: body.coord || null, dist: body.dist || null, asc_: body.asc_ || null, diff: body.diff || null, tone: body.tone || 'forest', lng: Number(body.lng || 0), lat: Number(body.lat || 0), track_coords: jsonValue(body.track_coords), track_elevation: jsonValue(body.track_elevation), track_duration_ms: Number(body.track_duration_ms || 0) || null, track_waypoints: jsonValue(body.track_waypoints), track_file_url: body.track_file_url || null, track_file_name: body.track_file_name || null, created_by: auth.user.id };
         const result = body.action === 'create-route'
           ? await service.from('routes').insert({ ...route, id: `admin-${crypto.randomUUID()}` }).select('id').single()
           : await service.from('routes').update(route).eq('id', body.id).select('id').maybeSingle();
@@ -152,13 +170,15 @@ Deno.serve(async (req) => {
       ]);
       if (authUsers.error || profiles.error) throw authUsers.error || profiles.error;
       const byId = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
-      return json({ data: authUsers.data.users.map((user) => ({ ...byId.get(user.id), id: user.id, email: user.email, role: user.app_metadata?.role || '', last_sign_in_at: user.last_sign_in_at, created_at: user.created_at })) });
+      return json({ data: authUsers.data.users.map((user) => ({ ...byId.get(user.id), id: user.id, email: user.email, role: user.app_metadata?.role || '', last_sign_in_at: user.last_sign_in_at, banned_until: user.banned_until, created_at: user.created_at })) });
     }
     const tables: Record<string, { table: string; select: string; order: string }> = {
       journeys: { table: 'journeys', select: 'id,name,region,created_at,planned_date,total_days,user_id,deleted_at', order: 'created_at' },
-      gear: { table: 'gear_items', select: 'id,name,brand,weight,price,user_id,created_at', order: 'created_at' },
-      routes: { table: 'routes', select: 'id,name,region,dist,asc_,diff,created_by,created_at', order: 'created_at' },
-      tracks: { table: 'tracks', select: 'id,name,file_name,file_format,file_size,dist_m,asc_m,point_count,user_id,created_at', order: 'created_at' },
+      // `gear_items` stores the user-maintained item name and measurements;
+      // branding is not a column in the current schema.
+      gear: { table: 'gear_items', select: 'id,name,weight,price,user_id,created_at', order: 'created_at' },
+      routes: { table: 'routes', select: 'id,name,region,dist,asc_,diff,created_by,track_file_url,track_file_name,created_at', order: 'created_at' },
+      tracks: { table: 'tracks', select: 'id,name,file_name,file_format,file_url,file_size,dist_m,asc_m,point_count,user_id,created_at', order: 'created_at' },
       notifications: { table: 'notifications', select: 'id,user_id,kind,cat,verb,target,read,created_at', order: 'created_at' },
       content: { table: 'inspo_media', select: 'id,journey_id,user_id,uri,thumbnail,kind,caption,moderation_status,moderation_reason,reviewed_at,created_at', order: 'created_at' },
       agentRuns: { table: 'agent_runs', select: 'id,user_id,status,error,agent_version,created_at,updated_at', order: 'created_at' },
@@ -170,6 +190,17 @@ Deno.serve(async (req) => {
     const result = await query;
     if (result.error) throw result.error;
     await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
+    const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'agentRuns'].includes(resource) ? 'user_id' : null;
+    if (userKey) {
+      const rows = result.data || [];
+      const userIds = [...new Set(rows.map((row) => row[userKey]).filter(Boolean))];
+      const profiles = userIds.length
+        ? await service.from('profiles').select('id,display_name,nick,username,avatar_url').in('id', userIds)
+        : { data: [], error: null };
+      if (profiles.error) throw profiles.error;
+      const profileById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+      return json({ data: rows.map((row) => ({ ...row, user: profileById.get(row[userKey]) || null })) });
+    }
     return json({ data: result.data || [] });
   } catch (error) {
     console.error('[admin-api]', error);

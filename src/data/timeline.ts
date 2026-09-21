@@ -19,8 +19,33 @@ export interface TLMedia {
     avatarUrl?: string;
   };
 }
+
+export type TimelineItemKind = 'activity' | 'transport' | 'stay' | 'custom';
+export type TimelineTransportMode = 'car' | 'taxi' | 'bus' | 'shuttle' | 'walk' | 'unknown';
+
+export interface TimelineLocation {
+  name: string;
+  source?: 'map' | 'custom';
+  longitude?: number;
+  latitude?: number;
+  address?: string;
+}
+
+export interface TimelineTransport {
+  mode: TimelineTransportMode;
+  from: TimelineLocation;
+  to: TimelineLocation;
+  distanceMeters?: number;
+  durationMinutes?: number;
+  geometry?: [number, number][];
+  status: 'verified' | 'estimated' | 'unknown';
+  source?: string;
+  note?: string;
+}
+
 export interface TLRow {
   id: string;
+  routeId?: string;
   title: string;
   day: string;
   media?: TLMedia[];
@@ -29,6 +54,8 @@ export interface TLRow {
   synth?: boolean;
   custom?: boolean;
   checked?: boolean;
+  kind?: TimelineItemKind;
+  transport?: TimelineTransport;
 }
 
 export interface TimelineGroupRoute {

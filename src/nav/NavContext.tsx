@@ -161,7 +161,8 @@ export interface NavValue {
   assistantDisplayPrompt?: string;
   assistantJourneyId?: string;
   assistantAutoSubmit: boolean;
-  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string) => void;
+  assistantStartNewConversation: boolean;
+  openAssistant: (prompt?: string, journeyId?: string, autoSubmit?: boolean, displayPrompt?: string, startNewConversation?: boolean) => void;
   clearAssistantPrompt: () => void;
   closeAssistant: () => void;
 
@@ -230,6 +231,7 @@ export function NavProvider({
   const [assistantDisplayPrompt, setAssistantDisplayPrompt] = useState<string>();
   const [assistantJourneyId, setAssistantJourneyId] = useState<string>();
   const [assistantAutoSubmit, setAssistantAutoSubmit] = useState(false);
+  const [assistantStartNewConversation, setAssistantStartNewConversation] = useState(false);
   const [toast, setToast] = useState<{ message: string; placement: 'top' | 'bottom' } | null>(null);
   const [tabBarHiddenSources, setTabBarHiddenSources] = useState<Set<string>>(() => new Set());
   const setTabBarHidden = useCallback((source: string, hidden: boolean) => {
@@ -509,11 +511,13 @@ export function NavProvider({
       assistantDisplayPrompt,
       assistantJourneyId,
       assistantAutoSubmit,
-      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt) => {
+      assistantStartNewConversation,
+      openAssistant: (prompt, journeyId, autoSubmit = false, displayPrompt, startNewConversation = false) => {
         setAssistantPrompt(prompt);
         setAssistantDisplayPrompt(displayPrompt);
         setAssistantJourneyId(journeyId);
         setAssistantAutoSubmit(autoSubmit);
+        setAssistantStartNewConversation(startNewConversation);
         setAssistantOpen(true);
       },
       clearAssistantPrompt: () => {
@@ -527,6 +531,7 @@ export function NavProvider({
         setAssistantDisplayPrompt(undefined);
         setAssistantJourneyId(undefined);
         setAssistantAutoSubmit(false);
+        setAssistantStartNewConversation(false);
       },
       savedRoutes,
       extraJourneys,
@@ -581,6 +586,7 @@ export function NavProvider({
       assistantDisplayPrompt,
       assistantJourneyId,
       assistantAutoSubmit,
+      assistantStartNewConversation,
       savedRoutes,
       extraJourneys,
       toast,

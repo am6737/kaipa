@@ -20,7 +20,7 @@ Deno.test('task preparation supplies bound-track metadata and persists missing f
       interpreted = input;
       return taskDecisionSchema.parse({ objective: 'Plan full hike', mode: 'execute', continuation: false, authorizationQuote: 'save',
         operations: ['add_itinerary_items', 'add_packing_items'], requiredOperations: ['add_itinerary_items', 'add_packing_items'],
-        days: null, plannedDate: null, dateUndecided: true, destination: 'Route', trackAttachmentName: null, packingMode: 'full', constraints: [] });
+        days: null, derivedDays: null, plannedDate: null, dateUndecided: true, destination: 'Route', trackAttachmentName: null, packingMode: 'full', constraints: [] });
     });
     if (interpreted.boundTrack.available !== hasTrack) throw new Error('Track metadata missing');
     if (task.decision.requiredOperations.includes('set_itinerary_group_endpoints') !== hasTrack) throw new Error('Wrong endpoint dependency');

@@ -1,4 +1,4 @@
-import { bindRunClient, releaseRunClient, readTravelGuide, readTravelGuideImages, searchTravelWeb, kaipaAllTools, kaipaJourneyTools } from './tools.ts';
+import { allowGuideQueries, allowGuideReads, bindRunClient, clearGuideQueries, releaseRunClient, readTravelGuide, readTravelGuideImages, searchTravelWeb, kaipaAllTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
@@ -152,6 +152,82 @@ Deno.test('manual verification blocks rephrased searches in the same task even a
     h.recover();
     await search('哈天线营地');
     assert(calls === 1, 'Keyword changes or recovery retried a verification-blocked provider');
+  } finally {
+    h.dispose();
+    globalThis.fetch = original;
+    names.forEach((name, i) => old[i] === undefined ? Deno.env.delete(name) : Deno.env.set(name, old[i]!));
+  }
+});
+
+Deno.test('the staged pipeline\'s planned guide reads are exempt from the interactive page budget', async () => {
+  const names = ['TRAVEL_SEARCH_SOURCES', 'TAVILY_API_KEY'];
+  const old = names.map(name => Deno.env.get(name));
+  const original = globalThis.fetch;
+  const h = harness([]);
+  try {
+    Deno.env.set(names[0], 'tavily');
+    Deno.env.set(names[1], 'fixture');
+    const guideUrls = Array.from({ length: 6 }, (_, i) => `https://guides.example.com/day-${i}`);
+    globalThis.fetch = async (input: unknown, init?: RequestInit) => {
+      const target = String(input instanceof Request ? input.url : input);
+      if (target.includes('/extract')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        return new Response(JSON.stringify({ results: [{ url: Array.isArray(body.urls) ? body.urls[0] : '', raw_content: '攻略正文', images: [] }] }));
+      }
+      return new Response(JSON.stringify({ results: guideUrls.map((guideUrl, i) => ({ url: guideUrl, title: `攻略${i}`, content: '内容' })) }));
+    };
+    const search = () => searchTravelWeb.invoke({ context: h.context } as never, JSON.stringify({ query: '贡嘎 徒步 攻略', purpose: 'guide' }));
+    const read = (guideUrl: string) => readTravelGuide.invoke({ context: h.context } as never, JSON.stringify({ url: guideUrl }));
+    await search();
+    // The first three distinct reads stay inside the interactive page budget...
+    for (let i = 0; i < 3; i++) assert((await read(guideUrls[i]) as { status?: string }).status !== 'budget_exhausted', `read ${i} must stay within the page budget`);
+    // ...an unplanned fourth read is refused...
+    assert((await read(guideUrls[3]) as { status?: string }).status === 'budget_exhausted', 'an unplanned fourth read must hit the page budget');
+    // ...but the collector registers its planned reads, which are exempt.
+    allowGuideReads(h.context.runId, [guideUrls[4]]);
+    try {
+      assert((await read(guideUrls[4]) as { status?: string }).status !== 'budget_exhausted', 'a planned read must bypass the page budget');
+    } finally {
+      clearGuideQueries(h.context.runId);
+    }
+    // After the pipeline unregisters its reads the budget is back in force.
+    assert((await read(guideUrls[5]) as { status?: string }).status === 'budget_exhausted', 'the page budget did not return after the planned reads were cleared');
+  } finally {
+    h.dispose();
+    globalThis.fetch = original;
+    names.forEach((name, i) => old[i] === undefined ? Deno.env.delete(name) : Deno.env.set(name, old[i]!));
+  }
+});
+
+Deno.test('the staged pipeline\'s planned per-route queries bypass the one-discovery guard only for those exact queries', async () => {
+  const names = ['TRAVEL_SEARCH_SOURCES', 'TAVILY_API_KEY'];
+  const old = names.map(name => Deno.env.get(name));
+  const original = globalThis.fetch;
+  const h = harness([]);
+  let requests = 0;
+  try {
+    Deno.env.set(names[0], 'tavily');
+    Deno.env.set(names[1], 'fixture');
+    globalThis.fetch = async () => {
+      requests++;
+      return new Response(JSON.stringify({ results: [{ url, title: '攻略', content: '内容' }] }));
+    };
+    const search = (query: string) => searchTravelWeb.invoke({ context: h.context } as never, JSON.stringify({ query, purpose: 'guide' }));
+    await search('贡嘎 徒步 攻略');
+    // A planned per-route query is a fresh discovery pass...
+    allowGuideQueries(h.context.runId, ['四姑娘山 徒步 攻略']);
+    try {
+      await search('四姑娘山 徒步 攻略');
+      assert(requests === 2, 'A planned route query did not reach the provider');
+      // ...while an unplanned rephrase still reuses the original search.
+      await search('贡嘎 环线 攻略');
+      assert(requests === 2, 'An unplanned rephrase bypassed the one-discovery guard');
+    } finally {
+      clearGuideQueries(h.context.runId);
+    }
+    // After the pipeline unregisters its queries the guard is back in force.
+    await search('贡嘎 徒步 攻略');
+    assert(requests === 2, 'The guard did not return after the planned queries were cleared');
   } finally {
     h.dispose();
     globalThis.fetch = original;

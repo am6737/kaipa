@@ -45,6 +45,8 @@ interface Props {
   topAccessoryHeight?: number;
   /** Entrance animation style for overlays that are already replacing a visible sheet. */
   entranceAnimation?: 'spring' | 'timing' | 'none';
+  /** Optional value that mirrors the sheet's animated vertical translation. */
+  animatedTranslateY?: Animated.Value;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -76,6 +78,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     topAccessory,
     topAccessoryHeight = 0,
     entranceAnimation = 'spring',
+    animatedTranslateY,
   },
   ref
 ) {
@@ -89,7 +92,8 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const hiddenY = maxH + accessoryHeight + bottomOffset + 20;
   const openY = yFor(snapHeights[initialIndex]);
   const [index, setIndex] = useState(initialIndex);
-  const translateY = useRef(new Animated.Value(hiddenY)).current;
+  const internalTranslateY = useRef(new Animated.Value(hiddenY)).current;
+  const translateY = animatedTranslateY ?? internalTranslateY;
   const startY = useRef(hiddenY);
   const currentY = useRef(hiddenY);
   // live state read by the (created-once) pan responder callbacks
@@ -104,6 +108,9 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     const id = translateY.addListener(({ value }) => {
       currentY.current = value;
     });
+    // External mirrors must start from the same hidden position as the
+    // internal value before running the entrance animation.
+    translateY.setValue(hiddenY);
     // A replacing overlay can use a short linear entrance to avoid competing
     // with the sheet it is replacing during the same render frame.
     if (entranceAnimation === 'none') {

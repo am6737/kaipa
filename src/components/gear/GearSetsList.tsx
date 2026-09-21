@@ -52,6 +52,7 @@ export function GearSetsList({
   onDeleteSets,
   pinnedSetIds,
   onSetPinned,
+  onOpenSquare,
   entryVariant,
   picker,
 }: {
@@ -66,6 +67,7 @@ export function GearSetsList({
   onDeleteSets: (ids: string[]) => void;
   pinnedSetIds: Set<string>;
   onSetPinned: (ids: string[], pinned: boolean) => void;
+  onOpenSquare?: () => void;
   entryVariant?: 'push' | 'continuationX';
   picker?: {
     title: string;
@@ -295,7 +297,12 @@ export function GearSetsList({
             </View>
           </View>
           <SetsFloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(216, width - 28)} onClose={() => setMoreOpen(false)}>
-            <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.setList.display')}</Text>
+            {onOpenSquare ? <>
+              <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.square.discover')}</Text>
+              <SetsMenuRow theme={theme} icon="globe" label={t('gear.square.sets')} onPress={() => runFromMenu(onOpenSquare)} />
+              <Text style={{ paddingHorizontal: 24, paddingTop: 13, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.setList.display')}</Text>
+            </> : null}
+            {!onOpenSquare ? <Text style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 7, fontSize: 12, fontWeight: '600', color: theme.text2 }}>{t('gear.setList.display')}</Text> : null}
             <SetsMenuRow theme={theme} icon="grid" label={t('gear.setList.grid')} selected={layout === 'grid'} onPress={() => runFromMenu(() => setLayout('grid'))} />
             <SetsMenuRow theme={theme} icon="list" label={t('gear.setList.list')} selected={layout === 'list'} onPress={() => runFromMenu(() => setLayout('list'))} />
           </SetsFloatingMenu>

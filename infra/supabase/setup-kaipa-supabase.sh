@@ -182,6 +182,7 @@ ai_env='''      # app-agent：服务端模型凭证与 OpenAI 兼容端点
       KAIPA_AI_API_KEY: "${KAIPA_AI_API_KEY:-}"
       KAIPA_AI_BASE_URL: "${KAIPA_AI_BASE_URL:-https://ai.dootask.com/v1}"
       KAIPA_AI_MODEL: "${KAIPA_AI_MODEL:-gpt-5.6-sol}"
+      KAIPA_AI_FLASH_MODEL: "${KAIPA_AI_FLASH_MODEL:-gpt-5.6-luna}"
       KAIPA_AI_USE_RESPONSES: "${KAIPA_AI_USE_RESPONSES:-}"
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
       TAVILY_API_KEYS: "${TAVILY_API_KEYS:-}"
@@ -189,7 +190,7 @@ ai_env='''      # app-agent：服务端模型凭证与 OpenAI 兼容端点
       TRAVEL_SEARCH_TIMEOUT_MS: "${TRAVEL_SEARCH_TIMEOUT_MS:-8000}"
       TRAVEL_SEARCH_MAX_RESULTS: "${TRAVEL_SEARCH_MAX_RESULTS:-10}"
       TRAVEL_SEARCH_CACHE_TTL_SECONDS: "${TRAVEL_SEARCH_CACHE_TTL_SECONDS:-900}"
-      TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS: "${TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS:-2592000}"
+      TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS: "${TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS:-15552000}"
       RAIL_CACHE_TTL_SECONDS: "${RAIL_CACHE_TTL_SECONDS:-86400}"
       FLIGHT_CACHE_TTL_SECONDS: "${FLIGHT_CACHE_TTL_SECONDS:-300}"
       MEDIACRAWLER_SEARCH_URL: "${MEDIACRAWLER_SEARCH_URL:-}"
@@ -292,6 +293,7 @@ agent_env={
  'KAIPA_AI_API_KEY': configured('KAIPA_AI_API_KEY'),
  'KAIPA_AI_BASE_URL': configured('KAIPA_AI_BASE_URL', 'https://ai.dootask.com/v1'),
  'KAIPA_AI_MODEL': configured('KAIPA_AI_MODEL', 'gpt-5.6-sol'),
+ 'KAIPA_AI_FLASH_MODEL': configured('KAIPA_AI_FLASH_MODEL', 'gpt-5.6-luna'),
  'KAIPA_AI_USE_RESPONSES': configured('KAIPA_AI_USE_RESPONSES'),
  'TAVILY_API_KEY': configured('TAVILY_API_KEY'),
  'TAVILY_API_KEYS': configured('TAVILY_API_KEYS'),
@@ -299,7 +301,7 @@ agent_env={
  'TRAVEL_SEARCH_TIMEOUT_MS': configured('TRAVEL_SEARCH_TIMEOUT_MS', '8000'),
  'TRAVEL_SEARCH_MAX_RESULTS': configured('TRAVEL_SEARCH_MAX_RESULTS', '10'),
  'TRAVEL_SEARCH_CACHE_TTL_SECONDS': configured('TRAVEL_SEARCH_CACHE_TTL_SECONDS', '900'),
- 'TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS': configured('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', '2592000'),
+ 'TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS': configured('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', '15552000'),
  'RAIL_CACHE_TTL_SECONDS': configured('RAIL_CACHE_TTL_SECONDS', '86400'),
  'FLIGHT_CACHE_TTL_SECONDS': configured('FLIGHT_CACHE_TTL_SECONDS', '300'),
  'MEDIACRAWLER_SEARCH_URL': configured('MEDIACRAWLER_SEARCH_URL'),
@@ -384,6 +386,7 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908130000_fix_agent_track_summary.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260916120000_tracks_library.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919170000_agent_external_cache.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260921120000_timeline_transport_items.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

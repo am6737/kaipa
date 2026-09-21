@@ -1,4 +1,4 @@
-import { planDocumentSchema, planDraftFrom, researchBriefSchema, saveOperations } from './plan-document.ts';
+import { planDocumentModelSchema, planDocumentSchema, planDraftFrom, researchBriefSchema, saveOperations } from './plan-document.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -57,6 +57,8 @@ Deno.test('plan document rejects invented fields instead of passing them to the 
     'a field outside the document must never become a save operation',
   );
   rejects(() => planDocumentSchema.parse({ ...minimalPlan, journey: { name: 'x', days: 0 } }), 'a zero-day journey must be rejected');
+  planDocumentModelSchema.parse({ ...minimalPlan, journey: { name: 'x', days: null } });
+  rejects(() => planDocumentSchema.parse({ ...minimalPlan, journey: { name: 'x', days: null } }), 'a persisted journey with unknown days must be rejected');
   rejects(() => planDocumentSchema.parse({ ...minimalPlan, journey: { name: 'x', plannedDate: '2026/09/18' } }), 'a non ISO date must be rejected');
   rejects(() => planDocumentSchema.parse({ ...minimalPlan, itineraryItems: [{ day: 'Day 1', title: '出发', timeStart: '7:00' }] }), 'a non HH:mm start time must be rejected');
   // A blocked or questioned plan is still a valid document; only the schema shape is enforced here.

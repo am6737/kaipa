@@ -28,6 +28,37 @@ export const packingProposalSchema = z.object({
   items: z.array(packingItem).max(100),
 });
 
+// Provider-facing variant: structured-output providers require every property
+// to be present, so optional packing fields are represented as nullable values
+// and normalized before the strict draft schema is applied.
+const packingItemModelSchema = packingItem.extend({
+  attributes: packingItem.shape.attributes.nullable().default(null),
+  categoryName: packingItem.shape.categoryName.nullable().default(null),
+  estimatedEnergyKcalPerUnit: packingItem.shape.estimatedEnergyKcalPerUnit.nullable().default(null),
+});
+export const packingProposalModelSchema = z.object({
+  planProfile: packingPlanProfile.nullable().default(null),
+  items: z.array(packingItemModelSchema).max(100).default([]),
+});
+export const packingPatchModelSchema = z.object({
+  revision: z.number().int().positive(),
+  changes: z.array(z.object({
+    id: z.string(),
+    patch: z.object({
+      name: z.string().nullable().default(null),
+      attributes: z.array(z.object({ name: z.string(), value: z.string() })).nullable().default(null),
+      categoryName: z.string().nullable().default(null),
+      quantity: z.number().int().min(1).max(99).nullable().default(null),
+      weightKg: z.number().min(0).max(100).nullable().default(null),
+      weightEstimated: z.boolean().nullable().default(null),
+      carryStatus: z.enum(['packed', 'worn', 'consumable']).nullable().default(null),
+      estimatedEnergyKcalPerUnit: z.number().positive().max(3000).nullable().default(null),
+    }).default({ name: null, attributes: null, categoryName: null, quantity: null, weightKg: null, weightEstimated: null, carryStatus: null, estimatedEnergyKcalPerUnit: null }),
+  })).max(30).default([]),
+  additions: z.array(packingItemModelSchema).max(30).default([]),
+  removals: z.array(z.string()).max(30).default([]),
+});
+
 export type PackingArtifact = {
   status: 'committed' | 'needs_repair' | 'failed' | 'skipped';
   revision: number | null;
@@ -100,15 +131,44 @@ async function generateDraft(journeyId: string, runContext: RunContext, deps: Pa
     // model hiccup.
     let proposal;
     try {
-      proposal = packingProposalSchema.parse(await deps.generate(proposalInput, deps.signal));
+      proposal = packingProposalSchema.parse(normalizePackingModel(await deps.generate(proposalInput, deps.signal)));
     } catch (error) {
       console.warn('[AppAgent] packing generation failed, retrying from scratch', message(error).slice(0, 300));
-      proposal = packingProposalSchema.parse(await deps.generate(proposalInput, deps.signal));
+      proposal = packingProposalSchema.parse(normalizePackingModel(await deps.generate(proposalInput, deps.signal)));
     }
     return { feedback: await runPreparePackingDraft({ journeyId, planProfile: proposal.planProfile ?? planProfile, items: proposal.items }, runContext) as DraftFeedback };
   } catch (error) {
     return { error: message(error) };
   }
+}
+
+function normalizePackingModel(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = { ...(value as Record<string, unknown>) };
+  if (record.planProfile == null) delete record.planProfile;
+  for (const key of ['items', 'additions']) {
+    if (!Array.isArray(record[key])) continue;
+    record[key] = (record[key] as unknown[]).map(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      const normalized = { ...(item as Record<string, unknown>) };
+      for (const field of ['attributes', 'categoryName', 'estimatedEnergyKcalPerUnit']) if (normalized[field] == null) delete normalized[field];
+      return normalized;
+    });
+  }
+  if (Array.isArray(record.changes)) {
+    record.changes = (record.changes as unknown[]).map(change => {
+      if (!change || typeof change !== 'object' || Array.isArray(change)) return change;
+      const normalized = { ...(change as Record<string, unknown>) };
+      const patch = normalized.patch;
+      if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+        const clean = { ...(patch as Record<string, unknown>) };
+        for (const field of ['name', 'attributes', 'categoryName', 'quantity', 'weightKg', 'weightEstimated', 'carryStatus', 'estimatedEnergyKcalPerUnit']) if (clean[field] == null) delete clean[field];
+        normalized.patch = clean;
+      }
+      return normalized;
+    });
+  }
+  return record;
 }
 
 async function repairDraft(feedback: DraftFeedback, runContext: RunContext, deps: { repair: StageRunner; signal: AbortSignal }, needs: unknown): Promise<DraftFeedback> {

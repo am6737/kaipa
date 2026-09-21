@@ -19,7 +19,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
 
   return (
     <View style={{ paddingTop: space.xxs, paddingBottom: showActions ? space.xl : 112 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <Text numberOfLines={2} style={[type.pageTitle, { flex: 1, color: theme.text, fontSize: 28, lineHeight: 34 }]}>{route.name}</Text>
         {onClose ? (
           <Press onPress={onClose} accessibilityRole="button" style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}>

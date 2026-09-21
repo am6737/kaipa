@@ -13,7 +13,7 @@ import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeMapStyle } from '../components/globe';
+import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeMapStyle, type GlobeRouteConnector, type GlobeRouteSegment, type GlobeTransportSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -42,6 +42,7 @@ import { FeedbackPage } from '../components/me/FeedbackPage';
 // their display label is resolved per-language at render time.
 const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
 const MEMORY_CHIPS = ['all', 'fav'] as const;
+const ROUTE_COMPARISON_COLORS = ['#F08A5D', '#26B7E8', '#6C63F5', '#35B779', '#E35D9A', '#D9A21B'] as const;
 
 type FilterMenuAnchor = { x: number; y: number; width: number; height: number };
 
@@ -218,12 +219,17 @@ export function DiscoverScreen({
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
+  // Keep a route-detail selection separate from the route whose card is open,
+  // so a nearby route can be overlaid for visual comparison.
+  const [comparisonRoutes, setComparisonRoutes] = useState<Poi[]>([]);
+  const comparisonRouteIds = useMemo(() => new Set(comparisonRoutes.map((route) => route.id)), [comparisonRoutes]);
   const [routeReversed, setRouteReversed] = useState(false);
   const [mapCameraAction, setMapCameraAction] = useState<GlobeCameraAction>();
   const mapDisplaySettingsHydratedRef = React.useRef(false);
   const mapCameraRef = React.useRef<{ center: [number, number]; zoom: number } | null>(null);
   const mapBeforePointRef = React.useRef<{ center: [number, number]; zoom: number } | null>(null);
   const mapPointGestureRef = React.useRef(false);
+  const mapMarkerPressAtRef = React.useRef(0);
   const wasMapActiveRef = React.useRef(active);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [locating, setLocating] = useState(false);
@@ -237,6 +243,7 @@ export function DiscoverScreen({
   const sheetRef = React.useRef<TrailSheetHandle>(null);
   const routeJourneyTransitionRef = React.useRef(false);
   const journeyDetailScrollY = React.useRef(new Animated.Value(0)).current;
+  const pointSheetTranslateY = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -347,6 +354,8 @@ export function DiscoverScreen({
   const [mapImmersive, setMapImmersive] = useState(false);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
+  const [selectedJourneyRouteId, setSelectedJourneyRouteId] = useState<string | undefined>();
+  const [journeyRouteMenuOpen, setJourneyRouteMenuOpen] = useState(false);
   const [routeEditorGroupKey, setRouteEditorGroupKey] = useState<string | null>(null);
   const [routeMapSelectionRequest, setRouteMapSelectionRequest] = useState<{ coordinate: [number, number]; revision: number }>();
   const [routeDraftPosition, setRouteDraftPosition] = useState<TrackPosition | null>(null);
@@ -535,6 +544,7 @@ export function DiscoverScreen({
     setMapStylePickerOpen(false);
     setMapAtRouteFrame(true);
     setRouteReversed(false);
+    setComparisonRoutes([]);
     if (focusedRouteId) setMapCameraAction(undefined);
   }, [focusedRouteId]);
 
@@ -715,6 +725,21 @@ export function DiscoverScreen({
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
+    const timelineRouteIds = focusedTimeline.rows.map((row) => row.routeId).filter(Boolean);
+    // Older journeys only persisted the first timeline route id, while the
+    // journey title still contains every selected route name. Recover those
+    // route geometries for the overview map as well.
+    const titleRouteIds = point.kind === 'journey'
+      ? routes.filter((route) => route.name.length >= 3 && point.name.includes(route.name)).map((route) => route.id)
+      : [];
+    const routeTracks = [...new Set([...timelineRouteIds, ...titleRouteIds])]
+      .map((routeId) => routes.find((route) => route.id === routeId)?.trackCoords)
+      .filter((coords): coords is [number, number][] => (coords?.length ?? 0) >= 2);
+    // A timeline can still contain only the first route id. Prefer the
+    // journey's persisted geometry when it covers at least as much data.
+    const timelineCoords = routeTracks.flat();
+    if ((point.trackCoords?.length ?? 0) >= 2 && point.trackCoords!.length >= timelineCoords.length) return point.trackCoords!;
+    if (timelineCoords.length >= 2) return timelineCoords;
     if ((point.trackCoords?.length ?? 0) >= 2) return point.trackCoords!;
 
     // Older journeys may only keep the source route id. Their detail map should
@@ -762,19 +787,132 @@ export function DiscoverScreen({
   }, [focusedTimeline.groupRoutes, routeDraftEndpoint, routeDraftPosition, routeEditorGroupKey]);
   const focusSegments = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
+    const timelineRouteIds = focusedTimeline.rows.map((row) => row.routeId).filter(Boolean) as string[];
+    const titleRouteIds = routes
+      .filter((route) => route.name.length >= 3 && nav.pointInfo?.name.includes(route.name))
+      .map((route) => route.id);
+    const routeIds = [...new Set([...timelineRouteIds, ...titleRouteIds])];
+    const routeSegments = routeIds.flatMap((routeId, index) => {
+      const route = routes.find((item) => item.id === routeId);
+      if (!route?.trackCoords || route.trackCoords.length < 2) return [];
+      const routeRows = focusedTimeline.rows.filter((row) => row.routeId === routeId);
+      return [{
+        id: `journey-route-${routeId}`,
+        label: route.name,
+        coordinates: route.trackCoords,
+        color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
+        active: (!selectedJourneyDay || routeRows.some((row) => row.day === selectedJourneyDay))
+          && (!selectedJourneyRouteId || `journey-route-${routeId}` === selectedJourneyRouteId),
+      }];
+    });
+    const persistedTrack = nav.pointInfo.trackCoords;
+    const timelinePointCount = routeSegments.reduce((sum, segment) => sum + segment.coordinates.length, 0);
+    if (persistedTrack && persistedTrack.length >= 2 && persistedTrack.length > timelinePointCount) {
+      return [{
+        id: 'journey-persisted-track',
+        label: nav.pointInfo.name,
+        coordinates: persistedTrack,
+        color: JOURNEY_SEGMENT_COLORS[0],
+        active: !selectedJourneyRouteId || selectedJourneyRouteId === 'journey-persisted-track',
+      }];
+    }
+    if (routeSegments.length) return routeSegments;
     return buildJourneyRouteSegments(
       focusMeasure,
       focusGroupKeys,
       displayedGroupRoutes,
       selectedJourneyDay,
-    ).map((segment) => ({
+    ).map((segment, index) => ({
       id: segment.id,
       label: `${journeyDayDisplayLabel(segment.groupKey, resolved)} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
       coordinates: segment.coordinates,
-      color: segment.color,
-      active: segment.active,
+      // Route sections are equal peers. The selected day is expressed by
+      // emphasis, while the day label and boundary marker carry the grouping.
+      color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
+      active: segment.active && (!selectedJourneyRouteId || segment.id === selectedJourneyRouteId),
     }));
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, focusedTimeline.rows, nav.pointInfo?.kind, resolved, routes, selectedJourneyDay, selectedJourneyRouteId]);
+  const journeyRouteOptions = useMemo(() => {
+    if (nav.pointInfo?.kind !== 'journey') return [];
+    const seen = new Set<string>();
+    return focusSegments.filter((segment) => {
+      // Day-based fallback sections are useful on the map, but they are not
+      // separate user-selectable route tracks. Only linked route geometries
+      // should create the multi-route control.
+      if (!segment.id.startsWith('journey-route-')) return false;
+      if (seen.has(segment.id)) return false;
+      seen.add(segment.id);
+      return segment.coordinates.length >= 2;
+    });
+  }, [focusSegments, nav.pointInfo?.kind]);
+  useEffect(() => {
+    setSelectedJourneyRouteId(undefined);
+    setJourneyRouteMenuOpen(false);
+  }, [nav.pointInfo?.id]);
+  const routeComparisonSegments = useMemo(() => {
+    if (nav.pointInfo?.kind !== 'route') return [];
+    const primary = focusCoords ?? [];
+    const primaryCoordinates = routeReversed ? [...primary].reverse() : primary;
+    const result: GlobeRouteSegment[] = [];
+    if (primaryCoordinates.length >= 2) {
+      result.push({ id: 'route-detail-primary', label: nav.pointInfo.name, coordinates: primaryCoordinates, color: theme.accent, active: true });
+    }
+    comparisonRoutes.forEach((route, index) => {
+      const coordinates = route.trackCoords;
+      if (!coordinates || coordinates.length < 2 || route.id === nav.pointInfo?.id) return;
+      let color = ROUTE_COMPARISON_COLORS[index % ROUTE_COMPARISON_COLORS.length];
+      if (color.toLowerCase() === theme.accent.toLowerCase()) {
+        color = ROUTE_COMPARISON_COLORS[(index + 1) % ROUTE_COMPARISON_COLORS.length];
+      }
+      result.push({
+        id: `route-detail-comparison-${route.id}`,
+        label: route.name,
+        coordinates,
+        color,
+        active: true,
+      });
+    });
+    return result;
+  }, [comparisonRoutes, focusCoords, nav.pointInfo, routeReversed, theme.accent]);
+  const routeMapFocusCoords = useMemo(() => {
+    if (nav.pointInfo?.kind !== 'route' || !comparisonRoutes.length) return focusCoords;
+    return [
+      ...(focusCoords ?? []),
+      ...comparisonRoutes.flatMap((route) => route.trackCoords ?? []),
+    ];
+  }, [comparisonRoutes, focusCoords, nav.pointInfo?.kind]);
+  const focusConnectors = useMemo<GlobeRouteConnector[]>(() => {
+    if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
+    return focusGroupKeys.flatMap((groupKey, index) => {
+      const route = displayedGroupRoutes[groupKey];
+      if (!route) return [];
+      const trackEnd = positionAtDistance(focusMeasure, route.endDistanceMeters).coordinate;
+      const endpoint: [number, number] = [route.longitude, route.latitude];
+      if (!Number.isFinite(endpoint[0]) || !Number.isFinite(endpoint[1]) || distanceMeters(trackEnd, endpoint) <= 2) return [];
+      return [{
+        id: `journey-leg-${index}`,
+        coordinates: [trackEnd, endpoint] as [[number, number], [number, number]],
+        color: theme.text2,
+        active: !selectedJourneyDay || selectedJourneyDay === groupKey,
+      }];
+    });
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay, theme.text2]);
+  const transportSegments = useMemo<GlobeTransportSegment[]>(() => {
+    if (nav.pointInfo?.kind !== 'journey') return [];
+    return focusedTimeline.rows.flatMap((row) => {
+      if (row.kind !== 'transport' || !row.transport) return [];
+      const raw = row.transport.geometry;
+      const from = row.transport.from;
+      const to = row.transport.to;
+      const coordinates = raw && raw.length >= 2
+        ? raw
+        : Number.isFinite(from.longitude) && Number.isFinite(from.latitude) && Number.isFinite(to.longitude) && Number.isFinite(to.latitude)
+          ? [[from.longitude!, from.latitude!], [to.longitude!, to.latitude!]] as [number, number][]
+          : [];
+      if (coordinates.length < 2) return [];
+      return [{ id: row.id, coordinates, color: '#5B8DEF', active: !selectedJourneyDay || selectedJourneyDay === row.day, mode: row.transport.mode }];
+    });
+  }, [focusedTimeline.rows, nav.pointInfo?.kind, selectedJourneyDay]);
   const focusBoundaries = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
     return focusGroupKeys.flatMap((groupKey, index) => {
@@ -789,12 +927,12 @@ export function DiscoverScreen({
         title: journeyDayDisplayLabel(groupKey, resolved),
         distance: `${(displayMeters / 1000).toFixed(1)} km`,
         coordinate: [route.longitude, route.latitude] as [number, number],
-        color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
+        color: theme.accent,
         active: !selectedJourneyDay || selectedJourneyDay === groupKey,
         pending,
       }];
     });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay, theme.accent]);
   const routeEditorIndex = routeEditorGroupKey ? focusGroupKeys.indexOf(routeEditorGroupKey) : -1;
   let routeEditorMinimumMeters = 0;
   let routeEditorMaximumMeters: number | undefined;
@@ -812,26 +950,6 @@ export function DiscoverScreen({
     if (!routeEditorGroupKey || !routeDraftPosition || routeEditorIndex < 0) return focusBoundaries;
     return focusBoundaries.filter((boundary) => boundary.groupKey !== routeEditorGroupKey);
   }, [focusBoundaries, routeDraftPosition, routeEditorGroupKey, routeEditorIndex, routeEditorMinimumMeters]);
-  const endpointGroupKey = routeEditorGroupKey ?? selectedJourneyDay;
-  const endpointGroupIndex = endpointGroupKey ? focusGroupKeys.indexOf(endpointGroupKey) : -1;
-  const endpointRoute = endpointGroupKey ? displayedGroupRoutes[endpointGroupKey] : undefined;
-  const displayedEndpointCoordinate: [number, number] | undefined = routeEditorGroupKey
-    ? routeDraftEndpoint ?? undefined
-    : endpointRoute && Number.isFinite(endpointRoute.longitude) && Number.isFinite(endpointRoute.latitude)
-      ? [endpointRoute.longitude, endpointRoute.latitude]
-      : undefined;
-  const displayedTrackBoundary = routeEditorGroupKey && routeDraftPosition
-    ? routeDraftPosition.coordinate
-    : endpointRoute && focusMeasure
-      ? positionAtDistance(focusMeasure, endpointRoute.endDistanceMeters).coordinate
-      : undefined;
-  const displayedEndpointColor = endpointGroupIndex >= 0
-    ? JOURNEY_SEGMENT_COLORS[endpointGroupIndex % JOURNEY_SEGMENT_COLORS.length]
-    : theme.accent;
-  const displayedEndpointConnector = displayedTrackBoundary && displayedEndpointCoordinate
-    && distanceMeters(displayedTrackBoundary, displayedEndpointCoordinate) > 2
-    ? [displayedTrackBoundary, displayedEndpointCoordinate] as [[number, number], [number, number]]
-    : undefined;
   const openRouteEditor = useCallback((groupKey: string) => {
     routeEditorPreviousSheetIndex.current = journeySheetIndex;
     setRouteEditorGroupKey(groupKey);
@@ -868,15 +986,11 @@ export function DiscoverScreen({
     : journeySheetIndex === 1
       ? focusPanel + space.xl
       : full + space.md;
-  const pointMapControlsBottom = (nav.pointInfo?.kind === 'journey'
-    ? (journeySheetIndex === 0 ? journeyMinimum : journeySheetIndex === 1 ? focusPanel : full)
-    : (routeSheetIndex === 0 ? journeyMinimum : routeSheetIndex === 1 ? focusPanel : full)) + space.md;
   const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
     ? journeySheetIndex < 2
     : nav.pointInfo?.kind === 'route'
       ? routeSheetIndex < 2
       : false;
-
   const fitMapRoute = () => {
     setMapStylePickerOpen(false);
     setMapAtRouteFrame(true);
@@ -989,6 +1103,17 @@ export function DiscoverScreen({
 
   // sheet stats
   const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
+  const mapPois = useMemo(() => placeGroups.flatMap(({ rep, group }) => {
+    // Hide only routes already participating in the comparison. At a shared
+    // trailhead, keep exposing the next unselected sibling.
+    const markerCandidates = nav.pointInfo?.kind === 'route'
+      ? group.filter((item) => item.id !== nav.pointInfo?.id && !comparisonRouteIds.has(item.id))
+      : group;
+    const markerPoi = markerCandidates[0] ?? rep;
+    if (nav.pointInfo?.kind === 'route' && markerCandidates.length === 0) return [];
+    const [lng, lat] = poiMapCoordinate(markerPoi);
+    return [{ id: rep.id, lng, lat, mine: markerPoi.mine, tone: markerPoi.tone, count: markerCandidates.length, coverUri: markerPoi.photoUris?.[0], label: markerPoi.name }];
+  }), [comparisonRouteIds, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
@@ -1034,18 +1159,7 @@ export function DiscoverScreen({
         <Globe
           theme={theme}
           size={globeSize}
-          pois={placeGroups.flatMap(({ rep, group }) => {
-            const isSelectedPlace = nav.pointInfo?.kind === 'route' && rep.id === activeRepId;
-            // A shared trailhead still needs a tappable pin for its sibling
-            // routes. Show a sibling's photo there, while hiding the selected
-            // route's own photo; single-route places remain fully hidden.
-            const markerPoi = isSelectedPlace
-              ? group.find((item) => item.id !== nav.pointInfo?.id)
-              : rep;
-            if (!markerPoi) return [];
-            const [lng, lat] = poiMapCoordinate(markerPoi);
-            return [{ id: rep.id, lng, lat, mine: markerPoi.mine, tone: markerPoi.tone, count: group.length, coverUri: markerPoi.photoUris?.[0], label: markerPoi.name }];
-          })}
+          pois={mapPois}
           // Keep nearby route pins interactive while a route detail card is
           // open, so users can compare close tracks without first dismissing
           // the current card. Journey detail keeps its existing map-focused UI.
@@ -1059,6 +1173,9 @@ export function DiscoverScreen({
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
           staggerPins={!entrancePlayed}
           onCameraGestureStart={() => {
+            // Native map SDKs may report a marker tap as a short camera
+            // gesture. It must not make the detail route look unfocused.
+            if (Date.now() - mapMarkerPressAtRef.current < 500) return;
             if (nav.pointInfo) {
               mapPointGestureRef.current = true;
               setMapAtRouteFrame(false);
@@ -1068,17 +1185,19 @@ export function DiscoverScreen({
           onCameraPositionChange={(camera) => {
             mapCameraRef.current = camera;
           }}
-          focusCoords={nav.pointInfo?.kind === 'route' && routeReversed ? [...(focusCoords ?? [])].reverse() : focusCoords}
-          focusSegments={journeyMapDetailsVisible || routeEditorGroupKey ? focusSegments : []}
+          focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : focusCoords}
+          // The journey overview map must show every route leg as soon as the
+          // journey detail opens, not only after entering the expanded map view.
+          focusSegments={nav.pointInfo?.kind === 'journey' || routeEditorGroupKey
+            ? focusSegments
+            : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : []}
           focusBoundaries={journeyMapDetailsVisible || routeEditorGroupKey ? displayedFocusBoundaries : []}
           selectionPin={routeEditorGroupKey && routeDraftPosition && routeEditorIndex >= 0 ? {
             coordinate: routeDraftEndpoint ?? routeDraftPosition.coordinate,
             color: JOURNEY_SEGMENT_COLORS[routeEditorIndex % JOURNEY_SEGMENT_COLORS.length],
           } : undefined}
-          focusConnector={displayedEndpointConnector ? {
-            coordinates: displayedEndpointConnector,
-            color: displayedEndpointColor,
-          } : undefined}
+          focusConnectors={journeyMapDetailsVisible || routeEditorGroupKey ? focusConnectors : []}
+          transportSegments={journeyMapDetailsVisible ? transportSegments : []}
           onRouteBoundaryPress={(groupKey) => {
             setJourneyDaySelectionRequest((current) => ({ day: groupKey, revision: (current?.revision ?? 0) + 1 }));
           }}
@@ -1095,16 +1214,19 @@ export function DiscoverScreen({
             setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
           }}
           onPoiPress={(id) => {
+            // Marker presses can also bubble to NativeMap.onPress on iOS and
+            // Android. Keep that background event from dismissing the sheet.
+            mapMarkerPressAtRef.current = Date.now();
             const group = repIdToGroup.get(id);
             if (!group) return;
-            // While viewing a route, tapping a shared trailhead should switch
-            // to another route there directly instead of opening the list.
-            // This keeps nearby-route exploration consistent with single pins.
-            if (nav.pointInfo?.kind === 'route' && group.length > 1) {
-              const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id) ?? group[0];
-              setPlaceSel(null);
-              setFocusReturnToList(false);
-              openPointFromCurrentMap(nextRoute);
+            if (nav.pointInfo?.kind === 'route') {
+              const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id
+                && item.kind === 'route'
+                && !comparisonRouteIds.has(item.id));
+              if (nextRoute) {
+                setComparisonRoutes((current) => current.some((route) => route.id === nextRoute.id) ? current : [...current, nextRoute]);
+                setMapAtRouteFrame(true);
+              }
               return;
             }
             // One route/journey here → open its map detail. Several → scope the journey-list
@@ -1120,7 +1242,10 @@ export function DiscoverScreen({
             nav.closePoint();
             nav.openSheet();
           }}
-          onBackgroundPress={() => sheetRef.current?.dismiss()}
+          onBackgroundPress={() => {
+            if (Date.now() - mapMarkerPressAtRef.current < 500) return;
+            sheetRef.current?.dismiss();
+          }}
         />
         ) : null}
       </View>
@@ -1231,68 +1356,139 @@ export function DiscoverScreen({
 
       {((pointMapControlsVisible && !mapImmersive) || mapImmersive) ? (
         <>
-          {pointMapControlsVisible && !mapImmersive ? (
-            <Press
-              onPress={() => {
-                setMapStylePickerOpen(false);
-                setMapImmersive(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={t('journey.map.enterFullscreen')}
-              style={{
-                position: 'absolute',
-                right: space.md,
-                bottom: pointMapControlsBottom + 92,
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.controlSurface,
-              }}
-            >
-              <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
-            </Press>
+          {nav.pointInfo?.kind === 'journey' && journeyRouteOptions.length > 1 && (pointMapControlsVisible || mapImmersive) ? (
+            <Animated.View style={[{
+              position: 'absolute',
+              left: space.md,
+              bottom: mapImmersive ? journeyMinimum + space.md : full + space.md,
+              zIndex: 8,
+              alignItems: 'flex-start',
+            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }] }>
+              {journeyRouteMenuOpen ? (
+                <View style={{
+                  width: 238,
+                  marginBottom: space.sm,
+                  padding: space.xs,
+                  borderRadius: radius.card,
+                  backgroundColor: theme.surfaceTop,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: theme.fieldBorder,
+                  shadowColor: '#000',
+                  shadowOpacity: 0.14,
+                  shadowRadius: 14,
+                  shadowOffset: { width: 0, height: 5 },
+                  elevation: 5,
+                }}>
+                  <View style={{ paddingHorizontal: space.sm, paddingVertical: space.xs }}>
+                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: '800' }}>路线</Text>
+                    <Text style={{ color: theme.text3, fontSize: 11, marginTop: 2 }}>选择要查看的轨迹</Text>
+                  </View>
+                  <Press
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: !selectedJourneyRouteId }}
+                    onPress={() => { setSelectedJourneyRouteId(undefined); setJourneyRouteMenuOpen(false); }}
+                    style={{ minHeight: 40, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: !selectedJourneyRouteId ? theme.fieldSurface : 'transparent' }}
+                  >
+                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: theme.accent }} />
+                    <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: '700' }}>全部路线</Text>
+                    {!selectedJourneyRouteId ? <Icon name="check" color={theme.accent} size={16} /> : null}
+                  </Press>
+                  {journeyRouteOptions.map((segment, index) => {
+                    const selected = selectedJourneyRouteId === segment.id;
+                    return (
+                      <Press
+                        key={segment.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        onPress={() => { setSelectedJourneyRouteId(segment.id); setJourneyRouteMenuOpen(false); }}
+                        style={{ minHeight: 40, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: selected ? theme.fieldSurface : 'transparent' }}
+                      >
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: segment.color }} />
+                        <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: selected ? '800' : '600' }}>{segment.label || `路线 ${index + 1}`}</Text>
+                        {selected ? <Icon name="check" color={theme.accent} size={16} /> : null}
+                      </Press>
+                    );
+                  })}
+                </View>
+              ) : null}
+              <Press
+                accessibilityRole="button"
+                accessibilityLabel="路线"
+                accessibilityState={{ expanded: journeyRouteMenuOpen }}
+                onPress={() => setJourneyRouteMenuOpen((value) => !value)}
+                style={{ height: 36, paddingHorizontal: 11, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+              >
+                <Icon name="route" color={journeyRouteMenuOpen || selectedJourneyRouteId ? theme.accent : theme.text2} size={16} />
+                <Text style={{ color: journeyRouteMenuOpen || selectedJourneyRouteId ? theme.accent : theme.text2, fontSize: 11.5, fontWeight: '800' }}>路线</Text>
+              </Press>
+            </Animated.View>
           ) : null}
-          <Press
-            onPress={() => setMapStylePickerOpen((value) => !value)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: mapStylePickerOpen }}
-            accessibilityLabel={t('journey.map.layerTitle')}
-            style={{
+          {pointMapControlsVisible && !mapImmersive ? (
+            <Animated.View style={[{
               position: 'absolute',
               right: space.md,
-              bottom: mapImmersive ? journeyMinimum + space.md + 46 : pointMapControlsBottom + 46,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.controlSurface,
-            }}
-          >
-            <Icon name="layers" color={mapStylePickerOpen ? theme.accent : theme.text2} size={18} />
-          </Press>
+              bottom: full + space.md + 92,
+            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              <Press
+                onPress={() => {
+                  setMapStylePickerOpen(false);
+                  setMapImmersive(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={t('journey.map.enterFullscreen')}
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+              >
+                <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
+              </Press>
+            </Animated.View>
+          ) : null}
+          {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
+            <Animated.View style={[{
+              position: 'absolute',
+              right: space.md,
+              bottom: mapImmersive ? journeyMinimum + space.md + 92 : full + space.md + 138,
+            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              <Press
+                onPress={() => setComparisonRoutes([])}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.clearComparison')}
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+              >
+                <Icon name="close" color={theme.text2} size={18} />
+              </Press>
+            </Animated.View>
+          ) : null}
+          <Animated.View style={[{
+            position: 'absolute',
+            right: space.md,
+            bottom: mapImmersive ? journeyMinimum + space.md + 46 : full + space.md + 46,
+          }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <Press
+              onPress={() => setMapStylePickerOpen((value) => !value)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: mapStylePickerOpen }}
+              accessibilityLabel={t('journey.map.layerTitle')}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+            >
+              <Icon name="layers" color={mapStylePickerOpen ? theme.accent : theme.text2} size={18} />
+            </Press>
+          </Animated.View>
 
-          <Press
-            onPress={fitMapRoute}
-            accessibilityRole="button"
-            accessibilityLabel={t('journey.map.fitRoute')}
-            accessibilityState={{ selected: mapAtRouteFrame }}
-            style={{
-              position: 'absolute',
-              right: space.md,
-              bottom: mapImmersive ? journeyMinimum + space.md : pointMapControlsBottom,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.controlSurface,
-            }}
-          >
-            <Icon name="locate" color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} />
-          </Press>
+          <Animated.View style={[{
+            position: 'absolute',
+            right: space.md,
+            bottom: mapImmersive ? journeyMinimum + space.md : full + space.md,
+          }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <Press
+              onPress={fitMapRoute}
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.map.fitRoute')}
+              accessibilityState={{ selected: mapAtRouteFrame }}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+            >
+              <Icon name="locate" color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} />
+            </Press>
+          </Animated.View>
         </>
       ) : null}
 
@@ -1338,6 +1534,7 @@ export function DiscoverScreen({
         containerStyle={{ opacity: nav.newJourneyOpen ? 0 : 1 }}
         borderless={nav.pointInfo?.kind === 'route'}
         bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
+        animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : undefined}
         bottomOffset={0}
         onDismiss={() => {
           setPlaceSel(null);

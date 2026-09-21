@@ -15,7 +15,7 @@ function decision(operations: TaskDecision['operations']): TaskDecision {
   return {
     objective: '规划两天徒步', mode: 'execute', domain: 'hiking', continuation: false,
     authorizationQuote: '帮我规划两天徒步', operations, requiredOperations: operations, fullHikingPlan: true,
-    destination: '党岭', plannedDate: null, dateUndecided: true, days: 2, trackAttachmentName: null,
+    destination: '党岭', plannedDate: null, dateUndecided: true, days: 2, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [],
   };
 }
@@ -133,7 +133,7 @@ Deno.test('the save stage writes creation, itinerary and map location in order',
   const h = saveHarness();
   try {
     const artifact = await withGeocoder(() => runSaveStage(h.client as never, h.context, plan({
-      itineraryItems: [{ day: 'Day 1', title: '党岭村出发', timeStart: '07:00' }],
+      itineraryItems: [{ day: 'Day 1', title: '党岭村出发', timeStart: '07:00', routeId: null, kind: 'activity' }],
       mapLocation: { query: '党岭村' },
     })));
     assert(JSON.stringify(h.executed) === JSON.stringify(['create_journey', 'add_itinerary_items', 'set_journey_map_location']), `unexpected order: ${h.executed.join(',')}`);
@@ -147,7 +147,7 @@ Deno.test('an operation the user never authorized is skipped, not attempted', as
   const h = saveHarness({ operations: ['create_journey', 'add_itinerary_items'] });
   try {
     const artifact = await runSaveStage(h.client as never, h.context, plan({
-      itineraryItems: [{ day: 'Day 1', title: '党岭村出发' }],
+      itineraryItems: [{ day: 'Day 1', title: '党岭村出发', routeId: null, kind: 'activity' }],
       mapLocation: { query: '党岭村' },
     }));
     assert(!h.executed.includes('set_journey_map_location'), 'an unauthorized write must never reach the journal');
@@ -159,7 +159,7 @@ Deno.test('a failed itinerary write stops the endpoints that depend on it', asyn
   const h = saveHarness({ fail: ['add_itinerary_items'] });
   try {
     const artifact = await runSaveStage(h.client as never, h.context, plan({
-      itineraryItems: [{ day: 'Day 1', title: '党岭村出发' }],
+      itineraryItems: [{ day: 'Day 1', title: '党岭村出发', routeId: null, kind: 'activity' }],
       endpoints: [{ day: 'Day 1', trackFinish: true }],
     }));
     assert(artifact.failed.length === 1 && artifact.failed[0].tool === 'add_itinerary_items', `unexpected failures: ${JSON.stringify(artifact.failed)}`);
@@ -172,7 +172,7 @@ Deno.test('a failed itinerary write stops the endpoints that depend on it', asyn
 Deno.test('a failed creation stops the save instead of writing to nothing', async () => {
   const h = saveHarness({ fail: ['create_journey'] });
   try {
-    const artifact = await runSaveStage(h.client as never, h.context, plan({ itineraryItems: [{ day: 'Day 1', title: '党岭村出发' }] }));
+    const artifact = await runSaveStage(h.client as never, h.context, plan({ itineraryItems: [{ day: 'Day 1', title: '党岭村出发', routeId: null, kind: 'activity' }] }));
     assert(artifact.failed.length === 1 && artifact.failed[0].tool === 'create_journey', `unexpected failures: ${JSON.stringify(artifact.failed)}`);
     assert(artifact.saved.length === 0, 'nothing may be reported as saved');
     assert(artifact.skipped.every(entry => entry.reason === 'journey_create_failed'), `unexpected skips: ${JSON.stringify(artifact.skipped)}`);
@@ -183,7 +183,7 @@ Deno.test('a failed creation stops the save instead of writing to nothing', asyn
 Deno.test('a retried save replays completed receipts instead of writing twice', async () => {
   const h = saveHarness();
   try {
-    const document = plan({ itineraryItems: [{ day: 'Day 1', title: '党岭村出发' }], mapLocation: { query: '党岭村' } });
+    const document = plan({ itineraryItems: [{ day: 'Day 1', title: '党岭村出发', routeId: null, kind: 'activity' }], mapLocation: { query: '党岭村' } });
     const first = await withGeocoder(() => runSaveStage(h.client as never, h.context, document));
     assert(first.saved.length === 3, `unexpected first pass: ${JSON.stringify(first)}`);
     // A retry re-enters with a fresh context, exactly like a resumed job.

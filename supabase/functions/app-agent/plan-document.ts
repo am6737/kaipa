@@ -23,6 +23,18 @@ export const researchBriefSchema = z.object({
     summary: z.string().max(800).default(''),
     sourceUrls: z.array(z.string().max(1000)).max(8).default([]),
     unresolved: z.array(z.string().max(300)).max(8).default([]),
+    start: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
+    end: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
+    // Named points along the recorded track, in track order, with their
+    // cumulative distance. The planner needs these to choose real overnight
+    // points and day endpoints; without them a multi-day plan degrades to
+    // "day N" titles with no location.
+    waypoints: z.array(z.object({
+      index: z.number().int().min(0).max(5000),
+      name: z.string().min(1).max(120),
+      distanceKm: z.number().min(0).max(10000),
+      elevationMeters: z.number().nullable().default(null),
+    })).max(40).default([]).describe('选自路线 GPX 的具名标注点，按轨迹顺序，含累计里程；编排过夜点与每日终点只能从中选择'),
   })).max(12).default([]).describe('每个用户选择的路线都必须有一条独立研究结论；资料不足也要保留条目并填写 unresolved'),
   chosenRoute: z.object({
     routeId: z.string().max(100).nullable().default(null),
@@ -80,6 +92,8 @@ export const transportPlanSchema = z.object({
     verified: z.boolean().default(false),
     sourceUrl: z.string().max(1000).nullable().default(null),
     note: z.string().max(500).default(''),
+    fromLocation: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
+    toLocation: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
   })).max(12).default([]),
   totalTransportMinutes: z.number().int().min(0).max(200000).nullable().default(null),
   recommendedDays: z.number().int().min(1).max(30).nullable().default(null),
@@ -132,6 +146,85 @@ export const planDocumentSchema = z.object({
   pendingQuestion: z.string().max(1000).nullable().default(null),
 });
 export type PlanDocument = z.infer<typeof planDocumentSchema>;
+
+// Provider-facing schema only. A user may explicitly leave the duration
+// undecided, and models commonly represent that as journey.days=null. Accept
+// it long enough for the pipeline to turn the proposed journey into a draft or
+// pending question; the persisted PlanDocument remains strict.
+export const planDocumentModelSchema = planDocumentSchema.extend({
+  journey: z.object({
+    name: z.string().min(1).max(120),
+    region: z.string().max(120).default(''),
+    routeId: z.string().max(100).nullable().default(null),
+    trackAttachmentName: z.string().max(160).nullable().default(null),
+    plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+    days: z.number().int().min(1).max(30).nullable().default(null),
+    description: z.string().max(1000).nullable().default(null),
+  }).nullable().default(null),
+  itineraryItems: z.array(itineraryItem.extend({
+    timeStart: itineraryItem.shape.timeStart.nullable().default(null),
+    timeEnd: itineraryItem.shape.timeEnd.nullable().default(null),
+    transport: z.object({
+      mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
+      from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
+      to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
+      distanceMeters: z.number().nonnegative().max(2_000_000).nullable().default(null),
+      durationMinutes: z.number().int().nonnegative().max(100_000).nullable().default(null),
+      geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).default([]),
+      status: z.enum(['verified', 'estimated', 'unknown']).default('unknown'),
+      source: z.string().max(500).nullable().default(null),
+      note: z.string().max(500).nullable().default(null),
+    }).nullable().default(null),
+  })).max(80).default([]),
+  endpoints: z.array(itineraryGroupEndpoint.extend({
+    waypointIndex: itineraryGroupEndpoint.shape.waypointIndex.nullable().default(null),
+    trackFinish: itineraryGroupEndpoint.shape.trackFinish.nullable().default(null),
+    endDistanceKm: itineraryGroupEndpoint.shape.endDistanceKm.nullable().default(null),
+    locationName: itineraryGroupEndpoint.shape.locationName.nullable().default(null),
+    estimateBasis: itineraryGroupEndpoint.shape.estimateBasis.nullable().default(null),
+    userDistanceQuote: itineraryGroupEndpoint.shape.userDistanceQuote.nullable().default(null),
+    overnightReview: z.null().default(null),
+  })).max(30).default([]),
+  mapLocation: z.object({
+    query: z.string().min(1).max(160),
+    region: z.string().min(1).max(120).nullable().default(null),
+  }).nullable().default(null),
+  schedule: z.object({
+    totalDays: z.number().int().min(1).max(365),
+    plannedDate: z.string().nullable().default(null),
+    dayAssignments: z.array(z.object({ from: z.string().min(1).max(100), toDay: z.number().int().min(1).max(365) })).default([]),
+  }).nullable().default(null),
+});
+
+// Chunked-plan handoffs. When one oversized PlanDocument output is rejected
+// or misses the budget, the planner first emits this small outline and then
+// fills each day chunk independently, so a single failed output can no longer
+// lose the whole plan. Every reused shape stays the same schema the save
+// stage consumes, not a looser copy.
+export const planSkeletonSchema = planDocumentSchema.pick({
+  journey: true,
+  mapLocation: true,
+  schedule: true,
+  transport: true,
+  packingProfile: true,
+  assumptions: true,
+  unverified: true,
+  blocker: true,
+  pendingQuestion: true,
+}).extend({
+  dayNames: z.array(z.string().min(1).max(40)).max(40).default([])
+    .describe('按顺序列出的全部行程日，如 Day 1、Day 2；与 journey.days 一致，无法确定时留空并写入 blocker 或 pendingQuestion'),
+});
+export type PlanSkeleton = z.infer<typeof planSkeletonSchema>;
+
+export const planChunkSchema = z.object({
+  itineraryItems: z.array(itineraryItem).max(30).default([])
+    .describe('仅本组覆盖天数的行程条目；其他天留给后续轮次，不要重复前序天'),
+  endpoints: z.array(itineraryGroupEndpoint).max(15).default([])
+    .describe('仅本组徒步日的终点'),
+});
+export type PlanChunk = z.infer<typeof planChunkSchema>;
+
 
 // Renders an unsaved or partially saved plan as the existing draft shape so
 // the response can show a proposal that was never written to the database.

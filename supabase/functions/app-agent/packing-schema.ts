@@ -18,7 +18,7 @@ export const packingPlanProfile = z.object({
   accommodation: z.enum(['day_trip', 'indoors', 'camping', 'unknown']).describe('当天往返、室内住宿、露营或未知'),
   waterRefill: z.enum(['none', 'treated', 'natural', 'unknown']).describe('无补给、可靠处理水源、需净化的天然水源或未知'),
   mealPreparation: z.enum(['no_cook', 'cook', 'provided', 'unknown']).describe('无需烹饪、自行开火、住宿或商家提供、未知'),
-  conditions: z.array(z.enum(['hot', 'cold', 'wet', 'snow', 'high_altitude'])).max(5).optional(),
+  conditions: z.array(z.enum(['hot', 'cold', 'wet', 'snow', 'high_altitude'])).max(5).nullable().optional(),
 });
 
 export type PackingItem = z.infer<typeof packingItem>;

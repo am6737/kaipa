@@ -19,6 +19,7 @@ export const zh = {
     share: "分享",
     back: "返回",
     close: "关闭",
+    clearComparison: "收起路线对比",
     on: "开启",
     off: "关闭",
     all: "全部",
@@ -424,6 +425,11 @@ export const zh = {
   },
 
   gear: {
+    square: {
+      discover: "发现",
+      items: "装备广场",
+      sets: "广场清单",
+    },
     home: {
       mySets: "我的装备清单",
       myGear: "我的装备",

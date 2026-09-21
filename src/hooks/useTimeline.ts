@@ -176,6 +176,8 @@ export function useTimeline(
       is_synth: false,
       is_custom: true,
       checked: false,
+      item_kind: item.kind ?? 'activity',
+      transport: item.transport ?? null,
       sort_order: state.rows.length,
     };
     await supabase.from('timeline_rows').insert(row);
@@ -195,6 +197,8 @@ export function useTimeline(
     if (patch.media !== undefined) dbPatch.media = patch.media ?? null;
     if ('timeStart' in patch) dbPatch.time_mins = patch.timeStart ?? null;
     if ('timeEnd' in patch) dbPatch.time_end_mins = patch.timeEnd ?? null;
+    if (patch.kind !== undefined) dbPatch.item_kind = patch.kind ?? 'activity';
+    if (patch.transport !== undefined) dbPatch.transport = patch.transport ?? null;
     await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
     if (patch.day) await persistGroup(patch.day, false);
     setState(key, (s) => ({

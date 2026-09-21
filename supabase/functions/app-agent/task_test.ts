@@ -8,7 +8,7 @@ function throws(fn: () => void) { let failed = false; try { fn(); } catch { fail
 export function decision(overrides: Partial<TaskDecision> = {}): TaskDecision {
   return { objective: 'Plan a hike', mode: 'execute', fullHikingPlan: false, continuation: false, authorizationQuote: 'save',
     operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], destination: 'Hangzhou',
-    plannedDate: '2026-09-09', dateUndecided: false, days: 1, trackAttachmentName: null,
+    plannedDate: '2026-09-09', dateUndecided: false, days: 1, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [], ...overrides };
 }
 function state(overrides: Partial<TaskState> = {}): TaskState {
@@ -157,4 +157,28 @@ Deno.test('endpoint dependency does not expand transport, discussion, packing-on
   }
   assert(!constrainTaskDecision(decision({ fullHikingPlan: true }), 'save', null, 'journey', { hasBoundTrack: false }).operations.includes('set_itinerary_group_endpoints'));
   assert(constrainTaskDecision(decision({ fullHikingPlan: true }), 'save', null, 'journey', { hasBoundTrack: true }).operations.includes('set_itinerary_group_endpoints'));
+});
+
+Deno.test('an authorization quote differing only in punctuation or spacing still authorizes', () => {
+  // The interpreter is asked to quote the user verbatim, but "帮我规划一下。" or
+  // "帮我规划 一下" for "帮我规划一下，" is the same authorization; treating it
+  // as a paraphrase silently turned an explicit plan request into a chat that
+  // saved nothing.
+  const message = '我准备去党岭三湖连穿徒步，天数还没确定，帮我规划一下';
+  const planned = {
+    objective: '规划徒步', mode: 'execute', continuation: false, authorizationQuote: '帮我规划一下。',
+    operations: ['create_journey', 'add_itinerary_items'], requiredOperations: ['add_itinerary_items'],
+    fullHikingPlan: true, destination: '党岭三湖连穿', plannedDate: null, dateUndecided: false,
+    days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
+  } as TaskDecision;
+  const kept = constrainTaskDecision(planned, message, null, null, { hasBoundTrack: false });
+  assert(kept.mode === 'execute', `a formatting-only quote difference must keep execution, got ${kept.mode}`);
+  assert(kept.operations.includes('create_journey'), 'the authorized writes survive');
+
+  // A paraphrase is not the user's authorization and must still degrade.
+  const paraphrased = constrainTaskDecision({ ...planned, authorizationQuote: '帮我规划徒步行程' }, message, null, null, { hasBoundTrack: false });
+  assert(paraphrased.mode === 'discuss', 'a paraphrase must stay a discussion');
+  assert(paraphrased.operations.length === 0, 'a discussion carries no authorized writes');
+  const absent = constrainTaskDecision({ ...planned, authorizationQuote: '' }, message, null, null, { hasBoundTrack: false });
+  assert(absent.mode === 'discuss', 'an empty quote must stay a discussion');
 });

@@ -1,8 +1,8 @@
 import { z } from 'npm:zod@4.1.12';
 
 export const overnightReviewSchema = z.object({
-  sourceUrl: z.string().url().max(2000).optional(),
-  campQuote: z.string().trim().min(8).max(1000).optional().describe('可选的已读取攻略过夜原文；没有攻略证据时省略，仍可保存轨迹候选终点'),
+  sourceUrl: z.string().url().max(2000).nullable().optional(),
+  campQuote: z.string().trim().min(8).max(1000).nullable().optional().describe('可选的已读取攻略过夜原文；没有攻略证据时省略，仍可保存轨迹候选终点'),
   waterStatus: z.enum(['reported', 'unknown', 'unavailable']).describe('reported 仅表示攻略提及，不代表当前可用或可直接饮用'),
   waterQuote: z.string().trim().max(1000).describe('同一来源的水源原文；unknown 时可为空'),
   waterPlan: z.string().trim().min(10).max(1000).describe('营地无需自带水源。无水或未知时说明上次补水、背水量估算与容器容量、到下次补水前的饮用做饭需求及缺水备选；未知水源不得作为必需补水点'),
@@ -10,15 +10,15 @@ export const overnightReviewSchema = z.object({
 });
 
 export type OvernightReview = z.infer<typeof overnightReviewSchema>;
-type Boundary = { endDistanceKm: number; locationName?: string; estimateBasis?: string; userDistanceQuote?: string; overnightReview?: OvernightReview };
+type Boundary = { endDistanceKm: number; locationName?: string | null; estimateBasis?: string | null; userDistanceQuote?: string | null; overnightReview?: OvernightReview | null };
 type GuideReceipt = { tool_name: string; status: string; output?: unknown };
 
-export function resolveHikingEndpoint<T extends { endDistanceKm?: number; locationName?: string; waypointIndex?: number; trackFinish?: boolean }>(endpoint: T, totalMeters: number, waypoints: unknown): T & { endDistanceKm: number; locationName?: string } {
-  if (endpoint.waypointIndex !== undefined || endpoint.trackFinish) {
-    if (endpoint.endDistanceKm !== undefined || endpoint.locationName !== undefined || (endpoint.trackFinish && endpoint.waypointIndex !== undefined)) {
+export function resolveHikingEndpoint<T extends { endDistanceKm?: number | null; locationName?: string | null; waypointIndex?: number | null; trackFinish?: boolean | null }>(endpoint: T, totalMeters: number, waypoints: unknown): T & { endDistanceKm: number; locationName?: string | null } {
+  if (endpoint.waypointIndex != null || endpoint.trackFinish === true) {
+    if (endpoint.endDistanceKm != null || endpoint.locationName != null || (endpoint.trackFinish === true && endpoint.waypointIndex != null)) {
       throw new Error('按 waypointIndex 或 trackFinish 选择终点时，不要重复提供名称和公里数；系统会从当前轨迹读取。');
     }
-    if (endpoint.trackFinish) return { ...endpoint, endDistanceKm: totalMeters / 1000 };
+    if (endpoint.trackFinish === true) return { ...endpoint, endDistanceKm: totalMeters / 1000 };
     const index = endpoint.waypointIndex!;
     const point = record(Array.isArray(waypoints) && Number.isInteger(index) && index >= 0 ? waypoints[index] : null);
     if (typeof point.name !== 'string' || !point.name.trim() || typeof point.km !== 'number' || !Number.isFinite(point.km)) {
@@ -26,7 +26,7 @@ export function resolveHikingEndpoint<T extends { endDistanceKm?: number; locati
     }
     return { ...endpoint, locationName: point.name, endDistanceKm: point.km };
   }
-  if (endpoint.endDistanceKm === undefined) throw new Error('请选择 waypointIndex、trackFinish 或明确的 endDistanceKm。');
+  if (endpoint.endDistanceKm == null) throw new Error('请选择 waypointIndex、trackFinish 或明确的 endDistanceKm。');
   return { ...endpoint, endDistanceKm: endpoint.endDistanceKm };
 }
 
@@ -53,7 +53,7 @@ function evidenceTexts(receipts: GuideReceipt[], url: string): string[] {
 
 // These checks establish provenance and a real stored position, not campsite safety.
 export function validateHikingBoundary(endpoint: Boundary, totalMeters: number, waypoints: unknown, receipts: GuideReceipt[], userMessage = '') {
-  if (endpoint.estimateBasis !== undefined) throw new Error('不能把按天数或时长分配的暂估点保存为每日过夜终点。请先确定有依据的过夜地点；缺少证据时保留为未完成方案。');
+  if (endpoint.estimateBasis != null) throw new Error('不能把按天数或时长分配的暂估点保存为每日过夜终点。请先确定有依据的过夜地点；缺少证据时保留为未完成方案。');
   const meters = endpoint.endDistanceKm * 1000;
   if (!Number.isFinite(meters) || meters <= 0 || meters > totalMeters + 1) throw new Error('终点超出绑定轨迹范围');
   const waypoint = (Array.isArray(waypoints) ? waypoints : []).map(record).find(point =>

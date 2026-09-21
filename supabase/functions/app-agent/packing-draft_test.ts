@@ -47,7 +47,7 @@ Deno.test('feedback returns affected items instead of the entire draft and is no
 Deno.test('full packing exposes draft tools while incremental and discuss retain their boundaries', () => {
   const task: TaskState = { runId: 'r', journeyId: 'j', outcome: null, decision: {
     objective: 'Packing', mode: 'execute', continuation: false, authorizationQuote: 'Save', operations: ['add_packing_items'], requiredOperations: ['add_packing_items'],
-    destination: null, plannedDate: null, dateUndecided: false, days: 1, trackAttachmentName: null, packingMode: 'full', constraints: [],
+    destination: null, plannedDate: null, dateUndecided: false, days: 1, derivedDays: null, trackAttachmentName: null, packingMode: 'full', constraints: [],
   } };
   const names = () => createAgentRuntime({ model: 'test', apiKey: 'test', baseUrl: 'https://example.test' }, true, task).agent.tools.map(tool => tool.name);
   assert(names().includes('prepare_packing_draft') && !names().includes('add_packing_items'));

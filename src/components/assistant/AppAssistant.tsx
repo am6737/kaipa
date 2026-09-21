@@ -197,8 +197,10 @@ function modelStageLabel(stage: string) {
 /** Model metrics are emitted once per model call, so retries and tool turns can
  * produce several rows for the same user-facing stage. Keep the detailed
  * records for the total, but show one concise row per stage in the UI. */
-function aggregateModelMetrics(metrics: AgentModelMetric[]) {
-  const aggregated = new Map<string, AgentModelMetric>();
+function aggregateModelMetrics(metrics: AgentModelMetric[], stages: AgentStage[] = []) {
+  const stageStatus = new Map<string, AgentStage['status']>();
+  for (const stage of stages) stageStatus.set(stage.stage, stage.status);
+  const aggregated = new Map<string, AgentModelMetric & { degraded?: boolean }>();
   for (const metric of metrics) {
     const existing = aggregated.get(metric.stage);
     if (!existing) {
@@ -207,6 +209,17 @@ function aggregateModelMetrics(metrics: AgentModelMetric[]) {
     }
     existing.durationMs += metric.durationMs;
     existing.success = existing.success && metric.success;
+  }
+  // A research model call may time out after usable evidence was collected.
+  // The pipeline persists that case as a completed stage with an explicit
+  // fallback artifact; do not present the discarded call as a failed phase.
+  for (const [stage, metric] of aggregated) {
+    const status = stageStatus.get(stage);
+    if (status === 'completed') metric.success = true;
+    // A degraded stage is the opposite case: the stage fell back to an
+    // incomplete artifact, so its failed call must stay visible instead of
+    // being reported as a finished phase.
+    if (status === 'degraded') { metric.success = false; metric.degraded = true; }
   }
   return [...aggregated.values()];
 }
@@ -570,7 +583,7 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
   const totalElapsed = showTiming ? runElapsed(activities, now, runTiming) : undefined;
   const modelElapsed = modelMetrics.reduce((sum, metric) => sum + metric.durationMs, 0);
   const toolElapsed = activities.reduce((sum, activity) => sum + (activityElapsed(activity, now) || 0), 0);
-  const aggregatedModelMetrics = aggregateModelMetrics(modelMetrics);
+  const aggregatedModelMetrics = aggregateModelMetrics(modelMetrics, stages);
   const timedSteps = collapsePresentedSteps(visibleSteps.map((step) => {
     const activityIndex = activities.findIndex((activity, index) => step.key === `${activity.toolName}_${index}` || step.key.startsWith(`${activity.toolName}_${index}_`));
     const activity = activityIndex >= 0 ? activities[activityIndex] : undefined;
@@ -631,7 +644,7 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
       {showTiming && expanded ? aggregatedModelMetrics.map((metric) => (
         <View key={`model_${metric.stage}`} style={styles.researchLine}>
           {metric.success ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.success ? '' : ' · 失败'}</Text>
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.degraded ? ' · 部分完成' : metric.success ? '' : ' · 失败'}</Text>
         </View>
       )) : null}
       {expanded ? orderedTimedSteps.filter((step) => step.status === 'running').map((step) => (
@@ -858,12 +871,13 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenGear }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
   initialDisplayPrompt?: string;
   autoSubmitInitialPrompt?: boolean;
+  startNewConversation?: boolean;
   currentJourneyId?: string;
   onClose: () => void;
   onClearPrompt: () => void;
@@ -1187,7 +1201,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     pendingAutoDisplayRef.current = undefined;
     const key = storageKey(data.userId, currentJourneyId);
     const scope = `${data.userId}:${currentJourneyId || 'global'}`;
-    const canReuseCurrentView = restoredScopeRef.current === scope;
+    const canReuseCurrentView = !startNewConversation && restoredScopeRef.current === scope;
     setRestoring(!canReuseCurrentView);
     if (!canReuseCurrentView) {
       submitGenerationRef.current++;
@@ -1208,6 +1222,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
     const restore = async () => {
       try {
+        if (startNewConversation) {
+          await AsyncStorage.multiRemove([key, `${key}:pending`]);
+        }
         const pendingJson = await AsyncStorage.getItem(`${key}:pending`);
         if (!active) return;
         if (pendingJson) {
@@ -1310,7 +1327,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     };
     void restore();
     return () => { active = false; };
-  }, [currentJourneyId, data.userId, t, visible]);
+  }, [currentJourneyId, data.userId, t, visible, startNewConversation]);
 
   useEffect(() => {
     if (!visible || !threadId || loading || restoring || attachmentUploading) return;

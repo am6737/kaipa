@@ -4,8 +4,8 @@ import { itineraryMinutes } from './itinerary-time.ts';
 export type ItineraryItemDraft = {
   day: string;
   title: string;
-  timeStart?: string;
-  timeEnd?: string;
+  timeStart?: string | null;
+  timeEnd?: string | null;
 };
 
 export type ItineraryValidationIssue = {
