@@ -56,9 +56,9 @@ function GearSquarePage({ theme, kind, items, sets, onBack, onOpenItems, onOpenS
     { id: 'preview-camp', name: '摄影露营基础清单', items: ['Big Agnes Copper Spur HV UL2', 'Nemo Disco 15 羽绒睡袋', 'MSR PocketRocket 2 炉头'] },
   ] as GearSet[];
   const entries = isItems
-    ? previewItems.slice(0, 6).map((item, index) => ({ title: item.name, meta: `${index % 2 ? '睡眠系统' : '背负系统'}  ·  ${fmtWeight(itemWeight(item), 'kg')}`, note: index % 2 ? '高海拔' : '轻量徒步', photo: item.photos?.[0] }))
-    : previewSets.slice(0, 6).map((set, index) => ({ title: set.name, meta: `${set.items.length} 件  ·  ${fmtWeight(set.items.reduce((sum, name) => sum + itemWeight(previewItems.find((item) => item.name === name) || { w: 0, qty: 1 } as GearItem), 0), 'kg')}`, note: index % 2 ? '轻量化' : '高海拔', photo: set.items.map((name) => previewItems.find((item) => item.name === name)?.photos?.[0]).find(Boolean) }));
-  const fallback = entries.length ? entries[0] : { title: isItems ? '轻量化背包系统' : '周末轻徒步', meta: isItems ? '背负系统  ·  0.78 kg' : '12 件  ·  4.2 kg', note: '精选内容', photo: undefined };
+    ? previewItems.slice(0, 6).map((item, index) => ({ title: item.name, meta: `${index % 2 ? '睡眠系统' : '背负系统'}  ·  ${fmtWeight(itemWeight(item), 'kg')}`, photo: item.photos?.[0] }))
+    : previewSets.slice(0, 6).map((set) => ({ title: set.name, meta: fmtWeight(set.items.reduce((sum, name) => sum + itemWeight(previewItems.find((item) => item.name === name) || { w: 0, qty: 1 } as GearItem), 0), 'kg'), photo: set.items.map((name) => previewItems.find((item) => item.name === name)?.photos?.[0]).find(Boolean) }));
+  const fallback = entries.length ? entries[0] : { title: isItems ? '轻量化背包系统' : '周末轻徒步', meta: isItems ? '背负系统  ·  0.78 kg' : '4.2 kg', photo: undefined };
   const rest = entries.slice(1);
 
   return (
@@ -82,10 +82,13 @@ function GearSquarePage({ theme, kind, items, sets, onBack, onOpenItems, onOpenS
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           {rest.map((card) => <Press key={card.title} onPress={() => {}} style={{ width: '48%', minHeight: isItems ? 246 : 204, borderRadius: 24, padding: 14, backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
             {isItems ? <View style={{ height: 116, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)' }}>{card.photo ? <Image source={{ uri: card.photo }} contentFit="cover" style={StyleSheet.absoluteFill} /> : <Compass color={theme.accent} size={28} strokeWidth={1.5} opacity={0.6} />}</View> : null}
-            <View style={{ marginTop: isItems ? 13 : 0, flex: 1, justifyContent: 'space-between' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}><Text numberOfLines={3} style={{ flex: 1, fontSize: isItems ? 15 : 18, lineHeight: isItems ? 20 : 24, fontWeight: '800', color: theme.text }}>{card.title}</Text>{!isItems ? <View style={{ paddingHorizontal: 7, height: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : '#F2F2F3' }}><Text style={{ fontFamily: MONO, fontSize: 9.5, fontWeight: '700', color: theme.text2 }}>{card.meta.split(' ')[0]} 件</Text></View> : null}</View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}><Weight color={theme.text2} size={13} strokeWidth={1.7} /><Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{card.meta}</Text></View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}><Icon name="heart" color={theme.text3} size={13} /><Text style={{ fontSize: 11.5, color: theme.text3 }}>{card.note}  ·  128</Text></View>
+            <View style={{ marginTop: isItems ? 13 : 0, flex: 1 }}>
+              <Text numberOfLines={3} style={{ fontSize: isItems ? 15 : 18, lineHeight: isItems ? 20 : 24, fontWeight: '800', color: theme.text }}>{card.title}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 'auto' }}>
+                <Weight color={theme.text2} size={13} strokeWidth={1.7} />
+                <Text numberOfLines={1} style={{ flexShrink: 1, fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{card.meta}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 5 }}><Icon name="heart" color={theme.text2} size={13} /><Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>128</Text></View>
+              </View>
             </View>
           </Press>)}
         </View>
