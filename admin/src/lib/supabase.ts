@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.EXPO_PUBLIC_SUPABASE_URL
+const rawUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.EXPO_PUBLIC_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+
+// A root-relative url means "same origin, via the dev server proxy", which keeps
+// working however the console itself is reached.
+const url = rawUrl?.startsWith('/') ? `${window.location.origin}${rawUrl}` : rawUrl
 
 if (!url || !key) {
   console.warn('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY')

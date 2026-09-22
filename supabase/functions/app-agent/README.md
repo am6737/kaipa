@@ -57,6 +57,15 @@ interleaved across sources and deduplicated by URL. Xiaohongshu and Douyin run
 in parallel through separate crawler processes. Requests for the same platform
 remain serialized so they do not compete for one browser profile.
 
+`TRAVEL_SEARCH_TIMEOUT_MS` is clamped to `[2000, 30000]`, and further to 40% of
+the time the current stage has left. The second bound exists because a stage
+budget covers the whole tool loop, not one model call: this value reached 90000
+against a 120000 `research` budget, so a single slow provider put the stage at
+its ceiling before it could synthesize anything, and the stage hit exactly
+120.0s on 14 of 26 attempts while no individual model call came near it. Set it
+back to 8000 unless a provider is measurably slower than that; `scripts/report-agent-health.mjs`
+reports how often a stage lands on its ceiling.
+
 ## MediaCrawler gateway
 
 MediaCrawler must run as a separate Linux service. Do not place browser state,

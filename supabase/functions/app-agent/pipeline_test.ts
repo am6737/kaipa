@@ -101,3 +101,38 @@ Deno.test('stage budgets stay inside the worker and lease ceilings', () => {
     .reduce((sum, [, budget]) => sum + budget, 0);
   assert(700_000 - modelLoop >= 150_000, `only ${700_000 - modelLoop}ms remain for the non-model stages and finalize`);
 });
+
+// The budgets above only bound each other. What actually broke was a single
+// tool call being allowed to consume an entire stage: TRAVEL_SEARCH_TIMEOUT_MS
+// reached 90000 inside a 120000 research budget, so one slow provider put the
+// stage at its ceiling before the loop could synthesize anything, and the
+// research stage hit exactly 120.0s on 14 of 26 attempts while no individual
+// model call came anywhere near it. stageBoundedTimeoutMs is the runtime guard;
+// this is the assertion that keeps it from regressing.
+Deno.test('one search cannot consume the stage that awaits it', async () => {
+  const { bindStageDeadline, releaseStageDeadline, stageBoundedTimeoutMs } = await import('./tools.ts');
+  const runId = 'budget-test-run';
+  try {
+    // No bound registered (the interactive path) leaves the configured value alone.
+    assert(stageBoundedTimeoutMs(20_000, runId) === 20_000, 'an unbound run must keep its configured timeout');
+
+    // 100s of a 120s research budget remains: the call gets a share of what is
+    // left, never the configured 20s plus whatever the stage can spare.
+    bindStageDeadline(runId, 'research', Date.now() + 100_000);
+    const bounded = stageBoundedTimeoutMs(20_000, runId);
+    assert(bounded <= 100_000 * 0.4 + 50, `a search must stay inside its share of the stage, got ${bounded}ms`);
+
+    // Near the ceiling the timeout collapses to the floor instead of overrunning
+    // the stage, so the loop still gets to answer with what it already found.
+    bindStageDeadline(runId, 'research', Date.now() + 1_000);
+    assert(stageBoundedTimeoutMs(20_000, runId) === 2_000, 'a nearly-expired stage must clamp to the search floor');
+
+    // Every stage budget must still exceed the floor, or the clamp would starve
+    // the tool rather than bound it.
+    for (const [stage, budget] of Object.entries(STAGE_BUDGETS)) {
+      assert(budget > 2_000 / 0.4, `${stage} is too small to leave a usable search window`);
+    }
+  } finally {
+    releaseStageDeadline(runId);
+  }
+});

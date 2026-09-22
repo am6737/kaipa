@@ -19,8 +19,8 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string };
-      const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user';
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string };
+      const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact';
       if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
       if (!editors.includes(role)) return json({ error: 'write_forbidden' }, 403);
@@ -145,6 +145,31 @@ Deno.serve(async (req) => {
         const fileUrl = existing.data?.file_url;
         const marker = '/storage/v1/object/public/kaipa/';
         if (fileUrl?.includes(marker)) await service.storage.from('kaipa').remove([decodeURIComponent(fileUrl.split(marker)[1])]);
+      } else if (body.action === 'save-route-fact' || body.action === 'confirm-route-fact' || body.action === 'archive-route-fact') {
+        if (body.action === 'save-route-fact') {
+          let fields: unknown = null;
+          try { fields = JSON.parse(body.fields || 'null'); } catch { fields = null; }
+          if (!body.route_id || !body.category_slug || !body.title?.trim() || !fields || typeof fields !== 'object' || Array.isArray(fields)) return json({ error: 'route_fact_route_category_title_fields_required' }, 400);
+          const values = { route_id: body.route_id, category_slug: body.category_slug, title: body.title.trim(), fields, source_url: body.source_url || null, status: ['confirmed', 'suggested', 'archived'].includes(body.status || '') ? body.status : 'confirmed', review_due_at: body.review_due_at ? new Date(body.review_due_at).toISOString() : null };
+          const result = body.id
+            ? await service.from('route_fact_entries').update({ ...values, updated_by: auth.user.id }).eq('id', body.id).select('id').maybeSingle()
+            : await service.from('route_fact_entries').insert({ ...values, created_by: auth.user.id }).select('id').single();
+          if (result.error) throw result.error;
+          if (body.id && !result.data) return json({ error: 'route_fact_not_found' }, 404);
+          body.id = result.data?.id || body.id;
+        } else if (body.action === 'confirm-route-fact') {
+          const updated = await service.from('route_fact_entries')
+            .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), review_due_at: null, updated_by: auth.user.id })
+            .eq('id', body.id).select('id').maybeSingle();
+          if (updated.error) throw updated.error;
+          if (!updated.data) return json({ error: 'route_fact_not_found' }, 404);
+        } else {
+          const updated = await service.from('route_fact_entries')
+            .update({ status: 'archived', updated_by: auth.user.id })
+            .eq('id', body.id).select('id').maybeSingle();
+          if (updated.error) throw updated.error;
+          if (!updated.data) return json({ error: 'route_fact_not_found' }, 404);
+        }
       } else {
         return json({ error: 'unknown_action' }, 400);
       }
@@ -172,6 +197,14 @@ Deno.serve(async (req) => {
       const byId = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
       return json({ data: authUsers.data.users.map((user) => ({ ...byId.get(user.id), id: user.id, email: user.email, role: user.app_metadata?.role || '', last_sign_in_at: user.last_sign_in_at, banned_until: user.banned_until, created_at: user.created_at })) });
     }
+    if (resource === 'routeFacts') {
+      const result = await service.from('route_fact_entries')
+        .select('id,route_id,category_slug,title,fields,source_url,status,origin,confirmed_at,review_due_at,created_at,updated_at,created_by,updated_by,route:routes(name),category:route_fact_categories(name)')
+        .order('updated_at', { ascending: false }).limit(1000);
+      if (result.error) throw result.error;
+      await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
+      return json({ data: result.data || [] });
+    }
     const tables: Record<string, { table: string; select: string; order: string }> = {
       journeys: { table: 'journeys', select: 'id,name,region,created_at,planned_date,total_days,user_id,deleted_at', order: 'created_at' },
       // `gear_items` stores the user-maintained item name and measurements;
@@ -183,6 +216,8 @@ Deno.serve(async (req) => {
       content: { table: 'inspo_media', select: 'id,journey_id,user_id,uri,thumbnail,kind,caption,moderation_status,moderation_reason,reviewed_at,created_at', order: 'created_at' },
       agentRuns: { table: 'agent_runs', select: 'id,user_id,status,error,agent_version,created_at,updated_at', order: 'created_at' },
       audit: { table: 'admin_audit_logs', select: 'id,actor_id,action,resource_type,resource_id,metadata,created_at', order: 'created_at' },
+      // Ordered descending by the generic path; the route-facts UI re-sorts by sort_order.
+      routeFactCategories: { table: 'route_fact_categories', select: 'slug,name,description,field_schema,review_interval_days,sort_order', order: 'sort_order' },
     };
     const config = tables[resource];
     if (!config) return json({ error: 'unknown_resource' }, 400);

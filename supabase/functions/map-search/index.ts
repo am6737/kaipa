@@ -18,6 +18,7 @@ type AmapPoi = {
   name?: string;
   address?: string | string[];
   location?: string;
+  type?: string;
   pname?: string | string[];
   cityname?: string | string[];
   adname?: string | string[];
@@ -29,6 +30,7 @@ type JourneyLocationValue = {
   lng: number;
   lat: number;
   coord: string;
+  category?: string;
 };
 
 function json(body: unknown, status = 200) {
@@ -141,6 +143,7 @@ function poiToLocation(poi: AmapPoi): JourneyLocationValue | null {
     lng,
     lat,
     coord: coordinateLabel(lng, lat),
+    category: text(poi.type) || undefined,
   };
 }
 

@@ -58,6 +58,31 @@ const travelSearches = new Map<string, Map<string, Promise<unknown>>>();
 const guideReads = new Map<string, Promise<unknown>>();
 const journeyWrites = new Map<string, Promise<unknown>>();
 
+// The stage currently executing for a run, and when its budget expires.
+const stageDeadlines = new Map<string, { stage: string; deadlineAt: number }>();
+
+export function bindStageDeadline(runId: string, stage: string, deadlineAt: number) {
+  stageDeadlines.set(runId, { stage, deadlineAt });
+}
+export function releaseStageDeadline(runId: string) {
+  stageDeadlines.delete(runId);
+}
+
+// One search may not consume the stage that is waiting on it. A stage budget
+// covers the whole tool loop, so an unbounded provider timeout surfaced as an
+// aborted stage instead of as a slow tool: TRAVEL_SEARCH_TIMEOUT_MS reached
+// 90000 against a 120000 research budget, and the research stage then hit its
+// ceiling on 14 of 26 attempts with no single model call anywhere near it.
+// Bound one call to a share of the stage's remaining time so the loop always
+// keeps enough to synthesize what it already found.
+const SEARCH_STAGE_SHARE = 0.4;
+const SEARCH_FLOOR_MS = 2000;
+export function stageBoundedTimeoutMs(configured: number, runId?: string) {
+  const bound = runId ? stageDeadlines.get(runId) : undefined;
+  if (!bound) return configured;
+  return Math.max(SEARCH_FLOOR_MS, Math.min(configured, Math.round((bound.deadlineAt - Date.now()) * SEARCH_STAGE_SHARE)));
+}
+
 // A compatible provider may return a JSON string where an object is expected.
 // Shared by the interactive finalizer and the stage pipeline so the two paths
 // cannot drift on array/null handling.
@@ -80,6 +105,7 @@ export function releaseRunClient(runId: string) {
   travelSearches.delete(runId);
   guideReads.delete(runId);
   journeyWrites.delete(runId);
+  stageDeadlines.delete(runId);
 }
 
 function clientFor(runContext?: RunContext): Client {
@@ -419,6 +445,13 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
     return existing.data.output as T;
   }
 
+  // started_at is reset on every attempt while created_at is not, so the two
+  // must not be conflated: this row is upserted on
+  // (run_id, tool_name, arguments_hash), and a resumed attempt reuses it.
+  // Deriving latency from updated_at - created_at therefore measured the span
+  // across attempts, which reported 1445s for a packing write and 179s for an
+  // app-context read. duration_ms below is the only trustworthy tool latency.
+  const startedAt = new Date();
   const recorded = await client.from('agent_tool_calls').upsert({
     run_id: context.runId,
     thread_id: context.threadId,
@@ -429,9 +462,13 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
     status: 'running',
     output: null,
     error: null,
-    updated_at: new Date().toISOString(),
+    started_at: startedAt.toISOString(),
+    duration_ms: null,
+    updated_at: startedAt.toISOString(),
   }, { onConflict: 'run_id,tool_name,arguments_hash' }).select('id').single();
   if (recorded.error) throw recorded.error;
+
+  const elapsed = () => Math.max(0, Date.now() - startedAt.getTime());
 
   try {
     context.dataContext ??= { versions: {}, snapshots: {}, observed: {} };
@@ -446,11 +483,11 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
     }
     if (operationContext.writeReceipt?.committed) return output;
     const undoPayload = isUndoableResult(operationResult) ? operationResult.undo : null;
-    const saved = await client.from('agent_tool_calls').update({ status: 'completed', output, undo_payload: undoPayload, updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
+    const saved = await client.from('agent_tool_calls').update({ status: 'completed', output, undo_payload: undoPayload, duration_ms: elapsed(), updated_at: new Date().toISOString() }).eq('id', recorded.data.id);
     if (saved.error) throw saved.error;
     return output;
   } catch (error) {
-    await client.from('agent_tool_calls').update({ status: 'failed', error: errorText(error), updated_at: new Date().toISOString() }).eq('id', recorded.data.id).neq('status', 'completed');
+    await client.from('agent_tool_calls').update({ status: 'failed', error: errorText(error), duration_ms: elapsed(), updated_at: new Date().toISOString() }).eq('id', recorded.data.id).neq('status', 'completed');
     throw error;
   }
 }
@@ -560,20 +597,46 @@ export const searchJourneys = tool({
   }),
 });
 
+// A chain request names several routes at once, and the model is told to make
+// one focused search, so it sends them as a single string. Matching that whole
+// string as one contiguous substring can never hit: no route row contains the
+// names of the other two. That is why multi-route planning fell back to web
+// research and then reported "未找到可直接绑定的现成路线轨迹" even though
+// 党岭三湖连穿 (trk008), 雅拉温泉线 (trk065) and 桑措玉琼 (trk043) are all in
+// the catalog with track data — losing the catalog means losing verified
+// distance, ascent and coordinates, so the plan could not bind day endpoints
+// and refused to save.
+//
+// Split on the separators a route list actually uses, and drop fragments too
+// short to discriminate: single characters would match almost every row.
+const ROUTE_TERM_SEPARATORS = /[、,，;；/+]+|\s+/;
+export function routeSearchTerms(query: string): string[] {
+  const terms = query.trim().split(ROUTE_TERM_SEPARATORS)
+    .map(term => term.trim()).filter(term => term.length >= 2);
+  return [...new Set(terms)].slice(0, 6);
+}
+
 export const searchRoutes = tool({
   name: 'search_routes',
   description: 'Search route catalog by route name or region when planning a journey.',
   parameters: z.object({ query: z.string().min(1).max(80) }),
   execute: async ({ query }, runContext) => mutate('search_routes', { query }, runContext as RunContext, async (client, context) => {
     const columns = 'id,name,region,dist,asc_,diff,desc';
-    const pattern = `%${query.trim()}%`;
+    const terms = routeSearchTerms(query);
+    const patterns = (terms.length ? terms : [query.trim()]).map(term => `%${term}%`);
     const [byName, byRegion] = await Promise.all([
-      client.from('routes').select(columns).ilike('name', pattern).limit(20),
-      client.from('routes').select(columns).ilike('region', pattern).limit(20),
+      // One request per term rather than an `or=` filter: route names carry
+      // parentheses and full-width punctuation that PostgREST would need
+      // escaped inside the filter expression.
+      ...patterns.map(pattern => client.from('routes').select(columns).ilike('name', pattern).limit(20)),
+      ...patterns.map(pattern => client.from('routes').select(columns).ilike('region', pattern).limit(20)),
     ]);
-    if (byName.error) throw byName.error;
-    if (byRegion.error) throw byRegion.error;
-    return [...new Map([...(byName.data || []), ...(byRegion.data || [])].map((row: { id: string }) => [row.id, row])).values()].slice(0, 20);
+    const errors = [byName, byRegion].flat().filter((result: { error?: unknown }) => result.error);
+    if (errors.length) throw errors[0].error;
+    const rows = [byName, byRegion].flat().flatMap((result: { data?: unknown[] }) => (result.data || []) as Array<{ id: string }>);
+    // Earlier terms win: for a chain the first named route is the one the model
+    // asked for first, and the cap has to drop the tail rather than the head.
+    return [...new Map(rows.map((row: { id: string }) => [row.id, row])).values()].slice(0, 20);
   }),
 });
 
@@ -658,7 +721,10 @@ export const searchTravelWeb = tool({
         const result = await aggregateTravelSearch({
           query,
           providers,
-          timeoutMs: travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 60000 : 8000, 2000, 120000),
+          // Max clamp is 30s, below the shortest stage budget, so a mis-set
+          // environment variable cannot again outlive the stage that waits on
+          // it. The documented default in README.md is 8000.
+          timeoutMs: stageBoundedTimeoutMs(travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 20000 : 8000, 2000, 30000), context.runId),
           maxResults,
         });
         const cacheableResult = resolvedPurpose === 'guide'

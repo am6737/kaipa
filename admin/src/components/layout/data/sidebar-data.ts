@@ -1,4 +1,4 @@
-import { Backpack, Bell, Bot, FileClock, Image, LayoutDashboard, Map, Route, Settings, Users, Waypoints } from 'lucide-react'
+import { Backpack, Bell, Bot, BookMarked, FileClock, Image, LayoutDashboard, Map, Route, Settings, Users, Waypoints } from 'lucide-react'
 import { type SidebarData } from '../types'
 
 export const sidebarData: SidebarData = {
@@ -13,6 +13,7 @@ export const sidebarData: SidebarData = {
         { title: '旅程管理', url: '/journeys', icon: Map },
         { title: '装备库', url: '/gear', icon: Backpack },
         { title: '路线目录', url: '/routes', icon: Route },
+        { title: '线路资料', url: '/route-facts', icon: BookMarked },
         { title: '轨迹库', url: '/tracks', icon: Waypoints },
         { title: '内容审核', url: '/content', icon: Image },
       ],

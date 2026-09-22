@@ -167,3 +167,25 @@ Deno.test('packing mode mismatch is rejected before receipt replay or database a
     assert(h.reads.length === 0, 'Mode guard must precede receipts and business access');
   } finally { h.dispose(); }
 });
+
+// A chain names several routes and the model sends them in one query. The
+// catalog lookup must split them, or it matches a contiguous substring that no
+// route row can contain and reports the catalog as empty.
+Deno.test('a multi-route query is searched term by term, not as one substring', async () => {
+  const { routeSearchTerms } = await import('./tools.ts');
+  const terms = (query: string) => JSON.stringify(routeSearchTerms(query));
+  assert(terms('党岭三湖连穿 雅拉温泉线 桑措玉琼（嘉措琼吉）') === '["党岭三湖连穿","雅拉温泉线","桑措玉琼（嘉措琼吉）"]',
+    `space-separated route names must split, got ${terms('党岭三湖连穿 雅拉温泉线 桑措玉琼（嘉措琼吉）')}`);
+  assert(terms('党岭三湖连穿、雅拉温泉线、桑措玉琼') === '["党岭三湖连穿","雅拉温泉线","桑措玉琼"]',
+    'the Chinese enumeration comma must split');
+  // A single route must keep working exactly as before, parentheses included.
+  assert(terms('桑措玉琼（嘉措琼吉）') === '["桑措玉琼（嘉措琼吉）"]', 'one route name must stay whole');
+  assert(terms('九溪') === '["九溪"]', 'a two-character route name is a usable term');
+  // Fragments shorter than two characters would match nearly every row.
+  assert(terms('线 道 九溪') === '["九溪"]', 'single-character fragments are dropped');
+  assert(terms('   ') === '[]', 'blank input yields no terms');
+  // Eight real route names must still cap the fan-out; single characters would
+  // be filtered by the minimum-length rule before the cap ever applies.
+  assert(terms('党岭三湖 雅拉温泉 桑措玉琼 四姑娘山 格聂 狼塔 夏特 慕士')
+    === '["党岭三湖","雅拉温泉","桑措玉琼","四姑娘山","格聂","狼塔"]', 'term count is capped to bound the fan-out');
+});

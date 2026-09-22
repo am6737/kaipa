@@ -13,7 +13,7 @@ import { planChunkSchema, planDocumentModelSchema, planDocumentSchema, planDraft
 import { boundJourneyId, runSaveStage, type SaveArtifact } from './save-stage.ts';
 import { contextPrompt, readJourneySections } from './context.ts';
 import { packingPatchModelSchema, packingProposalModelSchema, runPackingStage, type PackingArtifact } from './packing-stage.ts';
-import { allowGuideQueries, allowGuideReads, clearGuideQueries, getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, runReadTravelGuide, runReadTravelGuideImages, runSearchTravelWeb, searchRoutes } from './tools.ts';
+import { allowGuideQueries, allowGuideReads, clearGuideQueries, getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, runReadTravelGuide, runReadTravelGuideImages, runSearchTravelWeb, searchRoutes, bindStageDeadline, releaseStageDeadline } from './tools.ts';
 import { GUIDE_LIMITS } from './search/guide-reader.ts';
 import { reviewTransport } from './transport-tool.ts';
 import { overnightReviewSchema } from './hiking-boundaries.ts';
@@ -22,20 +22,26 @@ import type { AgentContext } from './types.ts';
 
 export type StageName = 'interpret' | 'research' | 'transport' | 'plan' | 'save' | 'packing' | 'respond';
 
-// Stage budgets sum below the worker's fetch timeout and the job lease. Two
-// stages are near-synchronous: interpret returns the already-prepared decision
-// and save is deterministic code, so their budgets bound only the save stage's
-// optional repair round, not a model loop.
-// Budgets are calibrated against measured model latency, not guesses. Over a
-// four-day sample the research synthesis call ran p50 6s / p90 54s / max 105s
-// and the planner p50 8s / p90 106s / max 180s, so a 75s/90s pair aborted the
-// normal path: research fell back to the deterministic brief on almost every
-// run, and one plan in eight died mid-output. The plan and packing stages get
-// the room their worst case needs, because an aborted plan costs the whole
-// itinerary while an aborted reply costs a sentence. interpret and respond
-// carry the most headroom (interpret makes no model call, and respond measured
-// max 8.5s), so they give the margin back: the sum is 630s, leaving 70s under
-// the worker's 700s fetch timeout and the 12-minute job lease.
+// Stage budgets bound the WHOLE stage: the model loop plus every tool call
+// inside it. They do not bound one model call.
+//
+// These numbers have not been derived from that measurement yet, and the
+// previous comment here claimed they were calibrated against measured model
+// latency, which is a different quantity. That claim is what let the ceiling go
+// wrong quietly: agent_model_metrics records one call at a time, no call in the
+// sample came near a ceiling, and yet the research stage hit exactly 120.0s on
+// 14 of 26 attempts and the plan stage exactly 180.0s on 5 — the loops were
+// being cut by their budgets while the per-call evidence said they never got
+// close. Tool latency was also unattributable, because agent_tool_calls rows are
+// upserted per (run, tool, arguments) and a retry refreshes updated_at without
+// created_at, so the difference spans attempts.
+//
+// Both are now recorded (started_at/duration_ms, attempt/aborted) and exposed by
+// the agent_stage_wallclock_vs_budget view. Re-derive these budgets from that
+// view's p99 wall clock per stage, including aborted and degraded attempts, and
+// keep the sum under the worker's 700s fetch timeout and the 12-minute lease.
+// pipeline_test asserts the sum invariant; the ceiling values themselves are the
+// part that needs fresh measurement, not guessing.
 export const STAGE_BUDGETS: Record<StageName, number> = {
   interpret: 30_000,
   research: 120_000,
@@ -48,6 +54,12 @@ export const STAGE_BUDGETS: Record<StageName, number> = {
   packing: 150_000,
   respond: 60_000,
 };
+
+// Worker fetch timeout and job lease ceiling, mirrored from
+// infra/supabase/agent-worker.compose.yml. Exported so the pipeline test can
+// assert the ordering instead of relying on this comment.
+export const WORKER_FETCH_BUDGET_MS = 700_000;
+export const JOB_LEASE_BUDGET_MS = 12 * 60_000;
 
 const ARTIFACT_LIMIT_BYTES = 1_000_000;
 
@@ -329,9 +341,59 @@ export type RouteEvidence = {
   results: Array<Record<string, unknown>>;
   guideBody: string | null;
   imageText: string | null;
+  /** Human-maintained route facts ("线路资料"), confirmed status only. */
+  facts: RouteFactRow[];
   collected: string[];
   error: string | null;
 };
+
+export type RouteFactRow = {
+  route_id: string;
+  route_name: string;
+  category: { slug: string; name: string };
+  title: string;
+  fields: Record<string, unknown>;
+  source_url: string | null;
+  confirmed_at: string | null;
+  review_due_at: string | null;
+};
+
+// The RPC may not exist on the database yet (or may error at runtime); fact
+// reading must never fail a planning run, so every miss degrades to "no facts".
+async function loadRouteFacts(pipeline: PipelineDeps, names: string[]): Promise<RouteFactRow[]> {
+  if (!names.length) return [];
+  try {
+    const { data, error } = await pipeline.client.rpc('get_route_facts', { p_route_names: names });
+    if (error) return [];
+    return (Array.isArray(data) ? data : []) as RouteFactRow[];
+  } catch {
+    return [];
+  }
+}
+
+function factsForRoute(rows: RouteFactRow[], name: string): RouteFactRow[] {
+  return rows.filter(row => typeof row.route_name === 'string' && (row.route_name.includes(name) || name.includes(row.route_name)));
+}
+
+// Drafts the research synthesis found in guide text but the library lacks.
+// Best-effort: a write failure (e.g. RPC not deployed yet) must not fail the
+// research stage, the human confirmation loop happens in admin later.
+async function recordRouteFactSuggestions(pipeline: PipelineDeps, brief: ResearchBrief): Promise<void> {
+  for (const suggestion of brief.factSuggestions || []) {
+    try {
+      const { error } = await pipeline.client.rpc('record_route_fact_suggestion', {
+        p_route_id: suggestion.routeId,
+        p_category_slug: suggestion.category,
+        p_title: suggestion.title,
+        p_fields: suggestion.fields,
+        p_source_url: suggestion.sourceUrl,
+      });
+      if (error) console.warn('[AppAgent] route fact suggestion rejected', suggestion.routeId, suggestion.category, (error.message || '').slice(0, 200));
+    } catch (error) {
+      console.warn('[AppAgent] route fact suggestion failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
+    }
+  }
+}
 
 function destinationNames(destination: string | null): string[] {
   return (destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean);
@@ -457,7 +519,7 @@ async function loadCatalogFacts(pipeline: PipelineDeps, names: string[]): Promis
   });
 }
 
-async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal, names: string[], catalogFacts: CatalogRoute[], previous: ResearchBrief | null): Promise<RouteEvidence[]> {
+async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal, names: string[], catalogFacts: CatalogRoute[], previous: ResearchBrief | null, factRows: RouteFactRow[]): Promise<RouteEvidence[]> {
   const evidence: RouteEvidence[] = [];
   const deadline = Date.now() + RESEARCH_COLLECT_BUDGET_MS;
   const runContext = { context: pipeline.context };
@@ -467,16 +529,17 @@ async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal,
   try {
     for (const name of names) {
       const catalog = catalogFacts.find(route => route.matchedName === name) || null;
+      const facts = factsForRoute(factRows, name);
       const carried = previous?.routes.find(route => route.name === name) || null;
       if (isResolvedRoute(carried)) {
-        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, collected: ['上一轮已核验，本轮复用'], error: null });
+        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, facts, collected: ['上一轮已核验，本轮复用'], error: null });
         continue;
       }
       if (signal.aborted || Date.now() > deadline) {
-        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, collected: ['研究阶段预算不足，未检索'], error: null });
+        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, facts, collected: ['研究阶段预算不足，未检索'], error: null });
         continue;
       }
-      await collectOneRoute(pipeline, signal, runContext, deadline, name, catalog, evidence);
+      await collectOneRoute(pipeline, signal, runContext, deadline, name, catalog, facts, evidence);
     }
     return evidence;
   } finally {
@@ -484,9 +547,10 @@ async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal,
   }
 }
 
-async function collectOneRoute(pipeline: PipelineDeps, signal: AbortSignal, runContext: { context: AgentContext }, deadline: number, name: string, catalog: CatalogRoute | null, evidence: RouteEvidence[]): Promise<void> {
+async function collectOneRoute(pipeline: PipelineDeps, signal: AbortSignal, runContext: { context: AgentContext }, deadline: number, name: string, catalog: CatalogRoute | null, facts: RouteFactRow[], evidence: RouteEvidence[]): Promise<void> {
   void pipeline;
   const collected: string[] = [];
+  if (facts.length) collected.push(`已加载线路资料 ${facts.length} 条（人工核实）`);
   const results: Array<Record<string, unknown>> = [];
   let guideBody: string | null = null;
   let imageText: string | null = null;
@@ -546,13 +610,13 @@ async function collectOneRoute(pipeline: PipelineDeps, signal: AbortSignal, runC
       guideBody = bodies.join('\n\n').slice(0, GUIDE_EVIDENCE_TOTAL_CHARS);
       if (bodies.join('\n\n').length > GUIDE_EVIDENCE_TOTAL_CHARS) collected.push('攻略正文总量已按综合阶段预算截断');
     }
-    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, collected, error: null });
+    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected, error: null });
   } catch (error) {
     if (signal.aborted) {
-      evidence.push({ name, catalog, carried: null, results, guideBody, imageText, collected: collected.concat('研究阶段预算用尽'), error: null });
+      evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected: collected.concat('研究阶段预算用尽'), error: null });
       return;
     }
-    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, collected, error: error instanceof Error ? error.message : String(error) });
+    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected, error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -570,6 +634,11 @@ function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFac
     }
     parts.push(`采集情况：${item.collected.join('；') || '未采集'}`);
     if (item.error) parts.push(`采集错误：${item.error}`);
+    if (item.facts.length) {
+      parts.push(`已核实线路资料（人工维护，优先于攻略正文；冲突以此为准，来源日期见每条 confirmed_at）：${JSON.stringify(item.facts.map(fact => ({
+        类目: fact.category.name, 标题: fact.title, ...fact.fields, confirmed_at: fact.confirmed_at,
+      })))}`);
+    }
     for (const result of item.results) {
       const title = typeof result.title === 'string' ? result.title : '';
       const snippet = typeof result.snippet === 'string' ? result.snippet.slice(0, 450) : '';
@@ -582,7 +651,7 @@ function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFac
   });
   lines.push(`系统检索证据（按路线整理；未列出的字段没有证据，写入 unresolved，不要编造）：\n${evidenceLines.join('\n\n')}`);
   lines.push('');
-  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief。每个用户路线必须单独对应 routes 条目；已有路线目录事实优先保留，缺少道路接驳信息时写入 unresolved。');
+  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief。每个用户路线必须单独对应 routes 条目；已有路线目录事实优先保留，缺少道路接驳信息时写入 unresolved。若攻略正文给出了“已核实线路资料”中没有的具体价格、营地、住宿或班次，按 factSuggestions 提交草稿；不得把线路资料已有内容重复提交。');
   return lines.join('\n');
 }
 
@@ -612,6 +681,10 @@ export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEviden
     if (item.carried) return item.carried;
     const catalog = item.catalog;
     const summaries: string[] = [];
+    for (const fact of item.facts) {
+      if (facts.length >= 30) break;
+      facts.push({ fact: `[线路资料·已核实] ${item.name} ${fact.category.name}·${fact.title} ${JSON.stringify(fact.fields)}`.slice(0, 500), sourceUrl: fact.source_url });
+    }
     for (const result of item.results) {
       const title = typeof result.title === 'string' ? result.title : '';
       const snippet = typeof result.snippet === 'string' ? result.snippet.slice(0, 450) : '';
@@ -677,11 +750,13 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   // Guide reading stays: its bodies are what keeps a route entry "resolved" for
   // cross-run reuse, and they are cache-backed. Only the synthesis call is
   // skipped, because it rewrites evidence the plan already has.
-  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous);
+  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous, await loadRouteFacts(pipeline, names));
   const deterministic = bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
   if (covered) return deterministic;
   try {
-    return bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous)), catalogFacts);
+    const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous)), catalogFacts);
+    await recordRouteFactSuggestions(pipeline, brief);
+    return brief;
   } catch (error) {
     // Search providers and guide readers are external dependencies, and the
     // synthesis call may miss the stage budget. The deterministic brief below
@@ -701,18 +776,29 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
   void signal;
   const names = (pipeline.task.decision.destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean);
   const routes = names.map((name) => research?.routes.find((route) => route.name === name)).filter(Boolean) as ResearchBrief['routes'];
-  return transportPlanSchema.parse({
-    segments: names.slice(1).map((name, index) => ({
+  const factRows = await loadRouteFacts(pipeline, names);
+  const segments = names.slice(1).map((name, index) => {
+    const legFacts = factsForRoute(factRows, name)
+      .filter(fact => fact.category.slug === 'access_transport' || fact.category.slug === 'shuttle_cost');
+    return {
       fromRoute: names[index], toRoute: name, from: names[index], to: name,
       mode: 'unknown', durationMinutes: null, overnightRequired: false, verified: false,
-      sourceUrl: null, note: '路线起终点已从 GPX 读取，道路接驳时间待核实',
+      sourceUrl: legFacts[0]?.source_url || null,
+      note: legFacts.length
+        ? `已核实线路资料（人工维护，接驳方式与价格以此为准；时间仍需按当地班次核对）：${legFacts.map(fact => `${fact.category.name}·${fact.title}·${JSON.stringify(fact.fields)}`).join('；').slice(0, 600)}`
+        : '路线起终点已从 GPX 读取，道路接驳时间待核实',
       fromLocation: routes[index]?.end,
       toLocation: routes[index + 1]?.start,
-    })),
+    };
+  });
+  return transportPlanSchema.parse({
+    segments,
     totalTransportMinutes: null,
     recommendedDays: null,
     basis: '当前任务不安排往返大交通；路线间接驳需要根据实际起终点和当地车辆确认。',
-    unresolved: ['路线间交通起终点和耗时尚未核实，不将铁路或航班结果代替山路接驳。'],
+    unresolved: segments.length && segments.every(segment => !segment.note.includes('待核实'))
+      ? []
+      : ['路线间交通起终点和耗时尚未核实，不将铁路或航班结果代替山路接驳。'],
   });
 }
 
@@ -1272,6 +1358,10 @@ export async function runStage<T>(deps: {
   if (current.error) throw current.error;
   if (!current.data) return { artifact: null, aborted: true };
   await writeStage(pipeline.admin, { runId: pipeline.runId, userId: pipeline.userId, stage: name, attempt: pipeline.attempt, status: 'running' });
+  // Publish the ceiling before executing so tools running inside the loop can
+  // bound themselves against it rather than against the whole stage.
+  const deadlineAt = Date.now() + STAGE_BUDGETS[name];
+  bindStageDeadline(pipeline.runId, name, deadlineAt);
   try {
     const artifact = await deps.execute(withBudget(pipeline.signal, STAGE_BUDGETS[name]));
     const size = JSON.stringify(artifact ?? null).length;
@@ -1288,6 +1378,8 @@ export async function runStage<T>(deps: {
       error: (error instanceof Error ? error.message : String(error)).slice(0, 2000),
     });
     throw error;
+  } finally {
+    releaseStageDeadline(pipeline.runId);
   }
 }
 

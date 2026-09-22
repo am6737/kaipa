@@ -461,18 +461,36 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'execute_job') {
-      if (!body.runId || !body.leaseToken) return json({ error: 'Missing lease' }, 403);
+      if (!body.runId || !body.leaseToken) return json({ error: { code: 'lease_required', message: 'Missing lease' } }, 403);
       jobAdmin = createClient(supabaseUrl, env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false, autoRefreshToken: false } });
-      const owned = await client.from('agent_runs').select('id,thread_id').eq('id', body.runId).eq('status', 'running').single();
-      if (owned.error) return json({ error: 'Run unavailable' }, 403);
+      // maybeSingle, not single: a run cancelled between enqueue and claim is
+      // gone rather than malformed, and .single() threw here and surfaced as a
+      // worker-side HTTP 500 instead of a clean release.
+      const owned = await client.from('agent_runs').select('id,thread_id').eq('id', body.runId).eq('status', 'running').maybeSingle();
+      if (owned.error) throw owned.error;
+      if (!owned.data) return json({ error: { code: 'run_unavailable', message: 'Run unavailable' } }, 409);
       const claimed = await jobAdmin.from('agent_jobs').update({ state: 'executing' })
         .eq('run_id', body.runId).eq('lease_token', body.leaseToken).eq('state', 'leased')
         .gt('lease_until', new Date().toISOString()).select('payload,attempts').maybeSingle();
       if (claimed.error) throw claimed.error;
-      if (!claimed.data) return json({ error: 'Lease unavailable' }, 409);
+      if (!claimed.data) return json({ error: { code: 'lease_unavailable', message: 'Lease unavailable' } }, 409);
       jobLease = body.leaseToken;
       jobAttempt = claimed.data.attempts;
       activeRunId = body.runId;
+      // A previous attempt died mid-stage, so its row still says running: an
+      // edge execution killed by its own ceiling leaves no chance to finalize.
+      // loadStageState reads a running row as "an earlier attempt that did not
+      // get this stage done", which is correct, but the rows also accumulate and
+      // make every stage-failure report ambiguous about what is still in flight.
+      // Close them before this attempt starts so agent_zombie_stages stays empty.
+      if (jobAttempt > 1) {
+        const orphaned = await jobAdmin.from('agent_stages').update({
+          status: 'failed',
+          error: 'abandoned_by_superseding_attempt',
+          updated_at: new Date().toISOString(),
+        }).eq('run_id', body.runId).eq('status', 'running').lt('attempt', jobAttempt);
+        if (orphaned.error) console.warn('Could not close abandoned agent stages', orphaned.error);
+      }
       body = { ...claimed.data.payload, action: 'turn', clientRunId: body.runId, threadId: owned.data.thread_id };
     }
 
@@ -701,7 +719,11 @@ Deno.serve(async (req) => {
     const config = agentModelConfig();
     const temporalContext = agentTemporalContext(body);
     const recordMetric = async (metric: ModelMetric) => {
-      const result = await jobAdmin.from('agent_model_metrics').insert({ ...metric, run_id: runId, user_id: user.id });
+      // attempt matches the agent_stages attempt the pipeline runs under, so a
+      // resumed job's model calls stay separable from the attempt that made
+      // them. Without it, summing a stage's calls attributed three aborted
+      // attempts to one stage and made model time look larger than wall time.
+      const result = await jobAdmin.from('agent_model_metrics').insert({ ...metric, attempt: Math.max(1, jobAttempt), run_id: runId, user_id: user.id });
       if (result.error) throw result.error;
     };
     const task = await prepareTask(client, jobAdmin, {

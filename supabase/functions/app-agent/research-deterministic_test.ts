@@ -25,7 +25,7 @@ function routeEntry(patch: Partial<ResearchBrief['routes'][number]> = {}): Resea
 function evidenceOf(patch: Partial<RouteEvidence>): RouteEvidence {
   return {
     name: '贡嘎', catalog: null, carried: null, results: [], guideBody: null,
-    imageText: null, collected: [], error: null, ...patch,
+    imageText: null, facts: [], collected: [], error: null, ...patch,
   };
 }
 
@@ -167,4 +167,16 @@ Deno.test('research skips the guide tail only when the catalog covers every rout
   assert(!catalogCoversPlanning(['党岭', '雅拉'], [full]), 'one uncovered route keeps the full path');
   assert(!catalogCoversPlanning([], [full]), 'no destination keeps the existing behaviour');
   assert(!catalogCoversPlanning(['某野山'], [full]), 'an unmatched route is not covered');
+});
+
+Deno.test('confirmed route facts land in the deterministic brief', () => {
+  // The covered path returns the deterministic brief for most runs, so the
+  // maintained 线路资料 must survive into it or the planner never sees them.
+  const brief = deterministicBrief(pipelineStub('贡嘎'), [
+    evidenceOf({
+      name: '贡嘎', catalog: catalogRoute('贡嘎', 4),
+      facts: [{ route_id: 'route-贡嘎', route_name: '贡嘎', category: { slug: 'campsite', name: '营地' }, title: '雅哈垭口营地', fields: { 水源: '有' }, source_url: 'https://example.com/camp', confirmed_at: '2026-09-01', review_due_at: null }],
+    }),
+  ]);
+  assert(brief.facts.some(fact => fact.fact.includes('[线路资料·已核实]') && fact.fact.includes('雅哈垭口营地') && fact.sourceUrl === 'https://example.com/camp'), 'confirmed facts must carry into brief.facts');
 });

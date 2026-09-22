@@ -56,6 +56,16 @@ export const researchBriefSchema = z.object({
     fact: z.string().max(500),
     sourceUrl: z.string().max(1000).nullable().default(null),
   })).max(30).default([]),
+  // Drafts for the maintained route-facts library ("线路资料"). Only from guide
+  // text this run actually read; a human confirms or discards them in admin,
+  // so the model is never trusted to write 'confirmed' facts itself.
+  factSuggestions: z.array(z.object({
+    routeId: z.string().min(1).max(100),
+    category: z.enum(['access_transport', 'shuttle_cost', 'lodging', 'campsite', 'itinerary', 'season_safety']),
+    title: z.string().min(1).max(120),
+    fields: z.record(z.string(), z.string().max(400)).default({}),
+    sourceUrl: z.string().max(1000).nullable().default(null),
+  })).max(12).default([]).describe('仅当攻略正文给出具体、可复核、且线路资料里没有的地面信息（价格、营地、班次、住宿）时提交草稿；fields 的 key 用该类目的字段名，值一律写成字符串'),
   waterAndResupply: z.array(z.string().max(500)).max(12).default([]),
   transportOptions: z.array(z.object({
     direction: z.enum(['outbound', 'return']),

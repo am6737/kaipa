@@ -7,6 +7,7 @@ export interface JourneyLocationValue {
   lng: number;
   lat: number;
   coord: string;
+  category?: string;
 }
 
 interface MapSearchResponse {

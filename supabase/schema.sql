@@ -672,6 +672,11 @@ create table if not exists agent_tool_calls (
 );
 alter table agent_tool_calls add column if not exists undo_payload jsonb;
 alter table agent_tool_calls add column if not exists undone_at timestamptz;
+-- Per-attempt tool timing. The row is upserted on (run_id, tool_name,
+-- arguments_hash), so created_at survives a retry while updated_at does not:
+-- updated_at - created_at measures the span across attempts, not one call.
+alter table agent_tool_calls add column if not exists started_at timestamptz;
+alter table agent_tool_calls add column if not exists duration_ms integer check (duration_ms is null or duration_ms >= 0);
 alter table agent_threads enable row level security;
 alter table agent_session_items enable row level security;
 alter table agent_messages enable row level security;
@@ -1165,6 +1170,12 @@ create table if not exists public.agent_model_metrics (
   created_at timestamptz not null default now()
 );
 create index if not exists agent_model_metrics_run_idx on public.agent_model_metrics(run_id);
+-- attempt/aborted make a stage's model time separable from its tool time.
+-- Without attempt, summing a stage's calls on a resumed run attributed every
+-- prior attempt to the stage that was currently measured.
+alter table public.agent_model_metrics add column if not exists attempt integer not null default 1;
+alter table public.agent_model_metrics add column if not exists aborted boolean not null default false;
+create index if not exists agent_model_metrics_stage_attempt_idx on public.agent_model_metrics(stage, attempt);
 alter table public.agent_model_metrics enable row level security;
 revoke all on public.agent_model_metrics from public, anon, authenticated;
 grant select on public.agent_model_metrics to authenticated;

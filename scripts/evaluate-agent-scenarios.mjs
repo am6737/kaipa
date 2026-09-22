@@ -6,12 +6,15 @@ import { createClient } from '@supabase/supabase-js';
 
 // Real worker/model evaluation. Only disposable account data is inspected or changed.
 process.loadEnvFile(process.env.KAIPA_RUNTIME_ENV || '../kaipa-supabase-docker/.env');
-const url = `http://127.0.0.1:${process.env.KONG_HTTP_PORT || '8010'}`;
+// Defaults to the loopback Kong the compose stack publishes on its own host.
+// KAIPA_BASE_URL overrides it so the suite can also run against a remote
+// deployment without editing the script.
+const url = process.env.KAIPA_BASE_URL || `http://127.0.0.1:${process.env.KONG_HTTP_PORT || '8010'}`;
 const admin = createClient(url, process.env.SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const client = createClient(url, process.env.ANON_KEY, { auth: { persistSession: false } });
 const reportPath = process.argv.find(arg => arg.startsWith('--report='))?.slice(9);
 const selected = process.argv.find(arg => arg.startsWith('--suite='))?.slice(8);
-if (selected && !['bounded', 'continuation'].includes(selected)) throw new Error('Unknown suite');
+if (selected && !['bounded', 'continuation', 'multi-route'].includes(selected)) throw new Error('Unknown suite');
 const report = { startedAt: new Date().toISOString(), results: [], usage: 'Token usage/cost is not persisted by the current runtime; not estimated.' };
 let userId;
 async function checked(request) { const result = await request; if (result.error) throw result.error; return result.data; }
@@ -38,9 +41,14 @@ async function turn(conversation, id, message, verify) {
   } while (true);
   const task = await checked(client.from('agent_task_states').select('state').eq('run_id', accepted.runId).maybeSingle());
   const calls = await checked(client.from('agent_tool_calls').select('tool_name,status,arguments,output').eq('run_id', accepted.runId).order('created_at'));
+  // Stages are what a long-form failure is actually made of. Without them a
+  // multi-route plan that dies at 180s in the plan stage and one that dies at
+  // schema validation both look like the same "run failed", and the suite could
+  // only ever assert on the outcome, never on where the work stopped.
+  const stages = await checked(client.from('agent_stages').select('stage,status,attempt,error,artifact').eq('run_id', accepted.runId).order('attempt'));
   const replies = await checked(client.from('agent_messages').select('content,ui').eq('thread_id', accepted.threadId).eq('role', 'assistant').contains('ui', { requestId: accepted.runId }));
-  const result = { id, message, elapsedMs: Date.now() - started, version: run.agent_version, runStatus: run.status,
-    task: task?.state, calls, reply: replies[0], before, after: await snapshot() };
+  const result = { id, message, elapsedMs: Date.now() - started, version: run.agent_version, runStatus: run.status, runError: run.error,
+    stages, task: task?.state, calls, reply: replies[0], before, after: await snapshot() };
   try {
     assert.equal(run.status, 'completed', run.error);
     assert.equal(replies.length, 1, 'Exactly one final answer expected');
@@ -49,7 +57,9 @@ async function turn(conversation, id, message, verify) {
   } catch (error) { result.passed = false; result.failure = error.message; }
   report.results.push(result);
   console.log(JSON.stringify({ id, passed: result.passed, elapsedMs: result.elapsedMs, mode: result.task?.decision.mode,
-    outcome: result.task?.outcome, operations: result.task?.decision.operations, failure: result.failure, reply: result.reply?.content }));
+    outcome: result.task?.outcome, operations: result.task?.decision.operations,
+    stages: result.stages.map(stage => `${stage.stage}:${stage.status}@${stage.attempt}`).join(','),
+    failure: result.failure, reply: result.reply?.content }));
   return result;
 }
 function noWrites(result) {
@@ -109,6 +119,50 @@ try {
       const added = result.after.rows.filter(row => !result.before.rows.some(old => old.id === row.id));
       assert.equal(added.length, 1); assert.equal(added[0].time_mins, 420); assert.equal(added[0].time_end_mins, 480);
     });
+  }
+  if (!selected || selected === 'multi-route') {
+    // The product's valuable path is chaining several routes into one trip, and
+    // neither existing suite covered it at all. Two shapes have to be pinned
+    // separately, because the first run proved they are different behaviours:
+    //
+    //   undecided scope  -> discuss + draft + one clarifying question, no writes
+    //   decided scope    -> staged pipeline, a real day-by-day itinerary
+    //
+    // Asserting the second outcome on the first input is wrong, and an earlier
+    // revision of this scenario did exactly that: it demanded a saved journey
+    // from a message ending in "天数还没确定", and the agent correctly refused.
+    const undecided = await turn({}, 'three-route-chain-undecided', '我准备去党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）徒步，天数还没确定，帮我规划一下。', result => {
+      assert.equal(result.task.decision.mode, 'discuss', 'undecided scope must not be granted writes');
+      assert.deepEqual(result.task.decision.operations, [], 'undecided scope must authorize no operations');
+      assert.equal(result.after.journeys.length, 0, 'undecided scope must save nothing');
+      assert.ok(result.stages.length === 0, 'a discussion must not start the staged pipeline');
+      assert.ok(result.task.outcome?.pendingQuestion, 'undecided scope must ask rather than guess');
+      assert.ok((result.reply?.content || '').length > 100, 'the draft must carry the comparison the question is about');
+    });
+    if (undecided.passed) {
+      // Decided scope is where the catalog matters. 党岭三湖连穿 (trk008),
+      // 雅拉温泉线 (trk065) and 桑措玉琼 (trk043) all exist with track data, so a
+      // plan that claims no bindable route found them as nothing: search_routes
+      // matched the whole concatenated query as one substring. A catalog miss
+      // costs verified distance, ascent and day-endpoint coordinates, which is
+      // what makes the plan refuse to save.
+      const chain = await turn({}, 'three-route-chain-decided', '把党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）三条线串成一趟 9 天的行程，2026-10-16 出发，创建旅程并保存。', result => {
+        assert.equal(result.task.decision.mode, 'execute', 'a decided chain must execute');
+        assert.equal(result.after.journeys.length, 1, `exactly one journey must hold the chain, got ${result.after.journeys.length}`);
+        const journey = result.after.journeys[0];
+        assert.equal(journey.planned_date, '2026-10-16', 'the stated departure date must survive');
+        assert.ok((journey.total_days || 0) >= 7, `a three-route chain needs most of the stated 9 days, got ${journey.total_days}`);
+        const routeSearch = result.calls.find(call => call.tool_name === 'search_routes');
+        assert.ok(routeSearch, 'the chain must consult the route catalog');
+        assert.ok(Array.isArray(routeSearch.output) && routeSearch.output.length >= 2,
+          `the catalog holds all three routes, search returned ${JSON.stringify(routeSearch.output)}`);
+        assert.ok(result.after.rows.length >= 7, `expected a day-by-day itinerary, got ${result.after.rows.length} rows`);
+        const days = new Set(result.after.rows.map(row => row.day));
+        assert.ok(days.size >= 7, `expected the chain to span >=7 days, got ${days.size}`);
+        assert.ok(!result.stages.some(stage => stage.status === 'running'), 'a stage was left running after the run finished');
+      });
+      void chain;
+    }
   }
 } finally {
   if (userId) {
