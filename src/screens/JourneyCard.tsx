@@ -1421,6 +1421,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [tabPageHeights, setTabPageHeights] = useState<Record<string, number>>({});
   const activePagerHeight = tabPageHeights[seg] || 600;
 
+  // Stored page heights only ever grow (see the page onLayout, which has to
+  // ignore clamped measurements), so a page that genuinely got shorter needs an
+  // explicit reset when its content changes size.
+  const pageContentSize = `${timeline.rows.length}|${filteredPhotos.length}`;
+  useEffect(() => {
+    setTabPageHeights({});
+  }, [pageContentSize]);
+
   useEffect(() => {
     if (!planOverviewAnimatingRef.current) pagerHeight.value = activePagerHeight;
   }, [activePagerHeight, pagerHeight, seg]);
@@ -2322,9 +2330,16 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                       ? Math.max(1, height - planOverviewExtraHeight.value)
                       : height;
                   }
-                  setTabPageHeights((current) => current[option.id] === height
-                    ? current
-                    : { ...current, [option.id]: height });
+                  setTabPageHeights((current) => {
+                    // Monotonic: the page is measured inside the very height this
+                    // value sets, so a measurement taken while the container is
+                    // short is a clamped number, not the content's height.
+                    // Returning it used to park the container at 18pt and re-measure
+                    // as 179, forever (18 ↔ 179 at ~250 cycles/2s).
+                    const previous = current[option.id] ?? 0;
+                    if (height <= previous) return current;
+                    return { ...current, [option.id]: height };
+                  });
                 }}
               >
                 <SelectedPoiContent
