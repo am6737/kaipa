@@ -78,7 +78,10 @@ Deno.test('creation validates normalized facts instead of matching words in hist
   throws(() => assertCreationFacts(task, { plannedDate: '2026-09-10', days: 1 }));
   throws(() => assertCreationFacts(task, { plannedDate: '2026-09-09', days: 2 }));
   task.decision.plannedDate = null;
-  throws(() => assertCreationFacts(task, { days: 1 }));
+  // An undated trip may still create its journey: the plan is not blocked on an
+  // unknown date, and a date the task does not carry is still rejected.
+  assertCreationFacts(task, { days: 1 });
+  throws(() => assertCreationFacts(task, { plannedDate: '2026-09-09', days: 1 }));
   task.decision.dateUndecided = true;
   assertCreationFacts(task, { days: 1 });
   task.decision.trackAttachmentName = 'route.gpx';
@@ -99,7 +102,10 @@ Deno.test('outcome requires receipts for requested deliverables and preserves dr
 });
 
 Deno.test('skills are discoverable but not eagerly injected; runtime hides denied writes', async () => {
-  assert(coreInstructions.length < 4500, 'Core prompt grew beyond its budget');
+  // The core prompt is budgeted so it cannot grow without a decision. Raised
+  // from 4500 for the authorizationUnconfirmed rule: an explicit request whose
+  // wording the interpreter cannot match must ask instead of saving nothing.
+  assert(coreInstructions.length < 4700, 'Core prompt grew beyond its budget');
   for (const [name, skill] of Object.entries(planningSkills)) {
     assert(coreInstructions.includes(name) && !coreInstructions.includes(skill.body));
     const loaded = await loadPlanningSkill.invoke({} as never, JSON.stringify({ name }));
@@ -181,4 +187,24 @@ Deno.test('an authorization quote differing only in punctuation or spacing still
   assert(paraphrased.operations.length === 0, 'a discussion carries no authorized writes');
   const absent = constrainTaskDecision({ ...planned, authorizationQuote: '' }, message, null, null, { hasBoundTrack: false });
   assert(absent.mode === 'discuss', 'an empty quote must stay a discussion');
+});
+
+Deno.test('a paraphrased authorization is flagged for confirmation instead of silently discussing', () => {
+  const message = '我准备去党岭三湖连穿徒步，天数还没确定，帮我规划一下';
+  const planned = {
+    objective: '规划徒步', mode: 'execute', continuation: false, authorizationQuote: '帮我规划徒步行程',
+    operations: ['create_journey', 'add_itinerary_items'], requiredOperations: ['add_itinerary_items'],
+    fullHikingPlan: true, destination: '党岭三湖连穿', plannedDate: null, dateUndecided: false,
+    days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
+  } as TaskDecision;
+  // The paraphrase still cannot authorize writes, but the turn must say so
+  // rather than look like a plain discussion.
+  const flag = constrainTaskDecision(planned, message, null, null, { hasBoundTrack: false });
+  assert(flag.mode === 'discuss', 'a paraphrase must not authorize writes');
+  assert(flag.authorizationUnconfirmed === true, 'an unverifiable execution request must be flagged');
+  // A verified quote clears it, and a genuine question never sets it.
+  const quoted = constrainTaskDecision({ ...planned, authorizationQuote: '帮我规划一下' }, message, null, null, { hasBoundTrack: false });
+  assert(quoted.mode === 'execute' && quoted.authorizationUnconfirmed === false, 'a verified quote executes without the flag');
+  const asked = constrainTaskDecision({ ...planned, mode: 'discuss', authorizationQuote: '' }, message, null, null, { hasBoundTrack: false });
+  assert(asked.authorizationUnconfirmed === false, 'a question is not an unconfirmed execution request');
 });

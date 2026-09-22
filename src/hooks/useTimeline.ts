@@ -56,6 +56,7 @@ export function useTimeline(
     preview.groups.forEach((group: any) => {
       if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
       groupRoutes[group.name] = {
+        routeId: group.route_id ?? undefined,
         endDistanceMeters: Number(group.route_end_meters),
         longitude: Number(group.route_end_lng),
         latitude: Number(group.route_end_lat),
@@ -96,6 +97,7 @@ export function useTimeline(
         groupRows?.forEach((group) => {
           if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
           groupRoutes[group.name] = {
+            routeId: group.route_id ?? undefined,
             endDistanceMeters: Number(group.route_end_meters),
             longitude: Number(group.route_end_lng),
             latitude: Number(group.route_end_lat),
@@ -139,6 +141,9 @@ export function useTimeline(
       updated_at: new Date().toISOString(),
     };
     if (route !== undefined) {
+      // A manual pick happens on the track the editor shows, so it belongs to
+      // that track; the caller says which one, and null means the journey's own.
+      row.route_id = route?.routeId ?? null;
       row.route_end_meters = route?.endDistanceMeters ?? null;
       row.route_end_lng = route?.longitude ?? null;
       row.route_end_lat = route?.latitude ?? null;

@@ -2,7 +2,7 @@
 // (single-shot, skeleton and chunked merge). These tests pin the behaviors
 // the chunked-plan fallback depends on: deterministic duration fill, the
 // strict/non-strict journey-null guard and endpoint-gap disclosure.
-import { endpointDaysOffBoundRoute, fallbackPlan, finalizePlan, planDegradeReason, type PipelineDeps } from './pipeline.ts';
+import { endpointDaysWithUnknownRoute, fallbackPlan, finalizePlan, planDegradeReason, type PipelineDeps } from './pipeline.ts';
 import { researchBriefSchema } from './plan-document.ts';
 import { taskDecisionSchema, type TaskDecision } from './task.ts';
 
@@ -100,6 +100,12 @@ Deno.test('a plan without itinerary items is reported as degraded, a filled one 
   assert(planDegradeReason(empty) != null, 'an empty itinerary must degrade the plan stage');
   const filled = finalizePlan({ journey: journeyStub(3), itineraryItems: [{ day: 'Day 1', title: '徒步' }] }, pipelineOf(decisionOf({})), null, null, 3);
   assert(planDegradeReason(filled) === null, 'a plan with itinerary items must stay completed');
+  // Itinerary items without a journey are still nothing saved: every write is
+  // journey-scoped. This is the case that reported a completed run after
+  // writing zero rows.
+  const orphanItems = { journey: null, itineraryItems: [{ day: 'Day 1', title: '徒步' }] } as never;
+  assert(planDegradeReason(orphanItems) != null, 'items without a journey must degrade');
+  assert(planDegradeReason(orphanItems as never, true) === null, 'a replan into an existing journey is not degraded');
   const journeyOnly = finalizePlan({ journey: null, blocker: '轨迹缺失' }, pipelineOf(decisionOf({})), null, null, 3);
   assert(planDegradeReason(journeyOnly) != null, 'a fallback without a journey must degrade too');
   // Stopping to ask the user is still an incomplete plan stage, but it is not a
@@ -133,43 +139,49 @@ Deno.test('a plan whose endpoints are all locatable is not annotated', () => {
   assert(plan.unverified.some(item => item.includes('未保存')) === false, 'no gap note without dropped days');
 });
 
-Deno.test('endpoints on a route the journey did not bind are dropped and disclosed', () => {
-  // The bound track is the first route's; days 5 and 6 belong to the other two
-  // routes, and their waypoint indices would read as a decreasing sequence on
-  // that track, which is what failed the whole save.
+Deno.test('an endpoint on another route of the same trip is kept and measured there', () => {
+  // One trip walks route A then route B; each day's distance restarts on its
+  // own track, so both endpoints must survive.
+  const research = researchBriefSchema.parse({ routes: [
+    { name: '党岭', routeId: 'trk008' },
+    { name: '雅拉', routeId: 'trk065' },
+  ] });
   const plan = finalizePlan({
-    journey: { name: '三路线', region: '', days: 6, routeId: 'trk008' },
+    journey: { name: '两条路线', region: '', days: 4, routeId: 'trk008' },
     itineraryItems: [
       { day: 'Day 1', title: '党岭', routeId: 'trk008' },
       { day: 'Day 2', title: '党岭', routeId: 'trk008' },
-      { day: 'Day 3', title: '接驳', kind: 'transport' },
-      { day: 'Day 5', title: '雅拉', routeId: 'trk065' },
-      { day: 'Day 6', title: '桑措', routeId: 'trk043' },
+      { day: 'Day 3', title: '雅拉', routeId: 'trk065' },
+      { day: 'Day 4', title: '雅拉', routeId: 'trk065' },
     ],
     endpoints: [
-      { day: 'Day 2', waypointIndex: 104 },
-      { day: 'Day 5', waypointIndex: 12 },
-      { day: 'Day 6', waypointIndex: 3 },
+      { day: 'Day 2', trackFinish: true, routeId: 'trk008' },
+      { day: 'Day 4', trackFinish: true, routeId: 'trk065' },
     ],
-  }, pipelineOf(decisionOf({})), null, null, 6);
-  assert(plan.endpoints.length === 1 && plan.endpoints[0].day === 'Day 2', `only the bound route keeps an endpoint, got ${JSON.stringify(plan.endpoints)}`);
-  const gap = plan.unverified.find(item => item.includes('未绑定轨迹'));
-  assert(gap?.includes('Day 5') === true && gap?.includes('Day 6') === true, `the off-route days must be disclosed, got ${gap}`);
+  }, pipelineOf(decisionOf({})), research, null, 4);
+  assert(plan.endpoints.length === 2, `both routes keep their endpoint, got ${JSON.stringify(plan.endpoints)}`);
+  assert(plan.unverified.some(item => item.includes('没有核对到的路线')) === false, 'a known route is not disclosed as a gap');
 });
 
-Deno.test('a single-route plan keeps every endpoint it located', () => {
+Deno.test('an endpoint tagged with a route nothing matched is dropped and disclosed', () => {
+  const research = researchBriefSchema.parse({ routes: [{ name: '党岭', routeId: 'trk008' }] });
   const plan = finalizePlan({
     journey: { name: '党岭', region: '', days: 2, routeId: 'trk008' },
-    itineraryItems: [{ day: 'Day 1', title: '党岭', routeId: 'trk008' }, { day: 'Day 2', title: '党岭', routeId: 'trk008' }],
-    endpoints: [{ day: 'Day 1', waypointIndex: 54 }, { day: 'Day 2', trackFinish: true }],
-  }, pipelineOf(decisionOf({})), null, null, 2);
-  assert(plan.endpoints.length === 2, 'a bound single-route plan keeps every endpoint');
-  assert(plan.unverified.some(item => item.includes('未绑定轨迹')) === false, 'no off-route note without off-route days');
+    itineraryItems: [{ day: 'Day 1', title: '党岭', routeId: 'trk008' }],
+    endpoints: [
+      { day: 'Day 1', trackFinish: true, routeId: 'trk008' },
+      { day: 'Day 2', waypointIndex: 12, routeId: 'trk999' },
+    ],
+  }, pipelineOf(decisionOf({})), research, null, 2);
+  assert(plan.endpoints.length === 1 && plan.endpoints[0].day === 'Day 1', `only the known route survives, got ${JSON.stringify(plan.endpoints)}`);
+  const gap = plan.unverified.find(item => item.includes('没有核对到的路线'));
+  assert(gap?.includes('Day 2') === true, `the dropped day must be disclosed, got ${gap}`);
 });
 
-Deno.test('a day with no route-tagged item is never treated as off-route', () => {
-  const plan = { journey: { routeId: 'trk008' }, itineraryItems: [{ day: 'Day 3', title: '接驳', routeId: null }], endpoints: [{ day: 'Day 3', endDistanceKm: 4 }] };
-  assert(endpointDaysOffBoundRoute(plan as never).length === 0, 'transport-only days must not be dropped');
-  const unbound = { journey: null, itineraryItems: [{ day: 'Day 1', title: 'x', routeId: 'trk065' }], endpoints: [{ day: 'Day 1', waypointIndex: 2 }] };
-  assert(endpointDaysOffBoundRoute(unbound as never).length === 0, 'without a bound route nothing is off-route');
+Deno.test('an untagged endpoint is never treated as unknown', () => {
+  const plan = { journey: { routeId: 'trk008' }, itineraryItems: [], endpoints: [{ day: 'Day 1', endDistanceKm: 4 }] };
+  assert(endpointDaysWithUnknownRoute(plan as never, null).length === 0, 'an endpoint without a route id resolves on the bound track');
+  const untagged = { journey: null, itineraryItems: [], endpoints: [{ day: 'Day 1', endDistanceKm: 4 }] };
+  assert(endpointDaysWithUnknownRoute(untagged as never, null).length === 0, 'a journey with no route keeps its untagged endpoints');
 });
+

@@ -95,3 +95,29 @@ Deno.test('trail finish needs no overnight review; explicit user distances stay 
   rejects(() => validateHikingBoundary({ ...manual, endDistanceKm: 14 }, 72000, [], [], manual.userDistanceQuote));
   rejects(() => validateHikingBoundary({ endDistanceKm: NaN }, 72000, [], []));
 });
+
+Deno.test('a repeated name and distance beside a waypoint index is verified, not rejected', () => {
+  const waypoints = [{ name: '第一天营地（热浪谷）', km: 13.247 }, { name: '终点', km: 19.463 }];
+  // The planner commonly repeats what it read in the waypoint list; the index
+  // stays authoritative and the copies are checked against it.
+  const agree = resolveHikingEndpoint({ waypointIndex: 0, locationName: '第一天营地（热浪谷）', endDistanceKm: 13.247 }, 19_463, waypoints);
+  assert(agree.locationName === '第一天营地（热浪谷）' && agree.endDistanceKm === 13.247, 'matching copies resolve from the index');
+  const renamed = resolveHikingEndpoint({ waypointIndex: 1, locationName: ' 终点 ', endDistanceKm: 19.463 }, 19_463, waypoints);
+  assert(renamed.locationName === '终点', 'whitespace around a copied name is tolerated');
+  let mismatchName = '';
+  try { resolveHikingEndpoint({ waypointIndex: 1, locationName: '某营地', endDistanceKm: 19.463 }, 19_463, waypoints); } catch (error) { mismatchName = (error as Error).message; }
+  assert(mismatchName.includes('不一致'), `a contradicting name must still fail, got ${mismatchName}`);
+  let mismatchKm = '';
+  try { resolveHikingEndpoint({ waypointIndex: 0, locationName: '第一天营地（热浪谷）', endDistanceKm: 3.1 }, 19_463, waypoints); } catch (error) { mismatchKm = (error as Error).message; }
+  assert(mismatchKm.includes('不一致'), `a contradicting distance must still fail, got ${mismatchKm}`);
+  // The finish is the track's end, which need not be a named point, so the
+  // planner's own label is kept; and an index that resolves to that same end is
+  // the same request rather than a contradiction.
+  const labelled = resolveHikingEndpoint({ trackFinish: true, locationName: '终点：卡尔杂' }, 19_463, waypoints);
+  assert(labelled.locationName === '终点：卡尔杂' && Math.abs(labelled.endDistanceKm - 19.463) < 0.001, 'a supplied finish label is kept');
+  const endIndex = resolveHikingEndpoint({ waypointIndex: 1, trackFinish: true }, 19_463, waypoints);
+  assert(endIndex.locationName === '终点', 'an end-of-track index agrees with trackFinish');
+  let both = '';
+  try { resolveHikingEndpoint({ waypointIndex: 0, trackFinish: true }, 19_463, waypoints); } catch (error) { both = (error as Error).message; }
+  assert(both.includes('二选一'), `a mid-track index beside trackFinish stays ambiguous, got ${both}`);
+});

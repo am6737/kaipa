@@ -245,6 +245,59 @@ function collapsePresentedSteps(steps: Array<ResearchStep & { elapsed?: number }
   return [...collapsed.values()];
 }
 
+function researchStepTitle(step: ResearchStep) {
+  const key = step.key;
+  const text = step.text;
+  if (key.endsWith('_query')) return '搜索关键词';
+  if (key.includes('search_travel_web')) {
+    if (text.includes('已整理好')) return '整理搜索结果';
+    if (text.includes('暂时不可用') || text.includes('未能') || text.includes('失败')) return '检查数据来源';
+    if (text.includes('已完成') || text.includes('正在搜索')) return '搜索地点与攻略';
+    return '搜索攻略与资料';
+  }
+  if (key.includes('search_transport')) return '查询交通信息';
+  if (key.includes('search_journeys')) return '搜索已有旅程';
+  if (key.includes('get_journey_details')) return '读取旅程详情';
+  if (key.includes('get_app_context')) return '分析当前上下文';
+  if (key.includes('list_gear')) return '匹配已有装备';
+  if (key.includes('create_journey')) return '创建行程';
+  if (key.includes('add_itinerary_items')) return '写入行程安排';
+  if (key.includes('update_journey_schedule')) return '更新行程安排';
+  if (key.includes('set_journey_map_location') || key.includes('set_itinerary_group_endpoints')) return '设置行程信息';
+  if (key.includes('packing')) return '整理装备清单';
+  if (key.includes('read_travel_guide')) return '读取攻略内容';
+  if (key === 'active_phase') return '规划处理';
+  return step.status === 'running' ? '正在执行' : step.status === 'failed' ? '执行未完成' : '已完成';
+}
+
+function researchStepSubtitle(step: ResearchStep) {
+  const text = step.text;
+  if (step.key.endsWith('_query')) return text;
+  // Keep only details that add information beyond the action title. Generic
+  // completion messages such as "已读取…" or "已写入…" are intentionally quiet.
+  if (text.includes('已整理好') || text.includes('暂时不可用') || text.includes('未能')) return text;
+  if (/[0-9]+\s*(个|条|项|公里|km|分钟|小时)/i.test(text)) return text;
+  if (text.includes('未返回') || text.includes('需核实') || text.includes('不代表')) return text;
+  return undefined;
+}
+
+function researchStepGroup(step: ResearchStep) {
+  const key = step.key;
+  if (key.includes('search_travel_web')) return { key: 'web_search', title: '搜索地点与攻略' };
+  if (key.includes('search_transport')) return { key: 'transport', title: '查询交通信息' };
+  if (key.includes('read_travel_guide')) return { key: 'guide', title: '读取攻略内容' };
+  if (
+    key.includes('create_journey')
+    || key.includes('add_itinerary_items')
+    || key.includes('update_journey_schedule')
+    || key.includes('set_journey_map_location')
+    || key.includes('set_itinerary_group_endpoints')
+  ) return { key: 'journey_write', title: '更新行程安排' };
+  if (key.includes('packing')) return { key: 'packing', title: '整理装备清单' };
+  const title = researchStepTitle(step);
+  return { key: title, title };
+}
+
 function activityFingerprint(activities: AgentRunActivity[]) {
   return JSON.stringify(activities.map(({ toolName, status, arguments: args, output }) => ({ toolName, status, args, output })));
 }
@@ -632,12 +685,29 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
           <ChevronDown size={17} color={theme.text3} />
         </Animated.View>
       </Press>
-      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => (
+      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step, index, list) => {
+        const group = researchStepGroup(step);
+        const previousGroup = index > 0 ? researchStepGroup(list[index - 1]) : undefined;
+        const subtitle = researchStepSubtitle(step);
+        if (group.key === previousGroup?.key && !subtitle) return null;
+        return (
         <View key={step.key} style={styles.researchLine}>
-          {step.status === 'completed' ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}</Text>
+          <View style={styles.researchLineIcon}>
+            {step.status === 'completed' ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
+          </View>
+          <View style={styles.researchLineCopy}>
+            {group.key !== previousGroup?.key ? <Text style={[styles.researchLineTitle, { color: theme.text }]}>{group.title}</Text> : null}
+            {subtitle ? (
+              <Text numberOfLines={2} ellipsizeMode="tail" style={[styles.researchLineText, { color: theme.text2 }]}>
+                {subtitle}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}
+              </Text>
+            ) : step.elapsed != null ? (
+              <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text>
+            ) : null}
+          </View>
         </View>
-      )) : null}
+        );
+      }) : null}
       {showTiming && expanded && (modelElapsed || toolElapsed) ? (
         <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
       ) : null}
@@ -649,12 +719,19 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
       )) : null}
       {expanded ? orderedTimedSteps.filter((step) => step.status === 'running').map((step) => (
         <View key={step.key} style={styles.researchLine}>
-          {step.status === 'running'
-            ? <LoadingDots color={theme.text3} />
-            : step.status === 'completed'
-            ? <Check size={14} color={theme.text3} strokeWidth={2} />
-            : <X size={14} color={theme.text3} strokeWidth={2} />}
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{step.text}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}</Text>
+          <View style={styles.researchLineIcon}>
+            <LoadingDots color={theme.text3} />
+          </View>
+          <View style={styles.researchLineCopy}>
+            <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}</Text>
+            {researchStepSubtitle(step) ? (
+              <Text numberOfLines={2} ellipsizeMode="tail" style={[styles.researchLineText, { color: theme.text2 }]}>
+                {researchStepSubtitle(step)}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}
+              </Text>
+            ) : step.elapsed != null ? (
+              <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text>
+            ) : null}
+          </View>
         </View>
       )) : null}
     </View>
@@ -2267,8 +2344,12 @@ const styles = StyleSheet.create({
   researchProgress: { alignSelf: 'stretch', marginBottom: space.xl, paddingVertical: space.sm },
   researchHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   researchTitle: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
-  researchLine: { minHeight: 26, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  researchLine: { minHeight: 30, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, paddingVertical: 2 },
+  researchLineIcon: { width: 18, minHeight: 20, alignItems: 'center', justifyContent: 'center', paddingTop: 2 },
+  researchLineCopy: { flex: 1, minWidth: 0, gap: 1 },
+  researchLineTitle: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
   researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
+  researchLineMeta: { fontSize: 11.5, lineHeight: 16, letterSpacing: 0 },
   loadingDots: { width: 14, height: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },

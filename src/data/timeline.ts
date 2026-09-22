@@ -59,6 +59,8 @@ export interface TLRow {
 }
 
 export interface TimelineGroupRoute {
+  /** Catalog route this boundary is measured on; undefined means the journey's own bound track. */
+  routeId?: string;
   endDistanceMeters: number;
   longitude: number;
   latitude: number;

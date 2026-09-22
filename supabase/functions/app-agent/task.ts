@@ -25,6 +25,10 @@ export const taskDecisionSchema = z.object({
   domainQuote: z.string().max(1000).nullable().optional().describe('Exact span of the latest user message stating chain-level scope, only when domain is transport; empty otherwise.'),
   continuation: z.boolean().describe('True only when answering the previous pending question about the same unfinished task.'),
   authorizationQuote: z.string().max(1000).describe('Exact quote from the latest user message authorizing action, or empty for discussion/clarification continuation.'),
+  // Set by constrainTaskDecision, never by the interpreter: the request looked
+  // like work, but its authorization could not be matched to the user's own
+  // words. Silent discussion here means an explicit request saves nothing.
+  authorizationUnconfirmed: z.boolean().nullable().optional().describe('由服务端设置：本轮请求看起来是要执行，但授权原话无法在用户消息中逐字核对，只能先请用户确认，不要执行。'),
   operations: z.array(z.enum(writeOperations)).max(writeOperations.length).describe('All writes the user authorizes for this task, including explicitly requested later steps awaiting clarification. Missing arguments delay execution, not authorization.'),
   requiredOperations: z.array(z.enum(writeOperations)).max(writeOperations.length).describe('Writes required to fulfill the entire request. Daily GPX endpoints are REQUIRED for full track hiking plans, even when duration is undecided; exclude only unrelated optional housekeeping.'),
   fullHikingPlan: z.boolean().nullable().optional().describe('True for creating/replanning a complete hiking itinerary, including when days are undecided. False for transport supplements, packing-only, single-item edits and discussion.'),
@@ -83,7 +87,12 @@ export function constrainTaskDecision(
     && Boolean(previous.outcome.pendingQuestion) && previous.journeyId === journeyId;
   const quoted = normalizedAuthorization(decision.authorizationQuote);
   const freshAuthorization = quoted.length > 0 && normalizedAuthorization(message).includes(quoted);
+  // An interpreting model that means to execute but quotes its own paraphrase
+  // must not turn the request into a silent chat: the reply has to ask.
+  const intendedExecution = decision.mode === 'execute' && (decision.operations.length > 0 || decision.fullHikingPlan === true || decision.packingMode === 'full');
+  decision.authorizationUnconfirmed = false;
   if (decision.mode !== 'execute' || (!freshAuthorization && !(continuing && previous?.decision.mode === 'execute'))) {
+    decision.authorizationUnconfirmed = intendedExecution && !freshAuthorization;
     decision.mode = decision.mode === 'stop' ? 'stop' : 'discuss';
     decision.operations = [];
   } else if (!freshAuthorization && continuing && previous) {

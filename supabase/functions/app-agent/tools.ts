@@ -511,6 +511,7 @@ export const itineraryGroupEndpoint = z.object({
   estimateBasis: z.string().trim().min(1).max(80).nullable().optional().describe('已停用，必须省略；暂估分段写入会被拒绝'),
   userDistanceQuote: z.string().trim().min(1).max(500).nullable().optional().describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
   overnightReview: overnightReviewSchema.nullable().optional().describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
+  routeId: z.string().max(100).nullable().optional().describe('该终点所属的目录路线 ID。多路线出行中每天属于不同路线，waypointIndex 与累计里程按该路线自己的轨迹解析；不填表示用当前旅程绑定的轨迹，纯接驳或住宿日不填'),
 });
 
 async function assertDeleteContext(client: Client, context: AgentContext, journeyId: string) {
@@ -1230,8 +1231,8 @@ export const setItineraryGroupEndpointsParams = z.object({
 export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItineraryGroupEndpointsParams>, runContext?: RunContext): Promise<unknown> => mutate('set_itinerary_group_endpoints', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
-      client.from('journeys').select('id,dist,tracks ( coords, waypoints )').eq('id', args.journeyId).single(),
-      client.from('timeline_groups').select('name,sort_order,route_end_meters,route_end_lng,route_end_lat,route_end_track_index,route_end_track_fraction,route_end_source,route_location_name,deleted').eq('journey_id', args.journeyId).order('sort_order'),
+      client.from('journeys').select('id,dist,route_id,tracks ( coords, waypoints )').eq('id', args.journeyId).single(),
+      client.from('timeline_groups').select('name,sort_order,route_id,route_end_meters,route_end_lng,route_end_lat,route_end_track_index,route_end_track_fraction,route_end_source,route_location_name,deleted').eq('journey_id', args.journeyId).order('sort_order'),
       client.from('timeline_rows').select('day,sort_order').eq('journey_id', args.journeyId).order('sort_order'),
     ]);
     if (journeyResult.error) throw journeyResult.error;
@@ -1239,10 +1240,43 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
     if (rowsResult.error) throw rowsResult.error;
 
     const boundTrack = journeyResult.data.tracks as { coords?: unknown; waypoints?: { name: string; km: number }[] | null } | null;
-    const coordinates = normalizeTrackCoordinates(boundTrack?.coords);
-    if (coordinates.length < 2) throw new Error('当前旅程没有可用于设置终点的轨迹');
-    const totalMeters = trackLengthMeters(coordinates);
-    assertTrackDistanceConsistency(totalMeters, journeyResult.data.dist);
+    const boundCoordinates = normalizeTrackCoordinates(boundTrack?.coords);
+    // One trip is one journey and may walk several routes, each with its own
+    // recorded track. A day boundary is only meaningful together with the route
+    // it was measured on, so every route a call references is loaded here and
+    // resolved on its own geometry; an endpoint without a route id keeps using
+    // the journey's bound track, exactly as before.
+    const requestedRouteIds = [...new Set(args.endpoints.flatMap(endpoint => endpoint.routeId ? [endpoint.routeId] : []))];
+    const routeResult = requestedRouteIds.length
+      ? await client.from('routes').select('id,name,track_coords,track_waypoints').in('id', requestedRouteIds)
+      : { data: [], error: null };
+    if (routeResult.error) throw routeResult.error;
+    const routeTracks = new Map<string, { coordinates: [number, number][]; waypoints: { name: string; km: number }[] | null; totalMeters: number }>();
+    for (const route of (routeResult.data || []) as Array<{ id: string; track_coords?: unknown; track_waypoints?: unknown }>) {
+      const coordinates = normalizeTrackCoordinates(route.track_coords);
+      routeTracks.set(route.id, {
+        coordinates,
+        waypoints: Array.isArray(route.track_waypoints) ? route.track_waypoints as { name: string; km: number }[] : null,
+        totalMeters: trackLengthMeters(coordinates),
+      });
+    }
+    const trackFor = (routeId: string | null | undefined) => {
+      if (!routeId) {
+        if (boundCoordinates.length < 2) throw new Error('当前旅程没有可用于设置终点的轨迹');
+        return { coordinates: boundCoordinates, waypoints: boundTrack?.waypoints ?? null, totalMeters: trackLengthMeters(boundCoordinates), routeId: null as string | null };
+      }
+      const route = routeTracks.get(routeId);
+      if (!route || route.coordinates.length < 2) throw new Error(`路线「${routeId}」没有可用于设置终点的轨迹，请改用当前旅程绑定的轨迹或不设置该日终点。`);
+      return { ...route, routeId };
+    };
+    // The journey's own route id is the same track an untagged day resolves to,
+    // so the ordering rule below does not reset between the two spellings.
+    const boundRouteKey = (journeyResult.data.route_id as string | null) ?? null;
+    const effectiveRouteKey = (routeId: string | null | undefined) => routeId ?? boundRouteKey;
+    if (!requestedRouteIds.length) {
+      if (boundCoordinates.length < 2) throw new Error('当前旅程没有可用于设置终点的轨迹');
+      assertTrackDistanceConsistency(trackLengthMeters(boundCoordinates), journeyResult.data.dist);
+    }
     const guideReceipts = args.endpoints.some(endpoint => endpoint.overnightReview)
       ? await guideHistory(client, context.runId) : [];
     const activeGroups = (groupsResult.data || []).filter((group: { deleted?: boolean }) => !group.deleted);
@@ -1250,12 +1284,18 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       ...activeGroups.map((group: { name: string }) => group.name),
       ...(rowsResult.data || []).map((row: { day: string }) => row.day),
     ].filter(Boolean))];
-    const normalized = args.endpoints.map(endpoint => resolveHikingEndpoint(endpoint, totalMeters, boundTrack?.waypoints ?? null)).map((endpoint) => ({
-      ...endpoint,
-      day: resolveJourneyDay(endpoint.day, existingNames),
-      position: endpointAtDistance(coordinates, endpoint.endDistanceKm * 1000),
-      annotation: validateHikingBoundary(endpoint, totalMeters, boundTrack?.waypoints ?? null, guideReceipts, context.originalUserMessage),
-    }));
+    const normalized = args.endpoints.map((endpoint) => {
+      const track = trackFor(endpoint.routeId);
+      const resolved = resolveHikingEndpoint(endpoint, track.totalMeters, track.waypoints);
+      return {
+        ...resolved,
+        day: resolveJourneyDay(resolved.day, existingNames),
+        position: endpointAtDistance(track.coordinates, resolved.endDistanceKm * 1000),
+        annotation: validateHikingBoundary(resolved, track.totalMeters, track.waypoints, guideReceipts, context.originalUserMessage),
+        routeId: track.routeId,
+        trackTotalMeters: track.totalMeters,
+      };
+    });
     if (new Set(normalized.map((endpoint) => endpoint.day)).size !== normalized.length) {
       throw new Error('同一个行程组只能设置一个终点');
     }
@@ -1263,15 +1303,29 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
     if (unknown) throw new Error(`找不到行程组「${unknown.day}」`);
 
     const effectiveMeters = new Map<string, number>();
-    activeGroups.forEach((group: { name: string; route_end_meters?: number | null }) => {
+    const effectiveTrack = new Map<string, string | null>();
+    const trackTotals = new Map<string | null, number>();
+    if (boundCoordinates.length >= 2) trackTotals.set(boundRouteKey, trackLengthMeters(boundCoordinates));
+    activeGroups.forEach((group: { name: string; route_end_meters?: number | null; route_id?: string | null }) => {
       if (group.route_end_meters != null) effectiveMeters.set(group.name, Number(group.route_end_meters));
+      effectiveTrack.set(group.name, effectiveRouteKey(group.route_id));
     });
-    normalized.forEach((endpoint) => effectiveMeters.set(endpoint.day, endpoint.position.distanceMeters));
+    normalized.forEach((endpoint) => {
+      effectiveMeters.set(endpoint.day, endpoint.position.distanceMeters);
+      effectiveTrack.set(endpoint.day, effectiveRouteKey(endpoint.routeId));
+      trackTotals.set(effectiveRouteKey(endpoint.routeId), endpoint.trackTotalMeters);
+    });
+    // Distances only increase along one track. The first day on a new route
+    // legitimately restarts near zero, which is why the sequence resets when
+    // the day's route changes instead of comparing across tracks.
     let previousMeters = -1;
+    let previousTrack: string | null | undefined;
     for (const name of existingNames) {
       const meters = effectiveMeters.get(name);
       if (meters == null) continue;
-      if (meters <= previousMeters + 1) throw new Error('行程组终点必须按照行程顺序递增');
+      const track = effectiveTrack.get(name) ?? null;
+      if (track !== previousTrack) { previousMeters = -1; previousTrack = track; }
+      if (meters <= previousMeters + 1) throw new Error('同一路线上的行程组终点必须按照行程顺序递增');
       previousMeters = meters;
     }
 
@@ -1280,6 +1334,7 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       journey_id: args.journeyId,
       user_id: context.userId,
       name: endpoint.day,
+      route_id: endpoint.routeId ?? null,
       deleted: false,
       sort_order: sortOrders.get(endpoint.day) ?? existingNames.indexOf(endpoint.day),
       route_end_meters: endpoint.position.distanceMeters,
@@ -1297,14 +1352,19 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       coverage: {
         groupCount: effectiveMeters.size,
         requiredGroupCount: existingNames.length,
-        reachesTrackEnd: [...effectiveMeters.values()].some(meters => Math.abs(meters - totalMeters) <= 1),
+        // Reaching the end means reaching the end of that day's own route, not
+        // of whichever track the journey happens to bind.
+        reachesTrackEnd: [...effectiveMeters.entries()].some(([name, meters]) => {
+          const total = trackTotals.get(effectiveTrack.get(name) ?? null);
+          return total != null && Math.abs(meters - total) <= 1;
+        }),
       },
       endpoints: normalized.map((endpoint) => ({ day: endpoint.day, endDistanceKm: endpoint.position.distanceMeters / 1000, locationName: endpoint.annotation.locationName, overnightReview: endpoint.overnightReview })),
     };
     const changedNames = new Set(normalized.map((endpoint) => endpoint.day));
     const previous = activeGroups.filter((group: { name: string }) => changedNames.has(group.name));
-    const applied = endpointRows.map(({ name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name }) => ({
-      name, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name,
+    const applied = endpointRows.map(({ name, route_id, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name }) => ({
+      name, route_id, route_end_meters, route_end_lng, route_end_lat, route_end_track_index, route_end_track_fraction, route_end_source, route_location_name,
     }));
     return commitJourneyChange(client, context, args.journeyId, { groups: endpointRows }, value, { kind: 'set_itinerary_group_endpoints', journeyId: args.journeyId, previous, applied });
 });

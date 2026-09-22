@@ -15,16 +15,46 @@ type GuideReceipt = { tool_name: string; status: string; output?: unknown };
 
 export function resolveHikingEndpoint<T extends { endDistanceKm?: number | null; locationName?: string | null; waypointIndex?: number | null; trackFinish?: boolean | null }>(endpoint: T, totalMeters: number, waypoints: unknown): T & { endDistanceKm: number; locationName?: string | null } {
   if (endpoint.waypointIndex != null || endpoint.trackFinish === true) {
-    if (endpoint.endDistanceKm != null || endpoint.locationName != null || (endpoint.trackFinish === true && endpoint.waypointIndex != null)) {
-      throw new Error('按 waypointIndex 或 trackFinish 选择终点时，不要重复提供名称和公里数；系统会从当前轨迹读取。');
+    // A planner that read the waypoint list tends to repeat the name and the
+    // cumulative distance beside the index it picked. That is not a conflict —
+    // the index is authoritative and machine-checked — so the copies are
+    // verified against the resolved point and dropped, instead of failing a
+    // whole multi-day save over redundant fields. A copy that disagrees is a
+    // real contradiction and still rejected.
+    const supplied = { locationName: endpoint.locationName ?? null, endDistanceKm: endpoint.endDistanceKm ?? null };
+    const pointAt = (index: number) => {
+      const point = record(Array.isArray(waypoints) && Number.isInteger(index) && index >= 0 ? waypoints[index] : null);
+      if (typeof point.name !== 'string' || !point.name.trim() || typeof point.km !== 'number' || !Number.isFinite(point.km)) {
+        throw new Error('waypointIndex 不是当前轨迹的有效标注点编号，请读取 track 分区后选择返回的编号。');
+      }
+      return { locationName: point.name as string, endDistanceKm: point.km as number, index };
+    };
+    // The finish is the end of the track, which need not be a named point, so a
+    // label the planner supplies is kept rather than compared against a name
+    // the server does not have. An index that resolves to the track's end is
+    // the same request, so it is accepted; any other index beside trackFinish is
+    // still ambiguous.
+    let resolved: { locationName: string | null; endDistanceKm: number; index: number | null };
+    if (endpoint.trackFinish === true) {
+      if (endpoint.waypointIndex != null) {
+        const last = pointAt(endpoint.waypointIndex);
+        if (Math.abs(last.endDistanceKm * 1000 - totalMeters) > 1) {
+          throw new Error('trackFinish 与 waypointIndex 只能二选一：到达整条轨迹终点时用 trackFinish，停在中间标注点时用 waypointIndex。');
+        }
+        resolved = { locationName: supplied.locationName ?? last.locationName, endDistanceKm: totalMeters / 1000, index: last.index };
+      } else {
+        resolved = { locationName: supplied.locationName, endDistanceKm: totalMeters / 1000, index: null };
+      }
+    } else {
+      resolved = pointAt(endpoint.waypointIndex!);
     }
-    if (endpoint.trackFinish === true) return { ...endpoint, endDistanceKm: totalMeters / 1000 };
-    const index = endpoint.waypointIndex!;
-    const point = record(Array.isArray(waypoints) && Number.isInteger(index) && index >= 0 ? waypoints[index] : null);
-    if (typeof point.name !== 'string' || !point.name.trim() || typeof point.km !== 'number' || !Number.isFinite(point.km)) {
-      throw new Error('waypointIndex 不是当前轨迹的有效标注点编号，请读取 track 分区后选择返回的编号。');
+    if (supplied.locationName != null && supplied.locationName.trim() !== (resolved.locationName ?? '').trim()) {
+      throw new Error(`终点标注点名称与 waypointIndex 不一致：「${supplied.locationName}」对应该编号上的「${resolved.locationName ?? '轨迹终点'}」，请只保留正确的一处。`);
     }
-    return { ...endpoint, locationName: point.name, endDistanceKm: point.km };
+    if (supplied.endDistanceKm != null && Math.abs(supplied.endDistanceKm - resolved.endDistanceKm) > 0.05) {
+      throw new Error(`终点累计里程与 waypointIndex 不一致：${supplied.endDistanceKm} km 对应该编号上的 ${resolved.endDistanceKm.toFixed(3)} km，请只保留正确的一处。`);
+    }
+    return { ...endpoint, locationName: resolved.locationName, endDistanceKm: resolved.endDistanceKm };
   }
   if (endpoint.endDistanceKm == null) throw new Error('请选择 waypointIndex、trackFinish 或明确的 endDistanceKm。');
   return { ...endpoint, endDistanceKm: endpoint.endDistanceKm };

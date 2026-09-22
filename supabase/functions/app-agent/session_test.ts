@@ -23,11 +23,13 @@ function harness(turns: number, failSave = false) {
 Deno.test('session saves memory boundary only after summary and storage succeed', async () => {
   const h = harness(12);
   const session = new SupabaseAgentSession(h.client, 't', 'u', async () => 'User confirmed public transit and a booked hotel.');
+  // The boundary keeps the newest 4 whole turns, so 8 of the 12 are archived
+  // and the reply is the summary plus those 4.
   const result = await session.getItems();
-  assert(h.memory.through_id === 6 && result.length === 7, 'summary or recent turns missing');
+  assert(h.memory.through_id === 8 && result.length === 5, 'summary or recent turns missing');
   assert(h.rows.length === 12, 'archive destroyed');
   const again = await session.getItems();
-  assert(again.length === 7, 'archived turns reloaded despite memory boundary');
+  assert(again.length === 5, 'archived turns reloaded despite memory boundary');
 });
 
 Deno.test('summary failure and failed memory persistence retain every user requirement', async () => {

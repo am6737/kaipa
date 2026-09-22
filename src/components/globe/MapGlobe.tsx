@@ -176,38 +176,8 @@ export default function MapGlobe({
       width: 4,
       opacity: segment.active ? 1 : 0.26,
     }));
-    if (focusConnector) {
-      values.push({
-        id: 'journey-endpoint-connector',
-        coordinates: focusConnector.coordinates,
-        color: focusConnector.color,
-        width: 2.2,
-        opacity: 0.72,
-        dashed: true,
-      });
-    }
-    focusConnectors?.forEach((connector) => {
-      values.push({
-        id: `journey-connector-${connector.id}`,
-        coordinates: connector.coordinates,
-        color: connector.color,
-        width: 2.2,
-        opacity: connector.active ? 0.78 : 0.3,
-        dashed: true,
-      });
-    });
-    validTransportSegments?.forEach((segment) => {
-      values.push({
-        id: `journey-transport-${segment.id}`,
-        coordinates: segment.coordinates,
-        color: segment.color,
-        width: segment.active ? 3 : 2,
-        opacity: segment.active ? 0.9 : 0.3,
-        dashed: true,
-      });
-    });
     return values;
-  }, [focusConnector, focusConnectors, validFocusCoords, validFocusSegments, theme, validTransportSegments]);
+  }, [validFocusCoords, validFocusSegments, theme]);
 
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
     if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return [];
@@ -334,23 +304,6 @@ export default function MapGlobe({
       });
     }
 
-    focusConnectors?.forEach((connector) => {
-      const [start, end] = connector.coordinates;
-      values.push({
-        id: `journey-connector-marker-${connector.id}`,
-        coordinate: [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2],
-        anchor: { x: 0.5, y: 0.5 },
-        opacity: connector.active ? 1 : 0.42,
-        content: (
-          <View
-            style={[styles.connectorMarker, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}
-          >
-            <Icon name="link" size={13} color={theme.text2} strokeWidth={2} />
-          </View>
-        ),
-      });
-    });
-
     if (validFocusSegments && validFocusSegments.length > 1) {
       validFocusSegments.forEach((segment, index) => {
         const start = segment.coordinates[0];
@@ -371,7 +324,7 @@ export default function MapGlobe({
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePoiId, distanceMarkers, focusConnectors, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments, validTransportSegments]);
+  }, [activePoiId, distanceMarkers, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];

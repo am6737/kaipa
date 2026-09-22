@@ -56,14 +56,6 @@ export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, c
             <Polyline key={i} points={pts} fill="none" stroke={t.globeGrid} strokeWidth={0.6} />
           ))}
           <Circle cx={cx} cy={cy} r={R} fill="url(#globeHi)" />
-          {(transportSegments ?? []).map((segment) => {
-            const points = segment.coordinates
-              .map(([lon, lat]) => project(lon, lat, lon0, lat0, R - 4, cx, cy))
-              .filter((point) => point.visible)
-              .map((point) => `${point.x},${point.y}`)
-              .join(' ');
-            return points ? <Polyline key={`transport-${segment.id}`} points={points} fill="none" stroke={segment.color} strokeWidth={segment.active ? 2.2 : 1.5} strokeDasharray="6 5" opacity={segment.active ? 0.9 : 0.35} /> : null;
-          })}
           {(focusSegments ?? []).map((segment) => {
             const points = segment.coordinates
               .map(([lon, lat]) => project(lon, lat, lon0, lat0, R - 4, cx, cy))

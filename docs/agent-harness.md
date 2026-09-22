@@ -56,12 +56,20 @@ language.
 
 | Stage | Model | Budget | Work |
 | --- | --- | --- | --- |
-| interpret | flash | 60s | Existing `prepareTask`; recorded, not re-run |
-| research | flash | 120s | Search/read tools only, output `ResearchBrief` |
-| plan | pro | 180s | Read-only tools plus a server-injected skill, output `PlanDocument` |
-| save | none | 30s | Deterministic; replays the scoped write tools |
+| interpret | flash | 30s | Existing `prepareTask`; recorded, not re-run |
+| research | flash | 120s | Deterministic search/read collection, then one synthesis call, output `ResearchBrief` |
+| transport | none | 30s | Deterministic route-to-route legs; no model call |
+| plan | flash | 180s | One declarative `PlanDocument`, with skeleton + per-day chunks as the fallback |
+| save | none | 60s | Deterministic; replays the scoped write tools |
 | packing | flash | 150s | One generation call, bounded batch repairs (2), deterministic commit |
-| respond | pro | 90s | No tools; states what was actually saved |
+| respond | none | 60s | Deterministic; states what was actually saved |
+
+Model roles are stated where they are chosen, in `createAgentRuntime` and the
+stage agents; `plan` runs on the flash model on purpose, so a slow main model
+cannot consume the worker lease after research. Only the save-stage repair round
+uses the main model. Budgets are set from measured latency: the research
+synthesis call ran p50 6s / p90 54s / max 105s and the planner p50 8s / p90 106s
+/ max 180s over a four-day sample.
 
 Stage state lives in `agent_stages` (unique on run, stage, attempt) and
 `agent_runs.stage` carries the current one. A retry resumes from the first stage
@@ -89,9 +97,22 @@ the old cadence. Stage labels are `agent.stage.*`; the client-side phase
 inference remains as the fallback for the interactive path and older runs.
 
 Ceilings must stay ordered, outermost last: stage budgets (≈630s) < worker fetch
-timeout (700s) < job lease (12 min) < Kong `read_timeout` (780s, patched outside
-this repo by `infra/supabase/patch-runtime-kong-timeout.sh`). Kong's stock 150s
-turned every long plan into a 504. `agent_lock_context` also sets a 5-second
+timeout (700s) < edge-runtime worker lifetime (710s) < job lease (12 min) < Kong
+`read_timeout` (780s, patched outside this repo by
+`infra/supabase/patch-runtime-kong-timeout.sh`). Kong's stock 150s turned every
+long plan into a 504.
+
+The runtime's own worker lifetime is a ceiling too, and the default one is
+wrong for this pipeline: `volumes/functions/main/index.ts` in the runtime
+checkout created each worker with `workerTimeoutMs = 5 * 60 * 1000`, so a run
+that finished planning and saving but still had the checklist to write was
+killed at 300s. `EdgeRuntime.userWorkers.create` then throws and the main
+service answers **HTTP 500**, which the worker records as a non-retryable
+failure — a run reported failed with its plan already saved, and its stage row
+left at `running` because the process died before it could write a terminal
+state. The supervisor logs `wall clock duration reached: isolate: …` for each
+occurrence. It is now 710s, above the fetch timeout so a long run ends with that
+abort (which resumes from the last completed stage) instead of a kill. `agent_lock_context` also sets a 5-second
 `lock_timeout` and reports `PT409`, so a zombie execution surfaces as the
 existing "read fresh, then replan" conflict instead of a multi-minute stall.
 

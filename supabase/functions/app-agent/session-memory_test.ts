@@ -22,17 +22,20 @@ Deno.test('history strips geometry and duplicate snapshots without mutating orig
   assert(JSON.stringify(input).includes('huge'), 'input was mutated');
 });
 
-Deno.test('compaction keeps six whole turns, previous decisions, and original archives', async () => {
+// The boundary keeps the newest `keepTurns` whole turns (4 since the context
+// budget was halved to 16k), so the 10th-turn history is archived up to the
+// start of turn 6.
+Deno.test('compaction keeps four whole turns, previous decisions, and original archives', async () => {
   const history = rows(10);
-  assert(compactionBoundary(history, 1) === 16, 'wrong whole-turn boundary');
+  assert(compactionBoundary(history, 1) === 24, 'wrong whole-turn boundary');
   const result = await compactSession(history, { through_id: 0, summary: 'Hotel already booked' }, async (previous, items) => {
     assert(previous.includes('Hotel'), 'prior memory lost');
     assert(JSON.stringify(items).includes('User decision 0'), 'user decisions missing from summarizer');
     assert(!JSON.stringify(items).includes('track_coords'), 'raw data sent to summarizer');
     return 'Confirmed: hotel booked; public transit preferred. Earlier GPS is the chosen origin, not a live location.';
   }, 1);
-  assert(result.rows.length === 24 && result.rows[0].item.role === 'user', 'partial tool turn retained');
-  assert(result.memory?.through_id === 16, 'incorrect archival boundary');
+  assert(result.rows.length === 16 && result.rows[0].item.role === 'user', 'partial tool turn retained');
+  assert(result.memory?.through_id === 24, 'incorrect archival boundary');
   assert(history.length === 40, 'original archive was deleted');
 });
 

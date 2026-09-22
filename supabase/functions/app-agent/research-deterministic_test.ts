@@ -1,4 +1,4 @@
-import { bindCatalogFacts, deterministicBrief, isResolvedRoute, normalizedDestination, sampleCatalogWaypoints, type CatalogRoute, type RouteEvidence } from './pipeline.ts';
+import { bindCatalogFacts, catalogCoversPlanning, deterministicBrief, isResolvedRoute, normalizedDestination, sampleCatalogWaypoints, type CatalogRoute, type RouteEvidence } from './pipeline.ts';
 import { researchBriefSchema, type ResearchBrief } from './plan-document.ts';
 import type { PipelineDeps } from './pipeline.ts';
 
@@ -8,7 +8,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function catalogRoute(name: string, hikingDays: number | null): CatalogRoute {
   return {
-    routeId: `route-${name}`, name, region: '四川', distanceKm: 42, hikingDays,
+    routeId: `route-${name}`, name, matchedName: name, region: '四川', distanceKm: 42, hikingDays,
     trackFileName: `${name}.gpx`,
     start: { longitude: 101, latitude: 30 }, end: { longitude: 102, latitude: 31 },
     waypoints: [{ index: 0, name: '起点', distanceKm: 0, elevationMeters: 3200 }],
@@ -128,7 +128,7 @@ Deno.test('the brief carries the named points of a catalog track, sampled across
   // The planner may only choose from these points, so they must survive the
   // deterministic bind that runs whatever the synthesis produced.
   const bound = bindCatalogFacts(brief, [{
-    routeId: 'trk008', name: '党岭三湖连穿', region: '四川 · 甘孜', distanceKm: 19.5, hikingDays: 2,
+    routeId: 'trk008', name: '党岭三湖连穿', matchedName: '党岭三湖连穿', region: '四川 · 甘孜', distanceKm: 19.5, hikingDays: 2,
     trackFileName: '党岭三湖连穿.kml', start: null, end: null,
     waypoints: [{ index: 3, name: '卓雍措营地', distanceKm: 9.2, elevationMeters: 4100 }],
   }]);
@@ -138,8 +138,33 @@ Deno.test('the brief carries the named points of a catalog track, sampled across
 
 Deno.test('a model-invented waypoint list never survives the deterministic bind', () => {
   const brief = researchBriefSchema.parse({ routes: [routeEntry({ name: '党岭三湖连穿', waypoints: [{ index: 0, name: '编造营地', distanceKm: 5, elevationMeters: null }] })] });
-  const matched = bindCatalogFacts(brief, [{ routeId: 'trk008', name: '党岭三湖连穿', region: null, distanceKm: 19.5, hikingDays: 2, trackFileName: null, start: null, end: null, waypoints: [] }]);
+  const matched = bindCatalogFacts(brief, [{ routeId: 'trk008', name: '党岭三湖连穿', matchedName: '党岭三湖连穿', region: null, distanceKm: 19.5, hikingDays: 2, trackFileName: null, start: null, end: null, waypoints: [] }]);
   assert(matched.routes[0].waypoints.length === 0, 'a route with no catalog track carries no waypoints');
   const unmatched = bindCatalogFacts(brief, []);
   assert(unmatched.routes[0].waypoints.length === 0, 'an unknown route must not keep model-invented waypoints');
+});
+
+Deno.test('a shortened destination token still binds its catalog route', () => {
+  // The interpreter may write "党岭" for "党岭三湖连穿". Matching the catalog by
+  // name equality loses that route's GPX days and waypoints, which is what left
+  // the planner with no track to place overnight points on.
+  const evidence = [evidenceOf({ name: '党岭', catalog: { ...catalogRoute('党岭三湖连穿', 2), matchedName: '党岭' } })];
+  const brief = deterministicBrief(pipelineStub('党岭、桑措'), evidence);
+  assert(brief.routes[0].routeId === 'route-党岭三湖连穿', `the route must keep its catalog id, got ${brief.routes[0].routeId}`);
+  assert(brief.routes[0].hikingDays === 2, 'the GPX day count survives the shortened name');
+  const bound = bindCatalogFacts(brief, [{ ...catalogRoute('党岭三湖连穿', 2), matchedName: '党岭' }]);
+  assert(bound.routes[0].waypoints.length === 1, 'the waypoints reach the brief through the matched token');
+});
+
+Deno.test('research skips the guide tail only when the catalog covers every route', () => {
+  // The synthesis call has never returned inside its budget and adds only prose,
+  // so it is skipped exactly when the recorded track already places the
+  // overnight points; a route without geometry still needs the guide evidence.
+  const full = { ...catalogRoute('党岭三湖连穿', 2), matchedName: '党岭' };
+  assert(catalogCoversPlanning(['党岭'], [full]), 'a route with a track and day count is covered');
+  assert(!catalogCoversPlanning(['党岭'], [{ ...full, waypoints: [] }]), 'a route without named points is not covered');
+  assert(!catalogCoversPlanning(['党岭'], [{ ...full, hikingDays: null }]), 'a route without a day count is not covered');
+  assert(!catalogCoversPlanning(['党岭', '雅拉'], [full]), 'one uncovered route keeps the full path');
+  assert(!catalogCoversPlanning([], [full]), 'no destination keeps the existing behaviour');
+  assert(!catalogCoversPlanning(['某野山'], [full]), 'an unmatched route is not covered');
 });

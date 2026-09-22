@@ -753,18 +753,38 @@ export function DiscoverScreen({
   // initializes the Android map, and measures the full track in one JS frame.
   // Let the sheet/press transition get on screen first, then add the expensive
   // route geometry after native interactions settle.
-  const [detailMapReady, setDetailMapReady] = useState(true);
+  const [readyDetailId, setReadyDetailId] = useState<string | null>(null);
   useEffect(() => {
     if (!nav.pointInfo) {
-      setDetailMapReady(true);
+      setReadyDetailId(null);
       return;
     }
-    setDetailMapReady(false);
-    const task = InteractionManager.runAfterInteractions(() => setDetailMapReady(true));
+    const detailId = nav.pointInfo.id;
+    const task = InteractionManager.runAfterInteractions(() => setReadyDetailId(detailId));
     return () => task.cancel();
   }, [nav.pointInfo?.id]);
-  const focusCoords = detailMapReady ? rawFocusCoords : null;
+  const detailReady = !nav.pointInfo || readyDetailId === nav.pointInfo.id;
+  const focusCoords = detailReady ? rawFocusCoords : null;
   const focusMeasure = useMemo(() => measureTrack(focusCoords ?? undefined), [focusCoords]);
+  // A trip may walk several routes, so a day boundary belongs to the track of
+  // its own route. Measuring every referenced route once keeps the connector
+  // and the day distance correct instead of reading route B's kilometre as a
+  // position on route A.
+  const routeMeasures = useMemo(() => {
+    const measures = new Map<string, ReturnType<typeof measureTrack>>();
+    // Measuring a whole track is the expensive part of opening a journey, so it
+    // waits for the same frame gate the focused track uses.
+    if (!detailReady) return measures;
+    for (const route of Object.values(focusedTimeline.groupRoutes)) {
+      const routeId = route?.routeId;
+      if (!routeId || measures.has(routeId)) continue;
+      const trackCoords = routes.find((item) => item.id === routeId)?.trackCoords;
+      if (trackCoords && trackCoords.length >= 2) measures.set(routeId, measureTrack(trackCoords));
+    }
+    return measures;
+  }, [focusedTimeline.groupRoutes, routes, detailReady]);
+  const measureForGroup = (route: { routeId?: string } | undefined) =>
+    (route?.routeId ? routeMeasures.get(route.routeId) : undefined) ?? focusMeasure;
   const focusGroupKeys = availableJourneyDays.length ? availableJourneyDays : focusedTimeline.knownGroups;
   const displayedGroupRoutes = useMemo(() => {
     if (!routeEditorGroupKey) return focusedTimeline.groupRoutes;
@@ -775,6 +795,9 @@ export function DiscoverScreen({
       [routeEditorGroupKey]: {
         ...existing!,
         ...(routeDraftPosition ? {
+          // The draft is picked on the focused track, so it stops claiming
+          // whatever route the saved boundary used to belong to.
+          routeId: undefined,
           endDistanceMeters: routeDraftPosition.distanceMeters,
           longitude: routeDraftEndpoint?.[0] ?? routeDraftPosition.coordinate[0],
           latitude: routeDraftEndpoint?.[1] ?? routeDraftPosition.coordinate[1],
@@ -886,7 +909,9 @@ export function DiscoverScreen({
     return focusGroupKeys.flatMap((groupKey, index) => {
       const route = displayedGroupRoutes[groupKey];
       if (!route) return [];
-      const trackEnd = positionAtDistance(focusMeasure, route.endDistanceMeters).coordinate;
+      const measure = measureForGroup(route);
+      if (!measure) return [];
+      const trackEnd = positionAtDistance(measure, route.endDistanceMeters).coordinate;
       const endpoint: [number, number] = [route.longitude, route.latitude];
       if (!Number.isFinite(endpoint[0]) || !Number.isFinite(endpoint[1]) || distanceMeters(trackEnd, endpoint) <= 2) return [];
       return [{
@@ -896,7 +921,7 @@ export function DiscoverScreen({
         active: !selectedJourneyDay || selectedJourneyDay === groupKey,
       }];
     });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, selectedJourneyDay, theme.text2]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, routeMeasures, nav.pointInfo?.kind, selectedJourneyDay, theme.text2]);
   const transportSegments = useMemo<GlobeTransportSegment[]>(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
     return focusedTimeline.rows.flatMap((row) => {
@@ -920,7 +945,11 @@ export function DiscoverScreen({
       if (!route) return [];
       const previousRoute = index > 0 ? displayedGroupRoutes[focusGroupKeys[index - 1]] : undefined;
       const pending = index > 0 && !previousRoute;
-      const displayMeters = previousRoute ? route.endDistanceMeters - previousRoute.endDistanceMeters : route.endDistanceMeters;
+      // Distances are cumulative along one track. The first day of a new route
+      // starts at zero on that route, so subtracting the previous day's figure
+      // from another track would report a length that does not exist.
+      const sameTrack = !route.routeId || route.routeId === previousRoute?.routeId;
+      const displayMeters = previousRoute && sameTrack ? route.endDistanceMeters - previousRoute.endDistanceMeters : route.endDistanceMeters;
       return [{
         id: `journey-boundary-${index}`,
         groupKey,
@@ -932,7 +961,7 @@ export function DiscoverScreen({
         pending,
       }];
     });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, nav.pointInfo?.kind, resolved, selectedJourneyDay, theme.accent]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, routeMeasures, nav.pointInfo?.kind, resolved, selectedJourneyDay, theme.accent]);
   const routeEditorIndex = routeEditorGroupKey ? focusGroupKeys.indexOf(routeEditorGroupKey) : -1;
   let routeEditorMinimumMeters = 0;
   let routeEditorMaximumMeters: number | undefined;
@@ -1416,9 +1445,8 @@ export function DiscoverScreen({
                 accessibilityLabel="路线"
                 accessibilityState={{ expanded: journeyRouteMenuOpen }}
                 onPress={() => setJourneyRouteMenuOpen((value) => !value)}
-                style={{ height: 36, paddingHorizontal: 11, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+                style={{ height: 36, paddingHorizontal: 11, borderRadius: 18, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
               >
-                <Icon name="route" color={journeyRouteMenuOpen || selectedJourneyRouteId ? theme.accent : theme.text2} size={16} />
                 <Text style={{ color: journeyRouteMenuOpen || selectedJourneyRouteId ? theme.accent : theme.text2, fontSize: 11.5, fontWeight: '800' }}>路线</Text>
               </Press>
             </Animated.View>
@@ -1552,6 +1580,10 @@ export function DiscoverScreen({
           <View style={{ paddingHorizontal: space.md, paddingBottom: nav.pointInfo.kind === 'journey' ? 76 : 0 }}>
             {nav.pointInfo.kind === 'route' ? (
               <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)} />
+            ) : !detailReady ? (
+              <View style={{ minHeight: focusPanel, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color={theme.accent} />
+              </View>
             ) : (
               <SelectedPoiCard
                 theme={theme}

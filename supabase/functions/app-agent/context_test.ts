@@ -91,11 +91,16 @@ Deno.test('gear cache is versioned and usable for a newly created journey', asyn
   const h = harness();
   h.context.currentJourneyId = undefined;
   await readAgentGear(h.client, h.context);
+  assert(h.gearReads === 1, 'the first read must populate the cache');
+  await readAgentGear(h.client, h.context);
+  assert(Number(h.gearReads) === 1, 'an unscoped reread with a matching version must use the cache');
+  // A name-scoped read runs immediately before add_gear, where a stale thread
+  // snapshot could make an existing item look new, so it always reads through.
   await readAgentGear(h.client, h.context, 'head');
-  assert(h.gearReads === 1, 'gear reread unnecessarily');
+  assert(Number(h.gearReads) === 2, 'a name-scoped check must read the current table');
   await readJourneySections(h.client, h.context, 'j', ['journey', 'track', 'itinerary', 'packing']);
   assert(expectedWriteVersions(h.context, 'add_packing_items', { journeyId: 'j', mode: 'full' }).gear === '1', 'new journey lost global gear context');
   h.versions.gear = '2';
   await readAgentGear(h.client, h.context);
-  assert(Number(h.gearReads) === 2, 'gear change not refreshed');
+  assert(Number(h.gearReads) === 3, 'gear change not refreshed');
 });

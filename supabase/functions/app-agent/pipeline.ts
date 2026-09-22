@@ -44,7 +44,7 @@ export const STAGE_BUDGETS: Record<StageName, number> = {
   // Saving may need one deterministic evidence downgrade plus a complete
   // versioned write round; 30s routinely aborted valid repairs mid-flight, and
   // the repair round is itself a tool-using model call.
-  save: 60_000,
+  save: 90_000,
   packing: 150_000,
   respond: 60_000,
 };
@@ -146,7 +146,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   let plan = await runStage<PlanDocument>({
     name: 'plan', state, pipeline,
     execute: signal => runPlan(pipeline, signal, research.artifact, transport, transportPlan.artifact),
-    degrade: planDegradeReason,
+    degrade: plan => planDegradeReason(plan, Boolean(boundJourneyId(pipeline.context))),
   });
   if (plan.aborted) return aborted();
 
@@ -309,6 +309,9 @@ export type CatalogRouteWaypoint = { index: number; name: string; distanceKm: nu
 export type CatalogRoute = {
   routeId: string;
   name: string;
+  /** The destination token this row resolved from; the interpreter may shorten
+   * a route name ("党岭" for "党岭三湖连穿"), so name equality is not a join. */
+  matchedName: string;
   region: string | null;
   distanceKm: number | null;
   hikingDays: number | null;
@@ -371,7 +374,7 @@ export function bindCatalogFacts(brief: ResearchBrief, catalogFacts: CatalogRout
   return {
     ...brief,
     routes: brief.routes.map((route) => {
-      const catalogRoute = catalogFacts.find((item) => item.name === route.name);
+      const catalogRoute = catalogFacts.find((item) => item.matchedName === route.name);
       return catalogRoute ? {
         ...route,
         routeId: catalogRoute.routeId,
@@ -390,6 +393,18 @@ export function bindCatalogFacts(brief: ResearchBrief, catalogFacts: CatalogRout
 // near the days they belong to — so an even sample keeps every stretch
 // represented while the original index stays valid for waypointIndex.
 const CATALOG_WAYPOINTS_PER_ROUTE = 40;
+
+// True when the catalog already answers what the plan stage needs for every
+// requested route, so guide reading and the synthesis call would only add
+// prose. Skipping them is what removes the research stage's two-minute tail;
+// the deterministic brief still reports the guides as unread.
+export function catalogCoversPlanning(names: string[], catalogFacts: CatalogRoute[]): boolean {
+  if (!names.length) return false;
+  return names.every((name) => {
+    const route = catalogFacts.find(item => item.matchedName === name);
+    return Boolean(route && route.hikingDays != null && route.waypoints.length > 0);
+  });
+}
 
 export function sampleCatalogWaypoints(values: unknown): CatalogRouteWaypoint[] {
   if (!Array.isArray(values)) return [];
@@ -415,6 +430,8 @@ async function loadCatalogFacts(pipeline: PipelineDeps, names: string[]): Promis
   const columns = 'id,name,region,dist,track_coords,track_duration_ms,track_file_name,track_waypoints';
   const catalog = names.length ? await pipeline.client.from('routes').select(columns).in('name', names).limit(20) : { data: [], error: null };
   if (catalog.error) throw catalog.error;
+  const matchedNames = new Map<string, string>();
+  for (const route of (catalog.data || []) as any[]) matchedNames.set(route.id, route.name);
   const found: any[] = [...(catalog.data || [])];
   // The interpreter writes the destination in its own words and can shorten a
   // route name ("党岭三湖" for "党岭三湖连穿"). Without a fallback the exact
@@ -426,14 +443,17 @@ async function loadCatalogFacts(pipeline: PipelineDeps, names: string[]): Promis
     if (loose.error) throw loose.error;
     const exact = (loose.data || []).find((route: any) => route.name === name);
     const candidate = exact ?? (loose.data || [])[0];
-    if (candidate && !found.some((route: any) => route.id === candidate.id)) found.push(candidate);
+    if (candidate && !found.some((route: any) => route.id === candidate.id)) {
+      found.push(candidate);
+      matchedNames.set(candidate.id, name);
+    }
   }
   return found.map((route: any) => {
     const coords = Array.isArray(route.track_coords) ? route.track_coords : [];
     const start = coords[0];
     const end = coords[coords.length - 1];
     const durationMs = Number(route.track_duration_ms);
-    return { routeId: route.id, name: route.name, region: route.region, distanceKm: Number.parseFloat(String(route.dist || '').replace(/[^0-9.]/g, '')) || null, hikingDays: Number.isFinite(durationMs) && durationMs > 0 ? Math.ceil(durationMs / 86_400_000) : null, trackFileName: route.track_file_name, start: Array.isArray(start) ? { longitude: start[0], latitude: start[1] } : null, end: Array.isArray(end) ? { longitude: end[0], latitude: end[1] } : null, waypoints: sampleCatalogWaypoints(route.track_waypoints) };
+    return { routeId: route.id, name: route.name, matchedName: matchedNames.get(route.id) ?? route.name, region: route.region, distanceKm: Number.parseFloat(String(route.dist || '').replace(/[^0-9.]/g, '')) || null, hikingDays: Number.isFinite(durationMs) && durationMs > 0 ? Math.ceil(durationMs / 86_400_000) : null, trackFileName: route.track_file_name, start: Array.isArray(start) ? { longitude: start[0], latitude: start[1] } : null, end: Array.isArray(end) ? { longitude: end[0], latitude: end[1] } : null, waypoints: sampleCatalogWaypoints(route.track_waypoints) };
   });
 }
 
@@ -446,7 +466,7 @@ async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal,
   allowGuideQueries(pipeline.runId, names.map(name => `${name} 徒步 攻略`));
   try {
     for (const name of names) {
-      const catalog = catalogFacts.find(route => route.name === name) || null;
+      const catalog = catalogFacts.find(route => route.matchedName === name) || null;
       const carried = previous?.routes.find(route => route.name === name) || null;
       if (isResolvedRoute(carried)) {
         evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, collected: ['上一轮已核验，本轮复用'], error: null });
@@ -646,7 +666,20 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
     // resolved: route facts have not changed, so reuse the brief wholesale.
     return bindCatalogFacts(previous, catalogFacts);
   }
+  // When every requested route already has a recorded track with named points,
+  // the deterministic brief carries everything planning uses: route ids, GPX
+  // day counts and the waypoints overnight points are chosen from. The
+  // synthesis then only rewrites that into prose, at a measured ~2 minutes per
+  // run against a schema it has never once returned inside its budget, so it is
+  // skipped. A route without recorded geometry still takes the full path: there
+  // the guide text is the only overnight evidence available.
+  const covered = catalogCoversPlanning(names, catalogFacts);
+  // Guide reading stays: its bodies are what keeps a route entry "resolved" for
+  // cross-run reuse, and they are cache-backed. Only the synthesis call is
+  // skipped, because it rewrites evidence the plan already has.
   const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous);
+  const deterministic = bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
+  if (covered) return deterministic;
   try {
     return bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous)), catalogFacts);
   } catch (error) {
@@ -656,7 +689,7 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
     // transport and planning can still explain the gaps instead of retrying
     // the whole stage for minutes.
     console.warn('[AppAgent] research synthesis failed, falling back to the deterministic brief', (error instanceof Error ? error.message : String(error)).slice(0, 600));
-    return bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
+    return deterministic;
   }
 }
 async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null): Promise<TransportPlan> {
@@ -822,10 +855,10 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
   // ("endpoints must increase along the itinerary"), which failed the whole
   // save. The planner still names those days' overnight points in the item
   // titles; only the track-bound endpoint is dropped.
-  const offRouteEndpoints = endpointDaysOffBoundRoute(plan);
-  if (offRouteEndpoints.length) {
-    plan.endpoints = plan.endpoints.filter(endpoint => !offRouteEndpoints.includes(endpoint.day));
-    plan.unverified = [...plan.unverified, `${offRouteEndpoints.join('、')} 属于本次未绑定轨迹的路线，这些日期的累计里程终点未保存；过夜点已写在行程描述中。`].slice(0, 30);
+  const unknownRouteEndpoints = endpointDaysWithUnknownRoute(plan, research);
+  if (unknownRouteEndpoints.length) {
+    plan.endpoints = plan.endpoints.filter(endpoint => !unknownRouteEndpoints.includes(endpoint.day));
+    plan.unverified = [...plan.unverified, `${unknownRouteEndpoints.join('、')} 的终点标注了本次没有核对到的路线，这些日期的累计里程终点未保存，避免被当成绑定轨迹上的位置。`].slice(0, 30);
   }
   if (unlocatableEndpoints.length) {
     plan.unverified = [...plan.unverified, `${unlocatableEndpoints.join('、')} 的徒步终点没有给出可核验的轨迹标注点或累计里程，本轮的这些终点未保存。`].slice(0, 30);
@@ -954,30 +987,28 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
   return merged;
 }
 
-// Days whose itinerary items all belong to a route other than the one bound to
-// the journey. Transport and stay items carry no route, so a day is only
-// considered off-route when every route-tagged item on it disagrees.
-export function endpointDaysOffBoundRoute(plan: PlanDocument): string[] {
-  const boundRouteId = plan.journey?.routeId ?? null;
-  if (!boundRouteId) return [];
-  const routesByDay = new Map<string, Set<string>>();
-  for (const item of plan.itineraryItems) {
-    if (!item.routeId) continue;
-    const day = routesByDay.get(item.day) ?? new Set<string>();
-    day.add(item.routeId);
-    routesByDay.set(item.day, day);
-  }
-  return [...new Set(plan.endpoints.flatMap((endpoint) => {
-    const day = routesByDay.get(endpoint.day);
-    return day && !day.has(boundRouteId) ? [endpoint.day] : [];
-  }))];
+// Every day of a multi-route trip is measured on its own route's track, so an
+// endpoint tagged with a route the research handoff knows about is resolved
+// there. An endpoint tagged with an id nothing matched is the one case a write
+// cannot interpret: it would silently resolve on the journey's bound track and
+// place the day somewhere it is not.
+export function endpointDaysWithUnknownRoute(plan: PlanDocument, research: ResearchBrief | null): string[] {
+  const known = new Set<string>([...(research?.routes || []).flatMap(route => route.routeId ? [route.routeId] : [])]);
+  if (plan.journey?.routeId) known.add(plan.journey.routeId);
+  return [...new Set(plan.endpoints.flatMap(endpoint => endpoint.routeId && !known.has(endpoint.routeId) ? [endpoint.day] : []))];
 }
 
 // The deterministic fallback keeps the journey and the research handoff so the
 // next turn can continue, but it carries no daily plan. Saying so plainly is
 // the whole point: the raw failure (a rejected schema, an expired stage budget)
 // belongs in the worker log and in the stage row, never in user-facing text.
-export function planDegradeReason(plan: PlanDocument): string | null {
+export function planDegradeReason(plan: PlanDocument, hasBoundJourney = false): string | null {
+  // Every write is journey-scoped, so a plan that names no journey saves
+  // nothing at all. It looked complete because it carried itinerary items,
+  // which is how a run reported success after writing zero rows.
+  if (!plan.journey && !hasBoundJourney && plan.itineraryItems.length > 0) {
+    return 'plan produced itinerary items without a journey to save them to; see the worker log for the rejected journey fields';
+  }
   if (plan.itineraryItems.length > 0) return null;
   // No itinerary was produced, so the stage is incomplete however it got here.
   // The reason distinguishes stopping to ask from failing, because only the
@@ -1112,7 +1143,9 @@ const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查�
 - ResearchBrief.routes.hikingDays 是根据 GPX 录制时长得到的确定日数；每条路线必须连续生成相同数量的徒步日，不能用“待核实”自定义项占位。
 - ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，并在 itineraryItems 的 title 里写出标注点名称与累计里程；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
 - endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一；无法定位的日期不要为它输出空条目（只有 day 的条目会被拒绝），改为把缺口写入 unverified。
-- 多路线旅程只能绑定一条轨迹：journey.routeId 绑定第一条路线的目录 ID（若提供了轨迹文件名则优先与它匹配的那条），这样该路线可以设置轨迹终点；其余路线在 title 中写出标注点名称，并在 unverified 说明其累计里程未绑定轨迹。
+- 一次出行可以走多条路线（走完 A 再走 B）。每个徒步日的终点必须填写 routeId，指向该天所属路线的目录 ID；该天的 waypointIndex 与累计里程按**这条路线自己的轨迹**解析，不同路线各自从 0 开始，不需要跨路线递增。
+- 纯接驳、住宿或休整日不属于任何路线：不要为它们输出终点条目，把地点与安排写在 itineraryItems 里。
+- journey.routeId 绑定第一条路线的目录 ID（若提供了轨迹文件名则优先与它匹配的那条）。
 - 交通接驳段作为普通 itineraryItems 记录，不要为交通单独设置徒步日终点；交通项必须 kind=transport，并填写 transport.from、transport.to、mode 和 status。只有检索结果提供了坐标或导航 geometry 时才填写对应字段，否则保留地点名称并将 status 设为 unknown，不能编造路线。
 - 没有证据的内容写入 unverified，不要编造时间、价格、水源或营地。
 - 无法完成的部分用 blocker 说明具体原因，需要用户决定时用 pendingQuestion，并把已经能确定的部分照常输出。
@@ -1129,7 +1162,7 @@ dayNames 无法确定时留空并写入 blocker 或 pendingQuestion。只输出 
 
 const planChunkInstructions = `你是 Kaipa 的行程编排逐日细化轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，只依据本轮提供的 ResearchBrief、TransportPlan、整体框架与已核验事实编排。
 系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
-硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，交通项 routeId=null；交通接驳段必须 kind=transport 并填写 transport.from、transport.to、mode 和 status，没有坐标时 status=unknown；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
+硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，交通项 routeId=null；交通接驳段必须 kind=transport 并填写 transport.from、transport.to、mode 和 status，没有坐标时 status=unknown；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
 只输出 PlanChunk 结构化结果。`;
 
 const packingInstructions = `你是 Kaipa 的装备清单阶段，只输出一份完整的个人清单草稿，不保存任何数据。
@@ -1188,13 +1221,16 @@ function aborted() {
   };
 }
 
-type StageRow = { stage: StageName; status: string; artifact: unknown };
+type StageRow = { stage: StageName; status: string; artifact: unknown; attempt?: number };
 
 async function loadStageState(admin: any, runId: string) {
-  const rows = await admin.from('agent_stages').select('stage,status,artifact').eq('run_id', runId);
+  // A retried job writes another attempt for the same stage, so ordering is
+  // what decides which artifact a resume reuses. Without it the map kept
+  // whichever row the database happened to return last, which could be the
+  // previous attempt's.
+  const rows = await admin.from('agent_stages').select('stage,status,artifact,attempt').eq('run_id', runId).order('attempt', { ascending: true });
   if (rows.error) throw rows.error;
   const state = new Map<StageName, StageRow>();
-  // Attempts are upserted on the same row, so one row per stage exists here.
   for (const row of (rows.data || []) as StageRow[]) state.set(row.stage, row);
   return state;
 }

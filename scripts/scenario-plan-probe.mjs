@@ -43,7 +43,7 @@ try {
   const plan = stages.find(stage => stage.stage === 'plan')?.artifact;
   const report = {
     message, elapsedSeconds: Math.round((Date.now() - started) / 1000), status: run.status, error: run.error,
-    decision: task?.state?.decision ? { domain: task.state.decision.domain, days: task.state.decision.days, derivedDays: task.state.decision.derivedDays, fullHikingPlan: task.state.decision.fullHikingPlan, packingMode: task.state.decision.packingMode, mode: task.state.decision.mode, operations: task.state.decision.operations } : null,
+    decision: task?.state?.decision ? { domain: task.state.decision.domain, days: task.state.decision.days, derivedDays: task.state.decision.derivedDays, fullHikingPlan: task.state.decision.fullHikingPlan, packingMode: task.state.decision.packingMode, mode: task.state.decision.mode, operations: task.state.decision.operations, authorizationQuote: task.state.decision.authorizationQuote, authorizationUnconfirmed: task.state.decision.authorizationUnconfirmed } : null,
     stages: stages.map(stage => ({ stage: stage.stage, status: stage.status, attempt: stage.attempt, error: stage.error,
       items: stage.stage === 'plan' ? (stage.artifact?.itineraryItems || []).length : undefined,
       blocker: stage.stage === 'plan' ? stage.artifact?.blocker : undefined,
