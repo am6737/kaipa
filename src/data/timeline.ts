@@ -55,6 +55,9 @@ export interface TLRow {
   custom?: boolean;
   checked?: boolean;
   kind?: TimelineItemKind;
+  /** Where this item happens — picked on the map or via place search. */
+  location?: TimelineLocation;
+  /** Only for agent-produced transport legs (a segment between two places). */
   transport?: TimelineTransport;
 }
 

@@ -16,7 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
-import { TLRow, TLMedia, TLGroup, TimelineItemKind, TimelineLocation, TimelineTransportMode } from '../../data/timeline';
+import { TLRow, TLMedia, TLGroup, TimelineLocation, TimelineTransportMode } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
@@ -164,25 +164,6 @@ const transportSummary = (row: TLRow) => {
   return parts.filter(Boolean).join('  ');
 };
 
-// The endpoint a row contributes to the day's transport chain: transport rows
-// end at their `to`, everything else at its own title.
-const rowLocation = (row: TLRow): TimelineLocation =>
-  (row.kind === 'transport' && row.transport?.to?.name) ? row.transport.to : { name: row.title, source: 'custom' };
-
-function TransportPlaceInput({ theme, value, placeholder, onPress }: {
-  theme: Theme;
-  value: { name: string; longitude?: number; latitude?: number; address?: string };
-  placeholder: string;
-  onPress: () => void;
-}) {
-  return (
-    <Press onPress={onPress} style={{ minHeight: 46, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-      <Text numberOfLines={1} style={{ color: value.name ? theme.text : theme.text3, fontSize: 15, fontWeight: value.name ? '600' : '400' }}>{value.name || placeholder}</Text>
-      {value.address ? <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 11, marginTop: 2 }}>{value.address}</Text> : null}
-    </Press>
-  );
-}
-
 // AMap returns `type` as a semicolon-hierarchy string (e.g. "风景名胜;博物馆").
 // Collapse it to the short tag shown above each search result.
 const poiCategoryLabel = (category?: string) => {
@@ -212,15 +193,15 @@ function HighlightedPlaceName({ theme, name, query }: { theme: Theme; name: stri
   );
 }
 
-function PlaceSearchOverlay({ theme, initialQuery, keyboardLift, onSelect, onClose }: {
+function PlaceSearchOverlay({ theme, keyboardLift, onSelect, onClose }: {
   theme: Theme;
-  initialQuery: string;
   keyboardLift: number;
-  onSelect: (location: JourneyLocationValue | { name: string; source: 'custom' }) => void;
+  onSelect: (location: JourneyLocationValue) => void;
   onClose: () => void;
 }) {
   const { t, resolved } = useI18n();
-  const [query, setQuery] = useState(initialQuery);
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
   const [results, setResults] = useState<JourneyLocationValue[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(false);
@@ -236,37 +217,46 @@ function PlaceSearchOverlay({ theme, initialQuery, keyboardLift, onSelect, onClo
     }, 280);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, resolved]);
-  const chooseCustom = () => {
-    if (!query.trim()) return;
-    onSelect({ name: query.trim(), source: 'custom' });
-    onClose();
-  };
+  const showList = query.trim().length >= 2;
+  // Full-bleed stack: the list panel lands directly on top of the search dock,
+  // which sits flush on the keyboard — one continuous surface, no gaps. The
+  // field never remounts, so toggling the list keeps focus + keyboard.
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 120, justifyContent: 'flex-end' }]}>
-      <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={StyleSheet.absoluteFill} /></Press>
-      <View style={{ transform: [{ translateY: -keyboardLift }], maxHeight: '82%', minHeight: 430, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12, paddingBottom: 18, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 6 }}>
-          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('journey.timeline.placeSearchClose')} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}><Icon name="close" size={18} color={theme.text2} /></Press>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 120 }]}>
+      <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} /></Press>
+      {showList ? (
+        <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 8, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12 }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 }}>
+            {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
+            {!searching && results.map((result, index) => {
+              const category = poiCategoryLabel(result.category);
+              return (
+                <Press key={`${result.lng}-${result.lat}-${index}`} onPress={() => { onSelect(result); onClose(); }} style={{ paddingVertical: 13 }}>
+                  <HighlightedPlaceName theme={theme} name={result.name} query={query} />
+                  <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>{category ? `${category}｜` : ''}{result.address || result.region}</Text>
+                </Press>
+              );
+            })}
+            {!searching && !results.length ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? t('journey.timeline.placeSearchUnavailable') : t('journey.timeline.placeSearchNoMatch')}</Text></View> : null}
+          </ScrollView>
         </View>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 72 }}>
-          {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
-          {!searching && results.map((result, index) => {
-            const category = poiCategoryLabel(result.category);
-            return (
-              <Press key={`${result.lng}-${result.lat}-${index}`} onPress={() => { onSelect(result); onClose(); }} style={{ paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline }}>
-                <HighlightedPlaceName theme={theme} name={result.name} query={query} />
-                <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>{category ? `${category}｜` : ''}{result.address || result.region}</Text>
-              </Press>
-            );
-          })}
-          {!searching && !results.length && query.trim().length >= 2 ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? t('journey.timeline.placeSearchUnavailable') : t('journey.timeline.placeSearchNoMatch')}</Text></View> : null}
-          {query.trim() ? <Press onPress={chooseCustom} style={{ marginTop: 12, minHeight: 46, borderRadius: 14, backgroundColor: theme.fieldSurface, justifyContent: 'center', paddingHorizontal: 14 }}><Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>{t('journey.timeline.placeSearchCustom', { name: query.trim() })}</Text><Text style={{ color: theme.text3, fontSize: 12, marginTop: 3 }}>{t('journey.timeline.placeSearchCustomHint')}</Text></Press> : null}
-        </ScrollView>
-        <View style={{ position: 'absolute', left: 18, right: 18, bottom: 18, height: 52, borderRadius: 16, backgroundColor: theme.fieldSurface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14 }}>
-          <Icon name="search" size={20} color={theme.text2} />
-          <TextInput autoFocus value={query} onChangeText={setQuery} placeholder={t('journey.timeline.placeSearchPlaceholder')} placeholderTextColor={theme.text3} style={{ flex: 1, marginLeft: 10, color: theme.text, fontSize: 17, paddingVertical: 0 }} />
-          {query ? <Press onPress={() => setQuery('')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('journey.timeline.placeSearchClear')}><Icon name="close" size={17} color={theme.text3} /></Press> : null}
+      ) : null}
+      <View style={{
+        position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: theme.surfaceTop,
+        borderTopLeftRadius: 28, borderTopRightRadius: 28,
+        shadowColor: '#000', shadowOpacity: theme.dark ? 0.45 : 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: -3 }, elevation: 10,
+      }}>
+        <View style={{ height: 54, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 10 }}>
+          <Icon name="search" size={19} color={theme.text2} />
+          <TextInput autoFocus value={query} onChangeText={setQuery} placeholder={t('journey.timeline.placeSearchPlaceholder')} placeholderTextColor={theme.text3} style={{ flex: 1, color: theme.text, fontSize: 17, paddingVertical: 0 }} />
+          {query ? (
+            <Press onPress={() => setQuery('')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('journey.timeline.placeSearchClear')} style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+              <Icon name="close" size={13} color={theme.text2} strokeWidth={2.2} />
+            </Press>
+          ) : null}
         </View>
+        {/* white continues behind the keyboard's rounded corners */}
+        <View style={{ height: keyboardLift }} />
       </View>
     </View>
   );
@@ -1585,12 +1575,11 @@ async function assetToMedia(a: ImagePicker.ImagePickerAsset): Promise<TLMedia> {
 
 // ── Quick add — a lightweight bottom sheet. Most entries are just a line or two
 //    of text (maybe a time + a few photos), so we skip the full-screen editor. ──
-function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, editRow, zIndex = 80, onSubmit, onClose }: {
+function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, zIndex = 80, onSubmit, onClose }: {
   theme: Theme;
   initialDay?: string;
   defaultDay: string;
   existingDays: string[];
-  rows: TLRow[];
   editRow?: TLRow;
   zIndex?: number;
   onSubmit: (it: Omit<TLRow, 'id'>) => void | Promise<void>;
@@ -1600,9 +1589,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
   const { t, resolved } = useI18n();
   const initDay = editRow ? (editRow.day || defaultDay) : initialDay?.trim() || defaultDay;
   const [text, setText] = useState(editRow?.title ?? '');
-  const [kind, setKind] = useState<TimelineItemKind>(editRow?.kind ?? 'activity');
-  const [transportMode, setTransportMode] = useState<TimelineTransportMode>(editRow?.transport?.mode ?? 'car');
-  const [location, setLocation] = useState<TimelineLocation>(editRow?.kind === 'transport' ? (editRow?.transport?.to ?? { name: '' }) : { name: '' });
+  const [location, setLocation] = useState<TimelineLocation>(editRow?.location ?? { name: '' });
   const [placeOpen, setPlaceOpen] = useState(false);
   const [media, setMedia] = useState<TLMedia[]>(editRow?.media ?? []);
   const [day, setDay] = useState(initDay);
@@ -1728,34 +1715,10 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
     setShowTime(true);
   };
   const clearTime = () => { setShowTime(false); setStartMins(null); setEndMins(null); };
-  // Navigation-style chaining: a transport leg runs from the day's last placed
-  // item to the single place picked here. The user only ever fills in the
-  // destination; `from` is derived at submit time.
-  const chainFrom = useMemo<TimelineLocation | null>(() => {
-    const dayRows = rows
-      .map((r, i) => ({ r, i }))
-      .filter(({ r }) => (r.day || '') === day.trim() && r.id !== editRow?.id)
-      .sort((a, b) => {
-        const ta = a.r.timeStart ?? Infinity, tb = b.r.timeStart ?? Infinity;
-        return ta === tb ? a.i - b.i : ta - tb;
-      })
-      .map(({ r }) => r);
-    const last = dayRows[dayRows.length - 1];
-    return last ? rowLocation(last) : null;
-  }, [rows, day, editRow?.id]);
-  const placeChanged = !editRow
-    || editRow.kind !== 'transport'
-    || (editRow.transport?.to?.name ?? '') !== location.name
-    || editRow.transport?.to?.longitude !== location.longitude
-    || editRow.transport?.to?.latitude !== location.latitude;
-  const title = text.trim() || location.name.trim();
-  const can = title.length > 0 && !submitting;
-  const pickPlace = (loc: JourneyLocationValue | { name: string; source: 'custom' }) => {
-    const next: TimelineLocation = 'lng' in loc
-      ? { name: loc.name, source: 'map', longitude: loc.lng, latitude: loc.lat, address: loc.address }
-      : loc;
-    setLocation(next);
-    setText((cur) => (cur.trim() ? cur : next.name));
+  const title = text.trim();
+  const can = (title.length > 0 || Boolean(location.name) || media.length > 0) && !submitting;
+  const pickPlace = (loc: JourneyLocationValue) => {
+    setLocation({ name: loc.name, source: 'map', longitude: loc.lng, latitude: loc.lat, address: loc.address });
   };
   const submit = async () => {
     if (!can) return;
@@ -1767,13 +1730,8 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
         media: media.length ? media : undefined,
         timeStart: startMins ?? undefined,
         timeEnd: endMins ?? undefined,
-        kind,
-        transport: kind === 'transport' ? {
-          mode: transportMode,
-          from: (placeChanged ? chainFrom : editRow?.transport?.from) ?? chainFrom ?? { name: '' },
-          to: location.name ? location : { name: title, source: 'custom' },
-          status: 'unknown',
-        } : undefined,
+        kind: editRow?.kind ?? 'activity',
+        location: location.name ? location : undefined,
       });
       animateClose();
     } catch (error) {
@@ -1791,7 +1749,9 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
   const screenHeight = Dimensions.get('screen').height;
   const androidWindowAlreadyResized = keyboardH > 0 && screenHeight - windowHeight >= keyboardH * 0.5;
   const keyboardLift = Platform.OS === 'ios' || !androidWindowAlreadyResized ? keyboardH : 0;
-  const keyboardTranslateY = Animated.add(slide, -keyboardLift);
+  // While the place-search overlay is open it owns the keyboard; the form sheet
+  // stays put behind the dim so the two don't read as one stacked form.
+  const keyboardTranslateY = Animated.add(slide, -(placeOpen ? 0 : keyboardLift));
 
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex }]}>
@@ -1855,56 +1815,36 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
               onFocus={() => { setShowTime(false); setDayOpen(false); }}
               multiline
               textAlignVertical="top"
-              placeholder={kind === 'activity' ? t('journey.timeline.addPlaceholder') : t('journey.timeline.placeTitlePlaceholder')}
+              placeholder={t('journey.timeline.addPlaceholder')}
               placeholderTextColor={theme.text3}
-              style={{ marginTop: 12, minHeight: 76, maxHeight: 150, fontSize: 16.5, lineHeight: 24, color: theme.text, padding: 0 }}
+              style={{ marginTop: 12, minHeight: 64, maxHeight: 150, fontSize: 16.5, lineHeight: 24, color: theme.text, padding: 0 }}
             />
 
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-              {([
-                ['activity', t('journey.timeline.kindActivity')],
-                ['transport', t('journey.timeline.kindTransport')],
-                ['stay', t('journey.timeline.kindStay')],
-                ['custom', t('journey.timeline.kindCustom')],
-              ] as const).map(([value, label]) => (
+            {/* place attachment — a text button until picked, then a removable chip */}
+            {location.name ? (
+              <Press
+                onPress={() => setPlaceOpen(true)}
+                style={{ alignSelf: 'flex-start', maxWidth: '100%', marginTop: 6, marginBottom: 4, minHeight: 34, borderRadius: 17, paddingLeft: 12, paddingRight: 6, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.fieldSurface }}
+              >
+                <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text, flexShrink: 1 }}>{location.name}</Text>
                 <Press
-                  key={value}
-                  onPress={() => setKind(value)}
-                  style={{ height: 34, paddingHorizontal: 14, borderRadius: 17, justifyContent: 'center', backgroundColor: kind === value ? theme.accent : subtle }}
+                  onPress={() => setLocation({ name: '' })}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.delete')}
+                  style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.dark ? 'rgba(255,255,255,0.14)' : 'rgba(60,60,67,0.12)' }}
                 >
-                  <Text numberOfLines={1} style={{ color: kind === value ? '#fff' : theme.text2, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+                  <Icon name="close" size={11} color={theme.text2} strokeWidth={2.2} />
                 </Press>
-              ))}
-            </View>
-
-            {kind !== 'activity' ? (
-              <View style={{ marginTop: 10, gap: 8 }}>
-                <TransportPlaceInput
-                  theme={theme}
-                  value={location}
-                  placeholder={kind === 'transport' ? t('journey.timeline.placeArrival') : kind === 'stay' ? t('journey.timeline.placeStay') : t('journey.timeline.placeCustom')}
-                  onPress={() => setPlaceOpen(true)}
-                />
-                {kind === 'transport' ? (
-                  <>
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      {([
-                        ['car', '驾车'], ['taxi', '打车'], ['bus', '巴士'], ['shuttle', '接驳'], ['walk', '步行'],
-                      ] as const).map(([value, label]) => (
-                        <Press key={value} onPress={() => setTransportMode(value)} style={{ flex: 1, minWidth: 0, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: transportMode === value ? theme.fieldSurface : 'transparent', borderWidth: transportMode === value ? 1 : 0, borderColor: theme.accent }}>
-                          <Text numberOfLines={1} style={{ color: transportMode === value ? theme.text : theme.text3, fontSize: 11.5, fontWeight: '700' }}>{label}</Text>
-                        </Press>
-                      ))}
-                    </View>
-                    <Text style={{ color: chainFrom?.name ? theme.text2 : theme.text3, fontSize: 12 }}>
-                      {chainFrom?.name
-                        ? t('journey.timeline.placeChainHint', { name: chainFrom.name })
-                        : t('journey.timeline.placeChainStart')}
-                    </Text>
-                  </>
-                ) : null}
-              </View>
-            ) : null}
+              </Press>
+            ) : (
+              <Press
+                onPress={() => setPlaceOpen(true)}
+                style={{ alignSelf: 'flex-start', minHeight: 34, justifyContent: 'center', marginTop: 4, marginBottom: 2 }}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text2 }}>{t('journey.timeline.placeOptional')}</Text>
+              </Press>
+            )}
 
             {/* photos */}
             {media.length ? (
@@ -1965,7 +1905,6 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, edit
       {placeOpen ? (
         <PlaceSearchOverlay
           theme={theme}
-          initialQuery={location.name || text.trim()}
           keyboardLift={keyboardLift}
           onSelect={pickPlace}
           onClose={() => setPlaceOpen(false)}
@@ -1995,7 +1934,6 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
       initialDay={initialDay}
       defaultDay={defaultDay}
       existingDays={selectableGroups}
-      rows={tl.rows}
       editRow={editRow}
       onClose={onClose}
       onSubmit={async (it) => {

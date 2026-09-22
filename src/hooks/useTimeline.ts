@@ -201,6 +201,7 @@ export function useTimeline(
       is_custom: true,
       checked: false,
       item_kind: item.kind ?? 'activity',
+      location: item.location ?? null,
       transport: item.transport ?? null,
       sort_order: state.rows.length,
     };
@@ -222,6 +223,7 @@ export function useTimeline(
     if ('timeStart' in patch) dbPatch.time_mins = patch.timeStart ?? null;
     if ('timeEnd' in patch) dbPatch.time_end_mins = patch.timeEnd ?? null;
     if (patch.kind !== undefined) dbPatch.item_kind = patch.kind ?? 'activity';
+    if ('location' in patch) dbPatch.location = patch.location ?? null;
     if (patch.transport !== undefined) dbPatch.transport = patch.transport ?? null;
     await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
     if (patch.day) await persistGroup(patch.day, false);

@@ -213,6 +213,7 @@ export function toTLRow(r: any): TLRow {
     custom: r.is_custom ?? false,
     checked: r.checked ?? false,
     kind: r.item_kind === 'transport' || r.item_kind === 'stay' || r.item_kind === 'custom' ? r.item_kind : 'activity',
+    location: r.location && typeof r.location === 'object' ? r.location : undefined,
     transport: r.transport && typeof r.transport === 'object' ? r.transport : undefined,
   };
 }
