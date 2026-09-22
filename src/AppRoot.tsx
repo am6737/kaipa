@@ -97,16 +97,21 @@ function AppShell() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View
         pointerEvents={nav.mainTab === 'discover' || detailOpen ? 'auto' : 'none'}
-        accessibilityElementsHidden={nav.mainTab === 'journey' && !detailOpen}
-        importantForAccessibility={nav.mainTab === 'journey' && !detailOpen ? 'no-hide-descendants' : 'auto'}
-        style={[StyleSheet.absoluteFill, !['discover', 'journey'].includes(nav.mainTab) && !detailOpen && hidden]}
+        accessibilityElementsHidden={nav.mainTab !== 'discover' && !detailOpen}
+        importantForAccessibility={nav.mainTab !== 'discover' && !detailOpen ? 'no-hide-descendants' : 'auto'}
+        // iOS must never take this container out of the hierarchy: a MapView
+        // that leaves and re-enters the window comes back with empty reused
+        // annotation views (every route pin gone), and unmounting it reloads
+        // the tiles, which reads as a flash. DiscoverScreen slides the map
+        // off-screen instead, via keepMapWarm. Android keeps the old teardown.
+        style={[
+          StyleSheet.absoluteFill,
+          Platform.OS === 'android' && !['discover', 'journey'].includes(nav.mainTab) && !detailOpen && hidden,
+        ]}
       >
         <DiscoverScreen
           theme={theme}
           active={nav.mainTab === 'discover' || detailOpen}
-          // Android map views keep consuming GPU/compositor time even when a
-          // different tab is on top. The map component restores its last
-          // camera after remounting, so only keep the native view warm on iOS.
           keepMapWarm={Platform.OS === 'ios'}
           externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
           onBlockingOverlayChange={setDiscoverOverlayOpen}

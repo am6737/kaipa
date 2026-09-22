@@ -1192,7 +1192,18 @@ export function DiscoverScreen({
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    /* Under another bottom tab the whole page slides off-screen rather than being
+       display:none'd or unmounted. MapKit keeps its instance, camera and every
+       annotation view: a MapView that re-enters the window comes back with empty
+       reused annotation views, and a remount reloads the tiles, which reads as a
+       flash. Off-screen still lets Core Animation cull it, so the tab on top
+       keeps its frames. */
+    <View
+      style={[
+        { flex: 1, backgroundColor: theme.bg },
+        !active && keepMapWarm ? { transform: [{ translateX: width * 2 }] } : null,
+      ]}
+    >
       {/* full-screen interactive map (Apple-Maps style) — subtabs, top-right
           chrome, locate button and the bottom sheet all float on top of it */}
       <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>

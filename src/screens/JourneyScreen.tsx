@@ -217,7 +217,6 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
       <ScrollView
         style={{ marginTop: insets.top }}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
         contentContainerStyle={{ paddingTop: space.xs }}
         refreshControl={(
           <RefreshControl
