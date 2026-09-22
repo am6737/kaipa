@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
-import type { NativeMapHandle, NativeMapProps } from './types';
+import { projectTrack, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 function point(coordinate: [number, number]) {
@@ -49,9 +49,13 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const mapReady = useRef(false);
   const hasLayout = useRef(false);
   const pendingCameraAction = useRef<(() => void) | null>(null);
+  const programmaticStartedAt = useRef(0);
+  const pendingProgrammaticCompletions = useRef(0);
 
   const markProgrammaticMove = (duration: number) => {
     programmaticUntil.current = Date.now() + duration + 180;
+    programmaticStartedAt.current = Date.now();
+    pendingProgrammaticCompletions.current += 1;
   };
 
   const flushCameraAction = () => {
@@ -71,7 +75,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       if (!coordinates.length) return;
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        mapRef.current?.fitToCoordinates(coordinates.map(point), { edgePadding: padding(edgePadding), animated: duration > 0 });
+        mapRef.current?.fitToCoordinates(projectTrack(coordinates), { edgePadding: padding(edgePadding), animated: duration > 0 });
       });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
@@ -123,7 +127,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           fitted.current = true;
           markProgrammaticMove(0);
           pendingCameraAction.current = () => {
-            mapRef.current?.fitToCoordinates(initialFitCoordinates.map(point), { edgePadding: padding(initialPadding), animated: false });
+            mapRef.current?.fitToCoordinates(projectTrack(initialFitCoordinates), { edgePadding: padding(initialPadding), animated: false });
           };
         }
         flushCameraAction();
@@ -149,7 +153,16 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
             zoom: Math.log2(360 / visibleRegion.longitudeDelta),
           });
         }
-        if (!followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
+        // Our own move is attributed by counting completions, not by wall clock.
+        // While the detail tree mounts, the completion of a 250ms fit can be
+        // delivered a second late; the previous time-window check read that as a
+        // user gesture and silently un-focused the route framing. The window
+        // stays as a second guard, and the count self-heals after 4s in case a
+        // move is interrupted and never reports a completion.
+        const counted = pendingProgrammaticCompletions.current > 0
+          && Date.now() - programmaticStartedAt.current < 4000;
+        if (counted) pendingProgrammaticCompletions.current -= 1;
+        if (!counted && !followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
         if (onCameraChange) {
           void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));
         }
@@ -158,7 +171,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       {polylines.map((line) => (
         <Polyline
           key={line.id}
-          coordinates={line.coordinates.map(point)}
+          coordinates={projectTrack(line.coordinates)}
           strokeColor={line.color}
           strokeWidth={line.width}
           lineDashPattern={line.dashed ? [7, 7] : undefined}

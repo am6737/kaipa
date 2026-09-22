@@ -182,6 +182,15 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
   }));
 }
 
+interface JourneySegmentGeometry {
+  id: string;
+  label: string;
+  coordinates: [number, number][];
+  color: string;
+  /** Days that walk this segment. Null means the segment covers the whole journey. */
+  days: string[] | null;
+}
+
 export function DiscoverScreen({
   theme,
   active = true,
@@ -808,7 +817,10 @@ export function DiscoverScreen({
       },
     };
   }, [focusedTimeline.groupRoutes, routeDraftEndpoint, routeDraftPosition, routeEditorGroupKey]);
-  const focusSegments = useMemo(() => {
+  // Which geometry the journey map draws depends only on the tracks and the day
+  // boundaries. Selecting a day only changes emphasis, so the per-day slicing
+  // below stays out of that path — it copies the whole track into segments.
+  const journeySegmentGeometry = useMemo<JourneySegmentGeometry[]>(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
     const timelineRouteIds = focusedTimeline.rows.map((row) => row.routeId).filter(Boolean) as string[];
     const titleRouteIds = routes
@@ -824,8 +836,7 @@ export function DiscoverScreen({
         label: route.name,
         coordinates: route.trackCoords,
         color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
-        active: (!selectedJourneyDay || routeRows.some((row) => row.day === selectedJourneyDay))
-          && (!selectedJourneyRouteId || `journey-route-${routeId}` === selectedJourneyRouteId),
+        days: [...new Set(routeRows.map((row) => row.day).filter(Boolean))] as string[],
       }];
     });
     const persistedTrack = nav.pointInfo.trackCoords;
@@ -836,7 +847,7 @@ export function DiscoverScreen({
         label: nav.pointInfo.name,
         coordinates: persistedTrack,
         color: JOURNEY_SEGMENT_COLORS[0],
-        active: !selectedJourneyRouteId || selectedJourneyRouteId === 'journey-persisted-track',
+        days: null,
       }];
     }
     if (routeSegments.length) return routeSegments;
@@ -844,7 +855,6 @@ export function DiscoverScreen({
       focusMeasure,
       focusGroupKeys,
       displayedGroupRoutes,
-      selectedJourneyDay,
     ).map((segment, index) => ({
       id: segment.id,
       label: `${journeyDayDisplayLabel(segment.groupKey, resolved)} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
@@ -852,9 +862,17 @@ export function DiscoverScreen({
       // Route sections are equal peers. The selected day is expressed by
       // emphasis, while the day label and boundary marker carry the grouping.
       color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
-      active: segment.active && (!selectedJourneyRouteId || segment.id === selectedJourneyRouteId),
+      days: [segment.groupKey],
     }));
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, focusedTimeline.rows, nav.pointInfo?.kind, resolved, routes, selectedJourneyDay, selectedJourneyRouteId]);
+  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, focusedTimeline.rows, nav.pointInfo?.kind, nav.pointInfo?.name, resolved, routes]);
+  const focusSegments = useMemo(() => journeySegmentGeometry.map((segment) => ({
+    id: segment.id,
+    label: segment.label,
+    coordinates: segment.coordinates,
+    color: segment.color,
+    active: (!selectedJourneyDay || !segment.days || segment.days.includes(selectedJourneyDay))
+      && (!selectedJourneyRouteId || segment.id === selectedJourneyRouteId),
+  })), [journeySegmentGeometry, selectedJourneyDay, selectedJourneyRouteId]);
   const journeyRouteOptions = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
     const seen = new Set<string>();
@@ -1003,7 +1021,11 @@ export function DiscoverScreen({
   }, []);
   const journeyCoverUri = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.photoUris?.[0] : undefined;
   const journeyHeroMode = nav.pointInfo?.kind === 'journey'
-    ? nav.pointInfo.heroMode ?? ((focusCoords?.length ?? 0) >= 2 ? 'track' : journeyCoverUri ? 'cover' : 'track')
+    // The gated `focusCoords` is intentionally null for the first frames of an
+    // open, which would read as "this journey has no track" and swap the
+    // already-mounted map out for the cover image, then remount it. The raw
+    // geometry is in memory, so the hero decision never waits for the gate.
+    ? nav.pointInfo.heroMode ?? ((rawFocusCoords?.length ?? 0) >= 2 ? 'track' : journeyCoverUri ? 'cover' : 'track')
     : 'track';
   const journeyShowsCover = !routeEditorGroupKey && journeyHeroMode === 'cover' && !!journeyCoverUri;
   const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
@@ -1196,7 +1218,7 @@ export function DiscoverScreen({
           activePoiId={nav.pointInfo?.kind === 'route' ? null : activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
-          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo}
+          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && detailReady}
           cameraAction={mapCameraAction}
           focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
@@ -1214,7 +1236,12 @@ export function DiscoverScreen({
           onCameraPositionChange={(camera) => {
             mapCameraRef.current = camera;
           }}
-          focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : focusCoords}
+          // Framing must not wait for the transition gate: the journey track is
+          // already in memory, and a camera that only moves once
+          // InteractionManager drains reads as the map freezing for seconds.
+          // The gate stays on the work that actually costs frames — the
+          // per-route measuring and the distance labels.
+          focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : rawFocusCoords}
           // The journey overview map must show every route leg as soon as the
           // journey detail opens, not only after entering the expanded map view.
           focusSegments={nav.pointInfo?.kind === 'journey' || routeEditorGroupKey

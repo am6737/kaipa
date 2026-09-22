@@ -1161,6 +1161,14 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     return opts;
   }, [isJourney, journeyDays, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, resolved, t]);
   const [seg, setSeg] = useState<TabId>('overview');
+  // Each tab page is a full copy of its feature (every 行程 page re-renders the
+  // whole timeline), so mounting all of them for the opening frame is what
+  // keeps the map camera queued behind the detail tree. A page mounts when it
+  // becomes selected, or mid-swipe when the pager reveals it.
+  const [mountedTabs, setMountedTabs] = useState<Set<TabId>>(() => new Set<TabId>(['overview']));
+  const mountTab = (value: TabId) => {
+    setMountedTabs((current) => (current.has(value) ? current : new Set(current).add(value)));
+  };
   const segRef = useRef<TabId>('overview');
   const [visualSeg, setVisualSeg] = useState<TabId>('overview');
   const visualSegRef = useRef<TabId>('overview');
@@ -1336,6 +1344,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   };
   const selectSegment = (value: TabId) => {
     closePlanEditor();
+    mountTab(value);
     segRef.current = value;
     setSeg(value);
     if (value.startsWith('day:')) {
@@ -2283,6 +2292,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             const { position, offset } = event.nativeEvent;
             const visualIndex = Math.min(tabOptions.length - 1, position + (offset >= 0.5 ? 1 : 0));
             const visual = tabOptions[visualIndex];
+            // Mount the neighbour as the swipe reveals it, so paging never shows
+            // an empty page. setState bails out when the tab is already mounted.
+            if (visual) mountTab(visual.id);
             if (visual && visual.id !== visualSegRef.current) {
               visualSegRef.current = visual.id;
               setVisualSeg(visual.id);
@@ -2326,7 +2338,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                     scrollToPendingDay();
                   }}
                 >
-                  {renderTabContent(option.id)}
+                  {mountedTabs.has(option.id) ? renderTabContent(option.id) : null}
                 </SelectedPoiContent>
               </View>
             </View>

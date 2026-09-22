@@ -28,6 +28,58 @@ function setState(key: string, updater: (prev: TLState) => TLState) {
   listeners.get(key)?.forEach((fn) => fn());
 }
 
+const inFlight = new Map<string, Promise<void>>();
+
+// One journey is usually mounted by two hooks at the same time — the detail
+// card and the screen that frames the map around it. Sharing the request and
+// the cache write keeps a single open to one round trip and one state update,
+// instead of re-rendering every geometry memo twice.
+function loadJourneyTimeline(journeyId: string) {
+  const pending = inFlight.get(journeyId);
+  if (pending) return pending;
+  const request = (async () => {
+    try {
+      const [rowsResult, groupsResult] = await Promise.all([
+        supabase.from('timeline_rows').select('*').eq('journey_id', journeyId).order('sort_order'),
+        supabase.from('timeline_groups').select('*').eq('journey_id', journeyId).order('sort_order'),
+      ]);
+      if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
+      if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
+      if (!rowsResult.data) return;
+      const mapped = rowsResult.data.map(toTLRow);
+      setState(journeyId, (prev) => {
+        const groupRows = groupsResult.data;
+        const activeGroups = groupRows
+          ? groupRows.filter((group) => !group.deleted).map((group) => group.name).filter(Boolean)
+          : prev.knownGroups;
+        const removedGroups = groupRows
+          ? groupRows.filter((group) => group.deleted).map((group) => group.name).filter(Boolean)
+          : prev.removedGroups;
+        const fromRows = mapped.map((r) => r.day).filter(Boolean);
+        const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
+        groupRows?.forEach((group) => {
+          if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
+          groupRoutes[group.name] = {
+            routeId: group.route_id ?? undefined,
+            endDistanceMeters: Number(group.route_end_meters),
+            longitude: Number(group.route_end_lng),
+            latitude: Number(group.route_end_lat),
+            trackPointIndex: Number(group.route_end_track_index ?? 0),
+            trackPointFraction: Number(group.route_end_track_fraction ?? 0),
+            source: group.route_end_source === 'waypoint' || group.route_end_source === 'distance' ? group.route_end_source : 'map',
+            locationName: group.route_location_name ?? undefined,
+          };
+        });
+        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
+      });
+    } finally {
+      inFlight.delete(journeyId);
+    }
+  })();
+  inFlight.set(journeyId, request);
+  return request;
+}
+
 export function useTimeline(
   journeyId: string | undefined,
   userId: string | undefined,
@@ -76,42 +128,9 @@ export function useTimeline(
       return;
     }
     if (!journeyId || !userId) return;
-    const [rowsResult, groupsResult] = await Promise.all([
-      supabase.from('timeline_rows').select('*').eq('journey_id', journeyId).order('sort_order'),
-      supabase.from('timeline_groups').select('*').eq('journey_id', journeyId).order('sort_order'),
-    ]);
-    if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
-    if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
-    if (rowsResult.data) {
-      const mapped = rowsResult.data.map(toTLRow);
-      setState(key, (prev) => {
-        const groupRows = groupsResult.data;
-        const activeGroups = groupRows
-          ? groupRows.filter((group) => !group.deleted).map((group) => group.name).filter(Boolean)
-          : prev.knownGroups;
-        const removedGroups = groupRows
-          ? groupRows.filter((group) => group.deleted).map((group) => group.name).filter(Boolean)
-          : prev.removedGroups;
-        const fromRows = mapped.map((r) => r.day).filter(Boolean);
-        const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
-        groupRows?.forEach((group) => {
-          if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
-          groupRoutes[group.name] = {
-            routeId: group.route_id ?? undefined,
-            endDistanceMeters: Number(group.route_end_meters),
-            longitude: Number(group.route_end_lng),
-            latitude: Number(group.route_end_lat),
-            trackPointIndex: Number(group.route_end_track_index ?? 0),
-            trackPointFraction: Number(group.route_end_track_fraction ?? 0),
-            source: group.route_end_source === 'waypoint' || group.route_end_source === 'distance' ? group.route_end_source : 'map',
-            locationName: group.route_location_name ?? undefined,
-          };
-        });
-        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
-      });
-    }
+    await loadJourneyTimeline(journeyId);
     setLoading(false);
-  }, [journeyId, userId, key, preview]);
+  }, [journeyId, userId, preview]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 

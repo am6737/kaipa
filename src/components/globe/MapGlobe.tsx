@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Icon } from '../Icon';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
-import { isValidMapCoordinate } from '../maps/types';
+import { isValidMapCoordinate, keepValidCoordinates } from '../maps/types';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
@@ -61,6 +61,16 @@ export default function MapGlobe({
   // which makes all pins flicker while pinching. setValue updates the
   // transform natively without a React render or a marker remount.
   const pinScale = useRef(new Animated.Value(photoPinScaleForZoom(3))).current;
+  // Press handlers are read through refs so the marker memo does not depend on
+  // them: callers commonly pass inline arrows, and depending on their identity
+  // would rebuild (and on Android re-snapshot) every annotation on every parent
+  // render — which is most of them while a detail sheet is opening.
+  const onPoiPressRef = useRef(onPoiPress);
+  const onRouteBoundaryPressRef = useRef(onRouteBoundaryPress);
+  useEffect(() => {
+    onPoiPressRef.current = onPoiPress;
+    onRouteBoundaryPressRef.current = onRouteBoundaryPress;
+  });
   const [distanceStepKm, setDistanceStepKm] = React.useState(10);
   const lastZoomBucket = useRef<number | null>(null);
   const lastDistanceStep = useRef<number | null>(null);
@@ -80,28 +90,25 @@ export default function MapGlobe({
     const distanceStep = zoom < 8 ? 50 : zoom < 11 ? 10 : zoom < 13 ? 5 : 1;
     if (lastDistanceStep.current !== distanceStep) {
       lastDistanceStep.current = distanceStep;
-      if (Platform.OS === 'android') {
-        // Rebuilding AMap marker bitmaps while animateCamera is running causes
-        // visible hitching. Wait until the camera has been quiet before
-        // changing the distance-marker density.
-        if (distanceStepTimer.current) clearTimeout(distanceStepTimer.current);
-        distanceStepTimer.current = setTimeout(() => {
-          distanceStepTimer.current = null;
-          setDistanceStepKm(distanceStep);
-        }, 180);
-      } else {
+      // Changing the distance-marker density rebuilds every label, so wait
+      // until the camera has been quiet. On Android that re-snapshots each
+      // marker bitmap mid-animation; on iOS it swaps the annotation views
+      // while the opening fit is still running.
+      if (distanceStepTimer.current) clearTimeout(distanceStepTimer.current);
+      distanceStepTimer.current = setTimeout(() => {
+        distanceStepTimer.current = null;
         setDistanceStepKm(distanceStep);
-      }
+      }, 180);
     }
   }, [pinScale]);
   const validFocusCoords = useMemo(
-    () => focusCoords?.filter(isValidMapCoordinate),
+    () => keepValidCoordinates(focusCoords),
     [focusCoords],
   );
   const validFocusSegments = useMemo(
     () => focusSegments?.map((segment) => ({
       ...segment,
-      coordinates: segment.coordinates.filter(isValidMapCoordinate),
+      coordinates: keepValidCoordinates(segment.coordinates),
     })).filter((segment) => segment.coordinates.length >= 2),
     [focusSegments],
   );
@@ -110,7 +117,7 @@ export default function MapGlobe({
     [focusBoundaries],
   );
   const validTransportSegments = useMemo(
-    () => transportSegments?.map((segment) => ({ ...segment, coordinates: segment.coordinates.filter(isValidMapCoordinate) })).filter((segment) => segment.coordinates.length >= 2),
+    () => transportSegments?.map((segment) => ({ ...segment, coordinates: keepValidCoordinates(segment.coordinates) })).filter((segment) => segment.coordinates.length >= 2),
     [transportSegments],
   );
   const activeSegment = validFocusSegments?.find((segment) => segment.active);
@@ -213,37 +220,40 @@ export default function MapGlobe({
   }, [distanceStepKm, showDistanceMarkers, theme, validFocusCoords, validFocusSegments]);
 
   const markers = useMemo<NativeMapMarker[]>(() => {
-    const values: NativeMapMarker[] = pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi, index) => {
-      const delay = staggerPins
-        ? Math.min(index, Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS)) * STAGGER_STEP_MS
-        : undefined;
-      return {
-        id: `poi-${poi.id}`,
-        coordinate: [poi.lng, poi.lat],
-        anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
-        title: poi.label,
-        onPress: showPoiMarkers ? () => onPoiPress?.(poi.id) : undefined,
-        content: (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={poi.label}
-            accessible={showPoiMarkers}
-            hitSlop={6}
-            pointerEvents={showPoiMarkers ? 'auto' : 'none'}
-            style={{ opacity: showPoiMarkers ? 1 : 0 }}
-          >
-            <PhotoPin
-                theme={theme}
-                poi={poi}
-                active={activePoiId === poi.id}
-                mapScale={Platform.OS === 'android' ? 1 : pinScale}
-                staticRender={Platform.OS === 'android'}
-                entranceDelayMs={Platform.OS === 'android' ? undefined : delay}
-              />
-          </Pressable>
-        ),
-      };
-    });
+    // Journey detail keeps place pins off: they were built and then hidden at
+    // opacity 0, which still registers a native annotation per place.
+    const values: NativeMapMarker[] = showPoiMarkers
+      ? pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi, index) => {
+        const delay = staggerPins
+          ? Math.min(index, Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS)) * STAGGER_STEP_MS
+          : undefined;
+        return {
+          id: `poi-${poi.id}`,
+          coordinate: [poi.lng, poi.lat],
+          anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
+          title: poi.label,
+          onPress: () => onPoiPressRef.current?.(poi.id),
+          content: (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={poi.label}
+              accessible
+              hitSlop={6}
+              style={{ opacity: 1 }}
+            >
+              <PhotoPin
+                  theme={theme}
+                  poi={poi}
+                  active={activePoiId === poi.id}
+                  mapScale={Platform.OS === 'android' ? 1 : pinScale}
+                  staticRender={Platform.OS === 'android'}
+                  entranceDelayMs={Platform.OS === 'android' ? undefined : delay}
+                />
+            </Pressable>
+          ),
+        };
+      })
+      : [];
     values.push(...distanceMarkers);
 
     validFocusBoundaries?.forEach((boundary) => {
@@ -253,7 +263,7 @@ export default function MapGlobe({
         coordinate: boundary.coordinate,
         anchor: { x: 0.5, y: 1 },
         opacity: boundary.active ? 1 : 0.46,
-        onPress: () => onRouteBoundaryPress?.(boundary.groupKey),
+        onPress: () => onRouteBoundaryPressRef.current?.(boundary.groupKey),
         content: (
           <View style={{ alignItems: 'center' }}>
             <View style={[
@@ -324,7 +334,7 @@ export default function MapGlobe({
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePoiId, distanceMarkers, onPoiPress, onRouteBoundaryPress, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments]);
+  }, [activePoiId, distanceMarkers, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];

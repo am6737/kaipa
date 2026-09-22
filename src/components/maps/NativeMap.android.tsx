@@ -2,7 +2,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
-import type { NativeMapHandle, NativeMapProps } from './types';
+import { projectTrack, type NativeMapHandle, type NativeMapProps } from './types';
 
 let AMap: typeof import('expo-gaode-map') | null = null;
 let amapInitialized = false;
@@ -117,7 +117,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       const padding = edgePadding ?? [28, 28, 28, 28];
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        const points = coordinates.map(point);
+        const points = projectTrack(coordinates);
         const [top, right, bottom, left] = padding;
         const viewportWidthPx = Math.max(1, layoutSize.current.width - left - right);
         const viewportHeightPx = Math.max(1, layoutSize.current.height - top - bottom);
@@ -217,7 +217,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           pendingCameraAction.current = () => {
             const padding = initialPadding ?? [28, 28, 28, 28];
             const [top, right, bottom, left] = padding;
-            const points = initialFitCoordinates.map(point);
+            const points = projectTrack(initialFitCoordinates);
             const bounds = module.getRouteBounds?.(points, {
               viewportWidthPx: Math.max(1, layoutSize.current.width - left - right),
               viewportHeightPx: Math.max(1, layoutSize.current.height - top - bottom),
@@ -265,7 +265,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       {polylines.map((line) => (
         <Polyline
           key={line.id}
-          points={line.coordinates.map(point)}
+          points={projectTrack(line.coordinates)}
           strokeColor={line.color}
           strokeWidth={line.width}
           dotted={line.dashed}

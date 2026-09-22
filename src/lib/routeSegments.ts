@@ -50,8 +50,13 @@ export function distanceMeters(a: Coordinate, b: Coordinate): number {
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+const measuredTracks = new WeakMap<Coordinate[], TrackMeasure>();
+
 export function measureTrack(trackCoords?: Coordinate[]): TrackMeasure | null {
-  const coordinates = (trackCoords ?? []).filter(
+  if (!trackCoords) return null;
+  const cached = measuredTracks.get(trackCoords);
+  if (cached) return cached;
+  const coordinates = trackCoords.filter(
     ([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat),
   );
   if (coordinates.length < 2) return null;
@@ -59,7 +64,12 @@ export function measureTrack(trackCoords?: Coordinate[]): TrackMeasure | null {
   for (let index = 1; index < coordinates.length; index += 1) {
     cumulativeMeters.push(cumulativeMeters[index - 1] + distanceMeters(coordinates[index - 1], coordinates[index]));
   }
-  return { coordinates, cumulativeMeters, totalMeters: cumulativeMeters[cumulativeMeters.length - 1] };
+  const measure = { coordinates, cumulativeMeters, totalMeters: cumulativeMeters[cumulativeMeters.length - 1] };
+  // Opening a journey measures the same track from several places (the map
+  // framing, the day segments, the distance labels), and a full GPS track is
+  // tens of thousands of haversine calls per pass.
+  measuredTracks.set(trackCoords, measure);
+  return measure;
 }
 
 function interpolate(a: Coordinate, b: Coordinate, fraction: number): Coordinate {
@@ -74,26 +84,26 @@ export function positionAtDistance(measure: TrackMeasure, requestedMeters: numbe
   if (distance <= 0) {
     return { coordinate: measure.coordinates[0], distanceMeters: 0, trackPointIndex: 0, trackPointFraction: 0 };
   }
-  for (let index = 0; index < measure.coordinates.length - 1; index += 1) {
-    const start = measure.cumulativeMeters[index];
-    const end = measure.cumulativeMeters[index + 1];
-    if (distance <= end || index === measure.coordinates.length - 2) {
-      const span = Math.max(end - start, 0.0001);
-      const fraction = Math.max(0, Math.min(1, (distance - start) / span));
-      return {
-        coordinate: interpolate(measure.coordinates[index], measure.coordinates[index + 1], fraction),
-        distanceMeters: distance,
-        trackPointIndex: index,
-        trackPointFraction: fraction,
-      };
-    }
+  // cumulativeMeters is sorted, so the segment that holds `distance` is a
+  // lower-bound search. The scan made every distance label cost a full pass
+  // over the track, and the map draws up to 60 of them per route.
+  let low = 0;
+  let high = measure.coordinates.length - 2;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (measure.cumulativeMeters[mid + 1] >= distance) high = mid;
+    else low = mid + 1;
   }
-  const lastIndex = measure.coordinates.length - 1;
+  const index = low;
+  const start = measure.cumulativeMeters[index];
+  const end = measure.cumulativeMeters[index + 1];
+  const span = Math.max(end - start, 0.0001);
+  const fraction = Math.max(0, Math.min(1, (distance - start) / span));
   return {
-    coordinate: measure.coordinates[lastIndex],
-    distanceMeters: measure.totalMeters,
-    trackPointIndex: Math.max(0, lastIndex - 1),
-    trackPointFraction: 1,
+    coordinate: interpolate(measure.coordinates[index], measure.coordinates[index + 1], fraction),
+    distanceMeters: distance,
+    trackPointIndex: index,
+    trackPointFraction: fraction,
   };
 }
 
