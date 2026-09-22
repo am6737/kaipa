@@ -294,15 +294,5 @@ export function useTimeline(
     });
   };
 
-  const setGroupRoute = async (day: string, route: TimelineGroupRoute | null) => {
-    if (!day.trim()) return;
-    await persistGroup(day, false, route);
-    setState(key, (s) => ({
-      ...s,
-      knownGroups: s.knownGroups.includes(day) ? s.knownGroups : [...s.knownGroups, day],
-      groupRoutes: { ...s.groupRoutes, [day]: route ?? undefined },
-    }));
-  };
-
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, groupRoutes: state.groupRoutes, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, setGroupRoute };
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
 }

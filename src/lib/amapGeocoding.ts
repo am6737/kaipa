@@ -13,6 +13,7 @@ export interface JourneyLocationValue {
 interface MapSearchResponse {
   results?: JourneyLocationValue[];
   result?: JourneyLocationValue;
+  legs?: PlannedLeg[];
   error?: { code?: string };
 }
 
@@ -78,4 +79,33 @@ export function locationFromPoi(region: string, lng: number, lat: number, coord?
     lat,
     coord: resolvedCoord,
   };
+}
+
+export interface DirectionRequest {
+  id: string;
+  mode: 'driving' | 'walking';
+  from: [number, number];
+  to: [number, number];
+}
+
+export interface PlannedLeg {
+  id: string;
+  mode: 'driving' | 'walking';
+  /** WGS-84 road geometry, or null when this leg could not be planned. */
+  coordinates: [number, number][] | null;
+}
+
+/** The function plans one AMap request per leg, so it takes a bounded batch. */
+const DIRECTION_BATCH = 12;
+
+export async function planJourneyDirections(
+  legs: DirectionRequest[],
+  signal?: AbortSignal,
+): Promise<PlannedLeg[]> {
+  const planned: PlannedLeg[] = [];
+  for (let offset = 0; offset < legs.length; offset += DIRECTION_BATCH) {
+    const payload = await request({ action: 'direction', legs: legs.slice(offset, offset + DIRECTION_BATCH) }, signal);
+    planned.push(...(payload.legs || []));
+  }
+  return planned;
 }

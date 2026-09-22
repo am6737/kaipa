@@ -25,17 +25,6 @@ export type GlobeCameraAction =
   | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 
 
-export interface GlobeRouteBoundary {
-  id: string;
-  groupKey: string;
-  title: string;
-  distance: string;
-  coordinate: [number, number];
-  color: string;
-  active: boolean;
-  pending: boolean;
-}
-
 export interface GlobeRouteSegment {
   id: string;
   label: string;
@@ -44,19 +33,23 @@ export interface GlobeRouteSegment {
   active: boolean;
 }
 
-export interface GlobeRouteConnector {
-  id: string;
-  coordinates: [[number, number], [number, number]];
-  color: string;
-  active: boolean;
-}
-
-export interface GlobeTransportSegment {
+/** A leg between two consecutive itinerary stops of the same day. */
+export interface GlobeJourneyLeg {
   id: string;
   coordinates: [number, number][];
   color: string;
   active: boolean;
-  mode?: 'car' | 'taxi' | 'bus' | 'shuttle' | 'walk' | 'unknown';
+  /** the road plan for this leg has not arrived, so it reads as a plain link */
+  dashed?: boolean;
+}
+
+/** One itinerary stop that carries a place, drawn with its sequence number. */
+export interface GlobeJourneyStop {
+  id: string;
+  order: number;
+  name: string;
+  coordinate: [number, number];
+  active: boolean;
 }
 
 export interface GlobeProps {
@@ -69,25 +62,16 @@ export interface GlobeProps {
   onPoiPress?: (id: string) => void;
   /** tap on the empty map background (not a marker) — used to dismiss the sheet */
   onBackgroundPress?: () => void;
-  /** map coordinate picked while editing an itinerary endpoint */
-  onMapCoordinatePress?: (coordinate: [number, number]) => void;
   center?: { lon: number; lat: number };
   /** selected route/location to animate the native map camera toward */
   focusCoords?: [number, number][] | null;
   /** colored itinerary sections drawn over the selected track */
   focusSegments?: GlobeRouteSegment[];
-  /** configured endpoints, including groups whose preceding segment is not set */
-  focusBoundaries?: GlobeRouteBoundary[];
-  /** current unsaved endpoint while the background map is in selection mode */
-  selectionPin?: { coordinate: [number, number]; color: string };
-  /** visual link from the projected track boundary to an off-track endpoint */
-  focusConnector?: { coordinates: [[number, number], [number, number]]; color: string };
-  /** dashed links between a recorded track endpoint and a journey stop */
-  focusConnectors?: GlobeRouteConnector[];
-  /** navigation geometry from structured transport itinerary items */
-  transportSegments?: GlobeTransportSegment[];
-  /** switch the itinerary tab when a route endpoint label is pressed */
-  onRouteBoundaryPress?: (groupKey: string) => void;
+  /** planned road between consecutive itinerary stops of the same day */
+  journeyLegs?: GlobeJourneyLeg[];
+  /** numbered pins for itinerary stops that carry a place */
+  journeyStops?: GlobeJourneyStop[];
+  onJourneyStopPress?: (id: string) => void;
   /** show the current-location pin at this coordinate */
   pin?: { lng: number; lat: number; heading?: number } | null;
   /** keep the native map camera centered as the current location updates */

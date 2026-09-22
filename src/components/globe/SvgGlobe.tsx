@@ -10,7 +10,7 @@ import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, photoP
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 
-export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin, focusSegments, transportSegments, staggerPins = false }: GlobeProps) {
+export default function SvgGlobe({ theme, size, pois, activePoiId, onPoiPress, center, pin, focusSegments, staggerPins = false }: GlobeProps) {
   const t = theme;
   const R = size / 2;
   const cx = R;

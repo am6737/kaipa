@@ -13,7 +13,7 @@ import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeMapStyle, type GlobeRouteConnector, type GlobeRouteSegment, type GlobeTransportSegment } from '../components/globe';
+import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeRouteSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -27,11 +27,11 @@ import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './Journ
 import { Avatar } from '../components/Avatar';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
-import { buildJourneyRouteSegments, distanceMeters, JOURNEY_SEGMENT_COLORS, measureTrack, positionAtDistance, type TrackPosition } from '../lib/routeSegments';
-import { JourneyRouteBoundarySheet } from '../components/overlays/JourneyRouteBoundarySheet';
+import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
+import { buildJourneyLegs, buildJourneyStops, type JourneyLeg } from '../lib/journeyStops';
+import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
-import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { Maximize2, Minimize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
 import { refetchJourneyInspo } from '../hooks/useInspo';
@@ -190,6 +190,10 @@ interface JourneySegmentGeometry {
   /** Days that walk this segment. Null means the segment covers the whole journey. */
   days: string[] | null;
 }
+
+// Stable identity: a fresh empty array per render would rebuild the map's
+// polyline and marker lists on every DiscoverScreen render.
+const NO_ITINERARY_LEGS: JourneyLeg[] = [];
 
 export function DiscoverScreen({
   theme,
@@ -365,11 +369,6 @@ export function DiscoverScreen({
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
   const [selectedJourneyRouteId, setSelectedJourneyRouteId] = useState<string | undefined>();
   const [journeyRouteMenuOpen, setJourneyRouteMenuOpen] = useState(false);
-  const [routeEditorGroupKey, setRouteEditorGroupKey] = useState<string | null>(null);
-  const [routeMapSelectionRequest, setRouteMapSelectionRequest] = useState<{ coordinate: [number, number]; revision: number }>();
-  const [routeDraftPosition, setRouteDraftPosition] = useState<TrackPosition | null>(null);
-  const [routeDraftEndpoint, setRouteDraftEndpoint] = useState<[number, number] | null>(null);
-  const routeEditorPreviousSheetIndex = React.useRef(1);
   const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day: string; revision: number }>();
   const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
   const [momentSelectionMode, setMomentSelectionMode] = useState(false);
@@ -774,49 +773,6 @@ export function DiscoverScreen({
   }, [nav.pointInfo?.id]);
   const detailReady = !nav.pointInfo || readyDetailId === nav.pointInfo.id;
   const focusCoords = detailReady ? rawFocusCoords : null;
-  const focusMeasure = useMemo(() => measureTrack(focusCoords ?? undefined), [focusCoords]);
-  // A trip may walk several routes, so a day boundary belongs to the track of
-  // its own route. Measuring every referenced route once keeps the connector
-  // and the day distance correct instead of reading route B's kilometre as a
-  // position on route A.
-  const routeMeasures = useMemo(() => {
-    const measures = new Map<string, ReturnType<typeof measureTrack>>();
-    // Measuring a whole track is the expensive part of opening a journey, so it
-    // waits for the same frame gate the focused track uses.
-    if (!detailReady) return measures;
-    for (const route of Object.values(focusedTimeline.groupRoutes)) {
-      const routeId = route?.routeId;
-      if (!routeId || measures.has(routeId)) continue;
-      const trackCoords = routes.find((item) => item.id === routeId)?.trackCoords;
-      if (trackCoords && trackCoords.length >= 2) measures.set(routeId, measureTrack(trackCoords));
-    }
-    return measures;
-  }, [focusedTimeline.groupRoutes, routes, detailReady]);
-  const measureForGroup = (route: { routeId?: string } | undefined) =>
-    (route?.routeId ? routeMeasures.get(route.routeId) : undefined) ?? focusMeasure;
-  const focusGroupKeys = availableJourneyDays.length ? availableJourneyDays : focusedTimeline.knownGroups;
-  const displayedGroupRoutes = useMemo(() => {
-    if (!routeEditorGroupKey) return focusedTimeline.groupRoutes;
-    const existing = focusedTimeline.groupRoutes[routeEditorGroupKey];
-    if (!existing && !routeDraftPosition) return focusedTimeline.groupRoutes;
-    return {
-      ...focusedTimeline.groupRoutes,
-      [routeEditorGroupKey]: {
-        ...existing!,
-        ...(routeDraftPosition ? {
-          // The draft is picked on the focused track, so it stops claiming
-          // whatever route the saved boundary used to belong to.
-          routeId: undefined,
-          endDistanceMeters: routeDraftPosition.distanceMeters,
-          longitude: routeDraftEndpoint?.[0] ?? routeDraftPosition.coordinate[0],
-          latitude: routeDraftEndpoint?.[1] ?? routeDraftPosition.coordinate[1],
-          trackPointIndex: routeDraftPosition.trackPointIndex,
-          trackPointFraction: routeDraftPosition.trackPointFraction,
-          source: 'map' as const,
-        } : {}),
-      },
-    };
-  }, [focusedTimeline.groupRoutes, routeDraftEndpoint, routeDraftPosition, routeEditorGroupKey]);
   // Which geometry the journey map draws depends only on the tracks and the day
   // boundaries. Selecting a day only changes emphasis, so the per-day slicing
   // below stays out of that path — it copies the whole track into segments.
@@ -851,20 +807,8 @@ export function DiscoverScreen({
       }];
     }
     if (routeSegments.length) return routeSegments;
-    return buildJourneyRouteSegments(
-      focusMeasure,
-      focusGroupKeys,
-      displayedGroupRoutes,
-    ).map((segment, index) => ({
-      id: segment.id,
-      label: `${journeyDayDisplayLabel(segment.groupKey, resolved)} ${(segment.endDistanceMeters - segment.startDistanceMeters < 10_000 ? ((segment.endDistanceMeters - segment.startDistanceMeters) / 1000).toFixed(1) : Math.round((segment.endDistanceMeters - segment.startDistanceMeters) / 1000))}km`,
-      coordinates: segment.coordinates,
-      // Route sections are equal peers. The selected day is expressed by
-      // emphasis, while the day label and boundary marker carry the grouping.
-      color: JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length],
-      days: [segment.groupKey],
-    }));
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, focusedTimeline.rows, nav.pointInfo?.kind, nav.pointInfo?.name, resolved, routes]);
+    return [];
+  }, [focusedTimeline.rows, nav.pointInfo?.kind, nav.pointInfo?.name, routes]);
   const focusSegments = useMemo(() => journeySegmentGeometry.map((segment) => ({
     id: segment.id,
     label: segment.label,
@@ -922,103 +866,50 @@ export function DiscoverScreen({
       ...comparisonRoutes.flatMap((route) => route.trackCoords ?? []),
     ];
   }, [comparisonRoutes, focusCoords, nav.pointInfo?.kind]);
-  const focusConnectors = useMemo<GlobeRouteConnector[]>(() => {
-    if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
-    return focusGroupKeys.flatMap((groupKey, index) => {
-      const route = displayedGroupRoutes[groupKey];
-      if (!route) return [];
-      const measure = measureForGroup(route);
-      if (!measure) return [];
-      const trackEnd = positionAtDistance(measure, route.endDistanceMeters).coordinate;
-      const endpoint: [number, number] = [route.longitude, route.latitude];
-      if (!Number.isFinite(endpoint[0]) || !Number.isFinite(endpoint[1]) || distanceMeters(trackEnd, endpoint) <= 2) return [];
-      return [{
-        id: `journey-leg-${index}`,
-        coordinates: [trackEnd, endpoint] as [[number, number], [number, number]],
-        color: theme.text2,
-        active: !selectedJourneyDay || selectedJourneyDay === groupKey,
-      }];
-    });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, routeMeasures, nav.pointInfo?.kind, selectedJourneyDay, theme.text2]);
-  const transportSegments = useMemo<GlobeTransportSegment[]>(() => {
-    if (nav.pointInfo?.kind !== 'journey') return [];
-    return focusedTimeline.rows.flatMap((row) => {
-      if (row.kind !== 'transport' || !row.transport) return [];
-      const raw = row.transport.geometry;
-      const from = row.transport.from;
-      const to = row.transport.to;
-      const coordinates = raw && raw.length >= 2
-        ? raw
-        : Number.isFinite(from.longitude) && Number.isFinite(from.latitude) && Number.isFinite(to.longitude) && Number.isFinite(to.latitude)
-          ? [[from.longitude!, from.latitude!], [to.longitude!, to.latitude!]] as [number, number][]
-          : [];
-      if (coordinates.length < 2) return [];
-      return [{ id: row.id, coordinates, color: '#5B8DEF', active: !selectedJourneyDay || selectedJourneyDay === row.day, mode: row.transport.mode }];
-    });
-  }, [focusedTimeline.rows, nav.pointInfo?.kind, selectedJourneyDay]);
-  const focusBoundaries = useMemo(() => {
-    if (nav.pointInfo?.kind !== 'journey' || !focusMeasure) return [];
-    return focusGroupKeys.flatMap((groupKey, index) => {
-      const route = displayedGroupRoutes[groupKey];
-      if (!route) return [];
-      const previousRoute = index > 0 ? displayedGroupRoutes[focusGroupKeys[index - 1]] : undefined;
-      const pending = index > 0 && !previousRoute;
-      // Distances are cumulative along one track. The first day of a new route
-      // starts at zero on that route, so subtracting the previous day's figure
-      // from another track would report a length that does not exist.
-      const sameTrack = !route.routeId || route.routeId === previousRoute?.routeId;
-      const displayMeters = previousRoute && sameTrack ? route.endDistanceMeters - previousRoute.endDistanceMeters : route.endDistanceMeters;
-      return [{
-        id: `journey-boundary-${index}`,
-        groupKey,
-        title: journeyDayDisplayLabel(groupKey, resolved),
-        distance: `${(displayMeters / 1000).toFixed(1)} km`,
-        coordinate: [route.longitude, route.latitude] as [number, number],
-        color: theme.accent,
-        active: !selectedJourneyDay || selectedJourneyDay === groupKey,
-        pending,
-      }];
-    });
-  }, [displayedGroupRoutes, focusGroupKeys, focusMeasure, routeMeasures, nav.pointInfo?.kind, resolved, selectedJourneyDay, theme.accent]);
-  const routeEditorIndex = routeEditorGroupKey ? focusGroupKeys.indexOf(routeEditorGroupKey) : -1;
-  let routeEditorMinimumMeters = 0;
-  let routeEditorMaximumMeters: number | undefined;
-  if (routeEditorIndex >= 0) {
-    for (let index = routeEditorIndex - 1; index >= 0; index -= 1) {
-      const route = focusedTimeline.groupRoutes[focusGroupKeys[index]];
-      if (route) { routeEditorMinimumMeters = route.endDistanceMeters; break; }
-    }
-    for (let index = routeEditorIndex + 1; index < focusGroupKeys.length; index += 1) {
-      const route = focusedTimeline.groupRoutes[focusGroupKeys[index]];
-      if (route) { routeEditorMaximumMeters = route.endDistanceMeters; break; }
-    }
-  }
-  const displayedFocusBoundaries = useMemo(() => {
-    if (!routeEditorGroupKey || !routeDraftPosition || routeEditorIndex < 0) return focusBoundaries;
-    return focusBoundaries.filter((boundary) => boundary.groupKey !== routeEditorGroupKey);
-  }, [focusBoundaries, routeDraftPosition, routeEditorGroupKey, routeEditorIndex, routeEditorMinimumMeters]);
-  const openRouteEditor = useCallback((groupKey: string) => {
-    routeEditorPreviousSheetIndex.current = journeySheetIndex;
-    setRouteEditorGroupKey(groupKey);
-    setRouteDraftPosition(null);
-    const currentRoute = focusedTimeline.groupRoutes[groupKey];
-    setRouteDraftEndpoint(
-      currentRoute && Number.isFinite(currentRoute.longitude) && Number.isFinite(currentRoute.latitude)
-        ? [currentRoute.longitude, currentRoute.latitude]
-        : null,
-    );
-    setRouteMapSelectionRequest(undefined);
-    setSelectedJourneyDay(groupKey);
-    setJourneyDaySelectionRequest((current) => ({ day: groupKey, revision: (current?.revision ?? 0) + 1 }));
-    sheetRef.current?.snapTo(0);
-  }, [focusedTimeline.groupRoutes, journeySheetIndex]);
-  const closeRouteEditor = useCallback(() => {
-    setRouteEditorGroupKey(null);
-    setRouteDraftPosition(null);
-    setRouteDraftEndpoint(null);
-    setRouteMapSelectionRequest(undefined);
-    sheetRef.current?.snapTo(routeEditorPreviousSheetIndex.current);
-  }, []);
+  // The itinerary's own navigation layer: every stop that carries a place, and
+  // the road between two stops of the same day. Gated behind `detailReady`
+  // because it is derived from the timeline fetch, and a journey opened from the
+  // tab must not spend its first frames on it.
+  const itineraryStops = useMemo(() => (
+    nav.pointInfo?.kind === 'journey' && detailReady
+      ? buildJourneyStops(focusedTimeline.rows, focusedTimeline.knownGroups)
+      : []
+  ), [detailReady, focusedTimeline.knownGroups, focusedTimeline.rows, nav.pointInfo?.kind]);
+  const itineraryLegs = useMemo(() => (
+    itineraryStops.length >= 2
+      ? buildJourneyLegs(itineraryStops, new Map(focusedTimeline.rows.map((row) => [row.id, row])))
+      : []
+  ), [focusedTimeline.rows, itineraryStops]);
+  const legGeometry = useJourneyLegGeometry(
+    journeyMapDetailsVisible ? itineraryLegs : NO_ITINERARY_LEGS,
+    journeyMapDetailsVisible,
+  );
+  const journeyStops = useMemo<GlobeJourneyStop[]>(() => (
+    journeyMapDetailsVisible
+      ? itineraryStops.map((stop) => ({
+        id: stop.rowId,
+        order: stop.order,
+        name: stop.name,
+        coordinate: stop.coordinate,
+        active: !selectedJourneyDay || selectedJourneyDay === stop.day,
+      }))
+      : []
+  ), [itineraryStops, journeyMapDetailsVisible, selectedJourneyDay]);
+  const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
+    journeyMapDetailsVisible
+      ? itineraryLegs.map((leg) => {
+        const planned = legGeometry[leg.id];
+        return {
+          id: leg.id,
+          coordinates: planned ?? [leg.from, leg.to],
+          color: theme.accent,
+          active: !selectedJourneyDay || selectedJourneyDay === leg.day,
+          // No plan yet (or none available): a plain link, not a road.
+          dashed: !planned,
+        };
+      })
+      : []
+  ), [itineraryLegs, journeyMapDetailsVisible, legGeometry, selectedJourneyDay, theme.accent]);
   const journeyCoverUri = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.photoUris?.[0] : undefined;
   const journeyHeroMode = nav.pointInfo?.kind === 'journey'
     // The gated `focusCoords` is intentionally null for the first frames of an
@@ -1027,9 +918,9 @@ export function DiscoverScreen({
     // geometry is in memory, so the hero decision never waits for the gate.
     ? nav.pointInfo.heroMode ?? ((rawFocusCoords?.length ?? 0) >= 2 ? 'track' : journeyCoverUri ? 'cover' : 'track')
     : 'track';
-  const journeyShowsCover = !routeEditorGroupKey && journeyHeroMode === 'cover' && !!journeyCoverUri;
+  const journeyShowsCover = journeyHeroMode === 'cover' && !!journeyCoverUri;
   const journeyChromeColor = journeyShowsCover ? '#FFFFFF' : theme.text;
-  const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover && !routeEditorGroupKey;
+  const journeyMapFull = nav.pointInfo?.kind === 'journey' && journeySheetIndex === 0 && !journeyShowsCover;
   const routeMapFull = nav.pointInfo?.kind === 'route' && routeSheetIndex === 0;
   const mapStylePickerVisible = mapStylePickerOpen;
   const journeyMapBottomPadding = journeySheetIndex === 0
@@ -1255,22 +1146,15 @@ export function DiscoverScreen({
           focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : rawFocusCoords}
           // The journey overview map must show every route leg as soon as the
           // journey detail opens, not only after entering the expanded map view.
-          focusSegments={nav.pointInfo?.kind === 'journey' || routeEditorGroupKey
+          focusSegments={nav.pointInfo?.kind === 'journey'
             ? focusSegments
             : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : []}
-          focusBoundaries={journeyMapDetailsVisible || routeEditorGroupKey ? displayedFocusBoundaries : []}
-          selectionPin={routeEditorGroupKey && routeDraftPosition && routeEditorIndex >= 0 ? {
-            coordinate: routeDraftEndpoint ?? routeDraftPosition.coordinate,
-            color: JOURNEY_SEGMENT_COLORS[routeEditorIndex % JOURNEY_SEGMENT_COLORS.length],
-          } : undefined}
-          focusConnectors={journeyMapDetailsVisible || routeEditorGroupKey ? focusConnectors : []}
-          transportSegments={journeyMapDetailsVisible ? transportSegments : []}
-          onRouteBoundaryPress={(groupKey) => {
-            setJourneyDaySelectionRequest((current) => ({ day: groupKey, revision: (current?.revision ?? 0) + 1 }));
+          journeyLegs={journeyLegs}
+          journeyStops={journeyStops}
+          onJourneyStopPress={(rowId) => {
+            const stop = itineraryStops.find((item) => item.rowId === rowId);
+            if (stop?.day) handleSelectedJourneyDayChange(stop.day);
           }}
-          onMapCoordinatePress={routeEditorGroupKey ? (coordinate) => {
-            setRouteMapSelectionRequest((current) => ({ coordinate, revision: (current?.revision ?? 0) + 1 }));
-          } : undefined}
           center={nav.pointInfo ? (() => {
             const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
             return { lon, lat };
@@ -1371,8 +1255,7 @@ export function DiscoverScreen({
               accessibilityLabel={t('common.back')}
               hitSlop={6}
               onPress={() => {
-                if (routeEditorGroupKey) closeRouteEditor();
-                else if (nav.journeyVersionPreview) nav.closeJourneyVersionPreview();
+                if (nav.journeyVersionPreview) nav.closeJourneyVersionPreview();
                 else dismissPointSheet();
               }}
               style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
@@ -1663,7 +1546,6 @@ export function DiscoverScreen({
                 onSelectedMomentIdsChange={setSelectedMomentIds}
                 onVisibleMomentIdsChange={setVisibleMomentIds}
                 onJourneyDaysChange={setAvailableJourneyDays}
-                onRouteBoundaryRequest={openRouteEditor}
                 timelineSelectionMode={timelineSelectionMode}
                 selectedTimelineItemIds={selectedTimelineItemIds}
                 onSelectedTimelineItemIdsChange={setSelectedTimelineItemIds}
@@ -1784,24 +1666,6 @@ export function DiscoverScreen({
           onChange={setMapStyle}
           onClose={() => setMapStylePickerOpen(false)}
         />
-      ) : null}
-      {routeEditorGroupKey && nav.pointInfo?.kind === 'journey' && focusMeasure && routeEditorIndex >= 0 ? (
-        <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 190 }]}>
-          <JourneyRouteBoundarySheet
-            theme={theme}
-            info={nav.pointInfo}
-            groupLabel={routeEditorGroupKey}
-            minimumMeters={routeEditorMinimumMeters}
-            maximumMeters={routeEditorMaximumMeters}
-            current={focusedTimeline.groupRoutes[routeEditorGroupKey]}
-            backgroundMap
-            mapSelectionRequest={routeMapSelectionRequest}
-            onSelectionChange={setRouteDraftPosition}
-            onEndpointCoordinateChange={setRouteDraftEndpoint}
-            onClose={closeRouteEditor}
-            onSave={(route) => focusedTimeline.setGroupRoute(routeEditorGroupKey, route)}
-          />
-        </View>
       ) : null}
       {selectedJourneyTab === 'moments' && momentFilterMenuRef.current ? (
         <Modal

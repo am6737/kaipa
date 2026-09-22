@@ -14,6 +14,7 @@ import { File, Paths } from 'expo-file-system';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReAnimated, { Easing as ReanimatedEasing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
 import { TLRow, TLMedia, TLGroup, TimelineLocation, TimelineTransportMode } from '../../data/timeline';
@@ -29,9 +30,8 @@ import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../l
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
 import { AppCard, motion, radius, space, type } from '../../design-system';
-import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../../lib/routeSegments';
-import { JourneyRouteBoundarySheet } from './JourneyRouteBoundarySheet';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
+import { groupJourneyRows, sortRowsWithinDay } from '../../lib/journeyOrdering';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -79,8 +79,104 @@ function Collapsible({ open, children }: { open: boolean; children: React.ReactN
   );
 }
 
-const MAX_TL_MEDIA = 10;
-const fmtMins = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+// A day group's items are revealed by the pager page itself growing (see
+// JourneyCard's animateDayPageCollapse), which is a UI-thread height tween, so
+// this only fades them with a compositor-only opacity. Animating the block's own
+// height here relaid out every row on the JS thread each frame and dropped the
+// opening frames of each expand.
+//
+// `keepMounted` collapses the block to zero layout height instead of unmounting
+// it, so the itinerary thumbnails keep their decoded bitmaps and an expand
+// doesn't re-load them. Only the pager's per-day page uses it — one group per
+// page — while the 全部 list still unmounts to avoid holding every collapsed
+// day's rows in memory.
+const DAY_GROUP_COLLAPSE = { duration: 200, easing: ReanimatedEasing.bezier(0.455, 0.03, 0.515, 0.955) };
+const DAY_GROUP_EXPAND = { duration: 280, easing: ReanimatedEasing.bezier(0.16, 1, 0.3, 1) };
+
+function DayBody({ open, keepMounted = false, children, onHeightChange }: {
+  open: boolean;
+  keepMounted?: boolean;
+  children: React.ReactNode;
+  onHeightChange?: (height: number) => void;
+}) {
+  const progress = useSharedValue(open ? 1 : 0);
+  const [mounted, setMounted] = useState(open);
+  const [hidden, setHidden] = useState(!open);
+  const applied = useRef(open);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  useEffect(() => {
+    if (applied.current === open) {
+      if (open) setMounted(true);
+      return;
+    }
+    applied.current = open;
+    if (open) {
+      setMounted(true);
+      setHidden(false);
+      progress.value = withTiming(1, DAY_GROUP_EXPAND);
+      return;
+    }
+    // The rows stay mounted until the page has finished travelling, so the
+    // shrink reads as a wipe instead of an empty page closing.
+    progress.value = withTiming(0, DAY_GROUP_COLLAPSE, (finished) => {
+      if (!finished) return;
+      if (keepMounted) runOnJS(setHidden)(true);
+      else runOnJS(setMounted)(false);
+    });
+  }, [keepMounted, open, progress]);
+  if (!mounted) return null;
+  return (
+    <ReAnimated.View
+      onLayout={(event) => {
+        const height = Math.ceil(event.nativeEvent.layout.height);
+        if (height) onHeightChange?.(height);
+      }}
+      style={hidden ? [fadeStyle, { height: 0, overflow: 'hidden' }] : fadeStyle}
+    >
+      {children}
+    </ReAnimated.View>
+  );
+}
+
+// The chevron turns with the same curve as the body/page tween, so the tap
+// target and the content read as one motion.
+function CollapseChevron({ theme, collapsed }: { theme: Theme; collapsed: boolean }) {
+  const spin = useRef(new Animated.Value(collapsed ? 0 : 1)).current;
+  useEffect(() => {
+    Animated.timing(spin, {
+      toValue: collapsed ? 0 : 1,
+      duration: collapsed ? 200 : 280,
+      easing: collapsed ? Easing.bezier(0.455, 0.03, 0.515, 0.955) : Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [collapsed, spin]);
+  return (
+    <Animated.View style={{ transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+      <Icon name="chevronDown" color={theme.text2} size={18} />
+    </Animated.View>
+  );
+}
+
+function DayCollapseToggle({ theme, collapsed, onPress, label }: {
+  theme: Theme;
+  collapsed: boolean;
+  onPress: () => void;
+  label: string;
+}) {
+  return (
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={8}
+      style={{ width: 32, height: 30, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <CollapseChevron theme={theme} collapsed={collapsed} />
+    </Press>
+  );
+}
+
+const MAX_TL_MEDIA = 10;const fmtMins = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const HOUR_OPTS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: String(h).padStart(2, '0') }));
 const MIN_OPTS = Array.from({ length: 12 }, (_, i) => ({ value: i * 5, label: String(i * 5).padStart(2, '0') }));
@@ -299,30 +395,6 @@ async function uploadTLMedia(items: TLMedia[], userId: string, journeyId: string
   );
 }
 
-// ── Group rows by `day`. Default day names sort by day index; custom names keep
-//    their first-seen order after numbered days. ───────────────────────────────
-function groupRows(rows: TLRow[], knownGroups: string[]): TLGroup[] {
-  const map = new Map<string, { rows: TLRow[]; order: number }>();
-  let order = 0;
-  for (const g of knownGroups) map.set(g, { rows: [], order: order++ });
-  for (const r of rows) {
-    const key = r.day || '';
-    const group = map.get(key);
-    if (group) group.rows.push(r);
-    else map.set(key, { rows: [r], order: order++ });
-  }
-  return [...map.entries()]
-    .sort((a, b) => {
-      const ai = journeyDayOrdinal(a[0]);
-      const bi = journeyDayOrdinal(b[0]);
-      if (ai != null && bi != null) return ai - bi;
-      if (ai != null) return -1;
-      if (bi != null) return 1;
-      return a[1].order - b[1].order;
-    })
-    .map(([key, group]) => ({ key, label: key, rows: group.rows }));
-}
-
 // ── Day selector: 总览 + each day as a capsule chip, plus an optional "+" ─────
 const ALL_DAYS = '__all__';
 function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteItem, onRenameItem, dismissSignal, onEditingChange }: {
@@ -424,19 +496,15 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
 }
 
 // ── A collapsible day group: bold label, chevron when collapsible ─────────────
-function DaySection({ theme, label, collapsible, collapsed, onToggle, routeSummary, routeColor, routePending, onRoutePress, children }: {
+function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, children }: {
   theme: Theme;
   label: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
-  routeSummary?: string;
-  routeColor?: string;
-  routePending?: boolean;
-  onRoutePress?: () => void;
+  onBodyHeight?: (height: number) => void;
   children: React.ReactNode;
 }) {
-  const { t } = useI18n();
   return (
     <View style={{ marginBottom: space.xl }}>
       <Pressable
@@ -446,24 +514,14 @@ function DaySection({ theme, label, collapsible, collapsed, onToggle, routeSumma
       >
         <View style={{ flex: 1 }}>
           <Text style={[type.pageTitle, { color: theme.text, fontSize: 23 }]} numberOfLines={1}>{label.toUpperCase()}</Text>
-          {onRoutePress ? (
-            <Press
-              onPress={onRoutePress}
-              style={{ alignSelf: 'flex-start', minHeight: 30, marginTop: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
-            >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: routePending ? 'transparent' : routeColor ?? theme.text3, borderWidth: routePending ? 1.5 : 0, borderColor: routeColor ?? theme.text3 }} />
-              <Text style={[type.caption, { color: routeSummary ? theme.text2 : theme.accent, fontWeight: '700' }]}>{routeSummary || t('journey.timeline.routeSetDayEnd')}</Text>
-              <Icon name="chevronR" color={routeSummary ? theme.text3 : theme.accent} size={13} />
-            </Press>
-          ) : null}
         </View>
         {collapsible ? (
-          <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: collapsed ? '0deg' : '180deg' }] }}>
-            <Icon name="chevronDown" color={theme.text2} size={18} />
+          <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+            <CollapseChevron theme={theme} collapsed={!!collapsed} />
           </View>
         ) : null}
       </Pressable>
-      {collapsed ? null : children}
+      <DayBody open={!collapsed} onHeightChange={onBodyHeight}>{children}</DayBody>
     </View>
   );
 }
@@ -1116,51 +1174,106 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     requestAnimationFrame(() => React.startTransition(onToggleSelected));
   };
 
-  const content = dayLayout ? (
-    <View style={{ flex: 1, minWidth: 0 }}>
-      {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
-      <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
-      {transportSummary(row) ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{transportSummary(row)}</Text> : null}
-      {media.length > 0 ? (
-        <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
-          {media.map((item, index) => {
-            const uri = item.video ? item.thumb : item.uri;
-            return (
-              <Pressable
-                key={index}
-                onPress={onOpenMedia ? () => onOpenMedia(media, index, row) : undefined}
-                style={{ width: 72, height: 60, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.surfaceTop }}
-              >
-                {uri ? <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+  const placeName = row.location?.name?.trim() || '';
+  const hasTitle = row.title.trim().length > 0;
+  // The place line keeps its own style even when it's the only content —
+  // promoting it into the title slot made a place-only item indistinguishable
+  // from a plain text note.
+  const headNode = hasTitle ? (
+    <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
+  ) : null;
+  // The place line is a closing note under the main block — it gets a real
+  // gap (space.sm) from whatever sits above it, not the 4px intra-text rhythm.
+  const placeNode = placeName ? (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: row.timeStart != null || hasTitle || media.length > 0 ? space.sm : 0 }}>
+      <Icon name="pin" size={11} color={theme.text2} strokeWidth={1.8} />
+      <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{placeName}</Text>
     </View>
-  ) : (
+  ) : null;
+  const timeNode = row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null;
+  const summary = transportSummary(row);
+  const transportNode = summary ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{summary}</Text> : null;
+
+  const hasText = row.timeStart != null || hasTitle || Boolean(summary);
+  // B1: the right-hand photo column only exists when the left has text to
+  // carry — media-only items keep photos in the full-width grid, place-only
+  // items stay a single line. 1–2 media go right, ≥3 fall back to the grid.
+  const sideMedia = hasText && media.length > 0 && media.length <= 2;
+  const tileBg = dayLayout ? theme.surfaceTop : theme.fieldSurface;
+
+  // ≥3 media (or no text to host the right column): a three-up grid shows the
+  // whole set at a glance — the old horizontal strip hid both count and tails,
+  // and went blind in selection mode. 7–9 cap out at six cells with a +N
+  // badge on the last one; tapping it opens the viewer from there.
+  const shownMedia = media.slice(0, 6);
+  const hiddenMediaCount = media.length - shownMedia.length;
+  const mediaRows: ({ item: TLMedia; index: number } | null)[][] = [];
+  for (let i = 0; i < shownMedia.length; i += 3) {
+    const cells: ({ item: TLMedia; index: number } | null)[] = [];
+    for (let j = i; j < i + 3; j += 1) cells.push(j < shownMedia.length ? { item: shownMedia[j], index: j } : null);
+    mediaRows.push(cells);
+  }
+
+  const mediaGrid = !sideMedia && media.length > 0 ? (
+    <View pointerEvents={selectionMode ? 'none' : 'auto'} style={{ gap: space.xs, paddingTop: space.sm }}>
+      {mediaRows.map((cells, rowIndex) => (
+        <View key={rowIndex} style={{ flexDirection: 'row', gap: space.xs }}>
+          {cells.map((cell, cellIndex) => (cell ? (
+            <Pressable
+              key={cell.index}
+              onPress={onOpenMedia ? () => onOpenMedia(media, cell.index, row) : undefined}
+              style={{ flex: 1, aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden', backgroundColor: tileBg }}
+            >
+              {(() => {
+                const uri = cell.item.video ? cell.item.thumb : cell.item.uri;
+                return uri ? <Image source={{ uri }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null;
+              })()}
+              {cell.index === 5 && hiddenMediaCount > 0 ? (
+                <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.42)' }]}>
+                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{`+${hiddenMediaCount}`}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : <View key={`pad-${cellIndex}`} style={{ flex: 1 }} />))}
+        </View>
+      ))}
+    </View>
+  ) : null;
+
+  const sideArt = sideMedia ? (
+    <View pointerEvents={selectionMode ? 'none' : 'auto'} style={{ width: 92, gap: space.xs, marginLeft: space.md }}>
+      {media.map((item, index) => {
+        const uri = item.video ? item.thumb : item.uri;
+        return (
+          <Pressable
+            key={index}
+            onPress={onOpenMedia ? () => onOpenMedia(media, index, row) : undefined}
+            style={{ width: 92, height: media.length === 1 ? 92 : 60, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.surfaceTop }}
+          >
+            {uri ? <Image source={{ uri }} contentFit="cover" transition={160} style={StyleSheet.absoluteFill} /> : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  ) : null;
+
+  const textBlock = (
     <View style={{ flex: 1, minWidth: 0 }}>
-      {row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null}
-      <Text style={[type.cardTitle, { color: theme.text, marginTop: row.timeStart != null ? space.xxs : 0, lineHeight: 21 }]}>{row.title}</Text>
-      {transportSummary(row) ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{transportSummary(row)}</Text> : null}
-      {media.length > 0 ? (
-        <ScrollView pointerEvents={selectionMode ? 'none' : 'auto'} horizontal scrollEnabled={!selectionMode} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.xs, paddingTop: space.sm }}>
-          {media.map((item, index) => {
-            const uri = item.video ? item.thumb : item.uri;
-            return (
-              <Pressable
-                key={index}
-                onPress={onOpenMedia ? () => onOpenMedia(media, index, row) : undefined}
-                style={{ width: 64, height: 52, borderRadius: radius.control, overflow: 'hidden', backgroundColor: theme.fieldSurface }}
-              >
-                {uri ? <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+      {timeNode}
+      {headNode}
+      {transportNode}
+      {mediaGrid}
+      {sideMedia ? <View style={{ flexGrow: 1 }} /> : null}
+      {placeNode}
     </View>
   );
+
+  const content = sideMedia ? (
+    <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'stretch' }}>
+      {textBlock}
+      {sideArt}
+    </View>
+  ) : textBlock;
 
   return (
     <Pressable
@@ -1172,7 +1285,10 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
         flexDirection: 'row',
         alignItems: dayLayout ? 'flex-start' : 'center',
         gap: space.md,
-        paddingVertical: dayLayout ? 0 : space.sm,
+        // In the day layout this Pressable *is* the card: the inset lives here so
+        // the whole tinted area is a tap target, not just the text lines.
+        paddingVertical: dayLayout ? space.md : space.sm,
+        paddingHorizontal: dayLayout ? space.md : 0,
         opacity: pressed ? 0.72 : 1,
       })}
     >
@@ -1215,18 +1331,17 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   );
 }
 
-export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onRouteBoundaryRequest }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onRouteBoundaryRequest?: (groupKey: string) => void }) {
+export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onGroupCollapseChange }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onGroupCollapseChange?: (change: { collapsed: boolean; delta: number }) => void }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId } = useData();
   const tl = useTimeline(info.id, userId, preview);
   const [activeDay, setActiveDay] = useState<string>(ALL_DAYS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const groupBodyHeights = useRef(new Map<string, number>());
   const [viewer, setViewer] = useState<{ rowId: string; media: TLMedia[]; index: number } | null>(null);
   const [chipsEditing, setChipsEditing] = useState(false);
   const [dismissChipsSignal, setDismissChipsSignal] = useState(0);
-  const [routeGroupKey, setRouteGroupKey] = useState<string | null>(null);
-  const trackMeasure = useMemo(() => measureTrack(info.trackCoords), [info.trackCoords]);
   const selectedIds = selectedItemIds ?? new Set<string>();
   const toggleSelectedItem = (id: string) => {
     if (!onSelectedItemIdsChange) return;
@@ -1246,7 +1361,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
       ? (availableDays?.length ? availableDays : [selectedDay])
       : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
     : [];
-  const groups = groupRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
+  const groups = groupJourneyRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
   const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t('journey.timeline.ungrouped');
   const currentDay = selectedDay || activeDay;
   const nextDayName = () => nextJourneyDayKey(groups.map((group) => group.key));
@@ -1255,13 +1370,18 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
     tl.addGroup(day);
     setActiveDay(day);
   };
-  const toggleCollapse = (key: string) =>
+  const toggleCollapse = (key: string) => {
+    const collapsing = collapsed.has(key) ? false : true;
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+    // The detail pager stores page heights that only ever grow, so the parent
+    // needs the measured body height to animate the page down/up with the group.
+    onGroupCollapseChange?.({ collapsed: collapsing, delta: groupBodyHeights.current.get(key) ?? 0 });
+  };
   const openJourneyAgent = () => nav.openAssistant(undefined, info.id);
 
   const confirmDeleteGroup = (g: TLGroup) => {
@@ -1312,35 +1432,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
 
   const chips = [{ key: ALL_DAYS, label: t('journey.tab.overview') }, ...groups.map((g) => ({ key: g.key, label: dayLabel(g) }))];
   const shownGroups = selectedDay ? groups : currentDay === ALL_DAYS ? groups : groups.filter((g) => g.key === currentDay);
-  const sortedRows = (g: TLGroup) => [...g.rows]
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => {
-      const ta = a.r.timeStart ?? Infinity, tb = b.r.timeStart ?? Infinity;
-      return ta === tb ? a.i - b.i : ta - tb;
-    })
-    .map((x) => x.r);
-
-  const routePendingFor = (groupKey: string) => {
-    const index = groups.findIndex((group) => group.key === groupKey);
-    return index > 0 && !!tl.groupRoutes[groupKey] && !tl.groupRoutes[groups[index - 1].key];
-  };
-  const routeSummaryFor = (groupKey: string) => {
-    const route = tl.groupRoutes[groupKey];
-    if (!route) return undefined;
-    const index = groups.findIndex((group) => group.key === groupKey);
-    const previousRoute = index > 0 ? tl.groupRoutes[groups[index - 1].key] : undefined;
-    const cumulative = t('journey.timeline.routeCumulative', { distance: `${(route.endDistanceMeters / 1000).toFixed(1)} km` });
-    if (index > 0 && !previousRoute) {
-      return `${cumulative}  ${t('journey.timeline.routeWaitingFor', { day: dayLabel(groups[index - 1]) })}`;
-    }
-    const previousMeters = previousRoute?.endDistanceMeters ?? 0;
-    return `${t('journey.timeline.routeDayDistance', { distance: `${((route.endDistanceMeters - previousMeters) / 1000).toFixed(1)} km` })}  ${cumulative}`;
-  };
-  const openRouteBoundary = (groupKey: string) => {
-    if (!trackMeasure || readOnly) return;
-    if (onRouteBoundaryRequest) onRouteBoundaryRequest(groupKey);
-    else setRouteGroupKey(groupKey);
-  };
+  const sortedRows = (g: TLGroup) => sortRowsWithinDay(g.rows);
 
   // a day's entries as a grouped, hairline-separated card + (editable) an add row
   const renderItems = (g: TLGroup) => {
@@ -1392,6 +1484,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
 
   const renderSelectedDay = (g: TLGroup) => {
     const rows = sortedRows(g);
+    const dayCollapsed = collapsed.has(g.key);
     return (
       <View key={g.key} onLayout={(event) => onGroupLayout?.(g.key, event.nativeEvent.layout.y)} style={{ paddingBottom: space.xl }}>
         <View style={{ minHeight: 30, marginBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
@@ -1400,43 +1493,47 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               {dayLabel(g)}
             </Text>
           </View>
-          {!readOnly && trackMeasure ? (
-            <Press
-              onPress={() => openRouteBoundary(g.key)}
-              style={{ height: 30, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.fieldSurface }}
-            >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: routePendingFor(g.key) ? 'transparent' : JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length], borderWidth: routePendingFor(g.key) ? 1.5 : 0, borderColor: JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length] }} />
-              <Text numberOfLines={1} style={[type.caption, { maxWidth: 180, color: tl.groupRoutes[g.key] ? theme.text2 : theme.accent, fontWeight: '700' }]}>{routeSummaryFor(g.key) || t('journey.timeline.routeSetEnd')}</Text>
-            </Press>
+          {rows.length ? (
+            <DayCollapseToggle
+              theme={theme}
+              collapsed={dayCollapsed}
+              onPress={() => toggleCollapse(g.key)}
+              label={t(dayCollapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')}
+            />
           ) : null}
         </View>
 
         {rows.length ? (
-          <View style={{ gap: space.md }}>
-            {rows.map((row) => (
-              <AppCard
-                key={row.id}
-                theme={theme}
-                radius={radius.feature}
-                style={{
-                  padding: space.md,
-                  overflow: 'hidden',
-                  backgroundColor: theme.fieldSurface,
-                }}
-              >
-                <ItineraryItem
+          <DayBody
+            open={!dayCollapsed}
+            keepMounted
+            onHeightChange={(height) => { groupBodyHeights.current.set(g.key, height); }}
+          >
+            <View style={{ gap: space.md }}>
+              {rows.map((row) => (
+                <AppCard
+                  key={row.id}
                   theme={theme}
-                  row={row}
-                  onPress={readOnly ? undefined : () => nav.openTimelineEdit(info, row, availableDays)}
-                  onOpenMedia={selectionMode ? undefined : (media, mediaIndex, item) => setViewer({ rowId: item.id, media, index: mediaIndex })}
-                  selectionMode={selectionMode}
-                  selected={selectedIds.has(row.id)}
-                  onToggleSelected={() => toggleSelectedItem(row.id)}
-                  dayLayout
-                />
-              </AppCard>
-            ))}
-          </View>
+                  radius={radius.feature}
+                  style={{
+                    overflow: 'hidden',
+                    backgroundColor: theme.fieldSurface,
+                  }}
+                >
+                  <ItineraryItem
+                    theme={theme}
+                    row={row}
+                    onPress={readOnly ? undefined : () => nav.openTimelineEdit(info, row, availableDays)}
+                    onOpenMedia={selectionMode ? undefined : (media, mediaIndex, item) => setViewer({ rowId: item.id, media, index: mediaIndex })}
+                    selectionMode={selectionMode}
+                    selected={selectedIds.has(row.id)}
+                    onToggleSelected={() => toggleSelectedItem(row.id)}
+                    dayLayout
+                  />
+                </AppCard>
+              ))}
+            </View>
+          </DayBody>
         ) : (
           <View style={{ alignItems: 'center', paddingVertical: space.xxl }}>
             <Text style={[type.body, { color: theme.text3 }]}>{t('journey.timeline.emptyTitle')}</Text>
@@ -1494,39 +1591,11 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               collapsible={currentDay === ALL_DAYS}
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
-              routeSummary={routeSummaryFor(g.key)}
-              routeColor={JOURNEY_SEGMENT_COLORS[Math.max(0, groups.findIndex((group) => group.key === g.key)) % JOURNEY_SEGMENT_COLORS.length]}
-              routePending={routePendingFor(g.key)}
-              onRoutePress={!readOnly && trackMeasure ? () => openRouteBoundary(g.key) : undefined}
+              onBodyHeight={(height) => { groupBodyHeights.current.set(g.key, height); }}
             >
               {renderItems(g)}
             </DaySection>
           ))}
-      {routeGroupKey && trackMeasure ? (() => {
-        const index = groups.findIndex((group) => group.key === routeGroupKey);
-        let previousMeters = 0;
-        for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
-          const route = tl.groupRoutes[groups[previousIndex].key];
-          if (route) { previousMeters = route.endDistanceMeters; break; }
-        }
-        let nextMeters: number | undefined;
-        for (let nextIndex = index + 1; nextIndex < groups.length; nextIndex += 1) {
-          const route = tl.groupRoutes[groups[nextIndex].key];
-          if (route) { nextMeters = route.endDistanceMeters; break; }
-        }
-        return (
-          <JourneyRouteBoundarySheet
-            theme={theme}
-            info={info}
-            groupLabel={index >= 0 ? dayLabel(groups[index]) : routeGroupKey}
-            minimumMeters={previousMeters}
-            maximumMeters={nextMeters}
-            current={tl.groupRoutes[routeGroupKey]}
-            onClose={() => setRouteGroupKey(null)}
-            onSave={(route) => tl.setGroupRoute(routeGroupKey, route)}
-          />
-        );
-      })() : null}
       {viewer ? (
         <MediaViewer
           theme={theme}
@@ -1614,35 +1683,96 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   const compactToolbar = windowWidth < 420;
   const titleInputRef = useRef<TextInput>(null);
   const mediaPickerOpenRef = useRef(false);
+  const keyboardVisibleRef = useRef(false);
 
   const slide = useRef(new Animated.Value(600)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+  // The keyboard offset lives entirely in an Animated.Value tweened by the
+  // event handlers (native driver). React state is only committed after the
+  // animation settles — a mid-flight setState re-rendered the sheet and its
+  // padding, which read as a flicker before the rise.
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+  const keyboardHRef = useRef(0);
+  const placeOpenRef = useRef(false);
+  placeOpenRef.current = placeOpen;
+  const entranceStartedRef = useRef(false);
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(slide, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-    ]).start();
-    const focusTimer = setTimeout(() => titleInputRef.current?.focus(), 90);
+    Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    const slideAlone = () => {
+      Animated.timing(slide, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    };
+    if (Platform.OS !== 'ios') {
+      entranceStartedRef.current = true;
+      slideAlone();
+    }
+    // On iOS the card deliberately waits for keyboardWillShow so slide-in and
+    // keyboard rise fire as ONE motion — sliding in first and lifting later
+    // left a visible pause between the two.
+    const focusTimer = setTimeout(() => titleInputRef.current?.focus(), 16);
+    const fallbackTimer = setTimeout(() => {
+      if (entranceStartedRef.current) return;
+      entranceStartedRef.current = true;
+      slideAlone();
+    }, 400);
     return () => {
       clearTimeout(focusTimer);
+      clearTimeout(fallbackTimer);
       slide.stopAnimation();
       backdropOpacity.stopAnimation();
+      keyboardOffset.stopAnimation();
     };
-  }, [backdropOpacity, slide]);
+  }, [backdropOpacity, slide, keyboardOffset]);
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardH(Math.max(0, e.endCoordinates.height));
+      const h = Math.max(0, e.endCoordinates.height);
+      keyboardHRef.current = h;
+      keyboardVisibleRef.current = true;
+      if (Platform.OS === 'ios') {
+        const dur = e.duration || 250;
+        const offsetTarget = placeOpenRef.current ? 0 : -h;
+        const rise = Animated.timing(keyboardOffset, { toValue: offsetTarget, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true });
+        if (!entranceStartedRef.current) {
+          entranceStartedRef.current = true;
+          Animated.parallel([
+            rise,
+            Animated.timing(slide, { toValue: 0, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          ]).start(() => setKeyboardH(h));
+        } else {
+          rise.start(() => setKeyboardH(h));
+        }
+      } else {
+        setKeyboardH(h);
+        const screenH = Dimensions.get('screen').height;
+        const windowResizedByIme = screenH - Dimensions.get('window').height >= h * 0.5;
+        keyboardOffset.setValue(windowResizedByIme || placeOpenRef.current ? 0 : -h);
+      }
     });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
       // Opening the system media picker temporarily hides the IME. Keep the
       // previous inset until focus is restored, otherwise the card drops behind
       // the keyboard when the picker closes.
-      if (!mediaPickerOpenRef.current) setKeyboardH(0);
+      if (mediaPickerOpenRef.current) return;
+      keyboardVisibleRef.current = false;
+      if (Platform.OS === 'ios') {
+        Animated.timing(keyboardOffset, {
+          toValue: 0,
+          duration: e.duration || 250,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }).start(() => {
+          keyboardHRef.current = 0;
+          setKeyboardH(0);
+        });
+      } else {
+        keyboardHRef.current = 0;
+        keyboardOffset.setValue(0);
+        setKeyboardH(0);
+      }
     });
     return () => { showSub.remove(); hideSub.remove(); };
-  }, [insets.bottom]);
+  }, [keyboardOffset]);
   const closeRef = useRef(onClose);
   const closingRef = useRef(false);
   const screenHeightRef = useRef(Dimensions.get('screen').height);
@@ -1746,12 +1876,35 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   // Android normally resizes the app window for the IME. Applying the measured
   // keyboard height again moves the editor too far upward; iOS still needs the
   // explicit lift because the keyboard overlays the window.
+  // While the place-search overlay is open it owns the keyboard; the form sheet
+  // lowers back down behind the dim — tweened, so the two sheets hand the
+  // keyboard off without a visible jump.
+  const placeOpenFirstRun = useRef(true);
+  useEffect(() => {
+    // Skip the mount pass — otherwise it stop()s the entrance animation this
+    // effect is meant to modulate only on later placeOpen toggles.
+    if (placeOpenFirstRun.current) {
+      placeOpenFirstRun.current = false;
+      return;
+    }
+    const target = placeOpen || !keyboardVisibleRef.current ? 0 : -keyboardHRef.current;
+    if (Platform.OS !== 'ios') {
+      keyboardOffset.setValue(target);
+      return;
+    }
+    keyboardOffset.stopAnimation(() => {
+      Animated.timing(keyboardOffset, {
+        toValue: target,
+        duration: 250,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [placeOpen, keyboardOffset]);
   const screenHeight = Dimensions.get('screen').height;
   const androidWindowAlreadyResized = keyboardH > 0 && screenHeight - windowHeight >= keyboardH * 0.5;
   const keyboardLift = Platform.OS === 'ios' || !androidWindowAlreadyResized ? keyboardH : 0;
-  // While the place-search overlay is open it owns the keyboard; the form sheet
-  // stays put behind the dim so the two don't read as one stacked form.
-  const keyboardTranslateY = Animated.add(slide, -(placeOpen ? 0 : keyboardLift));
+  const keyboardTranslateY = Animated.add(slide, keyboardOffset);
 
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex }]}>
@@ -1767,7 +1920,9 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
             backgroundColor: theme.dark ? theme.surfaceTop : '#FFFFFF',
             borderTopLeftRadius: radius.feature,
             borderTopRightRadius: radius.feature,
-            paddingBottom: keyboardH > 0 ? space.sm : Math.max(insets.bottom, space.sm),
+            // Constant — must not flip with keyboard state, or the sheet
+            // relayouts mid-animation (the flicker-then-rise the user saw).
+            paddingBottom: Math.max(insets.bottom, space.sm),
             overflow: 'visible',
           }}
         >
@@ -1784,9 +1939,8 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
               backgroundColor: theme.dark ? theme.surfaceTop : '#FFFFFF',
             }}
           />
-          <View {...pan.panHandlers} style={{ paddingTop: 10, paddingBottom: 4, alignItems: 'center' }}>
-            <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }} />
-          </View>
+          {/* Invisible strip: the only drag-to-dismiss grab area this sheet has. */}
+          <View {...pan.panHandlers} style={{ height: 18 }} />
 
           <View style={{ paddingHorizontal: 18, paddingTop: 4 }}>
             {/* add-to which day */}
@@ -1918,7 +2072,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
 export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, editRow, onClose }: { theme: Theme; info: Poi; initialDay?: string; availableGroups?: string[]; editRow?: TLRow; onClose: () => void }) {
   const { userId } = useData();
   const tl = useTimeline(info.id, userId);
-  const existingDays = groupRows(tl.rows, tl.knownGroups).map((g) => g.key).filter(Boolean);
+  const existingDays = groupJourneyRows(tl.rows, tl.knownGroups).map((g) => g.key).filter(Boolean);
   const sourceGroups = availableGroups?.length ? availableGroups : existingDays;
   const selectableGroupMap = new Map<string, string>();
   sourceGroups.forEach((value) => {

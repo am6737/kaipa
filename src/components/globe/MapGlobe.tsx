@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { Icon } from '../Icon';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate, keepValidCoordinates } from '../maps/types';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
@@ -30,16 +29,12 @@ export default function MapGlobe({
   activePoiId,
   onPoiPress,
   onBackgroundPress,
-  onMapCoordinatePress,
   center,
   focusCoords,
   focusSegments,
-  focusBoundaries,
-  selectionPin,
-  focusConnector,
-  focusConnectors,
-  transportSegments,
-  onRouteBoundaryPress,
+  journeyLegs,
+  journeyStops,
+  onJourneyStopPress,
   pin,
   followUserLocation = false,
   onUserLocationChange,
@@ -66,10 +61,10 @@ export default function MapGlobe({
   // would rebuild (and on Android re-snapshot) every annotation on every parent
   // render — which is most of them while a detail sheet is opening.
   const onPoiPressRef = useRef(onPoiPress);
-  const onRouteBoundaryPressRef = useRef(onRouteBoundaryPress);
+  const onJourneyStopPressRef = useRef(onJourneyStopPress);
   useEffect(() => {
     onPoiPressRef.current = onPoiPress;
-    onRouteBoundaryPressRef.current = onRouteBoundaryPress;
+    onJourneyStopPressRef.current = onJourneyStopPress;
   });
   const [distanceStepKm, setDistanceStepKm] = React.useState(10);
   const lastZoomBucket = useRef<number | null>(null);
@@ -112,25 +107,35 @@ export default function MapGlobe({
     })).filter((segment) => segment.coordinates.length >= 2),
     [focusSegments],
   );
-  const validFocusBoundaries = useMemo(
-    () => focusBoundaries?.filter((boundary) => isValidMapCoordinate(boundary.coordinate)),
-    [focusBoundaries],
+  const validJourneyLegs = useMemo(
+    () => journeyLegs?.map((segment) => ({ ...segment, coordinates: keepValidCoordinates(segment.coordinates) })).filter((segment) => segment.coordinates.length >= 2),
+    [journeyLegs],
   );
-  const validTransportSegments = useMemo(
-    () => transportSegments?.map((segment) => ({ ...segment, coordinates: keepValidCoordinates(segment.coordinates) })).filter((segment) => segment.coordinates.length >= 2),
-    [transportSegments],
+  const validJourneyStops = useMemo(
+    () => journeyStops?.filter((stop) => isValidMapCoordinate(stop.coordinate)),
+    [journeyStops],
   );
   const activeSegment = validFocusSegments?.find((segment) => segment.active);
-  const activeBoundary = validFocusBoundaries?.find((boundary) => boundary.active);
-  const hasFocusedRoutePart = (validFocusSegments?.some((segment) => !segment.active) ?? false)
-    || (validFocusBoundaries?.some((boundary) => !boundary.active) ?? false);
-  const cameraFocusCoords = hasFocusedRoutePart
-    ? activeSegment?.coordinates ?? (activeBoundary ? [activeBoundary.coordinate] : validFocusCoords)
+  const hasFocusedRoutePart = validFocusSegments?.some((segment) => !segment.active) ?? false;
+  const routeFocusCoords = hasFocusedRoutePart
+    ? activeSegment?.coordinates ?? validFocusCoords
     : validFocusCoords;
+  // A planned journey has no recorded track to frame, but its stops are the
+  // route — without this the camera sits on the journey avatar pin instead.
+  // Memoised because the framing effect keys on the array identity.
+  const stopFocusCoords = useMemo(
+    () => (validJourneyStops && validJourneyStops.length >= 2
+      ? validJourneyStops.map((stop) => stop.coordinate)
+      : null),
+    [validJourneyStops],
+  );
+  const cameraFocusCoords = (routeFocusCoords?.length ?? 0) >= 2
+    ? routeFocusCoords
+    : stopFocusCoords ?? routeFocusCoords;
   const routePadding: [number, number, number, number] = [90, 54, focusBottomPadding ?? Math.round(height * 0.54), 54];
 
   useEffect(() => {
-    if (!autoFrameRoute || onMapCoordinatePress || !cameraFocusCoords?.length) return;
+    if (!autoFrameRoute || !cameraFocusCoords?.length) return;
     // AMap's camera transition needs a little more time than MapKit to avoid
     // appearing to jump when a route detail sheet replaces the list. Keep the
     // shorter transition on iOS, where the native renderer is already smooth.
@@ -140,7 +145,7 @@ export default function MapGlobe({
     // Keep the user's camera when the overlaid sheet changes snap height. The
     // bottom padding only affects an explicit route fit; treating it as an
     // effect trigger would refit the map whenever the journey card is pulled.
-  }, [autoFrameRoute, cameraFocusCoords, onMapCoordinatePress]);
+  }, [autoFrameRoute, cameraFocusCoords]);
 
   useEffect(() => {
     if (!cameraAction) return;
@@ -183,8 +188,19 @@ export default function MapGlobe({
       width: 4,
       opacity: segment.active ? 1 : 0.26,
     }));
+    // One width step under the recorded track and one visual identity of its
+    // own (numbered pins at each end), so the plan reads as the layer over the
+    // track rather than a second, disagreeing route.
+    validJourneyLegs?.forEach((leg) => values.push({
+      id: `journey-leg-${leg.id}`,
+      coordinates: leg.coordinates,
+      color: leg.color,
+      width: 3,
+      opacity: leg.active ? 0.95 : 0.22,
+      dashed: leg.dashed,
+    }));
     return values;
-  }, [validFocusCoords, validFocusSegments, theme]);
+  }, [validFocusCoords, validFocusSegments, validJourneyLegs, theme]);
 
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
     if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return [];
@@ -256,51 +272,6 @@ export default function MapGlobe({
       : [];
     values.push(...distanceMarkers);
 
-    validFocusBoundaries?.forEach((boundary) => {
-      const foreground = boundary.pending ? theme.text : '#FFFFFF';
-      values.push({
-        id: `boundary-${boundary.id}`,
-        coordinate: boundary.coordinate,
-        anchor: { x: 0.5, y: 1 },
-        opacity: boundary.active ? 1 : 0.46,
-        onPress: () => onRouteBoundaryPressRef.current?.(boundary.groupKey),
-        content: (
-          <View style={{ alignItems: 'center' }}>
-            <View style={[
-              styles.boundaryLabel,
-              {
-                backgroundColor: boundary.pending ? theme.surfaceTop : boundary.color,
-                borderWidth: boundary.pending ? StyleSheet.hairlineWidth : 0,
-                borderColor: theme.hairline,
-              },
-            ]}>
-              {boundary.pending ? <View style={[styles.pendingDot, { borderColor: boundary.color }]} /> : null}
-              <Text numberOfLines={1} style={[styles.boundaryText, { color: foreground }]}>{boundary.title}</Text>
-              <Text numberOfLines={1} style={[styles.boundaryDistance, { color: foreground }]}>{boundary.distance}</Text>
-              <Text style={[styles.boundaryChevron, { color: foreground }]}>›</Text>
-            </View>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: boundary.color, borderWidth: 1.8, borderColor: '#FFFFFF' }} />
-          </View>
-        ),
-      });
-    });
-
-    if (selectionPin) {
-      values.push({
-        id: 'selection-pin',
-        coordinate: selectionPin.coordinate,
-        anchor: { x: 0.5, y: 1 },
-        content: (
-          <View style={{ alignItems: 'center' }}>
-            <View style={[styles.selectionPin, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
-              <Icon name="pin" color={theme.text2} size={18} strokeWidth={2.1} />
-            </View>
-            <View style={{ width: 8, height: 8, marginTop: -2, borderRadius: 4, backgroundColor: selectionPin.color, borderWidth: 1.8, borderColor: '#FFFFFF' }} />
-          </View>
-        ),
-      });
-    }
-
     // AMap's built-in location indicator does not match the iOS/ fallback
     // presentation. Render the shared marker on Android instead. Include the
     // heading in the id because Android caches marker content by cacheKey.
@@ -314,6 +285,28 @@ export default function MapGlobe({
       });
     }
 
+    validJourneyStops?.forEach((stop) => {
+      values.push({
+        id: `journey-stop-${stop.id}`,
+        coordinate: stop.coordinate,
+        anchor: { x: 0.5, y: 0.5 },
+        opacity: stop.active ? 1 : 0.34,
+        onPress: () => onJourneyStopPressRef.current?.(stop.id),
+        content: (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${stop.order} ${stop.name}`}
+            accessible
+            hitSlop={6}
+          >
+            <View style={[styles.journeyStop, { backgroundColor: theme.accent }]}>
+              <Text style={styles.journeyStopText}>{stop.order}</Text>
+            </View>
+          </Pressable>
+        ),
+      });
+    });
+
     if (validFocusSegments && validFocusSegments.length > 1) {
       validFocusSegments.forEach((segment, index) => {
         const start = segment.coordinates[0];
@@ -322,9 +315,9 @@ export default function MapGlobe({
         values.push({ id: `focus-start-${segment.id}-${index}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
         values.push({ id: `focus-end-${segment.id}-${index}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
       });
-    } else if (validFocusCoords?.[0]) {
+    } else if (validFocusCoords?.[0] && !validJourneyStops?.length) {
       values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-      if (!validFocusBoundaries?.length && validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+      if (validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
     }
     return values;
     // staggerPins is deliberately not a dependency: it only picks the
@@ -334,7 +327,7 @@ export default function MapGlobe({
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePoiId, distanceMarkers, pin, pois, selectionPin, showPoiMarkers, theme, validFocusBoundaries, validFocusCoords, validFocusSegments]);
+  }, [activePoiId, distanceMarkers, pin, pois, showPoiMarkers, theme, validFocusCoords, validFocusSegments, validJourneyStops]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
@@ -345,7 +338,7 @@ export default function MapGlobe({
         style={StyleSheet.absoluteFill}
         initialCenter={initialCenter}
         initialZoom={3}
-        initialFitCoordinates={validFocusCoords?.length ? validFocusCoords : undefined}
+        initialFitCoordinates={cameraFocusCoords?.length ? cameraFocusCoords : undefined}
         initialPadding={routePadding}
         mapStyle={mapStyle}
         showLabels={showMapLabels}
@@ -353,10 +346,7 @@ export default function MapGlobe({
         followUserLocation={followUserLocation}
         markers={markers}
         polylines={polylines}
-        onPress={(coordinate) => {
-          if (onMapCoordinatePress) onMapCoordinatePress(coordinate);
-          else onBackgroundPress?.();
-        }}
+        onPress={() => onBackgroundPress?.()}
         onUserLocationChange={onUserLocationChange}
         onCameraChange={onCameraOrientationChange}
         onCameraPositionChange={onCameraPositionChange}
@@ -371,19 +361,27 @@ const styles = StyleSheet.create({
   // Let Android measure the marker from its content. A fixed width here is in
   // RN dp but the native marker snapshot is density-scaled, making the pill
   // unexpectedly wide on high-density devices.
-  boundaryLabel: { height: 24, paddingLeft: 6, paddingRight: 3, borderRadius: 7, flexDirection: 'row', alignItems: 'center' },
-  pendingDot: { width: 4, height: 4, borderRadius: 2, marginRight: 3, borderWidth: 1.5 },
-  boundaryText: { flexShrink: 0, fontSize: 10.5, fontWeight: '700' },
-  boundaryDistance: { marginLeft: 2.5, fontSize: 10.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
   distanceMarkerWrap: { alignItems: 'center', justifyContent: 'center' },
   distanceMarkerSideWrap: { flexDirection: 'row', alignItems: 'center' },
   distanceMarkerEndpointSpacer: { width: 36 },
   distanceMarker: { minWidth: 38, paddingHorizontal: 6, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   distanceText: { fontSize: 9.5, lineHeight: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   distanceDot: { width: 5, height: 5, marginTop: -1, borderRadius: 3, borderWidth: 1.5, borderColor: '#FFFFFF' },
-  boundaryChevron: { marginLeft: 2.5, fontSize: 12.5, fontWeight: '500', lineHeight: 15 },
-  selectionPin: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
-  connectorMarker: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, shadowColor: '#000000', shadowOpacity: 0.14, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
+  journeyStop: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  journeyStopText: { color: '#FFFFFF', fontSize: 11, lineHeight: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
 });

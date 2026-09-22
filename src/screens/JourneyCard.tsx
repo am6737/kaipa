@@ -891,7 +891,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, onRouteBoundaryRequest, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; onRouteBoundaryRequest?: (groupKey: string) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
@@ -1189,6 +1189,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const [planOverviewOpen, setPlanOverviewOpen] = useState(false);
   const planOverviewOpenRef = useRef(false);
   const planOverviewAnimatingRef = useRef(false);
+  const dayCollapseAnimatingRef = useRef(false);
   const planOverviewCollapsedPagerHeightRef = useRef<number | null>(null);
   const planOverviewProgress = useSharedValue(0);
   const planOverviewExtraHeight = useSharedValue(0);
@@ -1430,7 +1431,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   }, [pageContentSize]);
 
   useEffect(() => {
-    if (!planOverviewAnimatingRef.current) pagerHeight.value = activePagerHeight;
+    if (!planOverviewAnimatingRef.current && !dayCollapseAnimatingRef.current) pagerHeight.value = activePagerHeight;
   }, [activePagerHeight, pagerHeight, seg]);
 
   const finishPlanOverviewAnimation = (open: boolean, targetPagerHeight: number) => {
@@ -1466,6 +1467,32 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     pagerHeight.value = withTiming(targetPagerHeight, animation, (finished) => {
       if (finished) runOnJS(finishPlanOverviewAnimation)(next, targetPagerHeight);
     });
+  };
+
+  // A day group tweens its own body inside JourneyTimeline (DayBody), so the
+  // page container has to travel the same distance in the same time — otherwise
+  // the collapsed day keeps the blank height of the expanded page.
+  const finishDayPageCollapse = (page: TabId, targetPagerHeight: number) => {
+    dayCollapseAnimatingRef.current = false;
+    setTabPageHeights((current) => ({ ...current, [page]: targetPagerHeight }));
+  };
+  const animateDayPageCollapse = ({ collapsed, delta }: { collapsed: boolean; delta: number }) => {
+    if (!isJourney || scrollContent || delta <= 0 || planOverviewAnimatingRef.current) return;
+    const page = segRef.current;
+    const from = tabPageHeights[page] || pagerHeight.value;
+    const targetPagerHeight = Math.max(120, from + (collapsed ? -delta : delta));
+    dayCollapseAnimatingRef.current = true;
+    cancelAnimation(pagerHeight);
+    pagerHeight.value = withTiming(
+      targetPagerHeight,
+      {
+        duration: collapsed ? 200 : 280,
+        easing: collapsed ? Easing.bezier(0.455, 0.03, 0.515, 0.955) : Easing.bezier(0.16, 1, 0.3, 1),
+      },
+      (finished) => {
+        if (finished) runOnJS(finishDayPageCollapse)(page, targetPagerHeight);
+      },
+    );
   };
 
   const selectPagerSegment = (value: TabId) => {
@@ -1927,7 +1954,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         ) : null}
 
         {/* 行程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onRouteBoundaryRequest={onRouteBoundaryRequest} /> : null}
+        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onGroupCollapseChange={animateDayPageCollapse} /> : null}
         {activeJourneyDay ? (
           <View
             onLayout={(event) => {
@@ -1946,11 +1973,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               selectionMode={timelineSelectionMode}
               selectedItemIds={selectedTimelineItemIds}
               onSelectedItemIdsChange={onSelectedTimelineItemIdsChange}
-              onRouteBoundaryRequest={onRouteBoundaryRequest}
               onGroupLayout={(day, y) => {
                 groupOffsetsRef.current.set(day, y);
                 scrollToPendingDay();
               }}
+              onGroupCollapseChange={animateDayPageCollapse}
             />
           </View>
         ) : null}
@@ -2324,7 +2351,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               <View
                 onLayout={(event) => {
                   const height = Math.ceil(event.nativeEvent.layout.height);
-                  if (height <= 0 || (option.id === 'overview' && planOverviewAnimatingRef.current)) return;
+                  if (height <= 0 || dayCollapseAnimatingRef.current || (option.id === 'overview' && planOverviewAnimatingRef.current)) return;
                   if (option.id === 'overview') {
                     planOverviewCollapsedPagerHeightRef.current = planOverviewOpenRef.current
                       ? Math.max(1, height - planOverviewExtraHeight.value)
