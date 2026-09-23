@@ -4,15 +4,15 @@ import type { TaskState } from './task.ts';
 
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 function throws(fn: () => unknown) { let failed = false; try { fn(); } catch { failed = true; } assert(failed, 'Expected rejection'); }
-const profile = { accommodation: 'day_trip', waterRefill: 'none', mealPreparation: 'no_cook' } as const;
-const item = { name: 'Water', quantity: 4, weightKg: 0.5, weightEstimated: true, carryStatus: 'consumable' as const };
+const profile = { accommodation: 'day_trip', waterRefill: 'none', mealPreparation: 'no_cook', conditions: null } as const;
+const item = { name: 'Water', quantity: 4, weightKg: 0.5, weightEstimated: true, carryStatus: 'consumable' as const, attributes: null, categoryName: null, estimatedEnergyKcalPerUnit: null };
 
 Deno.test('draft patch preserves unrelated items and omitted fields without applying quantity defaults', () => {
   const draft = newPackingDraft('journey', profile, [item, { ...item, name: 'Food' }]);
   const patched = patchPackingDraft(draft, { revision: 1, changes: [{ id: 'item-1', patch: { attributes: [{ name: 'Capacity', value: '500ml' }] } }], additions: [], removals: [] });
   assert(patched.items[0].value.quantity === 4);
   assert(JSON.stringify(patched.items[1]) === JSON.stringify(draft.items[1]));
-  assert(draft.items[0].value.attributes === undefined);
+  assert(draft.items[0].value.attributes === null, '省略的字段现在解析为 null');
   assert(patched.revision === 2 && patched.repairs === 1);
 });
 Deno.test('draft revisions and stable IDs constrain local changes', () => {
@@ -46,7 +46,7 @@ Deno.test('feedback returns affected items instead of the entire draft and is no
 });
 Deno.test('full packing exposes draft tools while incremental and discuss retain their boundaries', () => {
   const task: TaskState = { runId: 'r', journeyId: 'j', outcome: null, decision: {
-    objective: 'Packing', mode: 'execute', continuation: false, authorizationQuote: 'Save', operations: ['add_packing_items'], requiredOperations: ['add_packing_items'],
+    objective: 'Packing', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'Save', operations: ['add_packing_items'], requiredOperations: ['add_packing_items'],
     destination: null, plannedDate: null, dateUndecided: false, days: 1, derivedDays: null, trackAttachmentName: null, packingMode: 'full', constraints: [],
   } };
   const names = () => createAgentRuntime({ model: 'test', apiKey: 'test', baseUrl: 'https://example.test' }, true, task).agent.tools.map(tool => tool.name);

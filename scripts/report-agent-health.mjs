@@ -50,13 +50,14 @@ function readStageBudgets() {
 const budgets = readStageBudgets();
 const totalBudgetMs = Object.values(budgets).reduce((sum, ms) => sum + ms, 0);
 
-const [versions, wallclock, failures, zombies, toolLatency, modelCalls] = await Promise.all([
+const [versions, wallclock, failures, zombies, toolLatency, modelCalls, routeFacts] = await Promise.all([
   checked(admin.from('agent_version_health').select('*')),
   checked(admin.from('agent_stage_wallclock_vs_budget').select('*')),
   checked(admin.from('agent_stage_failures').select('*').limit(20)),
   checked(admin.from('agent_zombie_stages').select('*')),
   checked(admin.from('agent_tool_latency').select('*')),
   checked(admin.from('agent_model_metrics').select('stage,attempt,aborted,duration_ms').limit(20000)),
+  checked(admin.from('agent_route_fact_stats').select('*').limit(400)),
 ]);
 
 const scoped = (versionFilter ? wallclock.filter(r => r.agent_version === versionFilter) : wallclock)
@@ -113,10 +114,34 @@ if (totalBudgetMs >= 700_000 || totalBudgetMs >= 12 * 60_000) {
   findings.push(`stage budgets sum to ${totalBudgetMs / 1000}s, past the worker fetch timeout or the job lease`);
 }
 
+// The maintained 线路资料 library. It failed silently for its whole first life:
+// loadRouteFacts degrades every miss to "no facts", so a broken read and an
+// empty library looked identical, and the deployed function was reading the RPC
+// with a client that had no execute grant.
+const factTotals = routeFacts.reduce((totals, row) => ({
+  runs: totals.runs + Number(row.research_runs || 0),
+  loaded: totals.loaded + Number(row.loaded || 0),
+  injected: totals.injected + Number(row.injected || 0),
+  readFailed: totals.readFailed + Number(row.read_failed || 0),
+  reused: totals.reused + Number(row.reused || 0),
+  suggestions: totals.suggestions + Number(row.suggestions || 0),
+  unknownTargets: totals.unknownTargets + Number(row.unknown_targets || 0),
+}), { runs: 0, loaded: 0, injected: 0, readFailed: 0, reused: 0, suggestions: 0, unknownTargets: 0 });
+
+if (factTotals.readFailed > 0) {
+  findings.push(`route facts: the library read failed on ${factTotals.readFailed} research run(s), so those planned without 线路资料 — check the RPC grant and pipeline.admin`);
+}
+if (factTotals.loaded > 0 && factTotals.injected === 0) {
+  findings.push(`route facts: ${factTotals.loaded} fact(s) were loaded but none reached a brief — the loader-to-brief wiring is broken`);
+}
+if (factTotals.unknownTargets > 0) {
+  findings.push(`route facts: ${factTotals.unknownTargets} suggestion(s) named an entry that was not injected, so the id in the prompt is not the id the model can use`);
+}
+
 if (asJson) {
   // stdout stays a single parseable document; the findings block goes to stderr
   // so `--json | jq` works even on a failing report.
-  console.log(JSON.stringify({ current, budgets, totalBudgetMs, wallclock: scoped, failures, zombies, modelByStage, findings }, null, 2));
+  console.log(JSON.stringify({ current, budgets, totalBudgetMs, wallclock: scoped, failures, zombies, modelByStage, routeFacts, findings }, null, 2));
 } else {
   console.log(`\nstage budgets sum to ${totalBudgetMs / 1000}s (version ${current})`);
   console.log('stage        budget  attempts  done  fail  retried   p50s    p90s    p99s    maxs  at-ceiling');
@@ -145,6 +170,12 @@ if (asJson) {
       `${row.failed_pct ?? 0}%`.padStart(6),
       `${row.p50_s}s`.padStart(8), `${row.p90_s}s`.padStart(7), `${row.max_s}s`.padStart(7),
     ].join(' '));
+  }
+
+  console.log('\nroute facts (线路资料)');
+  console.log(`  loaded ${factTotals.loaded} / injected ${factTotals.injected} across ${factTotals.runs} research run(s) (${factTotals.reused} reused); suggestions ${factTotals.suggestions}`);
+  for (const row of routeFacts.slice(0, 7)) {
+    console.log(`  ${String(row.day).padEnd(11)} ${String(row.agent_version).padEnd(34)} runs ${String(row.research_runs).padStart(3)}  loaded ${String(row.loaded).padStart(3)}  injected ${String(row.injected).padStart(3)}  read-failed ${String(row.read_failed).padStart(2)}`);
   }
 }
 

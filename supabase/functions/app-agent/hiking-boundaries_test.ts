@@ -49,7 +49,7 @@ Deno.test('original GPX campsite saves without any guide or overnight review', (
   const stop = { locationName: points[0].name, endDistanceKm: points[0].km };
   const saved = validateHikingBoundary(stop, 80374.40696857945, points, []);
   assert(saved.source === 'waypoint' && saved.locationName === '第一天营地（候选终点，扎营条件待核实）');
-  const unknown = { waterStatus: 'unknown' as const, waterQuote: '', waterPlan: review.waterPlan, effortAssessment: review.effortAssessment };
+  const unknown = { sourceUrl: null, campQuote: null, waterStatus: 'unknown' as const, waterQuote: '', waterPlan: review.waterPlan, effortAssessment: review.effortAssessment };
   assert(validateHikingBoundary({ ...stop, overnightReview: unknown }, 80374.40696857945, points, []).locationName === saved.locationName);
   rejects(() => validateHikingBoundary({ ...stop, endDistanceKm: 14.4 }, 80374.40696857945, points, []));
 });

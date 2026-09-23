@@ -10,10 +10,16 @@ export interface AgentQuickReply {
 
 export interface AgentSource {
   title: string;
-  url: string;
+  /** Absent for a maintained 线路资料 entry that has no source link to open. */
+  url?: string;
   source?: string;
   snippet?: string;
   publishedAt?: string;
+  /** 'fact' marks an entry a human confirmed in the maintained library. */
+  kind?: 'fact';
+  factId?: string;
+  verifiedAt?: string;
+  stale?: boolean;
 }
 
 export interface AgentAttachment {

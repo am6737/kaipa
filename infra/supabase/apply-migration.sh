@@ -5,6 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEFAULT_RUNTIME="$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker"
 RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$DEFAULT_RUNTIME}"
 DB_CONTAINER="${KAIPA_SUPABASE_DB_CONTAINER:-kaipa-supabase-db}"
+# Which role applies the file. Most tables are owned by `postgres`, but the route
+# facts objects are owned by `supabase_admin`, and postgres is not a superuser
+# here, so a migration touching those fails with "must be owner of table
+# route_fact_entries" and rolls back. Override with
+# KAIPA_SUPABASE_DB_USER=supabase_admin for those.
+DB_USER="${KAIPA_SUPABASE_DB_USER:-postgres}"
 
 read_env() {
   local file="$1" key="$2"
@@ -17,7 +23,14 @@ normalize_url() {
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: infra/supabase/apply-migration.sh supabase/migrations/<migration>.sql" >&2
+  echo "  KAIPA_SUPABASE_DB_USER=<role>  applies as another role (default: postgres)." >&2
+  echo "  Use supabase_admin for migrations touching route_fact_* (see the note above DB_USER)." >&2
   exit 2
+fi
+
+if [[ ! "$DB_USER" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+  echo "Invalid KAIPA_SUPABASE_DB_USER: $DB_USER" >&2
+  exit 9
 fi
 
 if [[ -f "$ROOT/supabase/.temp/project-ref" ]]; then
@@ -51,5 +64,5 @@ if [[ -z "$app_url" || "$app_url" != "$runtime_url" ]]; then
   exit 8
 fi
 
-docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$migration"
-echo "Applied $(basename "$migration") to the self-hosted Kaipa database."
+docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d postgres < "$migration"
+echo "Applied $(basename "$migration") to the self-hosted Kaipa database as role $DB_USER."

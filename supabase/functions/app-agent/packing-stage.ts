@@ -24,7 +24,7 @@ export const packingProposalSchema = z.object({
   // Optional: the plan stage already computed the authoritative profile, and a
   // generation that omits it must not fail the whole checklist; the stage
   // falls back to that computed profile.
-  planProfile: packingPlanProfile.optional(),
+  planProfile: packingPlanProfile.nullable().default(null),
   items: z.array(packingItem).max(100),
 });
 

@@ -39,7 +39,7 @@ Deno.test('long-form work goes to the pipeline and single edits stay interactive
 });
 
 Deno.test('a legacy task state without a domain still resolves one', () => {
-  const stored = { objective: '任务', mode: 'execute', continuation: false, authorizationQuote: '帮我安排',
+  const stored = { objective: '任务', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, activeHoursPerDay: null, continuation: false, authorizationQuote: '帮我安排',
     operations: ['create_journey'], requiredOperations: ['create_journey'], fullHikingPlan: false,
     destination: null, plannedDate: null, dateUndecided: false, days: null, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [] } as TaskDecision;

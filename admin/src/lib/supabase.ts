@@ -45,6 +45,19 @@ export async function adminMutation(resource: string, body: Record<string, strin
   if (!response.ok) throw new Error(result.error || `后台操作失败 (${response.status})`)
 }
 
+export async function analyzeRouteFact(body: { category_slug: string; source_url?: string; source_text?: string; source_file?: { name: string; content_type: string; base64: string } }) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('后台登录会话已失效，请重新登录')
+  const response = await fetch(`${url || ''}/functions/v1/route-fact-analyze`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, apikey: key || '', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || `资料解析失败 (${response.status})`)
+  return result as { draft: { title: string; fields: Record<string, string | number>; summary: string; warnings: string[]; source_url: string | null }; model?: string }
+}
+
 export async function uploadAdminTrack(file: File) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('后台登录会话已失效，请重新登录')

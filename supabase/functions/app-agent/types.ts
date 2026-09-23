@@ -20,10 +20,20 @@ export type AgentQuickReply = {
 
 export type AgentSource = {
   title: string;
-  url: string;
+  // A route fact cites a maintained entry, not a page, so it may have no url to
+  // open. Absent url means the chip renders without a link rather than calling
+  // openURL(undefined).
+  url?: string;
   source?: string;
   snippet?: string;
   publishedAt?: string;
+  // 'fact' marks an entry from the maintained 线路资料 library, shown with a
+  // verified badge and the date a human last confirmed or reviewed it.
+  // undefined means a plain web result.
+  kind?: 'fact';
+  factId?: string;
+  verifiedAt?: string;
+  stale?: boolean;
 };
 
 export type AgentAttachment = {

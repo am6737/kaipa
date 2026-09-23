@@ -6,7 +6,7 @@ import { createAgentRuntime } from './agent.ts';
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 function throws(fn: () => void) { let failed = false; try { fn(); } catch { failed = true; } assert(failed, 'Expected rejection'); }
 export function decision(overrides: Partial<TaskDecision> = {}): TaskDecision {
-  return { objective: 'Plan a hike', mode: 'execute', fullHikingPlan: false, continuation: false, authorizationQuote: 'save',
+  return { objective: 'Plan a hike', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'save',
     operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], destination: 'Hangzhou',
     plannedDate: '2026-09-09', dateUndecided: false, days: 1, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [], ...overrides };
@@ -176,6 +176,7 @@ Deno.test('an authorization quote differing only in punctuation or spacing still
     operations: ['create_journey', 'add_itinerary_items'], requiredOperations: ['add_itinerary_items'],
     fullHikingPlan: true, destination: '党岭三湖连穿', plannedDate: null, dateUndecided: false,
     days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
+    domain: null, domainQuote: null, authorizationUnconfirmed: false, activeHoursPerDay: null,
   } as TaskDecision;
   const kept = constrainTaskDecision(planned, message, null, null, { hasBoundTrack: false });
   assert(kept.mode === 'execute', `a formatting-only quote difference must keep execution, got ${kept.mode}`);
@@ -196,6 +197,7 @@ Deno.test('a paraphrased authorization is flagged for confirmation instead of si
     operations: ['create_journey', 'add_itinerary_items'], requiredOperations: ['add_itinerary_items'],
     fullHikingPlan: true, destination: '党岭三湖连穿', plannedDate: null, dateUndecided: false,
     days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
+    domain: null, domainQuote: null, authorizationUnconfirmed: false, activeHoursPerDay: null,
   } as TaskDecision;
   // The paraphrase still cannot authorize writes, but the turn must say so
   // rather than look like a plain discussion.

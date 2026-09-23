@@ -13,7 +13,7 @@ const JOURNEY = { id: 'j1', user_id: 'user', participant_permissions: null, tota
 
 function decision(operations: TaskDecision['operations']): TaskDecision {
   return {
-    objective: '规划两天徒步', mode: 'execute', domain: 'hiking', continuation: false,
+    objective: '规划两天徒步', mode: 'execute', domain: 'hiking', domainQuote: null, authorizationUnconfirmed: false, activeHoursPerDay: null, continuation: false,
     authorizationQuote: '帮我规划两天徒步', operations, requiredOperations: operations, fullHikingPlan: true,
     destination: '党岭', plannedDate: null, dateUndecided: true, days: 2, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [],
@@ -120,12 +120,25 @@ async function withGeocoder<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function plan(patch: Partial<PlanDocument> = {}): PlanDocument {
+// 嵌套对象允许只写关心的字段：schema 现在要求显式给出每个键（strict 校验不
+// 接受缺字段），这里把没写的补成 null，夹具因此保持简短。
+type PlanPatch = Omit<Partial<PlanDocument>, 'itineraryItems' | 'endpoints' | 'mapLocation'> & {
+  itineraryItems?: Array<Partial<PlanDocument['itineraryItems'][number]>>;
+  endpoints?: Array<Partial<PlanDocument['endpoints'][number]>>;
+  mapLocation?: Partial<NonNullable<PlanDocument['mapLocation']>> | null;
+};
+function plan(patch: PlanPatch = {}): PlanDocument {
+  // 模型 schema 现在要求这些字段显式给出（strict 校验不接受缺字段），
+  // 夹具保持简短：在这里补成 null。
+  const normalized: Partial<PlanDocument> = { ...patch } as Partial<PlanDocument>;
+  if (patch.itineraryItems) normalized.itineraryItems = patch.itineraryItems.map((item) => ({ ...item, timeStart: item.timeStart ?? null, timeEnd: item.timeEnd ?? null, transport: item.transport ?? null })) as PlanDocument['itineraryItems'];
+  if (patch.endpoints) normalized.endpoints = patch.endpoints.map((endpoint) => ({ ...endpoint, waypointIndex: endpoint.waypointIndex ?? null, trackFinish: endpoint.trackFinish ?? null, endDistanceKm: endpoint.endDistanceKm ?? null, locationName: endpoint.locationName ?? null, estimateBasis: endpoint.estimateBasis ?? null, userDistanceQuote: endpoint.userDistanceQuote ?? null, overnightReview: endpoint.overnightReview ?? null, routeId: endpoint.routeId ?? null })) as PlanDocument['endpoints'];
+  if (patch.mapLocation) normalized.mapLocation = { ...patch.mapLocation, region: patch.mapLocation.region ?? null } as PlanDocument['mapLocation'];
   return planDocumentSchema.parse({
     journey: { name: '党岭三湖连穿', region: '四川', days: 2 },
     mapLocation: null, schedule: null, transport: null, packingProfile: null,
     assumptions: [], unverified: [], blocker: null, pendingQuestion: null,
-    ...patch,
+    ...normalized,
   });
 }
 

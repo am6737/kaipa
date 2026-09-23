@@ -1880,6 +1880,8 @@ export const en: SameShape<typeof zh> = {
       },
     },
     sources: "Sources",
+    sourcesVerified: "Verified",
+    sourcesStale: "Expired · needs review",
     viewJourney: "View journey",
     viewGear: "View gear",
     viewChecklist: "View checklist",

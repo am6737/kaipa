@@ -373,6 +373,8 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/gear-category-delete-to-uncategorized.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/account-deletion.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-agent-thread-cascade.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/journey-invites.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/qr-login.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260904170000_journey_complete_versions.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260906120000_journey_version_retention.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260906130000_group_agent_journey_versions.sql"
@@ -384,9 +386,40 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908040000_agent_task_harness.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908120000_agent_packing_drafts.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260908130000_fix_agent_track_summary.sql"
+  # Drops the broad routes_insert/routes_update policies schema.sql creates and
+  # replaces them with owner-scoped ones. Without it a fresh install lets any
+  # authenticated user write to the route catalog.
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260915120000_restrict_route_catalog_writes.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260916120000_tracks_library.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260917140000_import_hiking_routes.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918120000_journey_passphrase.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918130000_notifications_realtime.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918140000_real_notifications.sql"
+  # Applied in timestamp order, one file at a time: several of these narrow a
+  # constraint or replace a function the previous one created, so the order is
+  # part of the migration rather than an accident of listing. The seed of
+  # unverified route-fact drafts (20260922193000) is deliberately not here — a
+  # fresh install should not open with a review queue.
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919000000_agent_staged_pipeline.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919100000_leave_journey.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919150000_agent_failure_idempotency.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260919170000_agent_external_cache.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260920100000_admin_roles.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260920110000_bootstrap_service_owner.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260920120000_content_moderation.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260920140000_agent_retry_once.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260920141000_agent_transport_stage.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260921120000_timeline_transport_items.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260921130000_admin_route_track_fields.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260921150000_agent_degraded_plan_stage.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260921160000_timeline_group_route.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922120000_agent_observability.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922180000_route_facts.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922200000_route_access_transport_cost_fields.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922210000_route_fact_review_clock.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922210000_timeline_row_location.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922220000_route_fact_revisions.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922230000_agent_route_fact_stats.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

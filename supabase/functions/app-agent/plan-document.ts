@@ -56,6 +56,21 @@ export const researchBriefSchema = z.object({
     fact: z.string().max(500),
     sourceUrl: z.string().max(1000).nullable().default(null),
   })).max(30).default([]),
+  // Maintained route facts ("线路资料") this run loaded, written by the system:
+  // bindRouteFacts overwrites whatever the model emits here, so the model is
+  // told to leave it empty and nothing it invents can reach the caller. Kept in
+  // the schema rather than bolted onto the parsed object so that artifacts
+  // written before this field existed still parse on the reuse path.
+  routeFacts: z.array(z.object({
+    entryId: z.string().min(1).max(64),
+    routeName: z.string().max(200).default(''),
+    category: z.string().max(100).default(''),
+    title: z.string().max(200).default(''),
+    sourceUrl: z.string().max(1000).nullable().default(null),
+    reviewedAt: z.string().max(40).nullable().default(null),
+    reviewDueAt: z.string().max(40).nullable().default(null),
+    stale: z.boolean().default(false),
+  })).max(24).default([]).describe('系统填充，模型必须输出空数组'),
   // Drafts for the maintained route-facts library ("线路资料"). Only from guide
   // text this run actually read; a human confirms or discards them in admin,
   // so the model is never trusted to write 'confirmed' facts itself.
@@ -63,9 +78,20 @@ export const researchBriefSchema = z.object({
     routeId: z.string().min(1).max(100),
     category: z.enum(['access_transport', 'shuttle_cost', 'lodging', 'campsite', 'itinerary', 'season_safety']),
     title: z.string().min(1).max(120),
-    fields: z.record(z.string(), z.string().max(400)).default({}),
+    // A key/value list rather than a JSON object: the provider's strict schema
+    // validation demands a boolean additionalProperties and at least one
+    // declared property, so a free-form map cannot be expressed there at all.
+    // The runner folds this back into an object before the write.
+    fields: z.array(z.object({
+      key: z.string().min(1).max(64),
+      value: z.string().max(400),
+    })).max(24).default([]).describe('该类目的字段逐条给出：key 用类目字段名，value 一律写成字符串'),
     sourceUrl: z.string().max(1000).nullable().default(null),
-  })).max(12).default([]).describe('仅当攻略正文给出具体、可复核、且线路资料里没有的地面信息（价格、营地、班次、住宿）时提交草稿；fields 的 key 用该类目的字段名，值一律写成字符串'),
+    // Set when the guide contradicts or updates an entry the prompt injected:
+    // the suggestion is then a proposed edit to that entry rather than a new
+    // one, and the admin reviews it as a diff.
+    targetEntryId: z.string().max(64).nullable().default(null),
+  })).max(12).default([]).describe('仅当攻略正文给出具体、可复核、且线路资料里没有的地面信息（价格、营地、班次、住宿）时提交草稿；fields 的 key 用该类目的字段名，值一律写成字符串；若攻略更新了某条已注入的线路资料，把那条的 id 写进 targetEntryId 且只给出发生变化的字段'),
   waterAndResupply: z.array(z.string().max(500)).max(12).default([]),
   transportOptions: z.array(z.object({
     direction: z.enum(['outbound', 'return']),
@@ -90,6 +116,11 @@ export type ResearchBrief = z.infer<typeof researchBriefSchema>;
 // Dedicated handoff for moving between independent routes. Keeping this out
 // of ResearchBrief prevents route facts and transport assumptions from being
 // mixed together or silently omitted by the itinerary planner.
+//
+// The leg note carries the maintained route facts, so its limit is shared with
+// the code that builds it: a prefix added outside the truncation pushed a
+// note past this bound and threw away a whole transport stage.
+export const TRANSPORT_NOTE_MAX = 500;
 export const transportPlanSchema = z.object({
   segments: z.array(z.object({
     fromRoute: z.string().min(1).max(120),
@@ -101,7 +132,7 @@ export const transportPlanSchema = z.object({
     overnightRequired: z.boolean().default(false),
     verified: z.boolean().default(false),
     sourceUrl: z.string().max(1000).nullable().default(null),
-    note: z.string().max(500).default(''),
+    note: z.string().max(TRANSPORT_NOTE_MAX).default(''),
     fromLocation: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
     toLocation: z.object({ name: z.string().max(160), longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) }).nullable().default(null),
   })).max(12).default([]),
@@ -133,8 +164,8 @@ export const planDocumentSchema = z.object({
   // records the verdict here.
   transport: z.object({
     direction: reviewTransportParams.shape.direction.default('round_trip'),
-    origin: reviewTransportParams.shape.origin.nullable().default(null),
-    returnDestination: reviewTransportParams.shape.returnDestination.nullable().default(null),
+    origin: reviewTransportParams.shape.origin.default(null),
+    returnDestination: reviewTransportParams.shape.returnDestination.default(null),
     trailStart: reviewTransportParams.shape.trailStart.default(''),
     trailFinish: reviewTransportParams.shape.trailFinish.default(''),
     hikeStart: reviewTransportParams.shape.hikeStart.default(0),
@@ -143,7 +174,7 @@ export const planDocumentSchema = z.object({
     departureBuffer: reviewTransportParams.shape.departureBuffer.default(0),
     outbound: reviewTransportParams.shape.outbound.default([]),
     inbound: reviewTransportParams.shape.inbound.default([]),
-    vehicleRetrieval: reviewTransportParams.shape.vehicleRetrieval.nullable().default(null),
+    vehicleRetrieval: reviewTransportParams.shape.vehicleRetrieval.default(null),
     reviewIssues: z.array(z.string().max(500)).max(30).default([]),
     unverified: z.array(z.string().max(500)).max(30).default([]),
   }).nullable().default(null),
@@ -172,8 +203,8 @@ export const planDocumentModelSchema = planDocumentSchema.extend({
     description: z.string().max(1000).nullable().default(null),
   }).nullable().default(null),
   itineraryItems: z.array(itineraryItem.extend({
-    timeStart: itineraryItem.shape.timeStart.nullable().default(null),
-    timeEnd: itineraryItem.shape.timeEnd.nullable().default(null),
+    timeStart: itineraryItem.shape.timeStart.default(null),
+    timeEnd: itineraryItem.shape.timeEnd.default(null),
     transport: z.object({
       mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
       from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
@@ -187,13 +218,13 @@ export const planDocumentModelSchema = planDocumentSchema.extend({
     }).nullable().default(null),
   })).max(80).default([]),
   endpoints: z.array(itineraryGroupEndpoint.extend({
-    waypointIndex: itineraryGroupEndpoint.shape.waypointIndex.nullable().default(null),
-    trackFinish: itineraryGroupEndpoint.shape.trackFinish.nullable().default(null),
-    endDistanceKm: itineraryGroupEndpoint.shape.endDistanceKm.nullable().default(null),
-    locationName: itineraryGroupEndpoint.shape.locationName.nullable().default(null),
-    estimateBasis: itineraryGroupEndpoint.shape.estimateBasis.nullable().default(null),
-    userDistanceQuote: itineraryGroupEndpoint.shape.userDistanceQuote.nullable().default(null),
-    overnightReview: z.null().default(null),
+    waypointIndex: itineraryGroupEndpoint.shape.waypointIndex.default(null),
+    trackFinish: itineraryGroupEndpoint.shape.trackFinish.default(null),
+    endDistanceKm: itineraryGroupEndpoint.shape.endDistanceKm.default(null),
+    locationName: itineraryGroupEndpoint.shape.locationName.default(null),
+    estimateBasis: itineraryGroupEndpoint.shape.estimateBasis.default(null),
+    userDistanceQuote: itineraryGroupEndpoint.shape.userDistanceQuote.default(null),
+    overnightReview: z.literal(null).default(null),
   })).max(30).default([]),
   mapLocation: z.object({
     query: z.string().min(1).max(160),

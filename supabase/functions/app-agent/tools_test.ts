@@ -115,7 +115,7 @@ Deno.test('create_journey still rejects missing basics and duplicate creation in
   for (const journeyId of [undefined, 'existing-journey']) {
     const h = planningHarness('请重新规划行程和装备清单。', journeyId);
     h.context.task = { runId: h.context.runId, journeyId: journeyId || null, outcome: null, decision: {
-      objective: 'Create', mode: 'execute', continuation: false, authorizationQuote: 'create',
+      objective: 'Create', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'create',
       operations: ['create_journey'], requiredOperations: ['create_journey'], destination: null,
       days: null, derivedDays: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'none', constraints: [],
     } };
@@ -155,7 +155,7 @@ Deno.test('a write invoked outside task scope never reaches database operations'
 Deno.test('packing mode mismatch is rejected before receipt replay or database access', async () => {
   const h = planningHarness('Add only one cable', 'journey');
   h.context.task = { runId: h.context.runId, journeyId: 'journey', outcome: null, decision: {
-    objective: 'Add cable', mode: 'execute', continuation: false, authorizationQuote: 'Add',
+    objective: 'Add cable', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'Add',
     operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], destination: null,
     days: null, derivedDays: null, plannedDate: null, dateUndecided: false, trackAttachmentName: null, packingMode: 'incremental', constraints: [],
   } };

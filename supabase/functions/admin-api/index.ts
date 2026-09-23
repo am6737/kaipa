@@ -6,6 +6,35 @@ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const env = (name: string) => { const value = Deno.env.get(name)?.trim(); if (!value) throw new Error(`Missing ${name}`); return value; };
 
+type RouteFactField = { key?: unknown; type?: unknown; required?: unknown; options?: unknown };
+
+// The revision RPCs guard their own preconditions and their messages are the
+// only error surface they expose, so they are mapped onto status codes here
+// rather than re-derived from the row state.
+function routeFactRevisionError(message: string): { error: string; status: number } {
+  const fieldToken = message.match(/route_fact_field_\w+:[^,\s]*/);
+  if (fieldToken) return { error: fieldToken[0], status: 400 };
+  if (message.includes('is not a revision')) return { error: 'route_fact_revision_not_a_revision', status: 409 };
+  if (message.includes('not a pending suggestion')) return { error: 'route_fact_revision_not_pending', status: 409 };
+  if (message.includes('unknown target entry') || message.includes('target entry is archived')) return { error: 'route_fact_revision_target_unavailable', status: 409 };
+  if (message.includes('unknown suggestion')) return { error: 'route_fact_not_found', status: 404 };
+  return { error: 'route_fact_revision_failed', status: 500 };
+}
+
+function validateRouteFactFields(schema: unknown, fields: Record<string, unknown>): string | null {
+  if (!Array.isArray(schema)) return 'route_fact_category_schema_invalid';
+  for (const candidate of schema as RouteFactField[]) {
+    if (typeof candidate.key !== 'string' || !candidate.key) continue;
+    const value = fields[candidate.key];
+    const empty = value == null || (typeof value === 'string' && !value.trim());
+    if (candidate.required === true && empty) return `route_fact_field_required:${candidate.key}`;
+    if (empty) continue;
+    if (candidate.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) return `route_fact_field_number:${candidate.key}`;
+    if (candidate.type === 'select' && Array.isArray(candidate.options) && !candidate.options.includes(value)) return `route_fact_field_option:${candidate.key}`;
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   try {
@@ -19,11 +48,15 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string };
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string };
       const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact';
       if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
       if (!editors.includes(role)) return json({ error: 'write_forbidden' }, 403);
+      // Applying or rejecting a revision returns the resulting entry so the
+      // console can refresh without re-reading, and the audit insert below
+      // still runs for every write.
+      let revisionResult: unknown = null;
       if (body.action === 'set-user-role') {
         if (role !== 'owner') return json({ error: 'owner_required' }, 403);
         if (!['owner', 'admin', 'editor', 'viewer', 'none'].includes(body.role || '')) return json({ error: 'invalid_role' }, 400);
@@ -145,11 +178,17 @@ Deno.serve(async (req) => {
         const fileUrl = existing.data?.file_url;
         const marker = '/storage/v1/object/public/kaipa/';
         if (fileUrl?.includes(marker)) await service.storage.from('kaipa').remove([decodeURIComponent(fileUrl.split(marker)[1])]);
-      } else if (body.action === 'save-route-fact' || body.action === 'confirm-route-fact' || body.action === 'archive-route-fact') {
+      } else if (body.action === 'save-route-fact' || body.action === 'confirm-route-fact' || body.action === 'archive-route-fact'
+        || body.action === 'review-route-fact' || body.action === 'apply-route-fact-revision' || body.action === 'reject-route-fact-revision') {
         if (body.action === 'save-route-fact') {
           let fields: unknown = null;
           try { fields = JSON.parse(body.fields || 'null'); } catch { fields = null; }
           if (!body.route_id || !body.category_slug || !body.title?.trim() || !fields || typeof fields !== 'object' || Array.isArray(fields)) return json({ error: 'route_fact_route_category_title_fields_required' }, 400);
+          const category = await service.from('route_fact_categories').select('field_schema').eq('slug', body.category_slug).maybeSingle();
+          if (category.error) throw category.error;
+          if (!category.data) return json({ error: 'route_fact_category_not_found' }, 404);
+          const fieldError = validateRouteFactFields(category.data.field_schema, fields as Record<string, unknown>);
+          if (fieldError) return json({ error: fieldError }, 400);
           const values = { route_id: body.route_id, category_slug: body.category_slug, title: body.title.trim(), fields, source_url: body.source_url || null, status: ['confirmed', 'suggested', 'archived'].includes(body.status || '') ? body.status : 'confirmed', review_due_at: body.review_due_at ? new Date(body.review_due_at).toISOString() : null };
           const result = body.id
             ? await service.from('route_fact_entries').update({ ...values, updated_by: auth.user.id }).eq('id', body.id).select('id').maybeSingle()
@@ -158,11 +197,57 @@ Deno.serve(async (req) => {
           if (body.id && !result.data) return json({ error: 'route_fact_not_found' }, 404);
           body.id = result.data?.id || body.id;
         } else if (body.action === 'confirm-route-fact') {
+          const current = await service.from('route_fact_entries').select('target_entry_id').eq('id', body.id).maybeSingle();
+          if (current.error) throw current.error;
+          if (!current.data) return json({ error: 'route_fact_not_found' }, 404);
+          // A revision proposal is not a new fact. Confirming one as if it were
+          // would create the second, contradicting row that this flow exists to
+          // prevent; it has to go through the review dialog.
+          if (current.data.target_entry_id) return json({ error: 'route_fact_revision_requires_review' }, 409);
           const updated = await service.from('route_fact_entries')
             .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), review_due_at: null, updated_by: auth.user.id })
             .eq('id', body.id).select('id').maybeSingle();
           if (updated.error) throw updated.error;
           if (!updated.data) return json({ error: 'route_fact_not_found' }, 404);
+        } else if (body.action === 'review-route-fact') {
+          // "I checked, it is still correct": moves the review clock without
+          // touching the fact. Confirmed rows only, because reviewing a draft
+          // would otherwise confirm it through a side door. A blank due date is
+          // handed to the trigger, which derives the next one from reviewed_at.
+          const current = await service.from('route_fact_entries').select('status').eq('id', body.id).maybeSingle();
+          if (current.error) throw current.error;
+          if (!current.data) return json({ error: 'route_fact_not_found' }, 404);
+          if (current.data.status !== 'confirmed') return json({ error: 'route_fact_not_confirmed' }, 409);
+          const updated = await service.from('route_fact_entries')
+            .update({ reviewed_at: new Date().toISOString(), review_due_at: null, updated_by: auth.user.id })
+            .eq('id', body.id).select('id').maybeSingle();
+          if (updated.error) throw updated.error;
+          if (!updated.data) return json({ error: 'route_fact_not_found' }, 404);
+        } else if (body.action === 'apply-route-fact-revision' || body.action === 'reject-route-fact-revision') {
+          // accepted_fields arrives JSON-encoded for the same reason fields
+          // does: the mutation body is a flat string map.
+          let accepted: string[] | null = null;
+          if (body.action === 'apply-route-fact-revision' && typeof body.accepted_fields === 'string' && body.accepted_fields.trim()) {
+            let parsed: unknown = null;
+            try { parsed = JSON.parse(body.accepted_fields); } catch { return json({ error: 'route_fact_accepted_fields_invalid' }, 400); }
+            if (!Array.isArray(parsed) || parsed.length > 32
+              || parsed.some(key => typeof key !== 'string' || !key.trim() || key.length > 64)) {
+              return json({ error: 'route_fact_accepted_fields_invalid' }, 400);
+            }
+            accepted = parsed as string[];
+          }
+          // The actor has to be passed in: admin-api writes through the service
+          // role, where auth.uid() is null inside the definer functions.
+          const call = body.action === 'apply-route-fact-revision'
+            ? await service.rpc('apply_route_fact_revision', { p_suggestion_id: body.id, p_accepted_fields: accepted, p_actor: auth.user.id, p_note: body.note || null })
+            : await service.rpc('reject_route_fact_revision', { p_suggestion_id: body.id, p_actor: auth.user.id, p_note: body.note || null });
+          if (call.error) {
+            const mapped = routeFactRevisionError(call.error.message || '');
+            return json({ error: mapped.error }, mapped.status);
+          }
+          // Deliberately no early return: falling through keeps this action in
+          // admin_audit_logs like every other write.
+          revisionResult = call.data ?? null;
         } else {
           const updated = await service.from('route_fact_entries')
             .update({ status: 'archived', updated_by: auth.user.id })
@@ -175,7 +260,7 @@ Deno.serve(async (req) => {
       }
       const audit = await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: body.action, resource_type: resource, resource_id: body.id, metadata: { role: body.role || null } });
       if (audit.error) throw audit.error;
-      return json({ ok: true });
+      return json({ ok: true, data: revisionResult });
     }
     if (resource === 'overview') {
       const [profiles, journeys, gearItems, recent] = await Promise.all([
@@ -199,8 +284,20 @@ Deno.serve(async (req) => {
     }
     if (resource === 'routeFacts') {
       const result = await service.from('route_fact_entries')
-        .select('id,route_id,category_slug,title,fields,source_url,status,origin,confirmed_at,review_due_at,created_at,updated_at,created_by,updated_by,route:routes(name),category:route_fact_categories(name)')
+        .select('id,route_id,category_slug,title,fields,source_url,status,origin,target_entry_id,resolution,resolved_at,confirmed_at,reviewed_at,review_due_at,created_at,updated_at,created_by,updated_by,route:routes(name),category:route_fact_categories(name)')
         .order('updated_at', { ascending: false }).limit(1000);
+      if (result.error) throw result.error;
+      await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
+      return json({ data: result.data || [] });
+    }
+    // Change history for 线路资料. Read whole and filtered by entry in the
+    // console: the volume is small, and adminApi's url builder takes no query
+    // parameters, so adding a filter would mean widening that helper for one
+    // caller.
+    if (resource === 'routeFactRevisions') {
+      const result = await service.from('route_fact_revisions')
+        .select('id,entry_id,revision,action,changed_fields,fields_before,fields_after,source_url,source_entry_id,note,applied_at,applied_by,applied_by_name')
+        .order('applied_at', { ascending: false }).limit(500);
       if (result.error) throw result.error;
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
       return json({ data: result.data || [] });

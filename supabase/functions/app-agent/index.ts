@@ -8,6 +8,7 @@ import { bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
 import type { ModelMetric } from './model-metrics.ts';
 import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentModelMetric, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
+import { factSourceChips, routeFactSourcesFromArtifact, type RouteFactSource } from './route-fact-sources.ts';
 import { loadSavedPlanPreview, previewJourneyId } from './plan-preview.ts';
 import { normalizePlanningFollowUps, planningFollowUpReplies } from './planning-follow-ups.ts';
 import { conversationAttachments } from './conversation-attachments.ts';
@@ -307,14 +308,31 @@ function activityOutput(call: any): unknown {
   return undefined;
 }
 
+// The route facts this run planned with, as recorded on its research stage row.
+// Every failure returns no facts rather than failing the run: the UI is being
+// assembled here, and a missing citation is not worth losing the message over.
+async function loadRunFactSources(client: any, runId: string): Promise<RouteFactSource[]> {
+  try {
+    const row = await client.from('agent_stages')
+      .select('route_facts').eq('run_id', runId).eq('stage', 'research')
+      .order('attempt', { ascending: false }).limit(1);
+    if (row.error) return [];
+    const latest = (row.data || [])[0] as { route_facts?: unknown } | undefined;
+    return routeFactSourcesFromArtifact(latest?.route_facts);
+  } catch {
+    return [];
+  }
+}
+
 async function messageUiForRun(client: any, runId: string, quickReplies: AgentQuickReply[], offerJourneyExtras = false, locale?: 'zh' | 'en', currentJourneyId?: string | null): Promise<AgentMessageUi> {
-  const [calls, metricsResult, timingResult] = await Promise.all([
+  const [calls, metricsResult, timingResult, factResult] = await Promise.all([
     client.from('agent_tool_calls')
       .select('tool_name,arguments,output,status,undo_payload,undone_at,created_at,updated_at')
       .eq('run_id', runId)
       .order('created_at'),
     client.from('agent_model_metrics').select('stage,duration_ms,success').eq('run_id', runId).order('created_at'),
     client.from('agent_runs').select('created_at').eq('id', runId).maybeSingle(),
+    loadRunFactSources(client, runId),
   ]);
   if (calls.error) throw calls.error;
   if (metricsResult.error) throw metricsResult.error;
@@ -368,9 +386,15 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
     .map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
   const modelMetrics: AgentModelMetric[] = (metricsResult.data || []).map(metricRow);
 
+  // Facts first, and only then the web: a maintained entry is the one source
+  // here a human confirmed. Every fact is cited — only the web links are capped
+  // — and a fact's own source link seeds the URL set, so a page that is both a
+  // library source and a search result is cited once, as the verified entry.
+  const sources = factSourceChips(factResult, [...sourcesByUrl.values()], { webLimit: 8 });
+
   return {
     quickReplies: quickReplies.length ? quickReplies : undefined,
-    sources: sourcesByUrl.size ? [...sourcesByUrl.values()].slice(0, 8) : undefined,
+    sources: sources.length ? sources : undefined,
     planPreview,
     activities: activities.length ? activities : undefined,
     modelMetrics: modelMetrics.length ? modelMetrics : undefined,

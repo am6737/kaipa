@@ -1,8 +1,8 @@
 import { z } from 'npm:zod@4.1.12';
 
 export const overnightReviewSchema = z.object({
-  sourceUrl: z.string().url().max(2000).nullable().optional(),
-  campQuote: z.string().trim().min(8).max(1000).nullable().optional().describe('可选的已读取攻略过夜原文；没有攻略证据时省略，仍可保存轨迹候选终点'),
+  sourceUrl: z.string().url().max(2000).nullable().default(null),
+  campQuote: z.string().trim().min(8).max(1000).nullable().default(null).describe('可选的已读取攻略过夜原文；没有攻略证据时省略，仍可保存轨迹候选终点'),
   waterStatus: z.enum(['reported', 'unknown', 'unavailable']).describe('reported 仅表示攻略提及，不代表当前可用或可直接饮用'),
   waterQuote: z.string().trim().max(1000).describe('同一来源的水源原文；unknown 时可为空'),
   waterPlan: z.string().trim().min(10).max(1000).describe('营地无需自带水源。无水或未知时说明上次补水、背水量估算与容器容量、到下次补水前的饮用做饭需求及缺水备选；未知水源不得作为必需补水点'),

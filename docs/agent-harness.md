@@ -80,6 +80,17 @@ receipt replay, version-checked transactions and undo payloads are unchanged.
 `researchBriefSchema`, `planDocumentSchema` and the save order live in
 `plan-document.ts`; a new field cannot be added without deciding how it is saved.
 
+The maintained route-facts library (`线路资料`) is read on the research stage by
+`route-fact-sources.ts` and is system-written: `brief.routeFacts` is overwritten
+by `bindRouteFacts` from what `get_route_facts` returned, so anything the model
+puts there is discarded, and the run's `route_facts` / `route_fact_stats` /
+`route_fact_error` columns on its research row are written by the runner rather
+than planned. Those columns are also what the assistant UI cites verified facts
+from and what `agent_route_fact_stats` measures; a read failure is recorded there
+and logged rather than degrading the stage, because the stage's own work is
+complete. Facts are read before the cross-run reuse decision so a newly confirmed
+entry is never hidden behind a reused brief.
+
 Two properties are load-bearing and must not be "simplified":
 
 - The planner emits one document and stops. Repair is exactly one extra round,

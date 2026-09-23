@@ -19,6 +19,10 @@ import { reviewTransport } from './transport-tool.ts';
 import { overnightReviewSchema } from './hiking-boundaries.ts';
 import type { TaskDecision, TaskState } from './task.ts';
 import type { AgentContext } from './types.ts';
+import {
+  bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factsForRoute, isStaleReview, loadRouteFacts, routeFactSourcesFromArtifact, transportLegNote,
+  type RouteFactRow, type RouteFactSource, type RouteFactStats,
+} from './route-fact-sources.ts';
 
 export type StageName = 'interpret' | 'research' | 'transport' | 'plan' | 'save' | 'packing' | 'respond';
 
@@ -347,48 +351,62 @@ export type RouteEvidence = {
   error: string | null;
 };
 
-export type RouteFactRow = {
-  route_id: string;
-  route_name: string;
-  category: { slug: string; name: string };
-  title: string;
-  fields: Record<string, unknown>;
-  source_url: string | null;
-  confirmed_at: string | null;
-  review_due_at: string | null;
-};
+// The route-facts reading, matching and prompt formatting live in their own
+// module so they can be tested without the pipeline around them.
+export type { RouteFactRow } from './route-fact-sources.ts';
 
-// The RPC may not exist on the database yet (or may error at runtime); fact
-// reading must never fail a planning run, so every miss degrades to "no facts".
-async function loadRouteFacts(pipeline: PipelineDeps, names: string[]): Promise<RouteFactRow[]> {
-  if (!names.length) return [];
+// The runner has already written this run's research row as 'running', and
+// writeStage's later upsert only sets the columns it names, so these survive it.
+// Recorded on the stage row rather than in the brief's artifact so the counters
+// are queryable (agent_route_fact_stats) and a synthesis failure still leaves
+// this run's fact usage on the record. Telemetry must never fail the stage.
+async function writeRouteFacts(
+  pipeline: PipelineDeps,
+  args: { sources: RouteFactSource[]; stats: RouteFactStats; error: string | null },
+): Promise<void> {
+  if (args.error) console.error('[AppAgent] route facts unavailable, planning without them:', args.error);
   try {
-    const { data, error } = await pipeline.client.rpc('get_route_facts', { p_route_names: names });
-    if (error) return [];
-    return (Array.isArray(data) ? data : []) as RouteFactRow[];
-  } catch {
-    return [];
+    const { error } = await pipeline.admin.from('agent_stages')
+      .update({
+        route_facts: args.sources,
+        route_fact_stats: args.stats,
+        route_fact_error: args.error,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('run_id', pipeline.runId).eq('stage', 'research').eq('attempt', pipeline.attempt);
+    if (error) console.warn('[AppAgent] route fact telemetry not recorded', (error.message || '').slice(0, 200));
+  } catch (error) {
+    console.warn('[AppAgent] route fact telemetry failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
   }
-}
-
-function factsForRoute(rows: RouteFactRow[], name: string): RouteFactRow[] {
-  return rows.filter(row => typeof row.route_name === 'string' && (row.route_name.includes(name) || name.includes(row.route_name)));
 }
 
 // Drafts the research synthesis found in guide text but the library lacks.
 // Best-effort: a write failure (e.g. RPC not deployed yet) must not fail the
 // research stage, the human confirmation loop happens in admin later.
-async function recordRouteFactSuggestions(pipeline: PipelineDeps, brief: ResearchBrief): Promise<void> {
+async function recordRouteFactSuggestions(pipeline: PipelineDeps, brief: ResearchBrief, rows: RouteFactRow[], stats: RouteFactStats): Promise<void> {
+  const knownIds = new Set(rows.map(row => row.id));
   for (const suggestion of brief.factSuggestions || []) {
+    // A target the model invented, or that belongs to a route this run did not
+    // load, would be rejected by the RPC and take the whole suggestion with it.
+    // Drop it to a plain draft instead, and count it: a non-zero count means the
+    // prompt is offering ids the model cannot legitimately reference.
+    let targetEntryId = suggestion.targetEntryId ?? null;
+    if (targetEntryId && !knownIds.has(targetEntryId)) {
+      stats.unknown_targets += 1;
+      console.warn('[AppAgent] route fact suggestion named an entry that was not injected', targetEntryId);
+      targetEntryId = null;
+    }
     try {
-      const { error } = await pipeline.client.rpc('record_route_fact_suggestion', {
+      const { error } = await pipeline.admin.rpc('record_route_fact_suggestion', {
         p_route_id: suggestion.routeId,
         p_category_slug: suggestion.category,
         p_title: suggestion.title,
-        p_fields: suggestion.fields,
+        p_fields: factFieldsRecord(suggestion.fields),
         p_source_url: suggestion.sourceUrl,
+        p_target_entry_id: targetEntryId,
       });
       if (error) console.warn('[AppAgent] route fact suggestion rejected', suggestion.routeId, suggestion.category, (error.message || '').slice(0, 200));
+      else stats.suggestions_written += 1;
     } catch (error) {
       console.warn('[AppAgent] route fact suggestion failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
     }
@@ -413,19 +431,21 @@ export function isResolvedRoute(route: ResearchBrief['routes'][number] | null | 
 // re-searching: route facts (GPX-derived days/distance) do not change between
 // a first plan and its replan. Only resolved route entries carry over; a
 // partial match becomes evidence the synthesis model may reuse per route.
-async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise<ResearchBrief | null> {
+async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise<{ brief: ResearchBrief; routeFacts: RouteFactSource[] } | null> {
   if (!names.length) return null;
   const rows = await pipeline.admin.from('agent_stages')
-    .select('artifact,updated_at').eq('stage', 'research').eq('status', 'completed').eq('user_id', pipeline.userId)
+    .select('artifact,updated_at,route_facts').eq('stage', 'research').eq('status', 'completed').eq('user_id', pipeline.userId)
     .order('updated_at', { ascending: false }).limit(8);
   if (rows.error) throw rows.error;
   const wanted = normalizedDestination(pipeline.task.decision.destination);
-  for (const row of (rows.data || []) as Array<{ artifact: unknown; updated_at: string }>) {
+  for (const row of (rows.data || []) as Array<{ artifact: unknown; updated_at: string; route_facts: unknown }>) {
     const parsed = researchBriefSchema.safeParse(row.artifact);
     if (!parsed.success || !parsed.data.routes.length) continue;
     if (normalizedDestination(parsed.data.destination) !== wanted) continue;
     if (Date.parse(row.updated_at) < Date.now() - RESEARCH_REUSE_MAX_AGE_MS) continue;
-    return parsed.data;
+    // The facts travel with the brief they were recorded for, so a replanned
+    // destination still cites the library entries the first plan rested on.
+    return { brief: parsed.data, routeFacts: routeFactSourcesFromArtifact(row.route_facts) };
   }
   return null;
 }
@@ -529,7 +549,7 @@ async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal,
   try {
     for (const name of names) {
       const catalog = catalogFacts.find(route => route.matchedName === name) || null;
-      const facts = factsForRoute(factRows, name);
+      const facts = factsForRoute(factRows, name, catalog?.routeId);
       const carried = previous?.routes.find(route => route.name === name) || null;
       if (isResolvedRoute(carried)) {
         evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, facts, collected: ['上一轮已核验，本轮复用'], error: null });
@@ -634,11 +654,9 @@ function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFac
     }
     parts.push(`采集情况：${item.collected.join('；') || '未采集'}`);
     if (item.error) parts.push(`采集错误：${item.error}`);
-    if (item.facts.length) {
-      parts.push(`已核实线路资料（人工维护，优先于攻略正文；冲突以此为准，来源日期见每条 confirmed_at）：${JSON.stringify(item.facts.map(fact => ({
-        类目: fact.category.name, 标题: fact.title, ...fact.fields, confirmed_at: fact.confirmed_at,
-      })))}`);
-    }
+    // The entry id has to be visible to the model: it is what a revision
+    // suggestion targets. Freshness decides which block a fact lands in.
+    for (const block of factPromptBlock(item.facts)) parts.push(block);
     for (const result of item.results) {
       const title = typeof result.title === 'string' ? result.title : '';
       const snippet = typeof result.snippet === 'string' ? result.snippet.slice(0, 450) : '';
@@ -651,7 +669,7 @@ function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFac
   });
   lines.push(`系统检索证据（按路线整理；未列出的字段没有证据，写入 unresolved，不要编造）：\n${evidenceLines.join('\n\n')}`);
   lines.push('');
-  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief。每个用户路线必须单独对应 routes 条目；已有路线目录事实优先保留，缺少道路接驳信息时写入 unresolved。若攻略正文给出了“已核实线路资料”中没有的具体价格、营地、住宿或班次，按 factSuggestions 提交草稿；不得把线路资料已有内容重复提交。');
+  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief。每个用户路线必须单独对应 routes 条目；已有路线目录事实优先保留，缺少道路接驳信息时写入 unresolved。routeFacts 由系统填充，必须输出空数组。若攻略正文给出了“已核实线路资料”中没有的具体价格、营地、住宿或班次，按 factSuggestions 提交草稿；不得把线路资料已有内容重复提交。若攻略与某条已注入的线路资料冲突或更新了它，把该条的 id 填进该条 factSuggestions 的 targetEntryId，并且只给出发生变化的字段，不要重复未变化的字段。');
   return lines.join('\n');
 }
 
@@ -683,7 +701,10 @@ export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEviden
     const summaries: string[] = [];
     for (const fact of item.facts) {
       if (facts.length >= 30) break;
-      facts.push({ fact: `[线路资料·已核实] ${item.name} ${fact.category.name}·${fact.title} ${JSON.stringify(fact.fields)}`.slice(0, 500), sourceUrl: fact.source_url });
+      // The deterministic brief is what replanning reads, so the review state
+      // has to survive in its text: an expired fact must not read as verified.
+      const marker = isStaleReview(fact.review_due_at) ? '[线路资料·已过期]' : '[线路资料·已核实]';
+      facts.push({ fact: `${marker} ${item.name} ${fact.category.name}·${fact.title} ${JSON.stringify(fact.fields)}`.slice(0, 500), sourceUrl: fact.source_url });
     }
     for (const result of item.results) {
       const title = typeof result.title === 'string' ? result.title : '';
@@ -733,11 +754,25 @@ export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEviden
 async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transport: boolean): Promise<ResearchBrief> {
   const names = destinationNames(pipeline.task.decision.destination);
   const catalogFacts = await loadCatalogFacts(pipeline, names);
+  const stats = emptyRouteFactStats();
+  // Facts are read before the reuse decision rather than after it: a fact that
+  // was confirmed since the previous run has to be able to reach this one. Left
+  // to the reuse path alone, a newly maintained fact would stay invisible for up
+  // to RESEARCH_REUSE_MAX_AGE_MS.
+  const loaded = await loadRouteFacts(pipeline.admin, names);
+  stats.read_failed = loaded.error !== null;
   const previous = await findRecentBrief(pipeline, names);
-  if (previous && names.every(name => isResolvedRoute(previous.routes.find(route => route.name === name)))) {
-    // Same destination recently researched with every requested route
-    // resolved: route facts have not changed, so reuse the brief wholesale.
-    return bindCatalogFacts(previous, catalogFacts);
+  const knownIds = new Set(previous?.routeFacts.map(fact => fact.entryId) || []);
+  const hasNewFacts = loaded.rows.some(row => !knownIds.has(row.id));
+  if (previous && !hasNewFacts && names.every(name => isResolvedRoute(previous.brief.routes.find(route => route.name === name)))) {
+    // Same destination, every requested route resolved, and nothing new in the
+    // library: the brief is reused wholesale. The previous run's sources come
+    // with it, so a replan still cites what its brief was built from.
+    stats.reused = true;
+    stats.loaded = loaded.rows.length;
+    stats.injected = previous.routeFacts.length;
+    await writeRouteFacts(pipeline, { sources: previous.routeFacts, stats, error: loaded.error });
+    return { ...bindCatalogFacts(previous.brief, catalogFacts), routeFacts: previous.routeFacts };
   }
   // When every requested route already has a recorded track with named points,
   // the deterministic brief carries everything planning uses: route ids, GPX
@@ -750,13 +785,21 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   // Guide reading stays: its bodies are what keeps a route entry "resolved" for
   // cross-run reuse, and they are cache-backed. Only the synthesis call is
   // skipped, because it rewrites evidence the plan already has.
-  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous, await loadRouteFacts(pipeline, names));
+  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous?.brief ?? null, loaded.rows);
   const deterministic = bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
-  if (covered) return deterministic;
+  // Recorded before the synthesis call so a synthesis failure or a budget cut
+  // still leaves this run's fact usage on the record.
+  const recorded = bindRouteFacts(deterministic, loaded.rows, stats);
+  await writeRouteFacts(pipeline, { sources: recorded.routeFacts, stats, error: loaded.error });
+  if (covered) return recorded;
   try {
-    const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous)), catalogFacts);
-    await recordRouteFactSuggestions(pipeline, brief);
-    return brief;
+    const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous?.brief ?? null)), catalogFacts);
+    const bound = bindRouteFacts(brief, loaded.rows, stats);
+    await recordRouteFactSuggestions(pipeline, bound, loaded.rows, stats);
+    // Written twice on purpose: the first write survives a synthesis failure or
+    // a budget cut, this one carries the counters that only exist afterwards.
+    await writeRouteFacts(pipeline, { sources: bound.routeFacts, stats, error: loaded.error });
+    return bound;
   } catch (error) {
     // Search providers and guide readers are external dependencies, and the
     // synthesis call may miss the stage budget. The deterministic brief below
@@ -764,7 +807,7 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
     // transport and planning can still explain the gaps instead of retrying
     // the whole stage for minutes.
     console.warn('[AppAgent] research synthesis failed, falling back to the deterministic brief', (error instanceof Error ? error.message : String(error)).slice(0, 600));
-    return deterministic;
+    return recorded;
   }
 }
 async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null): Promise<TransportPlan> {
@@ -776,17 +819,21 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
   void signal;
   const names = (pipeline.task.decision.destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean);
   const routes = names.map((name) => research?.routes.find((route) => route.name === name)).filter(Boolean) as ResearchBrief['routes'];
-  const factRows = await loadRouteFacts(pipeline, names);
+  // A failure here is logged but deliberately not counted in the research
+  // stage's stats: it is a different stage with a different artifact, and the
+  // research row is what agent_route_fact_stats reads. Reporting it there would
+  // attribute one stage's read to another's fact usage.
+  const factLoad = await loadRouteFacts(pipeline.admin, names);
+  if (factLoad.error) console.error('[AppAgent] transport route facts unavailable, planning legs without them:', factLoad.error);
+  const factRows = factLoad.rows;
   const segments = names.slice(1).map((name, index) => {
-    const legFacts = factsForRoute(factRows, name)
+    const legFacts = factsForRoute(factRows, name, routes[index]?.routeId)
       .filter(fact => fact.category.slug === 'access_transport' || fact.category.slug === 'shuttle_cost');
     return {
       fromRoute: names[index], toRoute: name, from: names[index], to: name,
       mode: 'unknown', durationMinutes: null, overnightRequired: false, verified: false,
       sourceUrl: legFacts[0]?.source_url || null,
-      note: legFacts.length
-        ? `已核实线路资料（人工维护，接驳方式与价格以此为准；时间仍需按当地班次核对）：${legFacts.map(fact => `${fact.category.name}·${fact.title}·${JSON.stringify(fact.fields)}`).join('；').slice(0, 600)}`
-        : '路线起终点已从 GPX 读取，道路接驳时间待核实',
+      note: transportLegNote(legFacts, '路线起终点已从 GPX 读取，道路接驳时间待核实'),
       fromLocation: routes[index]?.end,
       toLocation: routes[index + 1]?.start,
     };
@@ -934,8 +981,13 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
       }
     }
   }
-  const unlocatableEndpoints = normalizeOptionalPlanFields(value);
+  // Parse first, then strip: the schemas give every field an explicit default so
+  // the provider's strict validation accepts them, which means a null-valued key
+  // comes back as an explicit null. The persisted document keeps the opposite
+  // convention — an absent key, not a null one — so the stripping has to run
+  // after parsing, or parsing simply puts the keys back.
   const plan = planDocumentSchema.parse(value);
+  const unlocatableEndpoints = normalizeOptionalPlanFields(plan);
   // One journey binds one track. A day on any other route has no position on
   // it, and sending that day's index anyway produced a decreasing sequence
   // ("endpoints must increase along the itinerary"), which failed the whole

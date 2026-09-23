@@ -21,17 +21,17 @@ export const taskDecisionSchema = z.object({
   // abort an otherwise valid planning request.
   objective: z.string().max(1000).default(''),
   mode: z.enum(['discuss', 'execute', 'stop']),
-  domain: z.enum(taskDomains).nullable().optional().describe('Task domain: hiking for a full hiking itinerary/replan, transport when the deliverable is a travel connection chain, packing for a checklist-only task, routes for exploration/comparison, general otherwise.'),
-  domainQuote: z.string().max(1000).nullable().optional().describe('Exact span of the latest user message stating chain-level scope, only when domain is transport; empty otherwise.'),
+  domain: z.enum(taskDomains).nullable().default(null).describe('Task domain: hiking for a full hiking itinerary/replan, transport when the deliverable is a travel connection chain, packing for a checklist-only task, routes for exploration/comparison, general otherwise.'),
+  domainQuote: z.string().max(1000).nullable().default(null).describe('Exact span of the latest user message stating chain-level scope, only when domain is transport; empty otherwise.'),
   continuation: z.boolean().describe('True only when answering the previous pending question about the same unfinished task.'),
   authorizationQuote: z.string().max(1000).describe('Exact quote from the latest user message authorizing action, or empty for discussion/clarification continuation.'),
   // Set by constrainTaskDecision, never by the interpreter: the request looked
   // like work, but its authorization could not be matched to the user's own
   // words. Silent discussion here means an explicit request saves nothing.
-  authorizationUnconfirmed: z.boolean().nullable().optional().describe('由服务端设置：本轮请求看起来是要执行，但授权原话无法在用户消息中逐字核对，只能先请用户确认，不要执行。'),
+  authorizationUnconfirmed: z.boolean().nullable().default(null).describe('由服务端设置：本轮请求看起来是要执行，但授权原话无法在用户消息中逐字核对，只能先请用户确认，不要执行。'),
   operations: z.array(z.enum(writeOperations)).max(writeOperations.length).describe('All writes the user authorizes for this task, including explicitly requested later steps awaiting clarification. Missing arguments delay execution, not authorization.'),
   requiredOperations: z.array(z.enum(writeOperations)).max(writeOperations.length).describe('Writes required to fulfill the entire request. Daily GPX endpoints are REQUIRED for full track hiking plans, even when duration is undecided; exclude only unrelated optional housekeeping.'),
-  fullHikingPlan: z.boolean().nullable().optional().describe('True for creating/replanning a complete hiking itinerary, including when days are undecided. False for transport supplements, packing-only, single-item edits and discussion.'),
+  fullHikingPlan: z.boolean().nullable().default(null).describe('True for creating/replanning a complete hiking itinerary, including when days are undecided. False for transport supplements, packing-only, single-item edits and discussion.'),
   destination: z.string().max(200).nullable(),
   plannedDate: z.string().nullable().describe('YYYY-MM-DD resolved using request-local time; null if unknown or explicitly undecided.'),
   dateUndecided: z.boolean().describe('Only true when the user explicitly allows an undated trip.'),
@@ -41,7 +41,7 @@ export const taskDecisionSchema = z.object({
   derivedDays: z.number().int().min(1).max(30).nullable().default(null),
   trackAttachmentName: z.string().max(160).nullable().describe('Exact available track filename selected for this task; null to not use a track.'),
   packingMode: z.enum(['none', 'incremental', 'full']),
-  activeHoursPerDay: z.number().min(0.25).max(24).nullish().describe('Explicit user-stated active hiking hours per day, not travel or hotel time. For a one-day hike, its stated duration. Null when unknown; never infer from dates or generic preferences.'),
+  activeHoursPerDay: z.number().min(0.25).max(24).nullable().default(null).describe('Explicit user-stated active hiking hours per day, not travel or hotel time. For a one-day hike, its stated duration. Null when unknown; never infer from dates or generic preferences.'),
   constraints: z.array(z.object({ value: z.string().max(500), evidence: z.string().max(500) })).max(24),
 });
 export type TaskDecision = z.infer<typeof taskDecisionSchema>;

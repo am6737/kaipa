@@ -1856,6 +1856,8 @@ export const zh = {
       },
     },
     sources: "参考来源",
+    sourcesVerified: "已核实",
+    sourcesStale: "已过期待复核",
     viewJourney: "查看旅程",
     viewGear: "查看装备",
     viewChecklist: "查看清单",

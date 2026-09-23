@@ -175,8 +175,27 @@ Deno.test('confirmed route facts land in the deterministic brief', () => {
   const brief = deterministicBrief(pipelineStub('贡嘎'), [
     evidenceOf({
       name: '贡嘎', catalog: catalogRoute('贡嘎', 4),
-      facts: [{ route_id: 'route-贡嘎', route_name: '贡嘎', category: { slug: 'campsite', name: '营地' }, title: '雅哈垭口营地', fields: { 水源: '有' }, source_url: 'https://example.com/camp', confirmed_at: '2026-09-01', review_due_at: null }],
+      facts: [{ id: 'fact-camp', route_id: 'route-贡嘎', route_name: '贡嘎', category: { slug: 'campsite', name: '营地' }, title: '雅哈垭口营地', fields: { 水源: '有' }, source_url: 'https://example.com/camp', confirmed_at: '2026-09-01', reviewed_at: '2026-09-01', review_due_at: null }],
     }),
   ]);
   assert(brief.facts.some(fact => fact.fact.includes('[线路资料·已核实]') && fact.fact.includes('雅哈垭口营地') && fact.sourceUrl === 'https://example.com/camp'), 'confirmed facts must carry into brief.facts');
+});
+
+Deno.test('an expired route fact is marked as expired in the deterministic brief', () => {
+  // The prefix is what replanning reads back out of the brief, so an expired
+  // fact must not be handed on wearing the verified marker.
+  const brief = deterministicBrief(pipelineStub('贡嘎'), [
+    evidenceOf({
+      name: '贡嘎', catalog: catalogRoute('贡嘎', 4),
+      facts: [
+        { id: 'fact-fresh', route_id: 'route-贡嘎', route_name: '贡嘎', category: { slug: 'campsite', name: '营地' }, title: '雅哈垭口营地', fields: { 水源: '有' }, source_url: null, confirmed_at: '2026-09-01', reviewed_at: '2026-09-01', review_due_at: '2099-01-01' },
+        { id: 'fact-stale', route_id: 'route-贡嘎', route_name: '贡嘎', category: { slug: 'campsite', name: '营地' }, title: '上日乌且营地', fields: { 水源: '需背水' }, source_url: null, confirmed_at: '2020-01-01', reviewed_at: '2020-01-01', review_due_at: '2020-06-01' },
+      ],
+    }),
+  ]);
+  const fresh = brief.facts.find(fact => fact.fact.includes('雅哈垭口营地'));
+  const stale = brief.facts.find(fact => fact.fact.includes('上日乌且营地'));
+  assert(fresh?.fact.includes('[线路资料·已核实]'), 'a fact inside its review window keeps the verified marker');
+  assert(stale?.fact.includes('[线路资料·已过期]'), 'a fact past its review date must be marked expired');
+  assert(!stale?.fact.includes('[线路资料·已核实]'), 'an expired fact must not also read as verified');
 });

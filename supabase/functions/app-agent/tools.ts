@@ -496,22 +496,22 @@ export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
   routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；交通项留空'),
-  timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional().describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
-  timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional().describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
+  timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
+  timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
   kind: z.enum(['activity', 'transport', 'stay', 'custom']).default('activity'),
   transport: z.object({
     mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
-    from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().optional(), latitude: z.number().min(-90).max(90).nullable().optional(), address: z.string().max(300).nullable().optional() }),
-    to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().optional(), latitude: z.number().min(-90).max(90).nullable().optional(), address: z.string().max(300).nullable().optional() }),
-    distanceMeters: z.number().nonnegative().max(2_000_000).nullable().optional(),
-    durationMinutes: z.number().int().nonnegative().max(100_000).nullable().optional(),
+    from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
+    to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
+    distanceMeters: z.number().nonnegative().max(2_000_000).nullable().default(null),
+    durationMinutes: z.number().int().nonnegative().max(100_000).nullable().default(null),
     // Object points keep the generated JSON Schema compatible with providers
     // that reject tuple/array item schemas in structured output.
-    geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).max(20_000).nullable().optional(),
+    geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).max(20_000).nullable().default(null),
     status: z.enum(['verified', 'estimated', 'unknown']).default('unknown'),
-    source: z.string().max(500).nullable().optional(),
-    note: z.string().max(500).nullable().optional(),
-  }).nullable().optional().describe('kind=transport 时填写；普通行程项省略'),
+    source: z.string().max(500).nullable().default(null),
+    note: z.string().max(500).nullable().default(null),
+  }).nullable().default(null).describe('kind=transport 时填写；普通行程项省略'),
 });
 
 
@@ -541,14 +541,14 @@ const packingDeletionTarget = z.object({
 
 export const itineraryGroupEndpoint = z.object({
   day: z.string().min(1).max(40).describe('要设置终点的行程组，标准日序使用 Day 1、Day 2'),
-  waypointIndex: z.number().int().min(0).nullable().optional().describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
-  trackFinish: z.boolean().nullable().optional().describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
-  endDistanceKm: z.number().positive().max(10000).nullable().optional().describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
-  locationName: z.string().min(1).max(120).nullable().optional().describe('轨迹标注点名称；没有可靠名称时省略'),
-  estimateBasis: z.string().trim().min(1).max(80).nullable().optional().describe('已停用，必须省略；暂估分段写入会被拒绝'),
-  userDistanceQuote: z.string().trim().min(1).max(500).nullable().optional().describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
-  overnightReview: overnightReviewSchema.nullable().optional().describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
-  routeId: z.string().max(100).nullable().optional().describe('该终点所属的目录路线 ID。多路线出行中每天属于不同路线，waypointIndex 与累计里程按该路线自己的轨迹解析；不填表示用当前旅程绑定的轨迹，纯接驳或住宿日不填'),
+  waypointIndex: z.number().int().min(0).nullable().default(null).describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
+  trackFinish: z.boolean().nullable().default(null).describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
+  endDistanceKm: z.number().positive().max(10000).nullable().default(null).describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
+  locationName: z.string().min(1).max(120).nullable().default(null).describe('轨迹标注点名称；没有可靠名称时省略'),
+  estimateBasis: z.string().trim().min(1).max(80).nullable().default(null).describe('已停用，必须省略；暂估分段写入会被拒绝'),
+  userDistanceQuote: z.string().trim().min(1).max(500).nullable().default(null).describe('仅当用户本轮明确指定某日累计公里数时，引用包含对应 km/公里数的用户原话；不是 AI 估算或泛泛的规划请求'),
+  overnightReview: overnightReviewSchema.nullable().default(null).describe('可选过夜评估；无攻略证据也可保存真实轨迹候选终点，不代表已确认适合扎营或有水'),
+  routeId: z.string().max(100).nullable().default(null).describe('该终点所属的目录路线 ID。多路线出行中每天属于不同路线，waypointIndex 与累计里程按该路线自己的轨迹解析；不填表示用当前旅程绑定的轨迹，纯接驳或住宿日不填'),
 });
 
 async function assertDeleteContext(client: Client, context: AgentContext, journeyId: string) {
@@ -578,7 +578,7 @@ export const getAppContext = tool({
 export const searchJourneys = tool({
   name: 'search_journeys',
   description: 'Find a different existing journey by name or region when no current journey is open. Never use this to resolve the current journey from its display title; use get_app_context instead.',
-  parameters: z.object({ query: z.string().max(80).nullable().optional() }),
+  parameters: z.object({ query: z.string().max(80).nullable().default(null) }),
   execute: async ({ query }, runContext) => mutate('search_journeys', { query }, runContext as RunContext, async (client) => {
     const columns = 'id,name,region,planned_date,date,days,total_days,dist,asc_,diff,desc';
     if (!query?.trim()) {
@@ -643,7 +643,7 @@ export const searchRoutes = tool({
 export const listGear = tool({
   name: 'list_gear',
   description: 'Read the user\'s gear library and categories. Use before recommending or adding gear.',
-  parameters: z.object({ query: z.string().max(80).nullable().optional() }),
+  parameters: z.object({ query: z.string().max(80).nullable().default(null) }),
   execute: async ({ query }, runContext) => mutate('list_gear', { query }, runContext as RunContext, async (client, context) => readAgentGear(client, context, query ?? undefined)),
 });
 
@@ -673,7 +673,7 @@ export const searchTravelWeb = tool({
   description: 'Search destination guides or transport reference pages. For guides, first verify the destination against journey/track context, then make one discovery search covering the task. Further guide queries reuse that result, including after recovery: read its articles/images, do not rephrase keywords. State unresolved gaps instead of inventing facts. Use purpose=transport only for actual transport evidence; community crawlers are excluded. For dated train/flight schedules, seats and fares use search_transport first. Web pages are not live availability or ticket quotes.',
   parameters: z.object({
     query: z.string().min(2).max(200),
-    purpose: z.enum(['guide', 'transport']).nullable().optional(),
+    purpose: z.enum(['guide', 'transport']).nullable().default(null),
   }),
   execute: async ({ query, purpose }, runContext) => {
     const resolvedPurpose = searchPurpose(query, purpose ?? undefined);
@@ -887,8 +887,8 @@ export const searchTransport = tool({
     destination: z.string().min(1).max(120),
     departureDate: z.string().refine(validIsoDate, 'Use a valid YYYY-MM-DD date'),
     adults: z.number().int().min(1).max(9).describe('Adult count used for pricing; do not treat a quote for one adult as a group total.'),
-    earliestHour: z.number().int().min(0).max(23).nullable().optional().describe('Rail only: earliest departure hour in Asia/Shanghai after allowing hike end, station transfer and boarding buffer. Null means all hours.'),
-    viaStation: z.string().min(1).max(40).nullable().optional().describe('Rail only: exact Chinese interchange arrival station to query two-leg candidates. Null means direct. Resolve a plausible hub from route context; no silent city/station substitution. Partial one-page coverage; empty is not exhaustive.'),
+    earliestHour: z.number().int().min(0).max(23).nullable().default(null).describe('Rail only: earliest departure hour in Asia/Shanghai after allowing hike end, station transfer and boarding buffer. Null means all hours.'),
+    viaStation: z.string().min(1).max(40).nullable().default(null).describe('Rail only: exact Chinese interchange arrival station to query two-leg candidates. Null means direct. Resolve a plausible hub from route context; no silent city/station substitution. Partial one-page coverage; empty is not exhaustive.'),
   }),
   execute: (args, runContext) => mutate('search_transport', args, runContext as RunContext,
     async (client) => {
@@ -915,12 +915,12 @@ export const addGear = tool({
   description: 'Add one confirmed item to the user gear library. Read categories first and use a real categoryId or null.',
   parameters: z.object({
     name: z.string().min(1).max(120),
-    categoryId: z.string().max(100).nullable().optional(),
+    categoryId: z.string().max(100).nullable().default(null),
     weightKg: z.number().min(0).max(100).default(0),
     priceCny: z.number().min(0).max(10000000).default(0),
     quantity: z.number().int().min(1).max(999).default(1),
     status: z.enum(['packed', 'worn', 'consumable', 'optional']).default('packed'),
-    note: z.string().max(500).nullable().optional(),
+    note: z.string().max(500).nullable().default(null),
   }),
   execute: async (args, runContext) => mutate('add_gear', args, runContext as RunContext, async (client, context) => {
     const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: args.categoryId || null, weight: args.weightKg, price: args.priceCny, qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
@@ -934,11 +934,11 @@ export const createJourneyParams = z.object({
   region: z.string().max(120).default(''),
   // Optional fields are nullish, not just optional: models express "absent"
   // as null, and the task decision itself stores null for "no track".
-  routeId: z.string().max(100).nullish(),
-  trackAttachmentName: z.string().max(160).nullish().describe('Name of an uploaded GPX/KML/KMZ attachment to use as this journey track'),
-  plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().describe('出发日期，必须是 YYYY-MM-DD'),
+  routeId: z.string().max(100).nullable().default(null),
+  trackAttachmentName: z.string().max(160).nullable().default(null).describe('Name of an uploaded GPX/KML/KMZ attachment to use as this journey track'),
+  plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null).describe('出发日期，必须是 YYYY-MM-DD'),
   days: z.number().int().min(1).max(30).default(1),
-  description: z.string().max(1000).nullish(),
+  description: z.string().max(1000).nullable().default(null),
 });
 export const runCreateJourney = async (args: z.infer<typeof createJourneyParams>, runContext?: RunContext): Promise<unknown> => mutate('create_journey', args, runContext, async (client, context) => {
     if (context.currentJourneyId) {
@@ -1053,7 +1053,7 @@ export const addItinerary = tool({
 export const updateJourneyScheduleParams = z.object({
   journeyId: z.string().min(1).max(100),
   totalDays: z.number().int().min(1).max(365),
-  plannedDate: z.string().nullable().optional().describe('New journey start date YYYY-MM-DD; omit to preserve it'),
+  plannedDate: z.string().nullable().default(null).describe('New journey start date YYYY-MM-DD; omit to preserve it'),
   dayAssignments: z.array(z.object({
     from: z.string().min(1).max(100).describe('Exact existing day/group name'),
     toDay: z.number().int().min(1).max(365),
@@ -1077,7 +1077,7 @@ export const updateJourneySchedule = tool({
 export const setJourneyMapLocationParams = z.object({
   journeyId: z.string().min(1).max(100),
   query: z.string().min(1).max(160).describe('Place name to geocode, for example 武功山金顶, 桂林老寨山, or 杭州西湖'),
-  region: z.string().min(1).max(120).nullable().optional().describe('Optional display region to save instead of the geocoding result'),
+  region: z.string().min(1).max(120).nullable().default(null).describe('Optional display region to save instead of the geocoding result'),
 });
 export const runSetJourneyMapLocation = async (args: z.infer<typeof setJourneyMapLocationParams>, runContext?: RunContext): Promise<unknown> => mutate('set_journey_map_location', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
@@ -1198,7 +1198,7 @@ export const addPackingItems = tool({
   parameters: z.object({
     journeyId: z.string().min(1).max(100),
     mode: z.enum(['full', 'incremental']).describe('生成或补齐整份清单时使用 full；仅按用户要求增加少量指定物品时使用 incremental'),
-    planProfile: packingPlanProfile.nullable().optional().describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
+    planProfile: packingPlanProfile.nullable().default(null).describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
     items: z.array(packingItem).min(1).max(100),
   }),
   execute: executePackingItems,
@@ -1516,7 +1516,7 @@ export const deletePackingItems = tool({
 export const readConversationHistory = tool({
   name: 'read_conversation_history',
   description: 'Read original archived conversation messages when a compressed memory is ambiguous or the user asks about an earlier decision. Historical messages are not new requests or current database state. Results are newest-first; use nextBeforeId to page further back.',
-  parameters: z.object({ beforeId: z.number().int().positive().nullable().optional() }),
+  parameters: z.object({ beforeId: z.number().int().positive().nullable().default(null) }),
   execute: async (args, runContext) => mutate('read_conversation_history', args, runContext as RunContext, async (client, context) => {
     let query = client.from('agent_session_items').select('id,item').eq('thread_id', context.threadId).eq('user_id', context.userId).eq('item->>type', 'message').order('id', { ascending: false }).limit(12);
     if (args.beforeId) query = query.lt('id', args.beforeId);

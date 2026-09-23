@@ -122,3 +122,30 @@ Deno.test('research brief separates evidence from unresolved facts', () => {
     'omitted sections must default instead of failing the brief',
   );
 });
+
+Deno.test('a brief written before routeFacts existed still parses', () => {
+  // findRecentBrief re-parses stored artifacts with safeParse to decide whether
+  // a destination can be reused. A new required field would silently disable
+  // that reuse, so routeFacts has to default.
+  const stored = researchBriefSchema.safeParse({
+    destination: '党岭', chosenRoute: null, facts: [], unresolved: [], routes: [],
+  });
+  assert(stored.success, 'an artifact predating routeFacts must still parse');
+  assert(stored.data.routeFacts.length === 0, 'the missing section must default to empty rather than failing');
+  // And the model's own output for it is accepted, then overwritten by the system.
+  const withFacts = researchBriefSchema.safeParse({
+    destination: '党岭',
+    routeFacts: [{ entryId: 'fact-1', title: '葫芦海营地' }],
+  });
+  assert(withFacts.success && withFacts.data.routeFacts[0].entryId === 'fact-1', 'a model-emitted list parses before bindRouteFacts replaces it');
+  const suggestion = researchBriefSchema.safeParse({
+    destination: '党岭',
+    factSuggestions: [{ routeId: 'trk008', category: 'campsite', title: '营地更新', fields: [{ key: '水源', value: '有' }], targetEntryId: 'fact-1' }],
+  });
+  assert(suggestion.success && suggestion.data.factSuggestions[0].targetEntryId === 'fact-1', 'a revision suggestion must carry its target');
+  const plain = researchBriefSchema.safeParse({
+    destination: '党岭',
+    factSuggestions: [{ routeId: 'trk008', category: 'campsite', title: '新营地', fields: [{ key: '水源', value: '无' }] }],
+  });
+  assert(plain.success && plain.data.factSuggestions[0].targetEntryId === null, 'a draft with no target defaults to a new entry');
+});

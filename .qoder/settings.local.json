@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -type d -name \"*agent*\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" | head -20)",
+      "Bash(find .qoder -type f | head -20 && cat .gitignore 2>/dev/null | head -30)",
+      "Bash(ls -d admin* */admin* 2>/dev/null; git ls-files | grep -i admin | head -30)"
+    ]
+  }
+}

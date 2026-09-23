@@ -1,6 +1,7 @@
 export type PackingItemDraft = {
   name: string;
-  attributes?: Array<{ name: string; value: string }>;
+  // null 与省略同义：模型 schema 现在要求显式给出（strict 校验不接受缺字段）。
+  attributes?: Array<{ name: string; value: string }> | null;
   quantity: number;
 };
 

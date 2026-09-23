@@ -2,7 +2,7 @@ import type { PackingPlanProfile } from './packing-coverage.ts';
 
 export type PersonalPlanningProfile = {
   heightCm?: number;
-  weightKg?: number;
+  weightKg?: number | null;
   ageYears?: number;
   dietaryRestrictions?: string;
 };
@@ -23,10 +23,10 @@ export type PlanningItineraryItem = {
 
 export type NutritionPlanningItem = {
   name: string;
-  categoryName?: string;
+  categoryName?: string | null;
   quantity: number;
-  weightKg?: number;
-  estimatedEnergyKcalPerUnit?: number;
+  weightKg?: number | null;
+  estimatedEnergyKcalPerUnit?: number | null;
 };
 
 function finiteNumber(value: unknown) {
