@@ -150,30 +150,19 @@ export function useTimeline(
 
   const state = previewState ?? getState(key);
 
-  const persistGroup = async (name: string, deleted: boolean, route?: TimelineGroupRoute | null) => {
+  // Only a brand-new day uses this now: renaming and removing a day move their
+  // group rows through their own RPC, where the day's rows move with them.
+  const persistGroup = async (name: string, deleted: boolean) => {
     if (!journeyId || !userId || !name.trim()) return;
-    const row: Record<string, unknown> = {
-      journey_id: journeyId,
-      user_id: userId,
-      name: name.trim(),
-      deleted,
-      updated_at: new Date().toISOString(),
-    };
-    if (route !== undefined) {
-      // A manual pick happens on the track the editor shows, so it belongs to
-      // that track; the caller says which one, and null means the journey's own.
-      row.route_id = route?.routeId ?? null;
-      row.route_end_meters = route?.endDistanceMeters ?? null;
-      row.route_end_lng = route?.longitude ?? null;
-      row.route_end_lat = route?.latitude ?? null;
-      row.route_end_track_index = route?.trackPointIndex ?? null;
-      row.route_end_track_fraction = route?.trackPointFraction ?? null;
-      row.route_end_source = route?.source ?? null;
-      row.route_location_name = route?.locationName ?? null;
-    }
     const { error } = await supabase
       .from('timeline_groups')
-      .upsert(row, { onConflict: 'journey_id,name' });
+      .upsert({
+        journey_id: journeyId,
+        user_id: userId,
+        name: name.trim(),
+        deleted,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'journey_id,name' });
     if (error) throw error;
   };
 
@@ -303,17 +292,18 @@ export function useTimeline(
   const renameGroup = async (from: string, to: string) => {
     const next = to.trim();
     if (!from || !next || from === next || !journeyId || !userId) return;
-    const { error } = await supabase
-      .from('timeline_rows')
-      .update({ day: next })
-      .eq('journey_id', journeyId)
-      .eq('user_id', userId)
-      .eq('day', from);
-    // Rows still carrying the old day would reappear under it, so stop before
-    // the groups are renamed.
+    // One call: the rows, both group rows and the day's route end move together,
+    // instead of three round trips that each took the journey's row lock and
+    // could stop half-way.
+    const { error } = await supabase.rpc('journey_rename_timeline_group', {
+      p_journey_id: journeyId,
+      p_from: from,
+      p_to: next,
+    });
     if (error) throw error;
+    // The row keeps its route end server-side; the cache moves its copy so the
+    // map keeps framing the day without a refetch.
     const route = state.groupRoutes[from];
-    await Promise.all([persistGroup(from, true), persistGroup(next, false, route)]);
     setState(key, (s) => {
       const known = s.knownGroups.map((g) => (g === from ? next : g)).filter((g, i, arr) => g && arr.indexOf(g) === i);
       const groupRoutes = { ...s.groupRoutes };
