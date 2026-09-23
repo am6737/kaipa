@@ -269,14 +269,16 @@ export function useTimeline(
   };
 
   const removeGroup = async (day: string) => {
-    const ids = state.rows.filter(r => r.day === day).map(r => r.id);
-    if (ids.length) {
-      const { error } = await supabase.from('timeline_rows').delete().in('id', ids);
-      // The rows have to be gone before the group is marked deleted, or the day
-      // returns on the next load with its items still under it.
-      if (error) throw error;
-    }
-    await persistGroup(day, true);
+    if (!journeyId || !userId) return;
+    // One call, so the rows and the group move together. As two transactions this
+    // queued twice behind the journey's row lock — the lock save_journey_version
+    // holds while it rebuilds the snapshot — and left a window where the rows were
+    // gone while the group still said otherwise.
+    const { error } = await supabase.rpc('journey_remove_timeline_group', {
+      p_journey_id: journeyId,
+      p_day: day,
+    });
+    if (error) throw error;
     setState(key, (s) => ({
       rows: s.rows.filter(r => r.day !== day),
       knownGroups: s.knownGroups.filter(g => g !== day),
