@@ -45,3 +45,7 @@ kaipa-supabase-docker/
 infra/supabase-docker/
 infra/supabase/.runtime/
 supabase/.temp/
+
+# 本机工具配置与 UI 草稿，不入库
+reasonix.toml
+prototypes/
