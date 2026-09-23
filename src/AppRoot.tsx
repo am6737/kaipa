@@ -50,6 +50,7 @@ function AppShell() {
   const [passphrasePoi, setPassphrasePoi] = useState<typeof nav.sharePanel>(null);
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
   const [discoverOverlayOpen, setDiscoverOverlayOpen] = useState(false);
+  const [searchOpaque, setSearchOpaque] = useState(false);
 
   useEffect(() => {
     if (!assistantReturnJourneyId || nav.pointInfo || nav.assistantOpen) return;
@@ -113,6 +114,7 @@ function AppShell() {
           theme={theme}
           active={nav.mainTab === 'discover' || detailOpen}
           keepMapWarm={Platform.OS === 'ios'}
+          covered={nav.searchOpen && searchOpaque}
           externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
           onBlockingOverlayChange={setDiscoverOverlayOpen}
         />
@@ -365,7 +367,7 @@ function AppShell() {
           onToast={(message) => nav.showToast(message)}
         />
       )}
-      {nav.searchOpen && <SearchScreen theme={theme} />}
+      {nav.searchOpen && <SearchScreen theme={theme} onOpaqueChange={setSearchOpaque} />}
       <AppAssistant
         theme={theme}
         visible={nav.assistantOpen}

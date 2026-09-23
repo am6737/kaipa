@@ -43,7 +43,7 @@ async function clearRecent() {
   await AsyncStorage.removeItem(RECENT_KEY).catch(() => {});
 }
 
-export function SearchScreen({ theme }: { theme: Theme }) {
+export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaqueChange?: (opaque: boolean) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const { routes, journeys } = useData();
@@ -58,16 +58,25 @@ export function SearchScreen({ theme }: { theme: Theme }) {
   useEffect(() => {
     readRecent().then(setRecent);
     const timer = setTimeout(() => inputRef.current?.focus(), 280);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
-    return () => clearTimeout(timer);
+    Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) onOpaqueChange?.(true);
+    });
+    return () => {
+      clearTimeout(timer);
+      onOpaqueChange?.(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const close = useCallback(() => {
+    // Put the page back before the fade so the reveal shows the settled map
+    // instead of a slide.
+    onOpaqueChange?.(false);
     Keyboard.dismiss();
     Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => {
       nav.closeSearch();
     });
-  }, [nav, fadeAnim]);
+  }, [nav, fadeAnim, onOpaqueChange]);
 
   const allRoutes: Poi[] = useMemo(() => {
     const merged = [...nav.savedRoutes, ...routes];
@@ -224,20 +233,24 @@ export function SearchScreen({ theme }: { theme: Theme }) {
                   text={t('search.recent')}
                   marginTop={space.sm}
                   trailing={
-                    <Press onPress={() => { clearRecent(); setRecent([]); }} hitSlop={8}>
-                      <Text style={[type.caption, { color: theme.accent, fontWeight: '600' }]}>{t('search.clear')}</Text>
+                    <Press
+                      onPress={() => { clearRecent(); setRecent([]); }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('search.clear')}
+                      hitSlop={8}
+                      style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="trash" color={theme.text3} size={17} strokeWidth={1.9} />
                     </Press>
                   }
                 />
-                <AppCard theme={theme} style={{ padding: space.sm, borderRadius: radius.card }}>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-                    {recent.map((s) => (
-                      <Press key={s} onPress={() => setQ(s)} style={{ minHeight: 34, paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, justifyContent: 'center' }}>
-                        <Text style={[type.body, { fontSize: 13, color: theme.text }]}>{s}</Text>
-                      </Press>
-                    ))}
-                  </View>
-                </AppCard>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.xs }}>
+                  {recent.map((s) => (
+                    <Press key={s} onPress={() => setQ(s)} style={{ minHeight: 34, paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, justifyContent: 'center' }}>
+                      <Text style={[type.body, { fontSize: 13, color: theme.text }]}>{s}</Text>
+                    </Press>
+                  ))}
+                </View>
               </>
             )}
             <AppCard theme={theme} style={{ marginTop: space.lg, paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.sm, borderRadius: radius.feature }}>

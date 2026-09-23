@@ -200,12 +200,15 @@ export function DiscoverScreen({
   theme,
   active = true,
   keepMapWarm = false,
+  covered = false,
   externalOverlayOpen = false,
   onBlockingOverlayChange,
 }: {
   theme: Theme;
   active?: boolean;
   keepMapWarm?: boolean;
+  /** An opaque page of ours fully covers the map, so it is worth no frames. */
+  covered?: boolean;
   externalOverlayOpen?: boolean;
   onBlockingOverlayChange?: (open: boolean) => void;
 }) {
@@ -1185,16 +1188,16 @@ export function DiscoverScreen({
   );
 
   return (
-    /* Under another bottom tab the whole page slides off-screen rather than being
-       display:none'd or unmounted. MapKit keeps its instance, camera and every
-       annotation view: a MapView that re-enters the window comes back with empty
-       reused annotation views, and a remount reloads the tiles, which reads as a
-       flash. Off-screen still lets Core Animation cull it, so the tab on top
-       keeps its frames. */
+    /* Under another bottom tab - or under our own full-screen search page - the
+       whole page slides off-screen rather than being display:none'd or unmounted.
+       MapKit keeps its instance, camera and every annotation view: a MapView that
+       re-enters the window comes back with empty reused annotation views, and a
+       remount reloads the tiles, which reads as a flash. Off-screen still lets
+       Core Animation cull it, so whatever covers the map keeps its frames. */
     <View
       style={[
         { flex: 1, backgroundColor: theme.bg },
-        !active && keepMapWarm ? { transform: [{ translateX: width * 2 }] } : null,
+        (covered || !active) && keepMapWarm ? { transform: [{ translateX: width * 2 }] } : null,
       ]}
     >
       {/* full-screen interactive map (Apple-Maps style) — subtabs, top-right
