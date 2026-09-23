@@ -1,5 +1,18 @@
 -- Keep the in-app notification center in sync across signed-in devices.
-alter table public.notifications replica identity full;
+-- Guarded because `replica identity full` takes ACCESS EXCLUSIVE; re-applying this
+-- file must not freeze writes to notifications for nothing.
+do $$
+begin
+  if exists (
+    select 1 from pg_class
+    where relnamespace = 'public'::regnamespace
+      and relname = 'notifications'
+      and relreplident <> 'f'
+  ) then
+    alter table public.notifications replica identity full;
+  end if;
+end;
+$$;
 
 do $$
 begin

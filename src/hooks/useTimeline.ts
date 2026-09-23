@@ -185,53 +185,55 @@ export function useTimeline(
     setState(key, (s) => ({ ...s, rows: s.rows.map(r => r.id === id ? { ...r, checked: !current } : r) }));
   };
 
+  // The keys present in this object are the columns journey_save_timeline_item()
+  // writes; a missing key keeps whatever is stored, so a media-only patch cannot
+  // blank the title.
+  const itemFields = (item: Partial<Omit<TLRow, 'id'>>) => {
+    const fields: Record<string, unknown> = {};
+    if (item.title !== undefined) fields.title = item.title;
+    if (item.day !== undefined) fields.day = item.day;
+    if (item.kind !== undefined) fields.kind = item.kind ?? 'activity';
+    if ('media' in item) fields.media = item.media ?? null;
+    if ('timeStart' in item) fields.timeStart = item.timeStart ?? null;
+    if ('timeEnd' in item) fields.timeEnd = item.timeEnd ?? null;
+    if ('location' in item) fields.location = item.location ?? null;
+    if ('transport' in item) fields.transport = item.transport ?? null;
+    return fields;
+  };
+
   const add = async (item: Omit<TLRow, 'id'>) => {
     if (!journeyId || !userId) return;
     const id = 'c_' + Math.random().toString(36).slice(2, 10);
-    const row = {
-      id,
-      journey_id: journeyId,
-      user_id: userId,
-      title: item.title,
-      day: item.day,
-      media: item.media ?? null,
-      time_mins: item.timeStart ?? null,
-      time_end_mins: item.timeEnd ?? null,
-      is_synth: false,
-      is_custom: true,
-      checked: false,
-      item_kind: item.kind ?? 'activity',
-      location: item.location ?? null,
-      transport: item.transport ?? null,
-      sort_order: state.rows.length,
-    };
-    await supabase.from('timeline_rows').insert(row);
-    await persistGroup(item.day, false);
+    const { data, error } = await supabase.rpc('journey_save_timeline_item', {
+      p_id: id,
+      p_journey_id: journeyId,
+      p_is_new: true,
+      p_fields: { ...itemFields(item), sortOrder: state.rows.length },
+    });
+    if (error) throw error;
     setState(key, (s) => ({
       ...s,
-      rows: [...s.rows, toTLRow(row)],
+      rows: [...s.rows, toTLRow(data)],
       knownGroups: item.day && !s.knownGroups.includes(item.day) ? [...s.knownGroups, item.day] : s.knownGroups,
       removedGroups: item.day ? s.removedGroups.filter((group) => group !== item.day) : s.removedGroups,
     }));
   };
 
   const update = async (id: string, patch: Partial<Omit<TLRow, 'id'>>) => {
-    const dbPatch: Record<string, unknown> = {};
-    if (patch.title !== undefined) dbPatch.title = patch.title;
-    if (patch.day !== undefined) dbPatch.day = patch.day;
-    if (patch.media !== undefined) dbPatch.media = patch.media ?? null;
-    if ('timeStart' in patch) dbPatch.time_mins = patch.timeStart ?? null;
-    if ('timeEnd' in patch) dbPatch.time_end_mins = patch.timeEnd ?? null;
-    if (patch.kind !== undefined) dbPatch.item_kind = patch.kind ?? 'activity';
-    if ('location' in patch) dbPatch.location = patch.location ?? null;
-    if (patch.transport !== undefined) dbPatch.transport = patch.transport ?? null;
-    await supabase.from('timeline_rows').update(dbPatch).eq('id', id);
-    if (patch.day) await persistGroup(patch.day, false);
+    if (!journeyId) return;
+    const { data, error } = await supabase.rpc('journey_save_timeline_item', {
+      p_id: id,
+      p_journey_id: journeyId,
+      p_is_new: false,
+      p_fields: itemFields(patch),
+    });
+    if (error) throw error;
+    const saved = toTLRow(data);
     setState(key, (s) => ({
       ...s,
-      rows: s.rows.map(r => r.id === id ? { ...r, ...patch } : r),
-      knownGroups: patch.day && !s.knownGroups.includes(patch.day) ? [...s.knownGroups, patch.day] : s.knownGroups,
-      removedGroups: patch.day ? s.removedGroups.filter((group) => group !== patch.day) : s.removedGroups,
+      rows: s.rows.map(r => r.id === id ? saved : r),
+      knownGroups: saved.day && !s.knownGroups.includes(saved.day) ? [...s.knownGroups, saved.day] : s.knownGroups,
+      removedGroups: saved.day ? s.removedGroups.filter((group) => group !== saved.day) : s.removedGroups,
     }));
   };
 

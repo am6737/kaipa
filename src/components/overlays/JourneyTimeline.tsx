@@ -290,6 +290,10 @@ function HighlightedPlaceName({ theme, name, query }: { theme: Theme; name: stri
   );
 }
 
+/** The carried-place row docked above the search field — one line, no address.
+ *  The results list has to clear it, so this must match the row's own height. */
+const CARRY_ROW_HEIGHT = 46;
+
 function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose }: {
   theme: Theme;
   keyboardLift: number;
@@ -324,7 +328,7 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose
       <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} /></Press>
       {showList ? (
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 8, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12 }}>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? 74 : 0) }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? CARRY_ROW_HEIGHT : 0) }}>
             {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
             {!searching && results.map((result, index) => {
               const category = poiCategoryLabel(result.category);
@@ -339,38 +343,24 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose
           </ScrollView>
         </View>
       ) : null}
-      {/* The day before ends here, so this day most likely starts here: one tap
-          fills the place in instead of searching it again. It floats over the
-          results so it reads before a single key is pressed. */}
-      {carryPlace ? (
-        <Press
-          accessibilityRole="button"
-          onPress={() => { onSelect(carryPlace); onClose(); }}
-          style={{
-            position: 'absolute', left: 12, right: 12, bottom: keyboardLift + 64, minHeight: 62,
-            borderRadius: 20, backgroundColor: theme.surfaceTop,
-            borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline,
-            paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10,
-            shadowColor: '#000', shadowOpacity: theme.dark ? 0.45 : 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
-          }}
-        >
-          <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-            <Icon name="pin" size={17} color={theme.accent} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{carryPlace.name}</Text>
-            <Text numberOfLines={1} style={{ fontSize: 12.5, lineHeight: 17, color: theme.text3, marginTop: 3 }}>
-              {[t('journey.timeline.placeCarryHint'), carryPlace.address].filter(Boolean).join('｜')}
-            </Text>
-          </View>
-          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('journey.timeline.placeCarryApply')}</Text>
-        </Press>
-      ) : null}
       <View style={{
         position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: theme.surfaceTop,
         borderTopLeftRadius: 28, borderTopRightRadius: 28,
-        shadowColor: '#000', shadowOpacity: theme.dark ? 0.45 : 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: -3 }, elevation: 10,
+        shadowColor: '#000', shadowOpacity: theme.dark ? 0.22 : 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: -2 }, elevation: 4,
       }}>
+        {/* The place the day before ends on, one tap from the thumb that is
+            already reaching for the keyboard. It rides inside the dock rather
+            than floating above it: same surface, no gap, no new chrome. */}
+        {carryPlace ? (
+          <Press
+            accessibilityRole="button"
+            onPress={() => { onSelect(carryPlace); onClose(); }}
+            style={{ height: CARRY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16 }}
+          >
+            <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 12, fontWeight: '600' }}>{t('journey.timeline.placeCarryHint')}</Text>
+            <Text numberOfLines={1} style={{ color: theme.text, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{carryPlace.name}</Text>
+          </Press>
+        ) : null}
         <View style={{ height: 54, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 10 }}>
           <Icon name="search" size={19} color={theme.text2} />
           <TextInput autoFocus value={query} onChangeText={setQuery} placeholder={t('journey.timeline.placeSearchPlaceholder')} placeholderTextColor={theme.text3} style={{ flex: 1, color: theme.text, fontSize: 17, paddingVertical: 0 }} />
@@ -1667,7 +1657,11 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
                         style: 'destructive',
                         onPress: async () => {
                           const nextMedia = (row.media || []).filter((_, i) => i !== deleteIndex);
-                          await tl.update(row.id, { media: nextMedia.length ? nextMedia : undefined });
+                          try {
+                            await tl.update(row.id, { media: nextMedia.length ? nextMedia : undefined });
+                          } catch {
+                            Alert.alert(t('journey.timeline.saveFailedTitle'), t('journey.timeline.saveFailedMessage'));
+                          }
                           setViewer(null);
                         },
                       },
@@ -1931,8 +1925,12 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
       });
       animateClose();
     } catch (error) {
-      console.warn('Failed to save journey timeline media', error);
-      Alert.alert(t('journey.timeline.uploadFailedTitle'), t('journey.timeline.uploadFailedMessage'));
+      console.warn('Failed to save journey timeline item', error);
+      const detail = error instanceof Error ? error.message : String(error);
+      Alert.alert(
+        t('journey.timeline.saveFailedTitle'),
+        [t('journey.timeline.saveFailedMessage'), detail].filter(Boolean).join('\n'),
+      );
     } finally {
       setSubmitting(false);
     }
