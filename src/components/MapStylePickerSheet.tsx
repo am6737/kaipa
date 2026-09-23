@@ -171,7 +171,7 @@ function MapStylePreview({ theme, styleId, selected }: { theme: Theme; styleId: 
     <View
       style={{
         width: '100%',
-        aspectRatio: 1,
+        aspectRatio: 4 / 3,
         borderRadius: radius.card,
         shadowColor: '#000000',
         shadowOpacity: theme.dark ? 0.28 : 0.12,
@@ -185,7 +185,7 @@ function MapStylePreview({ theme, styleId, selected }: { theme: Theme; styleId: 
           flex: 1,
           overflow: 'hidden',
           borderRadius: radius.card,
-          borderWidth: selected ? 3 : StyleSheet.hairlineWidth,
+          borderWidth: selected ? 2 : StyleSheet.hairlineWidth,
           borderColor: selected ? theme.accent : theme.fieldBorder,
           backgroundColor: styleId === 'satellite' ? '#48513B' : theme.dark ? '#25272A' : '#E9ECE7',
         }}

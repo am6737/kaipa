@@ -1234,6 +1234,7 @@ export const zh = {
       filterLivePhotos: "实况",
       emptyFilter: "没有符合条件的瞬间",
       clearFilter: "查看全部",
+      uploadingBadge: "上传中",
     },
     media: {
       photo: "照片",
@@ -1367,7 +1368,7 @@ export const zh = {
       totalDistance: "总距离",
     },
     map: {
-      layerTitle: "地图模式",
+      layerTitle: "地图样式",
       layerStandard: "标准",
       layerTerrain: "地形",
       layerSatellite: "卫星",
@@ -1418,6 +1419,8 @@ export const zh = {
       placeSearchUnavailable: "地点搜索暂时不可用",
       placeSearchNoMatch: "没有匹配的地图地点",
       placeSearchClear: "清空搜索",
+      placeCarryHint: "上一站的终点",
+      placeCarryApply: "应用",
 
     },
     manage: {

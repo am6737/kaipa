@@ -26,4 +26,4 @@ export function Globe(props: GlobeProps) {
   throw new Error('Native map module is unavailable. Rebuild the development client with expo-gaode-map.');
 }
 
-export type { GlobeCameraAction, GlobeMapStyle, GlobeProps, GlobeRouteSegment, GlobeJourneyLeg, GlobeJourneyStop } from './types';
+export type { GlobeCameraAction, GlobeMapStyle, GlobeProps, GlobeRouteSegment, GlobeJourneyLeg, GlobeJourneyStop, GlobeJourneyDayLabel } from './types';

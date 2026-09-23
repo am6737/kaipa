@@ -13,7 +13,7 @@ import { useNav } from '../nav/NavContext';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeRouteSegment } from '../components/globe';
+import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeRouteSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -28,7 +28,8 @@ import { Avatar } from '../components/Avatar';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
-import { buildJourneyLegs, buildJourneyStops, type JourneyLeg } from '../lib/journeyStops';
+import { buildJourneyLegs, buildJourneyStops, journeyDayOrder, measureJourneyDays, type JourneyLeg } from '../lib/journeyStops';
+import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
@@ -363,13 +364,14 @@ export function DiscoverScreen({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
+  const [detailBodyHeight, setDetailBodyHeight] = useState(0);
   const [routeSheetIndex, setRouteSheetIndex] = useState(1);
   const [mapImmersive, setMapImmersive] = useState(false);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
   const [selectedJourneyRouteId, setSelectedJourneyRouteId] = useState<string | undefined>();
   const [journeyRouteMenuOpen, setJourneyRouteMenuOpen] = useState(false);
-  const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day: string; revision: number }>();
+  const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day?: string; revision: number }>();
   const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
   const [momentSelectionMode, setMomentSelectionMode] = useState(false);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(() => new Set());
@@ -481,6 +483,17 @@ export function DiscoverScreen({
       setSelectedTimelineItemIds(new Set());
     }
   }, []);
+  const journeyDayRequestRevision = React.useRef(0);
+  // Selecting a day from the map has to move the card's tab pager as well, and
+  // the request channel is the only way in from outside that pager.
+  const selectJourneyDayFromMap = useCallback((day?: string) => {
+    // A marker press also bubbles to NativeMap.onPress on both platforms, and
+    // that background event dismisses the detail sheet. Same guard as onPoiPress.
+    mapMarkerPressAtRef.current = Date.now();
+    journeyDayRequestRevision.current += 1;
+    setJourneyDaySelectionRequest({ day, revision: journeyDayRequestRevision.current });
+    handleSelectedJourneyDayChange(day);
+  }, [handleSelectedJourneyDayChange]);
   const handleSelectedJourneyTabChange = useCallback((tab: string) => {
     setSelectedJourneyTab(tab);
     if (tab === 'moments') {
@@ -875,6 +888,13 @@ export function DiscoverScreen({
       ? buildJourneyStops(focusedTimeline.rows, focusedTimeline.knownGroups)
       : []
   ), [detailReady, focusedTimeline.knownGroups, focusedTimeline.rows, nav.pointInfo?.kind]);
+  // A day keeps one colour along the whole chain, so the itinerary reads as
+  // the same sequence the day chips at the bottom of the sheet show.
+  const itineraryDayColors = useMemo(() => {
+    const days = journeyDayOrder(focusedTimeline.rows, focusedTimeline.knownGroups);
+    return new Map(days.map((day, index) => [day, JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length]]));
+  }, [focusedTimeline.knownGroups, focusedTimeline.rows]);
+  const itineraryColor = useCallback((day: string | undefined) => itineraryDayColors.get(day ?? '') ?? theme.accent, [itineraryDayColors, theme.accent]);
   const itineraryLegs = useMemo(() => (
     itineraryStops.length >= 2
       ? buildJourneyLegs(itineraryStops, new Map(focusedTimeline.rows.map((row) => [row.id, row])))
@@ -888,13 +908,17 @@ export function DiscoverScreen({
     journeyMapDetailsVisible
       ? itineraryStops.map((stop) => ({
         id: stop.rowId,
-        order: stop.order,
+        // Numbers belong to the open day alone: they match that day's card
+        // positions. Other days stay plain dots, otherwise a previous day's
+        // "2" sits in front of this day's "1" and reads as a reversed route.
+        order: selectedJourneyDay && selectedJourneyDay === stop.day ? stop.order : undefined,
         name: stop.name,
         coordinate: stop.coordinate,
         active: !selectedJourneyDay || selectedJourneyDay === stop.day,
+        color: itineraryColor(stop.day),
       }))
       : []
-  ), [itineraryStops, journeyMapDetailsVisible, selectedJourneyDay]);
+  ), [itineraryColor, itineraryStops, journeyMapDetailsVisible, selectedJourneyDay]);
   const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
     journeyMapDetailsVisible
       ? itineraryLegs.map((leg) => {
@@ -902,14 +926,89 @@ export function DiscoverScreen({
         return {
           id: leg.id,
           coordinates: planned ?? [leg.from, leg.to],
-          color: theme.accent,
+          color: itineraryColor(leg.day),
           active: !selectedJourneyDay || selectedJourneyDay === leg.day,
           // No plan yet (or none available): a plain link, not a road.
           dashed: !planned,
         };
       })
       : []
-  ), [itineraryLegs, journeyMapDetailsVisible, legGeometry, selectedJourneyDay, theme.accent]);
+  ), [itineraryColor, itineraryLegs, journeyMapDetailsVisible, legGeometry, selectedJourneyDay]);
+  // Each day's own mileage, read off the chain rather than off a recorded
+  // track: it is what that day's legs actually travel. Only the open day keeps
+  // its capsule: "how far is each day" is a question the overview asks, and a
+  // chip is text sitting on top of the road it labels, so the others would
+  // cover the line the user is now reading. The dim chain stays tappable and
+  // still switches days.
+  const journeyDayLabels = useMemo<GlobeJourneyDayLabel[]>(() => (
+    journeyMapDetailsVisible
+      ? measureJourneyDays(itineraryLegs, legGeometry)
+        .filter((measured) => !selectedJourneyDay || selectedJourneyDay === measured.day)
+        .map((measured) => ({
+          day: measured.day,
+          title: journeyDayDisplayLabel(measured.day, resolved),
+          distance: `${measured.meters < 10_000 ? (measured.meters / 1000).toFixed(1) : Math.round(measured.meters / 1000)}km`,
+          coordinate: measured.coordinate,
+          color: itineraryColor(measured.day),
+        }))
+      : []
+  ), [itineraryColor, itineraryLegs, journeyMapDetailsVisible, legGeometry, resolved, selectedJourneyDay]);
+  const journeyDayChainRef = React.useRef<[number, number][] | null>(null);
+  // What the map frames when no day is open: every leg, every place, and the
+  // recorded track. The track alone is not enough — a planned day can sit well
+  // away from anything actually walked. Deliberately built from leg endpoints
+  // rather than road geometry: plans arrive asynchronously, and a new array here
+  // would refit the camera under the user.
+  const journeyOverviewFrame = useMemo<[number, number][]>(() => (
+    journeyMapDetailsVisible
+      ? [
+        ...itineraryLegs.flatMap((leg) => [leg.from, leg.to]),
+        ...itineraryStops.map((stop) => stop.coordinate),
+        ...journeySegmentGeometry.flatMap((segment) => segment.coordinates),
+        ...(rawFocusCoords ?? []),
+      ]
+      : []
+  ), [itineraryLegs, itineraryStops, journeyMapDetailsVisible, journeySegmentGeometry, rawFocusCoords]);
+  const dayLegs = journeyMapDetailsVisible && selectedJourneyDay
+    ? itineraryLegs.filter((leg) => leg.day === selectedJourneyDay)
+    : [];
+  const dayTrackCoords = journeyMapDetailsVisible && selectedJourneyDay
+    // Where the day also has recorded track of its own, keep that in frame: a
+    // walked detour can leave the planned chain. A whole-journey track (which
+    // carries no day) is deliberately out.
+    ? journeySegmentGeometry
+      .filter((segment) => segment.days?.includes(selectedJourneyDay))
+      .flatMap((segment) => segment.coordinates)
+    : [];
+  const legCoords = (leg: JourneyLeg) => legGeometry[leg.id] ?? [leg.from, leg.to];
+  journeyDayChainRef.current = !journeyMapDetailsVisible
+    ? null
+    // Returning to the overview goes to the same box the journey opened with.
+    : !selectedJourneyDay
+      ? journeyOverviewFrame
+      // A day is its legs plus its own pins. Chains never cross into the next
+      // day, so a day holding a single place has no leg at all and its pin has
+      // to carry the frame on its own — one coordinate is too few to fit, which
+      // leaves the camera where the user put it.
+      : [
+        ...dayLegs.flatMap(legCoords),
+        ...itineraryStops.filter((stop) => stop.day === selectedJourneyDay).map((stop) => stop.coordinate),
+        ...dayTrackCoords,
+      ];
+  // Framing runs off the day alone, not off the chain: the road plan for a leg
+  // can arrive after the tap, and refitting then would drag the camera the user
+  // may have moved on their own in the meantime.
+  const journeyDayCameraRef = React.useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previousDay = journeyDayCameraRef.current;
+    journeyDayCameraRef.current = selectedJourneyDay;
+    const coordinates = journeyDayChainRef.current;
+    // Back to the overview only counts as a real transition when a day was open
+    // before it; on the first render there simply was no day yet.
+    if (!selectedJourneyDay && !previousDay) return;
+    if (!coordinates?.length) return;
+    setMapCameraAction((current) => ({ type: 'fitCoordinates', revision: (current?.revision ?? 0) + 1, coordinates }));
+  }, [selectedJourneyDay]);
   const journeyCoverUri = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.photoUris?.[0] : undefined;
   const journeyHeroMode = nav.pointInfo?.kind === 'journey'
     // The gated `focusCoords` is intentionally null for the first frames of an
@@ -928,6 +1027,11 @@ export function DiscoverScreen({
     : journeySheetIndex === 1
       ? focusPanel + space.xl
       : full + space.md;
+  // The tab pager fills the sheet body up to the card's own bottom inset, so a
+  // swipe below short content still lands on the pager. The sheet's body viewport
+  // is fixed (the snap animation translates the sheet, it doesn't resize it).
+  const detailBottomInset = nav.pointInfo?.kind === 'journey' ? 76 : 0;
+  const detailPagerBodyHeight = Math.max(0, detailBodyHeight - detailBottomInset);
   const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
     ? journeySheetIndex < 2
     : nav.pointInfo?.kind === 'route'
@@ -1144,6 +1248,7 @@ export function DiscoverScreen({
           // The gate stays on the work that actually costs frames — the
           // per-route measuring and the distance labels.
           focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : rawFocusCoords}
+          frameCoords={journeyOverviewFrame}
           // The journey overview map must show every route leg as soon as the
           // journey detail opens, not only after entering the expanded map view.
           focusSegments={nav.pointInfo?.kind === 'journey'
@@ -1151,9 +1256,11 @@ export function DiscoverScreen({
             : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : []}
           journeyLegs={journeyLegs}
           journeyStops={journeyStops}
+          journeyDayLabels={journeyDayLabels}
+          onJourneyDayLabelPress={(day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day)}
           onJourneyStopPress={(rowId) => {
             const stop = itineraryStops.find((item) => item.rowId === rowId);
-            if (stop?.day) handleSelectedJourneyDayChange(stop.day);
+            if (stop?.day) selectJourneyDayFromMap(stop.day);
           }}
           center={nav.pointInfo ? (() => {
             const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
@@ -1485,6 +1592,7 @@ export function DiscoverScreen({
         bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
         animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : undefined}
         bottomOffset={0}
+        onBodyHeightChange={setDetailBodyHeight}
         onDismiss={() => {
           setPlaceSel(null);
           if (nav.pointInfo && focusReturnToList) {
@@ -1498,7 +1606,7 @@ export function DiscoverScreen({
         }}
       >
         {nav.newJourneyOpen ? null : nav.pointInfo ? (
-          <View style={{ paddingHorizontal: space.md, paddingBottom: nav.pointInfo.kind === 'journey' ? 76 : 0 }}>
+          <View style={{ paddingHorizontal: space.md, paddingBottom: detailBottomInset }}>
             {nav.pointInfo.kind === 'route' ? (
               <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)} />
             ) : !detailReady ? (
@@ -1550,6 +1658,7 @@ export function DiscoverScreen({
                 selectedTimelineItemIds={selectedTimelineItemIds}
                 onSelectedTimelineItemIdsChange={setSelectedTimelineItemIds}
                 detailScrollY={journeyDetailScrollY}
+                pagerBodyHeight={detailPagerBodyHeight}
                 onRequestDetailScroll={(y) => sheetRef.current?.scrollTo(y)}
               />
             )}

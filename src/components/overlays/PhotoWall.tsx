@@ -1128,8 +1128,11 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
                           </View>
                         )}
                         {inspo.uploadingIds.has(p.id) || inspo.removingIds.has(p.id) ? (
-                          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12 }]}>
+                          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12 }]}>
                             <ActivityIndicator color="#fff" size="small" />
+                            {inspo.uploadingIds.has(p.id) ? (
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>{tr('journey.moments.uploadingBadge')}</Text>
+                            ) : null}
                           </View>
                         ) : null}
                       </View>

@@ -12,8 +12,12 @@ export interface DirectionRequest {
 export interface PlannedLeg {
   id: string;
   mode: DirectionMode;
-  /** WGS-84 road geometry, or null when AMap could not plan this leg. */
+  /** WGS-84 road geometry, or null when there is no plan to draw. */
   coordinates: Coordinate[] | null;
+  /** false = AMap was never asked (the caller's budget ran out) or the ask
+   *  errored, so the null carries no information and the client may ask again
+   *  on the next open. true + null is AMap's verdict: there is no route here. */
+  attempted: boolean;
 }
 
 export type AmapRequest = (path: string, params: URLSearchParams) => Promise<any>;
@@ -73,9 +77,9 @@ export async function planDirection(leg: DirectionRequest, amap: AmapRequest): P
   const payload = await amap(`direction/${leg.mode}`, params);
   const steps = payload?.route?.paths?.[0]?.steps;
   const gcjPoints = (Array.isArray(steps) ? steps : []).flatMap((step: { polyline?: unknown }) => parseAmapPolyline(step?.polyline));
-  if (gcjPoints.length < 2) return { id: leg.id, mode: leg.mode, coordinates: null };
+  if (gcjPoints.length < 2) return { id: leg.id, mode: leg.mode, coordinates: null, attempted: true };
   // AMap answers in GCJ-02; the itinerary and the map layer speak WGS-84.
-  return { id: leg.id, mode: leg.mode, coordinates: downsample(gcjPoints, DIRECTION_MAX_POINTS).map(gcj02ToWgs84) };
+  return { id: leg.id, mode: leg.mode, coordinates: downsample(gcjPoints, DIRECTION_MAX_POINTS).map(gcj02ToWgs84), attempted: true };
 }
 
 export function parseDirectionLegs(value: unknown): DirectionRequest[] {
@@ -102,8 +106,9 @@ function validCoordinate(lng: unknown, lat: unknown): boolean {
 
 /**
  * Plan every leg, spending `consumeBudget()` on each leg that is not already
- * cached. A leg that cannot be planned comes back with null coordinates so one
- * unparkable hop does not blank the whole itinerary.
+ * cached. A leg never comes back blank: it either carries a plan, or answers
+ * `attempted: false` so the client knows the gap was ours to fill and not a
+ * verdict from AMap.
  */
 export async function planAll(
   legs: DirectionRequest[],
@@ -117,22 +122,32 @@ export async function planAll(
     return !cached;
   });
   for (let offset = 0; offset < pending.length; offset += DIRECTION_CONCURRENCY) {
-    const wave = pending.slice(offset, offset + DIRECTION_CONCURRENCY).filter(() => consumeBudget());
+    const queue = pending.slice(offset, offset + DIRECTION_CONCURRENCY);
+    const wave = queue.filter((leg) => {
+      if (consumeBudget()) return true;
+      results.set(leg.id, { id: leg.id, mode: leg.mode, coordinates: null, attempted: false });
+      return false;
+    });
     if (!wave.length) continue;
     const planned = await Promise.all(wave.map(async (leg) => {
       try {
         return await planDirection(leg, amap);
       } catch (error) {
         console.warn('[map-search] direction failed', leg.mode, error);
-        return { id: leg.id, mode: leg.mode, coordinates: null } satisfies PlannedLeg;
+        // A quota or network error is a question that was never answered, not a
+        // statement that no road exists between these two places.
+        return { id: leg.id, mode: leg.mode, coordinates: null, attempted: false } satisfies PlannedLeg;
       }
     }));
     planned.forEach((leg, index) => {
-      writeDirectionCache(directionKey(wave[index]), leg);
+      // Only a real plan is cached. A negative answer lives 12 hours and is
+      // shared by every device, so caching one would keep a leg straight for
+      // everyone long after whatever made it fail went away.
+      if (leg.attempted && leg.coordinates?.length) writeDirectionCache(directionKey(wave[index]), leg);
       results.set(leg.id, leg);
     });
   }
-  return legs.map((leg) => results.get(leg.id) ?? { id: leg.id, mode: leg.mode, coordinates: null });
+  return legs.map((leg) => results.get(leg.id) ?? { id: leg.id, mode: leg.mode, coordinates: null, attempted: false });
 }
 
 export function readDirectionCache(key: string): PlannedLeg | undefined {

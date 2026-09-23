@@ -90,12 +90,19 @@ Deno.test('an unusable plan degrades to null instead of failing the journey', as
   const failing = recorder(amapResponse([]));
   const [empty] = await planAll([leg({ id: 'empty', from: [116.1, 39.1], to: [116.2, 39.2] })], failing.amap);
   assertEquals(empty.coordinates, null);
+  // AMap answered and there is no route: that is a verdict worth keeping. It is
+  // deliberately not cached, though — a negative answer would otherwise be
+  // shared by every device for 12 hours.
+  assertEquals(empty.attempted, true);
+  await planAll([leg({ id: 'empty', from: [116.1, 39.1], to: [116.2, 39.2] })], failing.amap);
+  assertEquals(failing.calls.length, 2);
 
   const throwing: AmapRequest = async () => {
     throw new Error('AMap USER_DAILY_REACHED');
   };
   const [errored] = await planAll([leg({ id: 'boom', from: [116.3, 39.3], to: [116.4, 39.4] })], throwing);
   assertEquals(errored.coordinates, null);
+  assertEquals(errored.attempted, false);
 });
 
 Deno.test('a repeated pair is served from cache and spends no budget', async () => {
@@ -113,9 +120,9 @@ Deno.test('a repeated pair is served from cache and spends no budget', async () 
   assertEquals(again[0].coordinates?.length, 3);
 });
 
-Deno.test('legs beyond the budget still answer, as gaps', async () => {
+Deno.test('legs beyond the budget answer as gaps, not as verdicts', async () => {
   clearDirectionCacheForTests();
-  const { amap } = recorder(amapResponse(['116.4,39.9;116.41,39.91']));
+  const { calls, amap } = recorder(amapResponse(['116.4,39.9;116.41,39.91']));
   const legs = [116.5, 116.6, 116.7, 116.8, 116.9].map((lng, index) => leg({
     id: `leg-${index}`,
     from: [lng, 39.9],
@@ -124,8 +131,14 @@ Deno.test('legs beyond the budget still answer, as gaps', async () => {
   let remaining = 2;
   const planned = await planAll(legs, amap, () => remaining-- > 0);
   assertEquals(planned.length, legs.length);
-  assertEquals(planned.every((item) => item.coordinates?.length === 2 || item.coordinates === null), true);
-  assertEquals(planned.some((item) => item.coordinates === null), true);
+  assertEquals(planned.filter((item) => item.coordinates === null).length, 3);
+  assertEquals(planned.every((item) => item.attempted === (item.coordinates !== null)), true);
+  assertEquals(calls.length, 2);
+  // The cut tail is still askable: the next open plans what the budget skipped,
+  // and only pays for those legs.
+  const asked = await planAll(legs, amap);
+  assertEquals(asked.every((item) => item.coordinates?.length === 2), true);
+  assertEquals(calls.length, 5);
 });
 
 Deno.test('a long plan is capped but keeps both endpoints', () => {

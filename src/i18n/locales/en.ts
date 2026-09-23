@@ -1245,6 +1245,7 @@ export const en: SameShape<typeof zh> = {
       filterLivePhotos: "Live Photos",
       emptyFilter: "No moments match this filter",
       clearFilter: "View all",
+      uploadingBadge: "Uploading",
     },
     media: {
       photo: "Photo",
@@ -1386,7 +1387,7 @@ export const en: SameShape<typeof zh> = {
       totalDistance: "Total Distance",
     },
     map: {
-      layerTitle: "Map mode",
+      layerTitle: "Map style",
       layerStandard: "Standard",
       layerTerrain: "Terrain",
       layerSatellite: "Satellite",
@@ -1439,6 +1440,8 @@ export const en: SameShape<typeof zh> = {
       placeSearchUnavailable: "Place search is unavailable",
       placeSearchNoMatch: "No matching places",
       placeSearchClear: "Clear search",
+      placeCarryHint: "Where the last day ended",
+      placeCarryApply: "Use",
 
     },
     manage: {

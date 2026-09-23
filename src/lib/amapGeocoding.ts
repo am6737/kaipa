@@ -91,21 +91,26 @@ export interface DirectionRequest {
 export interface PlannedLeg {
   id: string;
   mode: 'driving' | 'walking';
-  /** WGS-84 road geometry, or null when this leg could not be planned. */
+  /** WGS-84 road geometry, or null when this leg has no plan to draw. */
   coordinates: [number, number][] | null;
+  /** false = the function never asked AMap for this leg (budget) or the ask
+   *  errored, so the null says nothing about whether a road exists. Absent on
+   *  a function older than this field, whose nulls were undifferentiated. */
+  attempted?: boolean;
 }
 
 /** The function plans one AMap request per leg, so it takes a bounded batch. */
 const DIRECTION_BATCH = 12;
 
+/** Batches are reported through `onLeg` as they land, not at the end: a journey
+ *  whose later batch aborts has still paid for the plans already delivered. */
 export async function planJourneyDirections(
   legs: DirectionRequest[],
-  signal?: AbortSignal,
-): Promise<PlannedLeg[]> {
-  const planned: PlannedLeg[] = [];
+  signal: AbortSignal | undefined,
+  onLeg: (leg: PlannedLeg) => void,
+): Promise<void> {
   for (let offset = 0; offset < legs.length; offset += DIRECTION_BATCH) {
     const payload = await request({ action: 'direction', legs: legs.slice(offset, offset + DIRECTION_BATCH) }, signal);
-    planned.push(...(payload.legs || []));
+    (payload.legs || []).forEach(onLeg);
   }
-  return planned;
 }

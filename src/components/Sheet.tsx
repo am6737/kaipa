@@ -47,6 +47,9 @@ interface Props {
   entranceAnimation?: 'spring' | 'timing' | 'none';
   /** Optional value that mirrors the sheet's animated vertical translation. */
   animatedTranslateY?: Animated.Value;
+  /** Reports the body scroll view's visible height, so a child can fill the
+      sheet instead of leaving gesture-dead blank space under itself. */
+  onBodyHeightChange?: (height: number) => void;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -77,6 +80,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     bodyScrollY,
     topAccessory,
     topAccessoryHeight = 0,
+    onBodyHeightChange,
     entranceAnimation = 'spring',
     animatedTranslateY,
   },
@@ -287,7 +291,12 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     () =>
       Gesture.Pan()
         .runOnJS(true)
-        .activeOffsetY([-8, 8]) // only engage on a vertical drag; let taps/horizontal pass
+        // The body carries horizontally swipeable pages (the journey tab pager),
+        // so a drag only belongs to the sheet when it leaves vertically first:
+        // cross 12pt on Y while still inside 12pt on X. Without the X gate a
+        // diagonal tab swipe moved the sheet and snapped it to another detent.
+        .activeOffsetY([-12, 12])
+        .failOffsetX([-12, 12])
         .simultaneousWithExternalGesture(scrollRef)
         .onBegin(() => {
           dragging.current = false;
@@ -428,6 +437,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
                 onScroll={onBodyScroll}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
+                onLayout={(event) => onBodyHeightChange?.(Math.round(event.nativeEvent.layout.height))}
                 contentContainerStyle={{ paddingBottom: bottomPad }}
                 style={{ flex: 1 }}
               >

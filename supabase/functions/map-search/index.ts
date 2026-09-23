@@ -11,9 +11,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const AMAP_API = 'https://restapi.amap.com/v3';
+// Buckets are per feature, not just per user: a journey open asks for one plan
+// per leg, and those used to share a single budget with the place search and
+// reverse geocoding that happen in the same minute. The tail of the itinerary
+// chain was what got cut, and the client read that as "no road here".
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 60;
-const requestsByUser = new Map<string, { startedAt: number; count: number }>();
+const requestsByBucket = new Map<string, { startedAt: number; count: number }>();
 
 type AmapPoi = {
   name?: string;
@@ -52,16 +56,16 @@ function bearerToken(req: Request) {
   return scheme?.toLowerCase() === 'bearer' ? token : '';
 }
 
-function withinRateLimit(userId: string) {
+function withinRateLimit(bucket: string) {
   const now = Date.now();
-  if (requestsByUser.size > 1_000) {
-    for (const [id, entry] of requestsByUser) {
-      if (now - entry.startedAt >= RATE_WINDOW_MS) requestsByUser.delete(id);
+  if (requestsByBucket.size > 2_000) {
+    for (const [id, entry] of requestsByBucket) {
+      if (now - entry.startedAt >= RATE_WINDOW_MS) requestsByBucket.delete(id);
     }
   }
-  const current = requestsByUser.get(userId);
+  const current = requestsByBucket.get(bucket);
   if (!current || now - current.startedAt >= RATE_WINDOW_MS) {
-    requestsByUser.set(userId, { startedAt: now, count: 1 });
+    requestsByBucket.set(bucket, { startedAt: now, count: 1 });
     return true;
   }
   current.count += 1;
@@ -126,7 +130,7 @@ Deno.serve(async (req) => {
     });
     const { data: { user }, error } = await admin.auth.getUser(token);
     if (error || !user) return json({ error: { code: 'unauthorized' } }, 401);
-    if (!withinRateLimit(user.id)) return json({ error: { code: 'rate_limited' } }, 429);
+    if (!withinRateLimit(`${user.id}:http`)) return json({ error: { code: 'rate_limited' } }, 429);
 
     const body = await req.json();
     const language = typeof body.language === 'string' && body.language.startsWith('en') ? 'en' : 'zh_cn';
@@ -180,8 +184,8 @@ Deno.serve(async (req) => {
       const legs = parseDirectionLegs(body.legs);
       if (!legs.length) return json({ error: { code: 'invalid_legs' } }, 400);
       // Each uncached leg is a separate AMap request, so those are what the
-      // per-user budget pays for.
-      return json({ legs: await planAll(legs, amap, () => withinRateLimit(user.id)) });
+      // per-user planning budget pays for.
+      return json({ legs: await planAll(legs, amap, () => withinRateLimit(`${user.id}:direction`)) });
     }
 
     return json({ error: { code: 'invalid_action' } }, 400);

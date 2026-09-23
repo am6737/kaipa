@@ -24,6 +24,17 @@ export function projectTrack(coordinates: MapCoordinate[]): ProjectedMapPoint[] 
   return projected;
 }
 
+// MapKit and AMap polylines have no opacity prop, so the "this belongs to
+// another day" dim has to live in the stroke colour itself. AMap parses that
+// colour string natively, where an 8-digit hex means #AARRGGBB — only rgba()
+// carries alpha the same way on both maps.
+export function withColorAlpha(color: string, opacity = 1): string {
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(color);
+  if (!hex || opacity >= 1) return color;
+  const value = parseInt(hex[1], 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
+}
+
 const EMPTY_COORDINATES: MapCoordinate[] = [];
 
 // Validation almost never rejects a point, so filtering would replace an
@@ -57,7 +68,16 @@ export interface NativeMapMarker {
   content?: ReactNode;
   title?: string;
   color?: string;
+  /**
+   * Where in the marker's own box the coordinate lands, 0..1.
+   * Android (AMap) only — MapKit ignores it, see `centerOffset`.
+   */
   anchor?: { x: number; y: number };
+  /**
+   * Shifts the marker box away from its coordinate, in dp (negative y = up).
+   * iOS (MapKit) only — the Android counterpart is `anchor`.
+   */
+  centerOffset?: { x: number; y: number };
   opacity?: number;
   onPress?: () => void;
 }

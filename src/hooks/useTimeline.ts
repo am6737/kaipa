@@ -236,8 +236,20 @@ export function useTimeline(
   };
 
   const remove = async (id: string) => {
-    await supabase.from('timeline_rows').delete().eq('id', id);
+    // TEMP PROBE — delete did nothing visible; this one log separates every
+    // candidate: dead press, wrong cache key, id not in this cache, RLS error.
+    const before = getState(key).rows;
+    console.warn('[tl.remove]', JSON.stringify({
+      key: key || '(empty)',
+      id,
+      found: before.some((r) => r.id === id),
+      rowCount: before.length,
+      listenerCount: listeners.get(key)?.size ?? 0,
+    }));
+    const { error } = await supabase.from('timeline_rows').delete().eq('id', id);
+    console.warn('[tl.remove] db', error ? `ERROR ${error.code} ${error.message}` : 'ok');
     setState(key, (s) => ({ ...s, rows: s.rows.filter(r => r.id !== id) }));
+    console.warn('[tl.remove] after', JSON.stringify({ rowCount: getState(key).rows.length }));
   };
 
   const removeGroup = async (day: string) => {

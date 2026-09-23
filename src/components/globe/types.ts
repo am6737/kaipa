@@ -21,6 +21,7 @@ export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
 
 export type GlobeCameraAction =
   | { type: 'fitRoute' | 'resetNorth'; revision: number }
+  | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][] }
   | { type: 'locate'; revision: number; coordinate: [number, number] }
   | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 
@@ -43,13 +44,27 @@ export interface GlobeJourneyLeg {
   dashed?: boolean;
 }
 
+/** A day's mileage, pinned at the middle of that day's part of the chain. */
+export interface GlobeJourneyDayLabel {
+  /** the itinerary group key, used to select that day */
+  day: string;
+  title: string;
+  distance: string;
+  coordinate: [number, number];
+  color: string;
+}
+
 /** One itinerary stop that carries a place, drawn with its sequence number. */
 export interface GlobeJourneyStop {
   id: string;
-  order: number;
+  /** the pin's number, or undefined for a plain dot (the overview shows the
+   *  chain of places without pretending each one is a numbered step) */
+  order?: number;
   name: string;
   coordinate: [number, number];
   active: boolean;
+  /** the colour of the day this stop belongs to, matching its legs */
+  color: string;
 }
 
 export interface GlobeProps {
@@ -65,6 +80,9 @@ export interface GlobeProps {
   center?: { lon: number; lat: number };
   /** selected route/location to animate the native map camera toward */
   focusCoords?: [number, number][] | null;
+  /** overrides what the map frames (initial fit and automatic refit). Used by a
+   *  journey, whose planned legs reach places no recorded track ever went. */
+  frameCoords?: [number, number][];
   /** colored itinerary sections drawn over the selected track */
   focusSegments?: GlobeRouteSegment[];
   /** planned road between consecutive itinerary stops of the same day */
@@ -72,6 +90,9 @@ export interface GlobeProps {
   /** numbered pins for itinerary stops that carry a place */
   journeyStops?: GlobeJourneyStop[];
   onJourneyStopPress?: (id: string) => void;
+  /** per-day mileage capsules along the itinerary chain */
+  journeyDayLabels?: GlobeJourneyDayLabel[];
+  onJourneyDayLabelPress?: (day: string) => void;
   /** show the current-location pin at this coordinate */
   pin?: { lng: number; lat: number; heading?: number } | null;
   /** keep the native map camera centered as the current location updates */

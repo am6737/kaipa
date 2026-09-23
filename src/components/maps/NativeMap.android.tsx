@@ -2,7 +2,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
-import { projectTrack, type NativeMapHandle, type NativeMapProps } from './types';
+import { projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 
 let AMap: typeof import('expo-gaode-map') | null = null;
 let amapInitialized = false;
@@ -266,7 +266,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         <Polyline
           key={line.id}
           points={projectTrack(line.coordinates)}
-          strokeColor={line.color}
+          strokeColor={withColorAlpha(line.color, line.opacity)}
           strokeWidth={line.width}
           dotted={line.dashed}
         />

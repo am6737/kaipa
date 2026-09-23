@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate, keepValidCoordinates } from '../maps/types';
+import { trackSpanOnScreen, trackWorldSpan } from '../maps/extent';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
@@ -22,6 +23,8 @@ function cappedStepKm(stepKm: number, totalMeters: number): number {
   return niceSteps.find((step) => step >= minStep) ?? Math.ceil(minStep / 50) * 50;
 }
 
+const MIN_TRACK_ENDPOINT_PIXELS = 100;
+
 export default function MapGlobe({
   theme,
   pois,
@@ -31,10 +34,13 @@ export default function MapGlobe({
   onBackgroundPress,
   center,
   focusCoords,
+  frameCoords,
   focusSegments,
   journeyLegs,
   journeyStops,
   onJourneyStopPress,
+  journeyDayLabels,
+  onJourneyDayLabelPress,
   pin,
   followUserLocation = false,
   onUserLocationChange,
@@ -62,11 +68,14 @@ export default function MapGlobe({
   // render — which is most of them while a detail sheet is opening.
   const onPoiPressRef = useRef(onPoiPress);
   const onJourneyStopPressRef = useRef(onJourneyStopPress);
+  const onJourneyDayLabelPressRef = useRef(onJourneyDayLabelPress);
   useEffect(() => {
     onPoiPressRef.current = onPoiPress;
     onJourneyStopPressRef.current = onJourneyStopPress;
+    onJourneyDayLabelPressRef.current = onJourneyDayLabelPress;
   });
   const [distanceStepKm, setDistanceStepKm] = React.useState(10);
+  const [trackEndpointsVisible, setTrackEndpointsVisible] = React.useState(true);
   const lastZoomBucket = useRef<number | null>(null);
   const lastDistanceStep = useRef<number | null>(null);
   const distanceStepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,6 +84,8 @@ export default function MapGlobe({
   }, []);
   const handleZoomChange = useCallback((zoom: number) => {
     if (!Number.isFinite(zoom)) return;
+    liveZoom.current = zoom;
+    syncTrackEndpoints(zoom);
     const quantizedZoom = Math.round(zoom * 4) / 4;
     // Quantize to quarter-zoom steps so the scale only steps a few times
     // across the whole zoom range.
@@ -115,6 +126,35 @@ export default function MapGlobe({
     () => journeyStops?.filter((stop) => isValidMapCoordinate(stop.coordinate)),
     [journeyStops],
   );
+  const validJourneyDayLabels = useMemo(
+    () => journeyDayLabels?.filter((label) => isValidMapCoordinate(label.coordinate)),
+    [journeyDayLabels],
+  );
+  const trackSpan = useMemo(() => {
+    const segments = validFocusSegments && validFocusSegments.length > 1
+      ? validFocusSegments.map((segment) => segment.coordinates)
+      : [validFocusCoords ?? []];
+    let widest: { width: number; height: number } | null = null;
+    segments.forEach((coordinates) => {
+      const span = trackWorldSpan(coordinates);
+      if (span && (!widest || Math.max(span.width, span.height) > Math.max(widest.width, widest.height))) widest = span;
+    });
+    return widest;
+  }, [validFocusCoords, validFocusSegments]);
+  const liveZoom = useRef<number | null>(null);
+  const trackSpanRef = useRef(trackSpan);
+  const endpointVisibleRef = useRef(true);
+  const syncTrackEndpoints = (zoom: number | null) => {
+    if (zoom == null) return;
+    const visible = trackSpanOnScreen(trackSpanRef.current, zoom) >= MIN_TRACK_ENDPOINT_PIXELS;
+    if (visible === endpointVisibleRef.current) return;
+    endpointVisibleRef.current = visible;
+    setTrackEndpointsVisible(visible);
+  };
+  useEffect(() => {
+    trackSpanRef.current = trackSpan;
+    syncTrackEndpoints(liveZoom.current);
+  }, [trackSpan]);
   const activeSegment = validFocusSegments?.find((segment) => segment.active);
   const hasFocusedRoutePart = validFocusSegments?.some((segment) => !segment.active) ?? false;
   const routeFocusCoords = hasFocusedRoutePart
@@ -129,9 +169,15 @@ export default function MapGlobe({
       : null),
     [validJourneyStops],
   );
-  const cameraFocusCoords = (routeFocusCoords?.length ?? 0) >= 2
-    ? routeFocusCoords
-    : stopFocusCoords ?? routeFocusCoords;
+  const cameraFocusCoords = frameCoords?.length
+    // A journey's own extent, computed by the caller: the recorded track alone
+    // leaves each day's transfer leg off screen, and that is what the overview
+    // is for. Stable across day switches, so the per-day framing below stays
+    // the only thing that moves the camera once the journey is open.
+    ? frameCoords
+    : (routeFocusCoords?.length ?? 0) >= 2
+      ? routeFocusCoords
+      : stopFocusCoords ?? routeFocusCoords;
   const routePadding: [number, number, number, number] = [90, 54, focusBottomPadding ?? Math.round(height * 0.54), 54];
 
   useEffect(() => {
@@ -165,6 +211,13 @@ export default function MapGlobe({
       );
       return;
     }
+    if (cameraAction.type === 'fitCoordinates') {
+      const coordinates = cameraAction.coordinates.filter(isValidMapCoordinate);
+      const duration = Platform.OS === 'android' ? 680 : 260;
+      if (coordinates.length >= 2) mapRef.current?.fitCoordinates(coordinates, routePadding, duration);
+      else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration);
+      return;
+    }
     if (!cameraFocusCoords?.length) return;
     if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, 650);
     else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 650);
@@ -186,7 +239,7 @@ export default function MapGlobe({
       coordinates: segment.coordinates,
       color: segment.color,
       width: 4,
-      opacity: segment.active ? 1 : 0.26,
+      opacity: segment.active ? 1 : 0.45,
     }));
     // One width step under the recorded track and one visual identity of its
     // own (numbered pins at each end), so the plan reads as the layer over the
@@ -196,7 +249,9 @@ export default function MapGlobe({
       coordinates: leg.coordinates,
       color: leg.color,
       width: 3,
-      opacity: leg.active ? 0.95 : 0.22,
+      // Not a copy of the dots' 0.34: a bare 3pt stroke on map tiles needs to
+      // stay readable to keep the day chain's context.
+      opacity: leg.active ? 0.95 : 0.45,
       dashed: leg.dashed,
     }));
     return values;
@@ -287,7 +342,8 @@ export default function MapGlobe({
 
     validJourneyStops?.forEach((stop) => {
       values.push({
-        id: `journey-stop-${stop.id}`,
+        // Android caches marker content by id, so the number has to live in it.
+        id: `journey-stop-${stop.id}-${stop.order ?? 'dot'}`,
         coordinate: stop.coordinate,
         anchor: { x: 0.5, y: 0.5 },
         opacity: stop.active ? 1 : 0.34,
@@ -295,29 +351,66 @@ export default function MapGlobe({
         content: (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${stop.order} ${stop.name}`}
+            accessibilityLabel={stop.order == null ? stop.name : `${stop.order} ${stop.name}`}
             accessible
             hitSlop={6}
           >
-            <View style={[styles.journeyStop, { backgroundColor: theme.accent }]}>
-              <Text style={styles.journeyStopText}>{stop.order}</Text>
+            {stop.order == null
+              ? <View style={[styles.journeyStopDot, { backgroundColor: stop.color }]} />
+              : (
+                <View style={[styles.journeyStop, { backgroundColor: stop.color }]}>
+                  <Text style={styles.journeyStopText}>{stop.order}</Text>
+                </View>
+              )}
+          </Pressable>
+        ),
+      });
+    });
+
+    validJourneyDayLabels?.forEach((label) => {
+      values.push({
+        id: `journey-day-${label.day}`,
+        coordinate: label.coordinate,
+        // The mileage describes the road, so the coordinate stays at the arc
+        // midpoint and only the pill lifts off the line. Each platform has its
+        // own prop for that: `anchor` is Android-only, `centerOffset` is the
+        // MapKit one, and both are asked to put the pill's bottom edge on the
+        // point, which is half its height above the centre.
+        anchor: { x: 0.5, y: 1 },
+        centerOffset: { x: 0, y: -styles.dayLabel.height / 2 },
+        onPress: () => onJourneyDayLabelPressRef.current?.(label.day),
+        content: (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${label.title} ${label.distance}`}
+            accessible
+            hitSlop={6}
+          >
+            <View style={[styles.dayLabel, { backgroundColor: label.color }]}>
+              <Text numberOfLines={1} style={styles.dayLabelText}>{label.title}</Text>
+              <Text numberOfLines={1} style={styles.dayLabelDistance}>{label.distance}</Text>
+              <Text style={styles.dayLabelChevron}>›</Text>
             </View>
           </Pressable>
         ),
       });
     });
 
-    if (validFocusSegments && validFocusSegments.length > 1) {
-      validFocusSegments.forEach((segment, index) => {
-        const start = segment.coordinates[0];
-        const end = segment.coordinates[segment.coordinates.length - 1];
-        if (!start || !end) return;
-        values.push({ id: `focus-start-${segment.id}-${index}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-        values.push({ id: `focus-end-${segment.id}-${index}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
-      });
-    } else if (validFocusCoords?.[0] && !validJourneyStops?.length) {
-      values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
-      if (validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+    // The track's own endpoints only earn a marker once the route is big on
+    // screen; zoomed out they compete with the itinerary dots.
+    if (trackEndpointsVisible) {
+      if (validFocusSegments && validFocusSegments.length > 1) {
+        validFocusSegments.forEach((segment, index) => {
+          const start = segment.coordinates[0];
+          const end = segment.coordinates[segment.coordinates.length - 1];
+          if (!start || !end) return;
+          values.push({ id: `focus-start-${segment.id}-${index}`, coordinate: start, anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
+          values.push({ id: `focus-end-${segment.id}-${index}`, coordinate: end, anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+        });
+      } else if (validFocusCoords?.[0] && !validJourneyStops?.length) {
+        values.push({ id: 'focus-start', coordinate: validFocusCoords[0], anchor: { x: 0.5, y: 0.5 }, content: <View style={styles.startMarker} /> });
+        if (validFocusCoords.length > 1) values.push({ id: 'focus-end', coordinate: validFocusCoords[validFocusCoords.length - 1], anchor: { x: 0.5, y: 0.5 }, content: <View style={[styles.endMarker, { backgroundColor: theme.danger }]} /> });
+      }
     }
     return values;
     // staggerPins is deliberately not a dependency: it only picks the
@@ -327,7 +420,7 @@ export default function MapGlobe({
     // switches, edits — run with the latest render's value, so pins mount
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePoiId, distanceMarkers, pin, pois, showPoiMarkers, theme, validFocusCoords, validFocusSegments, validJourneyStops]);
+    }, [activePoiId, distanceMarkers, pin, pois, showPoiMarkers, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
@@ -383,5 +476,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     elevation: 2,
   },
+  dayLabel: { height: 24, paddingHorizontal: 8, borderRadius: 7, flexDirection: 'row', alignItems: 'center', shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  dayLabelText: { fontSize: 11.5, lineHeight: 15, fontWeight: '700', color: '#FFFFFF' },
+  dayLabelDistance: { marginLeft: 4, fontSize: 11.5, lineHeight: 15, fontWeight: '700', color: '#FFFFFF', fontVariant: ['tabular-nums'] },
+  dayLabelChevron: { marginLeft: 4, fontSize: 13, lineHeight: 15, fontWeight: '500', color: '#FFFFFF' },
+  journeyStopDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#FFFFFF' },
   journeyStopText: { color: '#FFFFFF', fontSize: 11, lineHeight: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
 });

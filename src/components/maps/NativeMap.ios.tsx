@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
-import { projectTrack, type NativeMapHandle, type NativeMapProps } from './types';
+import { projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 function point(coordinate: [number, number]) {
@@ -172,7 +172,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         <Polyline
           key={line.id}
           coordinates={projectTrack(line.coordinates)}
-          strokeColor={line.color}
+          strokeColor={withColorAlpha(line.color, line.opacity)}
           strokeWidth={line.width}
           lineDashPattern={line.dashed ? [7, 7] : undefined}
         />
@@ -182,6 +182,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           key={marker.id}
           coordinate={point(marker.coordinate)}
           anchor={marker.anchor}
+          centerOffset={marker.centerOffset}
           pinColor={marker.content ? undefined : marker.color}
           opacity={marker.opacity}
           onPress={() => marker.onPress?.()}

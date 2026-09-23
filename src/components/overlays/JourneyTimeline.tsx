@@ -3,7 +3,7 @@
 // — users decide how to organize entries. Exposes the inline digest
 // (JourneyTimelineCard) and the bottom-sheet add/edit editor (JourneyEntryEditor):
 // tapping a row opens that sheet in edit mode; "+" opens it in add mode.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, ActivityIndicator, Platform, KeyboardAvoidingView, useWindowDimensions, Dimensions, Modal, Alert, Animated, Keyboard, PanResponder, Easing, LayoutAnimation, UIManager, Share, StatusBar as NativeStatusBar } from 'react-native';
 import { Image } from 'expo-image';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
@@ -22,7 +22,7 @@ import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
 import { Avatar } from '../Avatar';
-import { Press } from '../Press';
+import { Press, PressDragGuardContext, useDragCancelledPress } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { uploadMedia } from '../../lib/storage';
@@ -32,6 +32,7 @@ import * as Haptics from 'expo-haptics';
 import { AppCard, motion, radius, space, type } from '../../design-system';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
 import { groupJourneyRows, sortRowsWithinDay } from '../../lib/journeyOrdering';
+import { carryPlaceFromPreviousDay } from '../../lib/journeyStops';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -289,9 +290,10 @@ function HighlightedPlaceName({ theme, name, query }: { theme: Theme; name: stri
   );
 }
 
-function PlaceSearchOverlay({ theme, keyboardLift, onSelect, onClose }: {
+function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose }: {
   theme: Theme;
   keyboardLift: number;
+  carryPlace?: JourneyLocationValue;
   onSelect: (location: JourneyLocationValue) => void;
   onClose: () => void;
 }) {
@@ -322,7 +324,7 @@ function PlaceSearchOverlay({ theme, keyboardLift, onSelect, onClose }: {
       <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} /></Press>
       {showList ? (
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 8, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12 }}>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? 74 : 0) }}>
             {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
             {!searching && results.map((result, index) => {
               const category = poiCategoryLabel(result.category);
@@ -336,6 +338,33 @@ function PlaceSearchOverlay({ theme, keyboardLift, onSelect, onClose }: {
             {!searching && !results.length ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? t('journey.timeline.placeSearchUnavailable') : t('journey.timeline.placeSearchNoMatch')}</Text></View> : null}
           </ScrollView>
         </View>
+      ) : null}
+      {/* The day before ends here, so this day most likely starts here: one tap
+          fills the place in instead of searching it again. It floats over the
+          results so it reads before a single key is pressed. */}
+      {carryPlace ? (
+        <Press
+          accessibilityRole="button"
+          onPress={() => { onSelect(carryPlace); onClose(); }}
+          style={{
+            position: 'absolute', left: 12, right: 12, bottom: keyboardLift + 64, minHeight: 62,
+            borderRadius: 20, backgroundColor: theme.surfaceTop,
+            borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline,
+            paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10,
+            shadowColor: '#000', shadowOpacity: theme.dark ? 0.45 : 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+          }}
+        >
+          <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
+            <Icon name="pin" size={17} color={theme.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{carryPlace.name}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 12.5, lineHeight: 17, color: theme.text3, marginTop: 3 }}>
+              {[t('journey.timeline.placeCarryHint'), carryPlace.address].filter(Boolean).join('｜')}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 14.5, fontWeight: '700', color: theme.accent }}>{t('journey.timeline.placeCarryApply')}</Text>
+        </Press>
       ) : null}
       <View style={{
         position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: theme.surfaceTop,
@@ -574,7 +603,9 @@ function ZoomableViewerImage({
         useNativeDriver: true,
       }).start(() => {
         onDismissGestureChange(false);
-        onDismiss();
+        // Unmounting the whole viewer (Modal teardown, video player dispose) in
+        // the animation-complete callback stalls that frame; yield one beat first.
+        setTimeout(() => onDismiss(), 0);
       });
       return;
     }
@@ -597,6 +628,10 @@ function ZoomableViewerImage({
       zoomStep={null as any}
       bindToBorders
       disablePanOnInitialZoom
+      // The library always fires a momentum-decay on its inner panAnim at release
+      // even when our dismiss handler consumed the gesture; that extra native anim
+      // start competes with the dismiss fling on the release frame.
+      disableMomentum
       doubleTapDelay={280}
       animatePin={false}
       visualTouchFeedbackEnabled={false}
@@ -713,7 +748,16 @@ export function MediaViewer({
   const [chromeVisible, setChromeVisible] = useState(true);
   const [imageZoomed, setImageZoomed] = useState(false);
   const [multiTouch, setMultiTouch] = useState(false);
-  const [verticalDismissing, setVerticalDismissing] = useState(false);
+  // Paging on/off is applied imperatively: the old state flag re-rendered the
+  // whole modal tree (pager, zoom views, gradients) at drag start and again on
+  // release, and that JS work is what dropped frames around the dismiss fling.
+  const pagingEnabledRef = useRef(true);
+  const setPagingEnabled = (enabled: boolean) => {
+    if (pagingEnabledRef.current === enabled) return;
+    pagingEnabledRef.current = enabled;
+    const native = scrollRef.current?.getNativeScrollRef?.() ?? scrollRef.current;
+    (native as { setNativeProps?: (p: object) => void } | null)?.setNativeProps?.({ scrollEnabled: enabled });
+  };
   const multiTouchRef = useRef(false);
   const [activeAction, setActiveAction] = useState<'save' | 'share' | null>(null);
   const [actionNotice, setActionNotice] = useState<{ text: string; danger?: boolean } | null>(null);
@@ -882,7 +926,7 @@ export function MediaViewer({
           onSingleTap={toggleChrome}
           onDismiss={onClose}
           onZoomChange={setImageZoomed}
-          onDismissGestureChange={setVerticalDismissing}
+          onDismissGestureChange={(active) => setPagingEnabled(!active)}
           onLongPress={isActive && mm.livePhoto ? startLivePlayback : undefined}
           onPressRelease={isActive && mm.livePhoto ? stopLivePlayback : undefined}
         />
@@ -998,7 +1042,7 @@ export function MediaViewer({
           horizontal
           pagingEnabled
           directionalLockEnabled
-          scrollEnabled={!imageZoomed && !multiTouch && !verticalDismissing}
+          scrollEnabled={!imageZoomed && !multiTouch}
           onTouchStart={syncMultiTouch}
           onTouchMove={syncMultiTouch}
           onTouchEnd={syncMultiTouch}
@@ -1024,7 +1068,7 @@ export function MediaViewer({
             setImageZoomed(false);
             multiTouchRef.current = false;
             setMultiTouch(false);
-            setVerticalDismissing(false);
+            setPagingEnabled(true);
             dragY.setValue(0);
           }}
           style={{ flex: 1 }}
@@ -1174,6 +1218,9 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     requestAnimationFrame(() => React.startTransition(onToggleSelected));
   };
 
+  // This row is the full page width, so a page swipe can end as a press on it.
+  const rowPress = useDragCancelledPress(selectionMode ? toggleSelection : onPress, useContext(PressDragGuardContext));
+
   const placeName = row.location?.name?.trim() || '';
   const hasTitle = row.title.trim().length > 0;
   // The place line keeps its own style even when it's the only content —
@@ -1277,7 +1324,8 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
 
   return (
     <Pressable
-      onPress={selectionMode ? toggleSelection : onPress}
+      onPressIn={rowPress.onPressIn}
+      onPress={rowPress.onPress}
       hitSlop={selectionMode ? 6 : undefined}
       accessibilityRole={selectionMode ? 'checkbox' : 'button'}
       accessibilityState={selectionMode ? { checked: selected } : undefined}
@@ -1644,11 +1692,13 @@ async function assetToMedia(a: ImagePicker.ImagePickerAsset): Promise<TLMedia> {
 
 // ── Quick add — a lightweight bottom sheet. Most entries are just a line or two
 //    of text (maybe a time + a few photos), so we skip the full-screen editor. ──
-function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, zIndex = 80, onSubmit, onClose }: {
+function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, knownGroups, editRow, zIndex = 80, onSubmit, onClose }: {
   theme: Theme;
   initialDay?: string;
   defaultDay: string;
   existingDays: string[];
+  rows: TLRow[];
+  knownGroups: string[];
   editRow?: TLRow;
   zIndex?: number;
   onSubmit: (it: Omit<TLRow, 'id'>) => void | Promise<void>;
@@ -1850,6 +1900,22 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
   const pickPlace = (loc: JourneyLocationValue) => {
     setLocation({ name: loc.name, source: 'map', longitude: loc.lng, latitude: loc.lat, address: loc.address });
   };
+  // Where the previous day group ends. A new day usually starts there, so the
+  // place search offers it instead of making the user type it again.
+  const carryPlace = useMemo(() => {
+    const carried = carryPlaceFromPreviousDay(rows, knownGroups, day.trim() || defaultDay, editRow?.id);
+    const lng = carried?.longitude;
+    const lat = carried?.latitude;
+    if (!carried?.name || lng == null || lat == null) return undefined;
+    return {
+      name: carried.name,
+      address: carried.address ?? '',
+      region: '',
+      lng,
+      lat,
+      coord: `${lng.toFixed(6)},${lat.toFixed(6)}`,
+    } satisfies JourneyLocationValue;
+  }, [day, defaultDay, editRow?.id, knownGroups, rows]);
   const submit = async () => {
     if (!can) return;
     setSubmitting(true);
@@ -2060,6 +2126,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, editRow, z
         <PlaceSearchOverlay
           theme={theme}
           keyboardLift={keyboardLift}
+          carryPlace={carryPlace}
           onSelect={pickPlace}
           onClose={() => setPlaceOpen(false)}
         />
@@ -2088,6 +2155,8 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
       initialDay={initialDay}
       defaultDay={defaultDay}
       existingDays={selectableGroups}
+      rows={tl.rows}
+      knownGroups={tl.knownGroups}
       editRow={editRow}
       onClose={onClose}
       onSubmit={async (it) => {
