@@ -30,6 +30,7 @@ import { PickDialog } from '../components/tracks/PickDialog';
 import { formatTrackAscent, formatTrackDistance } from '../lib/trackParser';
 import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangePicker';
 import { journeySchedulePatch } from '../lib/journeySchedule';
+import { isWriteBusy } from '../lib/writeErrors';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { MomentFilterBar } from '../components/journey/MomentFilterBar';
@@ -980,7 +981,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       });
       if (!result.canceled && result.assets?.length) await addMomentAssets(result.assets);
     } catch (error) {
-      Alert.alert(t('journey.photoWall.errorTitle'), error instanceof Error ? error.message : String(error));
+      if (isWriteBusy(error)) {
+        Alert.alert(t('journey.photoWall.busyTitle'), t('journey.photoWall.busyMessage'));
+      } else {
+        Alert.alert(t('journey.photoWall.errorTitle'), error instanceof Error ? error.message : String(error));
+      }
     } finally {
       setProcessingMoments(false);
     }

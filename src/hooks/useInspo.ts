@@ -159,7 +159,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     // placeholder batch to the UI before any upload work begins.
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     let idx = 0;
-    let failed = false;
+    let firstError: unknown;
     const worker = async () => {
       while (idx < entries.length) {
         const { m, tempId } = entries[idx++];
@@ -180,7 +180,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
           if (error) throw error;
           if (data) setMedia(prev => prev.map(item => item.id === tempId ? toInspoMedia(data) : item));
         } catch (error) {
-          failed = true;
+          if (firstError === undefined) firstError = error;
           console.warn('[useInspo] media upload failed:', error);
           setMedia(prev => prev.filter(item => item.id !== tempId));
         } finally {
@@ -190,7 +190,11 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, entries.length) }, () => worker()));
-    if (failed) throw new Error('One or more media uploads failed');
+    // Rethrow the first failure itself rather than a sentence about it: the
+    // caller needs the code to tell a busy journey (55P03) from a lost upload.
+    if (firstError !== undefined) {
+      throw firstError instanceof Error ? firstError : new Error('One or more media uploads failed');
+    }
   };
 
   const remove = async (id: string) => {

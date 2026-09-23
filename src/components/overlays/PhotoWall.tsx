@@ -31,6 +31,7 @@ import { useInspo } from '../../hooks/useInspo';
 import { useData } from '../../data/DataContext';
 import { useI18n } from '../../i18n';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
+import { isWriteBusy } from '../../lib/writeErrors';
 import { radius, space, type } from '../../design-system';
 
 
@@ -876,7 +877,9 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
     }));
     // addAll creates ALL placeholders synchronously in one batch before any
     // upload begins, then uploads with 4-at-a-time concurrency.
-    inspoRef.current.addAll(items).catch(() => nav.showToast(tr('journey.photoWall.errorTitle')));
+    inspoRef.current.addAll(items).catch((error) => nav.showToast(
+      isWriteBusy(error) ? tr('journey.photoWall.busyMessage') : tr('journey.photoWall.errorTitle'),
+    ));
   };
 
   // Confirm from the compose sheet: snapshot picks + caption, close, then upload.

@@ -1413,6 +1413,8 @@ export const en: SameShape<typeof zh> = {
         "The photo was not saved to the cloud. Check your connection and try again.",
       saveFailedTitle: "This item was not saved",
       saveFailedMessage: "The content was not written to the cloud. Check your connection and try again.",
+      saveBusyTitle: "This journey is already saving",
+      saveBusyMessage: "Another save to it has not finished yet. Try again in a moment.",
       addPlaceholder:
         "Note an item… a plan, reminder, or something on the trail",
       newGroupPlaceholder: "New group name",
@@ -1495,6 +1497,8 @@ export const en: SameShape<typeof zh> = {
       needCameraPerm: "Camera permission needed",
       needLibraryPerm: "Photo library access needed",
       errorTitle: "Something went wrong",
+      busyTitle: "This journey is already saving",
+      busyMessage: "Another save to it has not finished yet. Try again in a moment.",
       savedToAlbum: "Saved to album",
       saveToAlbum: "Save to album",
       share: "Share",
