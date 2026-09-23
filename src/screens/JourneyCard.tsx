@@ -32,9 +32,9 @@ import { JourneyDateRangePicker } from '../components/overlays/JourneyDateRangeP
 import { journeySchedulePatch } from '../lib/journeySchedule';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
 import { JourneyChecklistTab, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
+import { MomentFilterBar } from '../components/journey/MomentFilterBar';
 import { formatJourneyDetailDate } from '../components/journey/journeyDatePresentation';
-import { AppCard, AppIconButton, AppSectionHeader, layout, radius, space, type } from '../design-system';
-import { Glass } from '../components/Glass';
+import { AppCard, AppSectionHeader, layout, radius, space, type } from '../design-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing, cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { journeyDayDisplayLabel, journeyDayKey, journeyDayOrdinal, nextJourneyDayKey } from '../lib/journeyDays';
@@ -284,16 +284,12 @@ export type JourneyMomentAuthorOption = {
 };
 
 export type JourneyMomentFilterMenuController = {
-  typeTitle: string;
   participantTitle: string;
   allParticipantsLabel: string;
   hostLabel: string;
   selfLabel: string;
-  selectedType: JourneyMomentFilter;
   selectedAuthor: string | null;
-  typeOptions: { id: JourneyMomentFilter; label: string; icon: IconName }[];
   authors: JourneyMomentAuthorOption[];
-  selectType: (filter: JourneyMomentFilter) => void;
   selectAuthor: (author: string | null) => void;
 };
 
@@ -909,7 +905,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterActionRef, momentFilterMenuRef, onMomentFilterStateChange, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterActionRef?: React.MutableRefObject<(() => void) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterStateChange?: (label: string, active: boolean) => void; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
@@ -1099,10 +1095,15 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       self: participant.self,
     };
   });
+  const momentKindOf = (moment: JourneyMomentPreview): Exclude<MomentFilter, 'all'> => (
+    moment.kind === 'video' ? 'video' : moment.kind === 'livePhoto' ? 'livePhoto' : 'photo'
+  );
+  // A person with no moments is not a filter anyone should be able to pick.
+  const momentPileAuthors = momentAuthorOptions.filter(
+    (author) => author.count > 0 || author.key === momentAuthorFilter,
+  );
   const filteredPhotos = allPhotos.filter((moment) => {
-    const typeMatches = momentFilter === 'all'
-      || (momentFilter === 'photo' && moment.kind !== 'video' && moment.kind !== 'livePhoto')
-      || moment.kind === momentFilter;
+    const typeMatches = momentFilter === 'all' || momentKindOf(moment) === momentFilter;
     const authorMatches = !momentAuthorFilter || getMomentAuthorKey(moment.author) === momentAuthorFilter;
     return typeMatches && authorMatches;
   });
@@ -1113,51 +1114,55 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   useEffect(() => {
     onVisibleMomentIdsChange?.(visibleMomentIdsKey ? visibleMomentIdsKey.split(',') : []);
   }, [onVisibleMomentIdsChange, visibleMomentIdsKey]);
-  const momentFilterOptions: { id: MomentFilter; label: string; icon: IconName }[] = [
-    { id: 'all', label: t('common.all'), icon: 'grid' },
-    { id: 'photo', label: t('journey.moments.filterPhotos'), icon: 'photo' },
-    { id: 'video', label: t('journey.moments.filterVideos'), icon: 'play' },
-    { id: 'livePhoto', label: t('journey.moments.filterLivePhotos'), icon: 'livePhoto' },
+  // Type counts follow the person filter, so the numbers on the chips are always
+  // the numbers the grid will show.
+  const momentTypeCounts: Record<MomentFilter, number> = { all: 0, photo: 0, video: 0, livePhoto: 0 };
+  allPhotos.forEach((moment) => {
+    if (momentAuthorFilter && getMomentAuthorKey(moment.author) !== momentAuthorFilter) return;
+    momentTypeCounts.all += 1;
+    momentTypeCounts[momentKindOf(moment)] += 1;
+  });
+  const momentFilterOptions: { id: MomentFilter; label: string; icon: IconName; count: number }[] = [
+    { id: 'all', label: t('common.all'), icon: 'grid', count: momentTypeCounts.all },
+    { id: 'photo', label: t('journey.moments.filterPhotos'), icon: 'photo', count: momentTypeCounts.photo },
+    { id: 'video', label: t('journey.moments.filterVideos'), icon: 'play', count: momentTypeCounts.video },
+    { id: 'livePhoto', label: t('journey.moments.filterLivePhotos'), icon: 'livePhoto', count: momentTypeCounts.livePhoto },
   ];
   useEffect(() => {
     if (momentAuthorFilter && !momentAuthorOptions.some((author) => author.key === momentAuthorFilter)) {
       setMomentAuthorFilter(null);
     }
   }, [momentAuthorFilter, momentAuthorOptions]);
-  const selectedTypeLabel = momentFilterOptions.find((option) => option.id === momentFilter)?.label || t('common.all');
   const selectedAuthorLabel = momentAuthorOptions.find((author) => author.key === momentAuthorFilter)?.name;
   const activeMomentFilterCount = Number(momentFilter !== 'all') + Number(Boolean(momentAuthorFilter));
-  const momentFilterLabel = activeMomentFilterCount > 1
-    ? t('journey.moments.filterCount', { count: activeMomentFilterCount })
-    : selectedAuthorLabel || selectedTypeLabel;
+  const momentCountLabel = [
+    selectedAuthorLabel,
+    activeMomentFilterCount > 0
+      ? `${filteredPhotos.length} / ${allPhotos.length}`
+      : t('journey.moments.countPhotos', { count: allPhotos.length }),
+  ].filter(Boolean).join(' · ');
+  const clearMomentFilters = () => {
+    setMomentViewerIndex(null);
+    setMomentFilter('all');
+    setMomentAuthorFilter(null);
+  };
   if (momentFilterMenuRef) {
     momentFilterMenuRef.current = {
-      typeTitle: t('journey.moments.filterType'),
       participantTitle: t('journey.moments.filterParticipant'),
       allParticipantsLabel: t('journey.moments.filterAllParticipants'),
       hostLabel: t('journey.companions.host'),
       selfLabel: t('journey.companions.you'),
-      selectedType: momentFilter,
       selectedAuthor: momentAuthorFilter,
-      typeOptions: momentFilterOptions,
       authors: momentAuthorOptions,
-      selectType: (filter) => {
-        setMomentViewerIndex(null);
-        setMomentFilter(filter);
-      },
       selectAuthor: (author) => {
         setMomentViewerIndex(null);
         setMomentAuthorFilter(author);
       },
     };
   }
-  if (momentFilterActionRef) momentFilterActionRef.current = () => onMomentFilterMenuOpenChange?.(true);
   useEffect(() => () => {
     if (momentFilterMenuRef) momentFilterMenuRef.current = null;
   }, [momentFilterMenuRef]);
-  useEffect(() => {
-    onMomentFilterStateChange?.(momentFilterLabel, activeMomentFilterCount > 0);
-  }, [activeMomentFilterCount, momentFilterLabel, onMomentFilterStateChange]);
   // Peer tabs: 总览 / 瞬间 / 行程. 轨迹 is no longer a tab — the elevation lives on the
   // map above (a toggle reveals a scrubbable strip), since the map already is the
   // track. 同行 is a facepile inside 总览. Routes tab only what applies.
@@ -2013,42 +2018,37 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         {activeSeg === 'moments' ? (
           <View>
             {allPhotos.length > 0 ? (
-              <View
-                style={{
-                  minHeight: 36,
-                  marginBottom: space.sm,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: space.md,
+              <MomentFilterBar
+                theme={theme}
+                surface={embeddedSurface}
+                typeOptions={momentFilterOptions}
+                selectedType={momentFilter}
+                onSelectType={(kind) => {
+                  setMomentViewerIndex(null);
+                  setMomentFilter(kind);
                 }}
-              >
-                <Text style={[type.caption, { flex: 1, color: theme.text3, fontFamily: MONO, fontWeight: '700' }]}>
-                  {t('journey.moments.countPhotos', { count: filteredPhotos.length })}
-                </Text>
-                {!momentSelectionMode && !readOnly ? (
-                  <View ref={momentFilterAnchorRef} collapsable={false}>
-                    <AppIconButton
-                      theme={theme}
-                      name="filter"
-                      size={36}
-                      noShadow
-                      active={activeMomentFilterCount > 0}
-                      onPress={() => {
-                        const anchor = momentFilterAnchorRef.current;
-                        if (!anchor) {
-                          onMomentFilterMenuOpenChange?.(true);
-                          return;
-                        }
-                        anchor.measureInWindow((x, y, width, height) => {
-                          onMomentFilterMenuOpenChange?.(true, { x, y, width, height });
-                        });
-                      }}
-                      accessibilityLabel={t('journey.moments.filterTitle')}
-                    />
-                  </View>
-                ) : null}
-              </View>
+                authors={momentPileAuthors}
+                selectedAuthor={momentAuthorFilter}
+                onSelectAuthor={(author) => {
+                  setMomentViewerIndex(null);
+                  setMomentAuthorFilter(author);
+                }}
+                peopleAnchorRef={momentFilterAnchorRef}
+                peopleLabel={t('journey.moments.filterParticipant')}
+                onOpenPeople={() => {
+                  const anchor = momentFilterAnchorRef.current;
+                  if (!anchor) {
+                    onMomentFilterMenuOpenChange?.(true);
+                    return;
+                  }
+                  anchor.measureInWindow((x, y, width, height) => {
+                    onMomentFilterMenuOpenChange?.(true, { x, y, width, height });
+                  });
+                }}
+                label={momentCountLabel}
+                active={activeMomentFilterCount > 0}
+                onClear={clearMomentFilters}
+              />
             ) : null}
             {inspo.loading ? (
               <MomentsSkeleton theme={theme} />
@@ -2084,25 +2084,16 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                     );
                   })
                 ) : (
-                  <AppCard
-                    theme={theme}
-                    style={{
-                      alignItems: 'center',
-                      paddingHorizontal: space.xl,
-                      paddingVertical: space.xxl,
-                      backgroundColor: embeddedSurface,
-                      borderWidth: StyleSheet.hairlineWidth,
-                      borderColor: theme.fieldBorder,
-                    }}
-                  >
-                    <Icon name="filter" color={theme.text3} size={24} />
-                    <Text style={[type.cardTitle, { color: theme.text, marginTop: space.sm }]}>
-                      {t('journey.moments.emptyFilter')}
-                    </Text>
-                    <Press onPress={() => setMomentFilter('all')} style={{ marginTop: space.sm, paddingVertical: space.xxs, paddingHorizontal: space.sm }}>
+                  <View style={{ alignItems: 'center', paddingVertical: space.xxxl, gap: space.xxs }}>
+                    <Text style={[type.caption, { color: theme.text2 }]}>{t('journey.moments.emptyFilter')}</Text>
+                    <Press
+                      onPress={clearMomentFilters}
+                      accessibilityRole="button"
+                      style={{ paddingVertical: space.xxs, paddingHorizontal: space.sm }}
+                    >
                       <Text style={[type.body, { color: theme.accent, fontWeight: '700' }]}>{t('journey.moments.clearFilter')}</Text>
                     </Press>
-                  </AppCard>
+                  </View>
                 )}
               </View>
             ) : (

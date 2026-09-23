@@ -378,7 +378,6 @@ export function DiscoverScreen({
   const [visibleMomentIds, setVisibleMomentIds] = useState<string[]>([]);
   const momentAddActionRef = React.useRef<(() => void) | null>(null);
   const momentDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
-  const momentFilterActionRef = React.useRef<(() => void) | null>(null);
   const momentFilterMenuRef = React.useRef<JourneyMomentFilterMenuController | null>(null);
   const checklistAddActionRef = React.useRef<(() => void) | null>(null);
   const checklistDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
@@ -540,7 +539,6 @@ export function DiscoverScreen({
     setVisibleMomentIds([]);
     momentAddActionRef.current = null;
     momentDeleteActionRef.current = null;
-    momentFilterActionRef.current = null;
     momentFilterMenuProgress.setValue(0);
     setMomentFilterMenuOpen(false);
     checklistAddActionRef.current = null;
@@ -1633,7 +1631,6 @@ export function DiscoverScreen({
                 onSelectedTabChange={handleSelectedJourneyTabChange}
                 momentAddActionRef={momentAddActionRef}
                 momentDeleteActionRef={momentDeleteActionRef}
-                momentFilterActionRef={momentFilterActionRef}
                 momentFilterMenuRef={momentFilterMenuRef}
                 onMomentFilterMenuOpenChange={setMomentFilterMenuVisible}
                 checklistAddActionRef={checklistAddActionRef}
@@ -1821,29 +1818,6 @@ export function DiscoverScreen({
               >
                 <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
                   <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.xxs, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
-                    {momentFilterMenuRef.current.typeTitle}
-                  </Text>
-                  {momentFilterMenuRef.current.typeOptions.map((option) => {
-                    const selected = option.id === momentFilterMenuRef.current?.selectedType;
-                    return (
-                      <Press
-                        key={option.id}
-                        scaleTo={1}
-                        onPress={() => momentFilterMenuRef.current?.selectType(option.id)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        style={{ minHeight: 48, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-                      >
-                        <View style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-                          <Icon name={option.icon} color={theme.text2} size={15} />
-                        </View>
-                        <Text numberOfLines={1} style={[type.body, { flex: 1, color: theme.text, fontWeight: selected ? '700' : '500' }]}>{option.label}</Text>
-                        {selected ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
-                      </Press>
-                    );
-                  })}
-
-                  <Text style={[type.caption, { paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xs, color: theme.text2, fontWeight: '600' }]}>
                     {momentFilterMenuRef.current.participantTitle}
                   </Text>
                   <Press
@@ -1861,11 +1835,11 @@ export function DiscoverScreen({
                     </Text>
                     {momentFilterMenuRef.current.selectedAuthor == null ? <Icon name="check" color={theme.accent} size={16} strokeWidth={2.4} /> : null}
                   </Press>
-                  {momentFilterMenuRef.current.authors.map((author) => {
+                  {momentFilterMenuRef.current.authors.map((author, authorIndex) => {
                     const selected = author.key === momentFilterMenuRef.current?.selectedAuthor;
                     return (
                       <Press
-                        key={author.key}
+                        key={`${author.key}-${authorIndex}`}
                         scaleTo={1}
                         onPress={author.count > 0 ? () => momentFilterMenuRef.current?.selectAuthor(author.key) : undefined}
                         disabled={author.count === 0}

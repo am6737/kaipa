@@ -1235,11 +1235,8 @@ export const en: SameShape<typeof zh> = {
       title: "Moments",
       userPhotos: "User photos",
       countPhotos: "{count} photos",
-      filterTitle: "Filter moments",
-      filterType: "Type",
       filterParticipant: "Participants",
       filterAllParticipants: "All",
-      filterCount: "{count} filters",
       filterPhotos: "Photos",
       filterVideos: "Videos",
       filterLivePhotos: "Live Photos",
@@ -1412,9 +1409,10 @@ export const en: SameShape<typeof zh> = {
       to: "to",
       addPhoto: "Add photo",
       photoLimit: "Up to 10 photos",
-      uploadFailedTitle: "Photo upload failed",
       uploadFailedMessage:
         "The photo was not saved to the cloud. Check your connection and try again.",
+      saveFailedTitle: "This item was not saved",
+      saveFailedMessage: "The content was not written to the cloud. Check your connection and try again.",
       addPlaceholder:
         "Note an item… a plan, reminder, or something on the trail",
       newGroupPlaceholder: "New group name",
@@ -1441,7 +1439,6 @@ export const en: SameShape<typeof zh> = {
       placeSearchNoMatch: "No matching places",
       placeSearchClear: "Clear search",
       placeCarryHint: "Where the last day ended",
-      placeCarryApply: "Use",
 
     },
     manage: {
