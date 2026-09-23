@@ -1404,10 +1404,20 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
   const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t('journey.timeline.ungrouped');
   const currentDay = selectedDay || activeDay;
   const nextDayName = () => nextJourneyDayKey(groups.map((group) => group.key));
+  // A day that the server refused must not pass as added — these three used to
+  // be swallowed (one only warned to the console), so a group could be missing
+  // from the cloud with nothing said.
+  const reportGroupFailure = (error: unknown) => {
+    if (isWriteBusy(error)) {
+      Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+    } else {
+      Alert.alert(t('journey.timeline.groupFailedTitle'), t('journey.timeline.groupFailedMessage'));
+    }
+  };
   const addNextDay = () => {
     const day = nextDayName();
-    tl.addGroup(day);
-    setActiveDay(day);
+    // Move to the new day only once it exists.
+    void tl.addGroup(day).then(() => setActiveDay(day)).catch(reportGroupFailure);
   };
   const toggleCollapse = (key: string) => {
     const collapsing = collapsed.has(key) ? false : true;
@@ -1434,7 +1444,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
-            tl.removeGroup(g.key);
+            void tl.removeGroup(g.key).catch(reportGroupFailure);
             if (currentDay === g.key) setActiveDay(ALL_DAYS);
           },
         },
@@ -1605,7 +1615,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
             if (group) confirmDeleteGroup(group);
           }}
           onRenameItem={(key, label) => {
-            tl.renameGroup(key, label);
+            void tl.renameGroup(key, label).catch(reportGroupFailure);
             if (currentDay === key) setActiveDay(label);
           }}
         />

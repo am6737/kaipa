@@ -181,7 +181,10 @@ export function useTimeline(
 
   const toggle = async (id: string) => {
     const current = isDone(id);
-    await supabase.from('timeline_rows').update({ checked: !current }).eq('id', id);
+    const { error } = await supabase.from('timeline_rows').update({ checked: !current }).eq('id', id);
+    // Nothing calls this today — the share poster only reads `checked` — but it
+    // must not take the cache along with a write the server refused.
+    if (error) throw error;
     setState(key, (s) => ({ ...s, rows: s.rows.map(r => r.id === id ? { ...r, checked: !current } : r) }));
   };
 
@@ -268,7 +271,10 @@ export function useTimeline(
   const removeGroup = async (day: string) => {
     const ids = state.rows.filter(r => r.day === day).map(r => r.id);
     if (ids.length) {
-      await supabase.from('timeline_rows').delete().in('id', ids);
+      const { error } = await supabase.from('timeline_rows').delete().in('id', ids);
+      // The rows have to be gone before the group is marked deleted, or the day
+      // returns on the next load with its items still under it.
+      if (error) throw error;
     }
     await persistGroup(day, true);
     setState(key, (s) => ({
@@ -282,27 +288,28 @@ export function useTimeline(
   const addGroup = async (day: string) => {
     const next = day.trim();
     if (!next) return;
-    try {
-      await persistGroup(next, false);
-      setState(key, (s) => ({
-        ...s,
-        knownGroups: s.knownGroups.includes(next) ? s.knownGroups : [...s.knownGroups, next],
-        removedGroups: s.removedGroups.filter((group) => group !== next),
-      }));
-    } catch (error) {
-      console.warn('[useTimeline] group save failed:', error);
-    }
+    // Let the failure reach the caller: the catch that used to live here only
+    // warned, so a day that was never created looked like nothing happened.
+    await persistGroup(next, false);
+    setState(key, (s) => ({
+      ...s,
+      knownGroups: s.knownGroups.includes(next) ? s.knownGroups : [...s.knownGroups, next],
+      removedGroups: s.removedGroups.filter((group) => group !== next),
+    }));
   };
 
   const renameGroup = async (from: string, to: string) => {
     const next = to.trim();
     if (!from || !next || from === next || !journeyId || !userId) return;
-    await supabase
+    const { error } = await supabase
       .from('timeline_rows')
       .update({ day: next })
       .eq('journey_id', journeyId)
       .eq('user_id', userId)
       .eq('day', from);
+    // Rows still carrying the old day would reappear under it, so stop before
+    // the groups are renamed.
+    if (error) throw error;
     const route = state.groupRoutes[from];
     await Promise.all([persistGroup(from, true), persistGroup(next, false, route)]);
     setState(key, (s) => {
