@@ -10,6 +10,27 @@ export async function refetchJourneyInspo(journeyId: string) {
   await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
 }
 
+// The cloud write is not the part worth parallelizing. A moment insert fires the
+// version trigger on inspo_media, which takes the parent journey row lock, and a
+// concurrent insert of the same journey sits on the foreign key's KEY SHARE while
+// it waits for that lock. The server does not resolve that cycle, so both
+// requests used to hang until the authenticated role's 8s statement_timeout
+// killed the batch. Uploads stay 4-wide; the insert queues per journey.
+const insertChains = new Map<string, Promise<unknown>>();
+
+function queueInsert<T>(journeyId: string, run: () => PromiseLike<T>): Promise<T> {
+  const previous = insertChains.get(journeyId) ?? Promise.resolve();
+  const next = previous.then(() => run());
+  // Store an already-caught tail: one failed upload must not cancel the queue
+  // behind it, and dropping the tail keeps the map from growing with journeys.
+  const tail = next.catch(() => {});
+  insertChains.set(journeyId, tail);
+  void tail.then(() => {
+    if (insertChains.get(journeyId) === tail) insertChains.delete(journeyId);
+  });
+  return next;
+}
+
 export function useInspo(journeyId: string | undefined, userId: string | undefined, previewRows?: Record<string, unknown>[]) {
   const [media, setMedia] = useState<InspoMedia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,11 +170,13 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
           if (m.thumbnail) thumbnail = await uploadMedia(m.thumbnail, userId, journeyId);
           let pairedVideoUri: string | null = null;
           if (m.pairedVideoUri) pairedVideoUri = await uploadMedia(m.pairedVideoUri, userId, journeyId);
-          const { data, error } = await supabase.from('inspo_media').insert({
-            journey_id: journeyId, user_id: userId, uri, kind: m.kind,
-            thumbnail, duration: m.duration ?? null, paired_video_uri: pairedVideoUri,
-            caption: m.caption?.trim() || null,
-          }).select().single();
+          const { data, error } = await queueInsert(journeyId, () =>
+            supabase.from('inspo_media').insert({
+              journey_id: journeyId, user_id: userId, uri, kind: m.kind,
+              thumbnail, duration: m.duration ?? null, paired_video_uri: pairedVideoUri,
+              caption: m.caption?.trim() || null,
+            }).select().single(),
+          );
           if (error) throw error;
           if (data) setMedia(prev => prev.map(item => item.id === tempId ? toInspoMedia(data) : item));
         } catch (error) {
