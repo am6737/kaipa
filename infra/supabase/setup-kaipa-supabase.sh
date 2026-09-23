@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEFAULT_RUNTIME="$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker"
+DEFAULT_RUNTIME="$ROOT/infra/supabase/docker"
 RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$DEFAULT_RUNTIME}"
 SOURCE_DIR="${SUPABASE_DOCKER_SOURCE:-}"
 PUBLIC_URL="${KAIPA_SUPABASE_PUBLIC_URL:-https://8010--main--am--am6737.coder.dootask.com}"
@@ -23,7 +23,7 @@ usage() {
 Usage: infra/supabase/setup-kaipa-supabase.sh [options]
 
 Creates an isolated self-hosted Supabase runtime for Kaipa.
-Runtime data/secrets are generated outside the app repo by default.
+Runtime data/secrets live in infra/supabase/docker/ and are gitignored.
 
 Options:
   --runtime DIR        Runtime Supabase directory. Default: $DEFAULT_RUNTIME
@@ -395,6 +395,7 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918120000_journey_passphrase.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918130000_notifications_realtime.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918140000_real_notifications.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260918150000_journey_realtime.sql"
   # Applied in timestamp order, one file at a time: several of these narrow a
   # constraint or replace a function the previous one created, so the order is
   # part of the migration rather than an accident of listing. The seed of

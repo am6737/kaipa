@@ -73,14 +73,14 @@ DNS 这一条不是可选项：校验 ID token 时 GoTrue 要在运行时访问 
 改完配置后重建 auth 容器：
 
 ```bash
-cd ~/workspaces/kaipa-supabase-docker && docker compose up -d auth
+cd ~/workspaces/kaipa/infra/supabase/docker && docker compose up -d auth
 ```
 
 ### 自查
 
 ```bash
 docker exec kaipa-supabase-auth env | grep APPLE
-ANON_KEY=$(grep -m1 '^ANON_KEY=' ~/workspaces/kaipa-supabase-docker/.env | cut -d= -f2-)
+ANON_KEY=$(grep -m1 '^ANON_KEY=' ~/workspaces/kaipa/infra/supabase/docker/.env | cut -d= -f2-)
 curl -s -H "apikey: $ANON_KEY" http://127.0.0.1:8010/auth/v1/settings \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['external']['apple'])"
 ```

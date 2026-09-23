@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker}"
+RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$ROOT/infra/supabase/docker}"
 test -f "$RUNTIME_DIR/docker-compose.yml"
 test -f "$RUNTIME_DIR/.env"
 mkdir -p "$RUNTIME_DIR/rail-query"

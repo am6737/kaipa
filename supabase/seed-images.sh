@@ -8,7 +8,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker}"
+RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$ROOT/infra/supabase/docker}"
 DB_CONTAINER="${KAIPA_SUPABASE_DB_CONTAINER:-kaipa-supabase-db}"
 
 read_env() {

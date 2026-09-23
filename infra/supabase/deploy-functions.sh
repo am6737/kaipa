@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEFAULT_RUNTIME="$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker"
+DEFAULT_RUNTIME="$ROOT/infra/supabase/docker"
 RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$DEFAULT_RUNTIME}"
 FUNCTIONS_CONTAINER="${KAIPA_SUPABASE_FUNCTIONS_CONTAINER:-kaipa-supabase-edge-functions}"
 

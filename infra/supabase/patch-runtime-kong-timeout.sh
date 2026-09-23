@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker}"
+RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$ROOT/infra/supabase/docker}"
 KONG_FILE="${KAIPA_KONG_CONFIG:-$RUNTIME_DIR/volumes/api/kong.yml}"
 KONG_CONTAINER="${KAIPA_KONG_CONTAINER:-kaipa-supabase-kong}"
 TIMEOUT_MS="${KAIPA_KONG_FUNCTIONS_TIMEOUT_MS:-780000}"

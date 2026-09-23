@@ -67,7 +67,7 @@ transaction benchmarks. Model durations exclude metrics-persistence overhead.
 ```sh
 node scripts/test-agent-packing-draft-db.cjs
 infra/supabase/apply-migration.sh supabase/migrations/20260908120000_agent_packing_drafts.sql
-npx --yes deno run --env-file=../kaipa-supabase-docker/.env --allow-env --allow-net --allow-read supabase/functions/app-agent/packing-draft.integration.ts
+npx --yes deno run --env-file=infra/supabase/docker/.env --allow-env --allow-net --allow-read supabase/functions/app-agent/packing-draft.integration.ts
 infra/supabase/deploy-functions.sh app-agent
 EVAL_EXPECT_DRAFT=1 EVAL_CASES=day-trip-no-refill,incremental-cable EVAL_REPORT=/tmp/packing-drafts.json node --experimental-strip-types --env-file=.env scripts/evaluate-app-agent-packing.mjs
 ```

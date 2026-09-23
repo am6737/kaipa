@@ -11,31 +11,44 @@ This folder contains the reproducible setup for an isolated Kaipa Supabase runti
 - `supabase/seed.sql`
 - `supabase/functions/`
 - `infra/supabase/setup-kaipa-supabase.sh`
+- `infra/supabase/docker/` — the Git-tracked source of the self-hosted stack:
+  `docker-compose*.yml`, `run.sh`, `setup.sh`, `reset.sh`, `utils/`, `tests/`,
+  `dev/`, `.env.example`, `CONFIG.md`, `CHANGELOG.md`, `versions.md`, `README.md`
+
+## Where things live
+
+`infra/supabase/docker/` is both the Git-tracked source of the stack (compose
+files, `run.sh`, `utils/`, `tests/`, `dev/`, docs) and the live runtime
+workspace. Everything runtime-only is gitignored there:
+
+- `.env` (and `.env.*` variants), `kaipa-client.env` — secrets, never commit
+- `volumes/` — DB data, storage files, Kong config, deployed functions
+- `_archive/` — legacy debris (old migrations from an unrelated project, backups)
+- `agent-worker.mjs`, `agent-worker.compose.yml`, `rail-query/`,
+  `rail-query.compose.yml` — runtime copies installed by
+  `deploy-agent-worker.sh` / `deploy-rail-query.sh` from the tracked sources in
+  `infra/supabase/`; edit the tracked ones, never the copies
+
+To manage the stack: `cd infra/supabase/docker && sh run.sh status|logs|restart …`.
+For overrides (`pg17`, `rustfs`, …) use `sh run.sh config add|remove <name>`.
 
 ## What must stay outside Git
 
 - generated Supabase `.env` files with service-role keys / DB passwords
-- `volumes/db/data/`
-- `volumes/storage/`
-- Studio snippets and local backups
+- `volumes/` (DB data, storage, Studio snippets, local backups)
+- runtime copies of `agent-worker.*` and `rail-query*`
 
 ## Create a fresh isolated runtime
 
-By default the runtime is created next to the app repo:
-
-```text
-/home/coder/workspaces/
-  kaipa/                    # app repo
-  kaipa-supabase-docker/    # generated runtime, not committed
-```
-
-Run:
+Run from the repo root:
 
 ```bash
 infra/supabase/setup-kaipa-supabase.sh
 ```
 
-The script copies a self-hosted Supabase Docker template, patches it to use Kaipa
+The target runtime dir defaults to `infra/supabase/docker/` (point
+`KAIPA_SUPABASE_RUNTIME_DIR` elsewhere for an isolated copy). The script copies
+a self-hosted Supabase Docker template, patches it to use Kaipa
 container names/ports, generates fresh JWT/API keys, starts Docker, applies Kaipa
 schema/migrations, creates `demo@kaipa.app / demo123456`, seeds demo data, and writes
 Kaipa's public URL + anon key into the app `.env`.

@@ -89,7 +89,7 @@
 ```bash
 /home/coder/.deno/bin/deno run --allow-env --allow-net --allow-read \
   --allow-write=/tmp/kaipa-hatian-track-validation.json \
-  --env-file=../kaipa-supabase-docker/.env \
+  --env-file=infra/supabase/docker/.env \
   supabase/functions/app-agent/hatian-validation.integration.ts <journey-id>
 ```
 

@@ -55,7 +55,7 @@ export function useJourneys(userId: string | undefined) {
     }
 
     // Keep journey/map data available while an older database is still waiting
-    // for supabase/companion-avatar-url.sql. PostgREST rejects the entire nested
+    // for supabase/applied/companion-avatar-url.sql. PostgREST rejects the entire nested
     // query when one selected companion column is missing, which otherwise makes
     // the journey tab look empty (including every map avatar).
     if (

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 MEDIA_CRAWLER_DIR="${MEDIA_CRAWLER_DIR:-$HOME/workspaces/MediaCrawler}"
-SUPABASE_ENV="${KAIPA_SUPABASE_ENV:-$HOME/workspaces/kaipa-supabase-docker/.env}"
+SUPABASE_ENV="${KAIPA_SUPABASE_ENV:-$HOME/workspaces/kaipa/infra/supabase/docker/.env}"
 STATE_DIR="${KAIPA_GATEWAY_STATE_DIR:-$HOME/.local/state/kaipa-gateway}"
 UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
 PID_FILE="$STATE_DIR/gateway.pid"

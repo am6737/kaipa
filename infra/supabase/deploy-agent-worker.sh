@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$(cd "$ROOT/.." && pwd)/kaipa-supabase-docker}"
+RUNTIME_DIR="${KAIPA_SUPABASE_RUNTIME_DIR:-$ROOT/infra/supabase/docker}"
 if [[ ! -f "$RUNTIME_DIR/docker-compose.yml" || ! -f "$RUNTIME_DIR/.env" ]]; then
   echo 'Self-hosted Supabase runtime is missing.' >&2
   exit 1

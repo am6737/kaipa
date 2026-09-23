@@ -25,7 +25,7 @@
 ```bash
 env KAIPA_AI_MODEL=<model> /home/coder/.deno/bin/deno run \
   --allow-env --allow-read --allow-net \
-  --env-file=../kaipa-supabase-docker/.env \
+  --env-file=infra/supabase/docker/.env \
   supabase/tests/agent-track-planning.integration.ts <source-journey-id> --track-only
 ```
 
