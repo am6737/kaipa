@@ -1415,6 +1415,8 @@ export const en: SameShape<typeof zh> = {
       saveFailedMessage: "The content was not written to the cloud. Check your connection and try again.",
       saveBusyTitle: "This journey is already saving",
       saveBusyMessage: "Another save to it has not finished yet. Try again in a moment.",
+      deleteFailedTitle: "These items were not deleted",
+      deleteFailedMessage: "They are still stored in the cloud. Try again in a moment.",
       addPlaceholder:
         "Note an item… a plan, reminder, or something on the trail",
       newGroupPlaceholder: "New group name",

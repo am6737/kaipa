@@ -1395,6 +1395,8 @@ export const zh = {
       saveFailedMessage: "内容未写入云端，请检查网络后重试。",
       saveBusyTitle: "同一行程正在保存中",
       saveBusyMessage: "另一处保存还没完成。稍后重试即可。",
+      deleteFailedTitle: "没有删除成功",
+      deleteFailedMessage: "选中的行程项还在云端，请稍后重试。",
       addPlaceholder: "记一条行程…",
       newGroupPlaceholder: "新分组名称",
       renameGroup: "编辑分组名称",

@@ -201,57 +201,68 @@ export function useTimeline(
     return fields;
   };
 
-  const add = async (item: Omit<TLRow, 'id'>) => {
-    if (!journeyId || !userId) return;
+  const add = async (item: Omit<TLRow, 'id'>): Promise<string | undefined> => {
+    if (!journeyId || !userId) return undefined;
     const id = 'c_' + Math.random().toString(36).slice(2, 10);
-    const { data, error } = await supabase.rpc('journey_save_timeline_item', {
+    const optimistic: TLRow = { ...item, id };
+    setState(key, (s) => ({
+      ...s,
+      rows: [...s.rows, optimistic],
+      knownGroups: item.day && !s.knownGroups.includes(item.day) ? [...s.knownGroups, item.day] : s.knownGroups,
+      removedGroups: item.day ? s.removedGroups.filter((group) => group !== item.day) : s.removedGroups,
+    }));
+    try {
+      const { data, error } = await supabase.rpc('journey_save_timeline_item', {
       p_id: id,
       p_journey_id: journeyId,
       p_is_new: true,
       p_fields: { ...itemFields(item), sortOrder: state.rows.length },
-    });
-    if (error) throw error;
-    setState(key, (s) => ({
-      ...s,
-      rows: [...s.rows, toTLRow(data)],
-      knownGroups: item.day && !s.knownGroups.includes(item.day) ? [...s.knownGroups, item.day] : s.knownGroups,
-      removedGroups: item.day ? s.removedGroups.filter((group) => group !== item.day) : s.removedGroups,
-    }));
+      });
+      if (error) throw error;
+      const saved = toTLRow(data);
+      setState(key, (s) => ({ ...s, rows: s.rows.map((row) => row.id === id ? saved : row) }));
+      return id;
+    } catch (error) {
+      setState(key, (s) => ({ ...s, rows: s.rows.filter((row) => row.id !== id) }));
+      throw error;
+    }
   };
 
   const update = async (id: string, patch: Partial<Omit<TLRow, 'id'>>) => {
     if (!journeyId) return;
-    const { data, error } = await supabase.rpc('journey_save_timeline_item', {
+    const previous = state.rows.find((row) => row.id === id);
+    if (!previous) throw new Error('Timeline item is no longer available');
+    const optimistic = { ...previous, ...patch };
+    setState(key, (s) => ({
+      ...s,
+      rows: s.rows.map((row) => row.id === id ? optimistic : row),
+      knownGroups: optimistic.day && !s.knownGroups.includes(optimistic.day) ? [...s.knownGroups, optimistic.day] : s.knownGroups,
+      removedGroups: optimistic.day ? s.removedGroups.filter((group) => group !== optimistic.day) : s.removedGroups,
+    }));
+    try {
+      const { data, error } = await supabase.rpc('journey_save_timeline_item', {
       p_id: id,
       p_journey_id: journeyId,
       p_is_new: false,
       p_fields: itemFields(patch),
-    });
-    if (error) throw error;
-    const saved = toTLRow(data);
-    setState(key, (s) => ({
-      ...s,
-      rows: s.rows.map(r => r.id === id ? saved : r),
-      knownGroups: saved.day && !s.knownGroups.includes(saved.day) ? [...s.knownGroups, saved.day] : s.knownGroups,
-      removedGroups: saved.day ? s.removedGroups.filter((group) => group !== saved.day) : s.removedGroups,
-    }));
+      });
+      if (error) throw error;
+      const saved = toTLRow(data);
+      setState(key, (s) => ({ ...s, rows: s.rows.map((row) => row.id === id ? saved : row) }));
+    } catch (error) {
+      setState(key, (s) => ({ ...s, rows: s.rows.map((row) => row.id === id ? previous : row) }));
+      throw error;
+    }
   };
 
+  // The server goes first and the row leaves the cache only once it is really
+  // gone: a delete that loses the journey's row lock used to drop the row from
+  // the list anyway, so the item came back on the next open and the failure was
+  // invisible in between.
   const remove = async (id: string) => {
-    // TEMP PROBE — delete did nothing visible; this one log separates every
-    // candidate: dead press, wrong cache key, id not in this cache, RLS error.
-    const before = getState(key).rows;
-    console.warn('[tl.remove]', JSON.stringify({
-      key: key || '(empty)',
-      id,
-      found: before.some((r) => r.id === id),
-      rowCount: before.length,
-      listenerCount: listeners.get(key)?.size ?? 0,
-    }));
     const { error } = await supabase.from('timeline_rows').delete().eq('id', id);
-    console.warn('[tl.remove] db', error ? `ERROR ${error.code} ${error.message}` : 'ok');
+    if (error) throw error;
     setState(key, (s) => ({ ...s, rows: s.rows.filter(r => r.id !== id) }));
-    console.warn('[tl.remove] after', JSON.stringify({ rowCount: getState(key).rows.length }));
   };
 
   const removeGroup = async (day: string) => {

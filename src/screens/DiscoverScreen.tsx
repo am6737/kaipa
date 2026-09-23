@@ -31,6 +31,7 @@ import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
 import { buildJourneyLegs, buildJourneyStops, journeyDayOrder, measureJourneyDays, type JourneyLeg } from '../lib/journeyStops';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
+import { isWriteBusy } from '../lib/writeErrors';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { Maximize2, Minimize2, RotateCcw, Search } from 'lucide-react-native';
@@ -607,8 +608,19 @@ export function DiscoverScreen({
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
-            void Promise.all([...selectedTimelineItemIds].map((id) => focusedTimeline.remove(id)));
-            setSelectedTimelineItemIds(new Set());
+            void (async () => {
+              try {
+                await Promise.all([...selectedTimelineItemIds].map((id) => focusedTimeline.remove(id)));
+                setSelectedTimelineItemIds(new Set());
+              } catch (error) {
+                // Keep the selection so the same delete can be retried.
+                if (isWriteBusy(error)) {
+                  Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+                } else {
+                  Alert.alert(t('journey.timeline.deleteFailedTitle'), t('journey.timeline.deleteFailedMessage'));
+                }
+              }
+            })();
           },
         },
       ],

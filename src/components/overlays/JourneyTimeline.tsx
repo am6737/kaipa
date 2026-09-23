@@ -26,6 +26,7 @@ import { Press, PressDragGuardContext, useDragCancelledPress } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { uploadMedia } from '../../lib/storage';
+import { isWriteBusy } from '../../lib/writeErrors';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
@@ -1659,8 +1660,12 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
                           const nextMedia = (row.media || []).filter((_, i) => i !== deleteIndex);
                           try {
                             await tl.update(row.id, { media: nextMedia.length ? nextMedia : undefined });
-                          } catch {
-                            Alert.alert(t('journey.timeline.saveFailedTitle'), t('journey.timeline.saveFailedMessage'));
+                          } catch (error) {
+                            if (isWriteBusy(error)) {
+                              Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+                            } else {
+                              Alert.alert(t('journey.timeline.saveFailedTitle'), t('journey.timeline.saveFailedMessage'));
+                            }
                           }
                           setViewer(null);
                         },
@@ -1695,7 +1700,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   knownGroups: string[];
   editRow?: TLRow;
   zIndex?: number;
-  onSubmit: (it: Omit<TLRow, 'id'>) => void | Promise<void>;
+  onSubmit: (it: Omit<TLRow, 'id'>) => void | Promise<unknown>;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -1913,8 +1918,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const submit = async () => {
     if (!can) return;
     setSubmitting(true);
-    try {
-      await onSubmit({
+    const submission = Promise.resolve(onSubmit({
         title,
         day: day.trim() || defaultDay,
         media: media.length ? media : undefined,
@@ -1922,18 +1926,22 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
         timeEnd: endMins ?? undefined,
         kind: editRow?.kind ?? 'activity',
         location: location.name ? location : undefined,
-      });
-      animateClose();
-    } catch (error) {
+      }));
+    animateClose();
+    void submission.catch((error) => {
       console.warn('Failed to save journey timeline item', error);
+      // Another writer holds this journey's row lock — nothing is wrong with the
+      // edit itself, so say that instead of blaming the connection.
+      if (isWriteBusy(error)) {
+        Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+        return;
+      }
       const detail = error instanceof Error ? error.message : String(error);
       Alert.alert(
         t('journey.timeline.saveFailedTitle'),
         [t('journey.timeline.saveFailedMessage'), detail].filter(Boolean).join('\n'),
       );
-    } finally {
-      setSubmitting(false);
-    }
+    });
   };
 
   const subtle = theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
@@ -2157,12 +2165,16 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
       knownGroups={tl.knownGroups}
       editRow={editRow}
       onClose={onClose}
-      onSubmit={async (it) => {
-        if (it.media?.length && userId) {
-          it = { ...it, media: await uploadTLMedia(it.media, userId, info.id) };
-        }
-        if (editRow) await tl.update(editRow.id, it);
-        else await tl.add(it);
+      onSubmit={(it): Promise<unknown> => {
+        const media = it.media;
+        const item = { ...it, media: undefined };
+        const save = editRow ? tl.update(editRow.id, item) : tl.add(item);
+        if (!media?.length || !userId) return save;
+        return save.then(async (addedId) => {
+          const uploaded = await uploadTLMedia(media, userId, info.id);
+          if (editRow) await tl.update(editRow.id, { media: uploaded });
+          else if (addedId) await tl.update(addedId, { media: uploaded });
+        });
       }}
     />
   );
