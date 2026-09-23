@@ -50,6 +50,27 @@ export type FactFormValues = {
   fields: Record<string, string>
 }
 
+// What route-fact-analyze returns for one fact found in the source. Names,
+// missing-required fields and duplicates are derived in the console, which
+// already holds the catalogs.
+export type FactDraft = {
+  route_id: string | null
+  category_slug: string
+  title: string
+  fields: Record<string, string | number>
+  warnings: string[]
+}
+
+// One card in the batch dialog: a parsed draft or a hand-written entry.
+// `aiFields` only drives the label marker; it never reaches the saved values.
+export type FactDraftCard = {
+  id: string
+  values: FactFormValues
+  warnings: string[]
+  aiFields: string[]
+  expanded: boolean
+}
+
 export function serializeFactFields(schema: FactField[], values: Record<string, string>): Record<string, string | number> {
   const out: Record<string, string | number> = {}
   for (const field of schema) {

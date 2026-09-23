@@ -77,22 +77,33 @@ export function RouteFacts() {
     try { await adminMutation('routeFacts', body); await refresh() }
     catch (e) { setError(e instanceof Error ? e.message : '操作失败') }
   }
-  const saveFact = async (values: FactFormValues) => {
-    const schema = categories.find((category) => category.slug === values.category_slug)?.field_schema || []
-    await runMutation({
-      action: 'save-route-fact',
-      ...(values.id ? { id: values.id } : {}),
-      route_id: values.route_id,
-      category_slug: values.category_slug,
-      title: values.title,
-      source_url: values.source_url,
-      review_due_at: values.review_due_at ? new Date(values.review_due_at).toISOString() : '',
-      fields: JSON.stringify(serializeFactFields(schema, values.fields)),
-    })
-  }
-  const analyzeFact = async (input: { category_slug: string; source_url: string; source_text: string; source_file?: { name: string; content_type: string; base64: string } }) => {
+  const saveFacts = async (items: FactFormValues[]) => {
     setError(null)
-    try { return (await analyzeRouteFact(input)).draft }
+    const failed: string[] = []
+    for (const values of items) {
+      const schema = categories.find((category) => category.slug === values.category_slug)?.field_schema || []
+      try {
+        await adminMutation('routeFacts', {
+          action: 'save-route-fact',
+          ...(values.id ? { id: values.id } : {}),
+          route_id: values.route_id,
+          category_slug: values.category_slug,
+          title: values.title,
+          source_url: values.source_url,
+          review_due_at: values.review_due_at ? new Date(values.review_due_at).toISOString() : '',
+          fields: JSON.stringify(serializeFactFields(schema, values.fields)),
+        })
+      } catch {
+        // One bad card must not cost the human the rest of the batch.
+        failed.push(values.title || '未命名条目')
+      }
+    }
+    await refresh()
+    if (failed.length) { setError(`${failed.length} 条保存失败：${failed.join('、')}`); throw new Error('save_failed') }
+  }
+  const analyzeFact = async (input: { source_url: string; source_text: string; source_file?: { name: string; content_type: string; base64: string } }) => {
+    setError(null)
+    try { return (await analyzeRouteFact(input)).items }
     catch (cause) {
       const message = cause instanceof Error ? cause.message : '资料解析失败'
       setError(message)
@@ -204,9 +215,10 @@ export function RouteFacts() {
           open={editor.open}
           categories={categories}
           routes={routes}
+          entries={factsQuery.data ?? []}
           initial={editor.initial}
           onOpenChange={(open) => setEditor((current) => ({ ...current, open, initial: open ? current.initial : undefined }))}
-          onSubmit={saveFact}
+          onSubmit={saveFacts}
           onAnalyze={analyzeFact}
         />
       </Main>
