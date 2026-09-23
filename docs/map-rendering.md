@@ -4,6 +4,21 @@ Per-topic notes about the native map (`src/components/globe/MapGlobe.tsx`,
 `src/components/maps/NativeMap.*.tsx`). Read this before re-investigating a map
 overlay visual issue.
 
+## Framing the camera against the detail card
+
+`MapGlobe` computes one box — `routePadding` = [top, 54, card height + gap, 54] —
+and every camera command has to respect it, because the journey/route card covers
+the bottom of an otherwise full-screen map. Two rules that are easy to break:
+
+- A single-coordinate frame goes through `moveCamera`, which centres the region in
+  the **view**, not in the padded box — that put one-place days under the card.
+  `moveCamera` therefore takes `options.edgePadding` and shifts the target centre
+  the other way (`offsetCenter` on iOS, `shiftedTarget` on Android).
+- A card snapped to its top leaves less room than the bottom padding asks for
+  (bottom + 90 > map height). Both native maps mishandle a zero/negative-area box
+  by dumping the content mid-view, so `MapGlobe` trades the *top* padding down
+  first (`MAP_FRAME_MIN_BAND`) and the strip above the card stays the target.
+
 ## Recorded-track polyline flickers during camera moves (MapKit limitation)
 
 **Symptom.** On iOS, a journey's recorded hiking track (the `discover-segment-*`

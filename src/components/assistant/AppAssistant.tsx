@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File as FSFile } from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Platform, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type ColorValue, type GestureResponderEvent } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -29,6 +31,47 @@ import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
 import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
+
+const IS_IOS = Platform.OS === 'ios';
+// How far the veil reaches past the bar into the list. The reference look is a wash
+// of page colour thinning out over the rows, not a slab of frosted glass.
+const CHROME_WASH = 56;
+
+// The message list runs beneath the header and the composer so the blurred chrome
+// has something to frost. The header is an overlay, so the list pads by its height;
+// the composer stays in flow, so the list only bleeds under it.
+const headerBandHeight = (insetTop: number) => Math.max(94, insetTop + space.md + layout.iconButton + space.sm);
+// styles.composer.maxHeight + the generated notice line + the animated bottom inset.
+const composerBandHeight = (insetBottom: number) => 108 + space.xxs + 14 + Math.max(insetBottom - space.sm, space.xxs);
+
+function ChromeBackdrop({ theme, edge }: { theme: Theme; edge: 'top' | 'bottom' }) {
+  // Same rgb throughout, only the alpha changes: 'transparent' is rgba(0,0,0,0) and
+  // interpolating it towards white draws a grey bar.
+  const rgb = theme.dark ? '0,0,0' : '255,255,255';
+  const veil = (a: number) => `rgba(${rgb},${a})` as ColorValue;
+  const colors: [ColorValue, ColorValue, ColorValue] = edge === 'top'
+    ? [veil(0.92), veil(0.5), veil(0)]
+    : [veil(0), veil(0.5), veil(0.92)];
+  return (
+    <>
+      {/* expo-blur's iOS view is a plain ExpoView, so both layers must let the
+          list's touches through; the material stays inside the bar and is barely
+          there, the veil does the work. */}
+      <BlurView
+        pointerEvents="none"
+        intensity={20}
+        tint={theme.dark ? 'systemUltraThinMaterialDark' : 'systemUltraThinMaterialLight'}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={colors}
+        locations={[0, 0.45, 1]}
+        style={[StyleSheet.absoluteFill, edge === 'top' ? { bottom: -CHROME_WASH } : { top: -CHROME_WASH }]}
+      />
+    </>
+  );
+}
 
 type PendingAgentRequest = {
   args: Parameters<typeof sendAgentTurn>[0] & { clientRunId: string };
@@ -1903,6 +1946,11 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       : !turn.undoAction);
   };
 
+  const hasTurns = turns.length > 0;
+  const headerHeight = headerBandHeight(insets.top);
+  const chromeActive = IS_IOS && hasTurns;
+  const bleedBottom = chromeActive ? composerBandHeight(insets.bottom) : 0;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.root}>
@@ -1911,33 +1959,13 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           behavior="padding"
           automaticOffset
         >
-        <View style={[styles.header, { paddingTop: insets.top + space.md }]}>
-          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
-            <X size={23} color={theme.text} strokeWidth={2.2} />
-          </Press>
-          {currentJourney ? (
-            <View pointerEvents="box-none" style={styles.activeThreadTitleWrap}>
-              <Press
-                onPress={() => onOpenJourney(currentJourney.id)}
-                accessibilityRole="button"
-                accessibilityLabel={t('agent.openJourney', { name: currentJourney.name })}
-                style={[styles.journeyTitleWrap, { backgroundColor: theme.controlSurface }]}
-              >
-                <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{currentJourney.name}</Text>
-                <ChevronRight size={18} color={theme.text2} strokeWidth={2.2} />
-              </Press>
-            </View>
-          ) : threadId && threadTitle ? (
-            <View pointerEvents="none" style={styles.activeThreadTitleWrap}>
-              <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{threadTitle}</Text>
-            </View>
-          ) : null}
-          <Press onPress={openMenu} accessibilityRole="button" accessibilityLabel={t('agent.menu')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
-            <Menu size={24} color={theme.text} strokeWidth={1.8} />
-          </Press>
-        </View>
-
-        <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, turns.length === 0 && (currentJourney ? styles.journeyEmptyContent : styles.emptyContent)]}>
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={{ marginBottom: -bleedBottom }}
+          contentContainerStyle={[styles.content, turns.length === 0 && (currentJourney ? styles.journeyEmptyContent : styles.emptyContent), { paddingTop: space.md + headerHeight }, hasTurns && { paddingBottom: space.xxl + bleedBottom }]}
+        >
           {restoring ? <View style={styles.center}><ActivityIndicator color={theme.accent} /></View> : turns.length === 0 ? (
             currentJourney ? (
               <View style={styles.journeySuggestions}>
@@ -2119,7 +2147,36 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           ) : null}
         </ScrollView>
 
+        {/* Rendered after the list: expo-blur only samples what was drawn before it. */}
+        <View pointerEvents="box-none" style={[styles.header, { height: headerHeight, paddingTop: insets.top + space.md }]}>
+          {chromeActive ? <ChromeBackdrop theme={theme} edge="top" /> : null}
+          <Press onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common.close')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
+            <X size={23} color={theme.text} strokeWidth={2.2} />
+          </Press>
+          {currentJourney ? (
+            <View pointerEvents="box-none" style={styles.activeThreadTitleWrap}>
+              <Press
+                onPress={() => onOpenJourney(currentJourney.id)}
+                accessibilityRole="button"
+                accessibilityLabel={t('agent.openJourney', { name: currentJourney.name })}
+                style={[styles.journeyTitleWrap, { backgroundColor: theme.controlSurface }]}
+              >
+                <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{currentJourney.name}</Text>
+                <ChevronRight size={18} color={theme.text2} strokeWidth={2.2} />
+              </Press>
+            </View>
+          ) : threadId && threadTitle ? (
+            <View pointerEvents="none" style={styles.activeThreadTitleWrap}>
+              <Text numberOfLines={1} style={[styles.activeThreadTitle, { color: theme.text }]}>{threadTitle}</Text>
+            </View>
+          ) : null}
+          <Press onPress={openMenu} accessibilityRole="button" accessibilityLabel={t('agent.menu')} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
+            <Menu size={24} color={theme.text} strokeWidth={1.8} />
+          </Press>
+        </View>
+
         <Animated.View
+          pointerEvents="box-none"
           style={[
             styles.bottomArea,
             {
@@ -2127,10 +2184,11 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                 inputRange: [0, 1],
                 outputRange: [Math.max(insets.bottom - space.sm, space.xxs), 0],
               }),
-              backgroundColor: theme.featureSurface,
+              backgroundColor: IS_IOS ? undefined : theme.featureSurface,
             },
           ]}
         >
+          {chromeActive ? <ChromeBackdrop theme={theme} edge="bottom" /> : null}
           <View style={styles.composerWrap}>
             {voiceMode ? <Text style={[styles.voiceGestureHint, { color: voiceCancelling ? theme.danger : theme.text3 }]}>{t(voiceCancelling ? 'agent.voiceReleaseToCancel' : voiceHolding ? 'agent.voiceReleaseToSend' : 'agent.voiceListening')}</Text> : null}
             <View style={[styles.composer, { backgroundColor: theme.controlSurface }]}>
@@ -2302,14 +2360,14 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: { minHeight: 94, paddingHorizontal: space.lg, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  header: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: space.lg, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   headerButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 7px 20px rgba(0,0,0,0.07)' },
   activeThreadTitleWrap: { position: 'absolute', left: 76, right: 76, bottom: space.sm, height: 44, justifyContent: 'center', alignItems: 'center' },
   journeyTitleWrap: { maxWidth: '100%', height: 44, borderRadius: radius.pill, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
   activeThreadTitle: { maxWidth: '100%', flexShrink: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
   content: { flexGrow: 1, paddingHorizontal: layout.pagePadding, paddingTop: space.md, paddingBottom: space.xxl },
   emptyContent: { justifyContent: 'flex-end', paddingBottom: 58 },
-  journeyEmptyContent: { justifyContent: 'flex-start', paddingTop: space.lg },
+  journeyEmptyContent: { justifyContent: 'flex-start' },
   center: { flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' },
   welcome: { alignItems: 'flex-start' },
   heroMark: { height: 20, justifyContent: 'center', marginBottom: space.lg },

@@ -91,9 +91,19 @@ export interface NativeMapPolyline {
   dashed?: boolean;
 }
 
+export interface MoveCameraOptions {
+  resetOrientation?: boolean;
+  /**
+   * Same [top, right, bottom, left] box `fitCoordinates` takes. Without it a
+   * single-point move drops the target on the map view's centre, which on the
+   * journey card is under the sheet.
+   */
+  edgePadding?: [number, number, number, number];
+}
+
 export interface NativeMapHandle {
   fitCoordinates: (coordinates: MapCoordinate[], padding?: [number, number, number, number], duration?: number) => void;
-  moveCamera: (coordinate: MapCoordinate, zoom?: number, duration?: number, options?: { resetOrientation?: boolean }) => void;
+  moveCamera: (coordinate: MapCoordinate, zoom?: number, duration?: number, options?: MoveCameraOptions) => void;
   resetNorth: () => void;
 }
 

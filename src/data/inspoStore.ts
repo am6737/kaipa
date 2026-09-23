@@ -16,6 +16,8 @@ export interface InspoMedia {
   pairedVideoUri?: string;
   caption?: string;
   createdAt?: string;
+  /** Uploader, so the moments wall can attribute each item to a companion. */
+  userId?: string;
 }
 
 const store: { data: Record<string, InspoMedia[]>; subs: Set<() => void> } = { data: {}, subs: new Set() };

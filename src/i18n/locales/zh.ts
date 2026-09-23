@@ -1418,6 +1418,15 @@ export const zh = {
       placeSearchNoMatch: "没有匹配的地图地点",
       placeSearchClear: "清空搜索",
       placeCarryHint: "上一站的终点",
+      trackPlaceAction: "在轨迹上取点",
+      trackCount: "{count} 条轨迹",
+      trackChooseTitle: "选一条轨迹",
+      trackBack: "换一条",
+      trackMeta: "{km} km · {points} 个标注点",
+      trackPointName: "距起点 {km} km",
+      trackPointConfirm: "用这个点",
+      trackPointHint: "点一下线上的位置",
+      trackStale: "轨迹已更新，需重新选点",
 
     },
     manage: {

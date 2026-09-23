@@ -54,7 +54,8 @@ export interface GlobeJourneyDayLabel {
   color: string;
 }
 
-/** One itinerary stop that carries a place, drawn with its sequence number. */
+/** One itinerary stop that carries a place, drawn with its sequence number.
+ *  Only the open day's stops are sent; the overview sends unnumbered dots. */
 export interface GlobeJourneyStop {
   id: string;
   /** the pin's number, or undefined for a plain dot (the overview shows the
@@ -62,7 +63,6 @@ export interface GlobeJourneyStop {
   order?: number;
   name: string;
   coordinate: [number, number];
-  active: boolean;
   /** the colour of the day this stop belongs to, matching its legs */
   color: string;
 }
@@ -71,6 +71,9 @@ export interface GlobeProps {
   theme: Theme;
   size: number;
   pois: GlobePoi[];
+  /** false = the map is behind another screen: nothing it renders can be seen or
+      touched, so it stays mounted but stops taking re-renders. */
+  active?: boolean;
   /** keep native POI marker instances mounted while temporarily hiding them */
   showPoiMarkers?: boolean;
   activePoiId?: string | null;

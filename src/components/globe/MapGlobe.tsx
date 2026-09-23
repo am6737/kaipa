@@ -25,6 +25,14 @@ function cappedStepKm(stepKm: number, totalMeters: number): number {
 
 const MIN_TRACK_ENDPOINT_PIXELS = 100;
 
+const MAP_FRAME_TOP_PADDING = 90;
+const MAP_FRAME_SIDE_PADDING = 54;
+// A card pulled all the way up leaves less room than the bottom padding asks
+// for. Both native maps mishandle a padded box with no area — the fitted
+// content ends up dumped in the middle of the view, behind the card — so the
+// top padding gives way first and the strip above the card stays the target.
+const MAP_FRAME_MIN_BAND = 40;
+
 export default function MapGlobe({
   theme,
   pois,
@@ -178,7 +186,9 @@ export default function MapGlobe({
     : (routeFocusCoords?.length ?? 0) >= 2
       ? routeFocusCoords
       : stopFocusCoords ?? routeFocusCoords;
-  const routePadding: [number, number, number, number] = [90, 54, focusBottomPadding ?? Math.round(height * 0.54), 54];
+  const focusBottom = focusBottomPadding ?? Math.round(height * 0.54);
+  const frameTopPadding = Math.max(0, Math.min(MAP_FRAME_TOP_PADDING, height - focusBottom - MAP_FRAME_MIN_BAND));
+  const routePadding: [number, number, number, number] = [frameTopPadding, MAP_FRAME_SIDE_PADDING, focusBottom, MAP_FRAME_SIDE_PADDING];
 
   useEffect(() => {
     if (!autoFrameRoute || !cameraFocusCoords?.length) return;
@@ -187,7 +197,7 @@ export default function MapGlobe({
     // shorter transition on iOS, where the native renderer is already smooth.
     const duration = Platform.OS === 'android' ? 760 : 250;
     if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, duration);
-    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, duration);
+    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, duration, { edgePadding: routePadding });
     // Keep the user's camera when the overlaid sheet changes snap height. The
     // bottom padding only affects an explicit route fit; treating it as an
     // effect trigger would refit the map whenever the journey card is pulled.
@@ -215,12 +225,12 @@ export default function MapGlobe({
       const coordinates = cameraAction.coordinates.filter(isValidMapCoordinate);
       const duration = Platform.OS === 'android' ? 680 : 260;
       if (coordinates.length >= 2) mapRef.current?.fitCoordinates(coordinates, routePadding, duration);
-      else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration);
+      else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration, { edgePadding: routePadding });
       return;
     }
     if (!cameraFocusCoords?.length) return;
     if (cameraFocusCoords.length >= 2) mapRef.current?.fitCoordinates(cameraFocusCoords, routePadding, 650);
-    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 650);
+    else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 650, { edgePadding: routePadding });
   }, [cameraAction?.revision]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => {
@@ -346,7 +356,6 @@ export default function MapGlobe({
         id: `journey-stop-${stop.id}-${stop.order ?? 'dot'}`,
         coordinate: stop.coordinate,
         anchor: { x: 0.5, y: 0.5 },
-        opacity: stop.active ? 1 : 0.34,
         onPress: () => onJourneyStopPressRef.current?.(stop.id),
         content: (
           <Pressable

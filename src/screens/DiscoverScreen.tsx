@@ -10,10 +10,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { Theme } from '../theme/theme';
 import { useNav } from '../nav/NavContext';
+import { countRender } from '../lib/tabSwitchProbe';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeRouteSegment } from '../components/globe';
+import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeProps, type GlobeRouteSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -29,6 +30,7 @@ import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController 
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
 import { buildJourneyLegs, buildJourneyStops, journeyDayOrder, measureJourneyDays, type JourneyLeg } from '../lib/journeyStops';
+import { journeyTracks } from '../lib/journeyTracks';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
@@ -196,6 +198,20 @@ interface JourneySegmentGeometry {
 // polyline and marker lists on every DiscoverScreen render.
 const NO_ITINERARY_LEGS: JourneyLeg[] = [];
 
+// The map's props that must never change identity between renders, or its whole
+// annotation subtree is rebuilt. See the handler ref inside DiscoverScreen.
+type MapHandlerSet = {
+  onCameraGestureStart: NonNullable<GlobeProps['onCameraGestureStart']>;
+  onCameraPositionChange: NonNullable<GlobeProps['onCameraPositionChange']>;
+  onJourneyDayLabelPress: NonNullable<GlobeProps['onJourneyDayLabelPress']>;
+  onJourneyStopPress: NonNullable<GlobeProps['onJourneyStopPress']>;
+  onUserLocationChange: NonNullable<GlobeProps['onUserLocationChange']>;
+  onPoiPress: NonNullable<GlobeProps['onPoiPress']>;
+  onBackgroundPress: NonNullable<GlobeProps['onBackgroundPress']>;
+};
+
+const NO_FOCUS_SEGMENTS: GlobeRouteSegment[] = [];
+
 export function DiscoverScreen({
   theme,
   active = true,
@@ -212,6 +228,7 @@ export function DiscoverScreen({
   externalOverlayOpen?: boolean;
   onBlockingOverlayChange?: (open: boolean) => void;
 }) {
+  countRender('Discover');
   const nav = useNav();
   const { t, resolved } = useI18n();
   const data = useData();
@@ -248,6 +265,8 @@ export function DiscoverScreen({
   const mapPointGestureRef = React.useRef(false);
   const mapMarkerPressAtRef = React.useRef(0);
   const wasMapActiveRef = React.useRef(active);
+  const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
+  const mapCameraWatchUntilRef = React.useRef(0);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
@@ -345,14 +364,26 @@ export function DiscoverScreen({
     sheetRef.current?.snapTo(1);
   }, [nav.newJourneyOpen, nav.pointInfo?.kind]);
 
-  // The map is intentionally unmounted while Discover is not the active tab.
-  // Restore the user's last camera when returning instead of fitting the
-  // selected route again and unexpectedly zooming into its region.
   React.useEffect(() => {
-    const becameActive = active && !wasMapActiveRef.current;
+    if (active === wasMapActiveRef.current) return;
     wasMapActiveRef.current = active;
-    if (!becameActive || !mapCameraRef.current) return;
+    if (!active) {
+      // Anything the map reports after this point moved on its own while hidden.
+      mapCameraEventRef.current = null;
+      console.log(`[tabcam] left discover: camera=${JSON.stringify(mapCameraRef.current)}`);
+      return;
+    }
+    const reloaded = mapReloadedWhileAwayRef.current;
+    mapReloadedWhileAwayRef.current = false;
+    const caughtUp = lastActiveFrameSignatureRef.current !== mapFrameSignature;
+    mapCameraWatchUntilRef.current = Date.now() + 2000;
+    console.log(
+      `[tabcam] returned to discover: camera=${JSON.stringify(mapCameraRef.current)} ` +
+        `reframe=${caughtUp || reloaded} (caughtUp=${caughtUp} reloaded=${reloaded})`,
+    );
+    if (!caughtUp && !reloaded) return;
     const camera = mapCameraRef.current;
+    if (!camera) return;
     setMapAtRouteFrame(false);
     setMapCameraAction((current) => ({
       type: 'restore',
@@ -896,28 +927,43 @@ export function DiscoverScreen({
     return new Map(days.map((day, index) => [day, JOURNEY_SEGMENT_COLORS[index % JOURNEY_SEGMENT_COLORS.length]]));
   }, [focusedTimeline.knownGroups, focusedTimeline.rows]);
   const itineraryColor = useCallback((day: string | undefined) => itineraryDayColors.get(day ?? '') ?? theme.accent, [itineraryDayColors, theme.accent]);
+  // Which recorded tracks this journey's places can sit on, resolved once so the
+  // chain can draw a hiking day along the path instead of asking for a road.
+  const itineraryTracks = useMemo(() => (
+    nav.pointInfo?.kind === 'journey' && detailReady
+      ? journeyTracks(nav.pointInfo, focusedTimeline.rows, routes)
+      : []
+  ), [detailReady, focusedTimeline.rows, nav.pointInfo, routes]);
+  const itineraryTrackCoords = useMemo(() => new Map(
+    itineraryTracks.map((track) => [track.id, track.coords]),
+  ), [itineraryTracks]);
   const itineraryLegs = useMemo(() => (
     itineraryStops.length >= 2
-      ? buildJourneyLegs(itineraryStops, new Map(focusedTimeline.rows.map((row) => [row.id, row])))
+      ? buildJourneyLegs(itineraryStops, new Map(focusedTimeline.rows.map((row) => [row.id, row])),
+        (trackId) => itineraryTrackCoords.get(trackId))
       : []
-  ), [focusedTimeline.rows, itineraryStops]);
+  ), [focusedTimeline.rows, itineraryStops, itineraryTrackCoords]);
   const legGeometry = useJourneyLegGeometry(
     journeyMapDetailsVisible ? itineraryLegs : NO_ITINERARY_LEGS,
     journeyMapDetailsVisible,
   );
   const journeyStops = useMemo<GlobeJourneyStop[]>(() => (
     journeyMapDetailsVisible
-      ? itineraryStops.map((stop) => ({
-        id: stop.rowId,
-        // Numbers belong to the open day alone: they match that day's card
-        // positions. Other days stay plain dots, otherwise a previous day's
-        // "2" sits in front of this day's "1" and reads as a reversed route.
-        order: selectedJourneyDay && selectedJourneyDay === stop.day ? stop.order : undefined,
-        name: stop.name,
-        coordinate: stop.coordinate,
-        active: !selectedJourneyDay || selectedJourneyDay === stop.day,
-        color: itineraryColor(stop.day),
-      }))
+      ? itineraryStops
+        // Other days' places stay off the map while a day is open: their pins sit
+        // between the reader and the chain being followed. Day chips below the
+        // card are the way back to another day from here.
+        .filter((stop) => !selectedJourneyDay || selectedJourneyDay === stop.day)
+        .map((stop) => ({
+          id: stop.rowId,
+          // Numbers belong to the open day alone: they match that day's card
+          // positions. The overview shows plain dots, otherwise a previous day's
+          // "2" sits in front of this day's "1" and reads as a reversed route.
+          order: selectedJourneyDay ? stop.order : undefined,
+          name: stop.name,
+          coordinate: stop.coordinate,
+          color: itineraryColor(stop.day),
+        }))
       : []
   ), [itineraryColor, itineraryStops, journeyMapDetailsVisible, selectedJourneyDay]);
   const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
@@ -989,8 +1035,8 @@ export function DiscoverScreen({
       ? journeyOverviewFrame
       // A day is its legs plus its own pins. Chains never cross into the next
       // day, so a day holding a single place has no leg at all and its pin has
-      // to carry the frame on its own — one coordinate is too few to fit, which
-      // leaves the camera where the user put it.
+      // to carry the frame on its own — MapGlobe then moves the camera to that
+      // one coordinate, kept clear of the card the same way a fit is.
       : [
         ...dayLegs.flatMap(legCoords),
         ...itineraryStops.filter((stop) => stop.day === selectedJourneyDay).map((stop) => stop.coordinate),
@@ -1187,6 +1233,136 @@ export function DiscoverScreen({
     />
   );
 
+  // ── what the map has to catch up with ──
+  // The map freezes while Discover is not the active tab, so the pass that thaws
+  // it also carries every change made while it was invisible. Only some of those
+  // changes are the user's: `setMainTab` clears the selection, the focus arrays
+  // move to the whole list, and the map's auto-framing reads that as "frame this
+  // route" - pulling the camera across the country on a plain tab switch. The
+  // signature says which case a thaw is.
+  const mapFocusTarget = nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : rawFocusCoords;
+  const mapFrameSignature = React.useMemo(() => {
+    const coords = mapFocusTarget;
+    if (!coords?.length) return '';
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    return `${coords.length}|${first[0]},${first[1]}|${last[0]},${last[1]}`;
+  }, [mapFocusTarget]);
+  const lastActiveFrameSignatureRef = React.useRef(mapFrameSignature);
+  React.useEffect(() => {
+    if (active) lastActiveFrameSignatureRef.current = mapFrameSignature;
+  }, [active, mapFrameSignature]);
+  // Android tears the map down with the tab, and so does the journey cover, so a
+  // thaw from either starts at the map's own default camera and needs framing.
+  const mapReloadedWhileAwayRef = React.useRef(false);
+  const globeMounted = !journeyShowsCover && (active || keepMapWarm);
+  React.useEffect(() => {
+    if (!globeMounted) mapReloadedWhileAwayRef.current = true;
+  }, [globeMounted]);
+
+  // The map builds one native annotation per marker and memoizes them by prop
+  // identity, so a fresh closure on any parent render rebuilds the whole
+  // annotation subtree: measured 100ms when the map is on screen, and it ran on
+  // every bottom-tab switch while the map sat off screen behind another tab.
+  // The handlers therefore cross to the map as fixed identities that read the
+  // current render's closures through a ref.
+  const mapHandlers: MapHandlerSet = {
+    onCameraGestureStart: () => {
+      // Native map SDKs may report a marker tap as a short camera
+      // gesture. It must not make the detail route look unfocused.
+      if (Date.now() - mapMarkerPressAtRef.current < 500) return;
+      if (nav.pointInfo) {
+        mapPointGestureRef.current = true;
+        setMapAtRouteFrame(false);
+      } else setMapAtCurrentLocation(false);
+    },
+    onCameraPositionChange: (camera) => {
+      const prev = mapCameraRef.current;
+      mapCameraRef.current = camera;
+      const moved = !prev
+        || Math.abs(prev.center[0] - camera.center[0]) > 1e-6
+        || Math.abs(prev.center[1] - camera.center[1]) > 1e-6
+        || Math.abs(prev.zoom - camera.zoom) > 0.01;
+      if (!moved) return;
+      const hidden = !wasMapActiveRef.current;
+      if (hidden) mapCameraEventRef.current = { at: Date.now() };
+      // With the restore switched off, anything that moves the camera here
+      // moved it on its own - the auto-framing effect chasing a new array.
+      if (hidden || Date.now() < mapCameraWatchUntilRef.current) {
+        console.log(
+          `[tabcam] camera MOVED ${hidden ? 'while hidden' : 'after returning'}: ` +
+            `${JSON.stringify(prev?.center)} z${prev?.zoom?.toFixed?.(2)} -> ${JSON.stringify(camera.center)} z${camera.zoom?.toFixed?.(2)}`,
+        );
+      }
+    },
+    onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
+    onJourneyStopPress: (rowId) => {
+      const stop = itineraryStops.find((item) => item.rowId === rowId);
+      if (stop?.day) selectJourneyDayFromMap(stop.day);
+    },
+    onUserLocationChange: ([lng, lat]) => {
+      setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
+    },
+    onPoiPress: (id) => {
+      // Marker presses can also bubble to NativeMap.onPress on iOS and
+      // Android. Keep that background event from dismissing the sheet.
+      mapMarkerPressAtRef.current = Date.now();
+      const group = repIdToGroup.get(id);
+      if (!group) return;
+      if (nav.pointInfo?.kind === 'route') {
+        const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id
+          && item.kind === 'route'
+          && !comparisonRouteIds.has(item.id));
+        if (nextRoute) {
+          setComparisonRoutes((current) => current.some((route) => route.id === nextRoute.id) ? current : [...current, nextRoute]);
+          setMapAtRouteFrame(true);
+        }
+        return;
+      }
+      // One route/journey here → open its map detail. Several → scope the journey-list
+      // sheet to this trailhead so the user can pick the past memory vs. the
+      // 再次出发 plan (same list, just a 这个地点的旅程 header).
+      if (group.length === 1) {
+        setPlaceSel(null);
+        setFocusReturnToList(false);
+        openPointFromCurrentMap(group[0]);
+        return;
+      }
+      setPlaceSel(placeKey(group[0]));
+      nav.closePoint();
+      nav.openSheet();
+    },
+    // Under a point detail the map *is* the content, and the card's own back
+    // button closes it, so a tap on the map must stay a tap. Collapsing the list
+    // sheet this way is only for list mode.
+    onBackgroundPress: () => {
+      if (nav.pointInfo) return;
+      if (Date.now() - mapMarkerPressAtRef.current < 500) return;
+      sheetRef.current?.dismiss();
+    },
+  };
+  const mapHandlersRef = React.useRef(mapHandlers);
+  React.useEffect(() => {
+    mapHandlersRef.current = mapHandlers;
+  });
+  const globeHandlers = React.useMemo<MapHandlerSet>(() => ({
+    onCameraGestureStart: () => mapHandlersRef.current.onCameraGestureStart(),
+    onCameraPositionChange: (camera) => mapHandlersRef.current.onCameraPositionChange(camera),
+    onJourneyDayLabelPress: (day) => mapHandlersRef.current.onJourneyDayLabelPress(day),
+    onJourneyStopPress: (rowId) => mapHandlersRef.current.onJourneyStopPress(rowId),
+    onUserLocationChange: (coordinate) => mapHandlersRef.current.onUserLocationChange(coordinate),
+    onPoiPress: (id) => mapHandlersRef.current.onPoiPress(id),
+    onBackgroundPress: () => mapHandlersRef.current.onBackgroundPress(),
+  }), []);
+  // Same reason: an inline object literal is a new `center` prop every render.
+  const mapCenter = React.useMemo(() => (nav.pointInfo
+    ? (() => {
+        const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
+        return { lon, lat };
+      })()
+    : currentLocation ? { lon: currentLocation.lng, lat: currentLocation.lat } : undefined),
+  [nav.pointInfo, focusCoords, currentLocation]);
+
   return (
     /* Under another bottom tab - or under our own full-screen search page - the
        whole page slides off-screen rather than being display:none'd or unmounted.
@@ -1215,6 +1391,7 @@ export function DiscoverScreen({
           </>
         ) : active || keepMapWarm ? (
         <Globe
+          active={active}
           theme={theme}
           size={globeSize}
           pois={mapPois}
@@ -1230,19 +1407,8 @@ export function DiscoverScreen({
           focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
           staggerPins={!entrancePlayed}
-          onCameraGestureStart={() => {
-            // Native map SDKs may report a marker tap as a short camera
-            // gesture. It must not make the detail route look unfocused.
-            if (Date.now() - mapMarkerPressAtRef.current < 500) return;
-            if (nav.pointInfo) {
-              mapPointGestureRef.current = true;
-              setMapAtRouteFrame(false);
-            }
-            else setMapAtCurrentLocation(false);
-          }}
-          onCameraPositionChange={(camera) => {
-            mapCameraRef.current = camera;
-          }}
+          onCameraGestureStart={globeHandlers.onCameraGestureStart}
+          onCameraPositionChange={globeHandlers.onCameraPositionChange}
           // Framing must not wait for the transition gate: the journey track is
           // already in memory, and a camera that only moves once
           // InteractionManager drains reads as the map freezing for seconds.
@@ -1254,57 +1420,18 @@ export function DiscoverScreen({
           // journey detail opens, not only after entering the expanded map view.
           focusSegments={nav.pointInfo?.kind === 'journey'
             ? focusSegments
-            : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : []}
+            : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : NO_FOCUS_SEGMENTS}
           journeyLegs={journeyLegs}
           journeyStops={journeyStops}
           journeyDayLabels={journeyDayLabels}
-          onJourneyDayLabelPress={(day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day)}
-          onJourneyStopPress={(rowId) => {
-            const stop = itineraryStops.find((item) => item.rowId === rowId);
-            if (stop?.day) selectJourneyDayFromMap(stop.day);
-          }}
-          center={nav.pointInfo ? (() => {
-            const [lon, lat] = focusCoords?.[0] ?? poiMapCoordinate(nav.pointInfo!);
-            return { lon, lat };
-          })() : currentLocation ? { lon: currentLocation.lng, lat: currentLocation.lat } : undefined}
+          onJourneyDayLabelPress={globeHandlers.onJourneyDayLabelPress}
+          onJourneyStopPress={globeHandlers.onJourneyStopPress}
+          center={mapCenter}
           pin={active ? currentLocation : null}
           followUserLocation={active && !nav.pointInfo && mapAtCurrentLocation}
-          onUserLocationChange={([lng, lat]) => {
-            setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
-          }}
-          onPoiPress={(id) => {
-            // Marker presses can also bubble to NativeMap.onPress on iOS and
-            // Android. Keep that background event from dismissing the sheet.
-            mapMarkerPressAtRef.current = Date.now();
-            const group = repIdToGroup.get(id);
-            if (!group) return;
-            if (nav.pointInfo?.kind === 'route') {
-              const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id
-                && item.kind === 'route'
-                && !comparisonRouteIds.has(item.id));
-              if (nextRoute) {
-                setComparisonRoutes((current) => current.some((route) => route.id === nextRoute.id) ? current : [...current, nextRoute]);
-                setMapAtRouteFrame(true);
-              }
-              return;
-            }
-            // One route/journey here → open its map detail. Several → scope the journey-list
-            // sheet to this trailhead so the user can pick the past memory vs. the
-            // 再次出发 plan (same list, just a 这个地点的旅程 header).
-            if (group.length === 1) {
-              setPlaceSel(null);
-              setFocusReturnToList(false);
-              openPointFromCurrentMap(group[0]);
-              return;
-            }
-            setPlaceSel(placeKey(group[0]));
-            nav.closePoint();
-            nav.openSheet();
-          }}
-          onBackgroundPress={() => {
-            if (Date.now() - mapMarkerPressAtRef.current < 500) return;
-            sheetRef.current?.dismiss();
-          }}
+          onUserLocationChange={globeHandlers.onUserLocationChange}
+          onPoiPress={globeHandlers.onPoiPress}
+          onBackgroundPress={globeHandlers.onBackgroundPress}
         />
         ) : null}
       </View>

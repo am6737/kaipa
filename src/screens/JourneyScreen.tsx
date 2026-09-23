@@ -8,6 +8,7 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 import { hexToRgb, Theme } from '../theme/theme';
 import { useI18n } from '../i18n';
 import { useNav } from '../nav/NavContext';
+import { countRender } from '../lib/tabSwitchProbe';
 import { useData } from '../data/DataContext';
 import type { Poi } from '../data/pois';
 import { Press } from '../components/Press';
@@ -79,6 +80,7 @@ function JourneySwipeActions({
 }
 
 export function JourneyScreen({ theme }: { theme: Theme }) {
+  countRender('Journey');
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const nav = useNav();

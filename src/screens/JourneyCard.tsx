@@ -1053,6 +1053,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           : [],
     [isJourney, poi.name, poi.photoUris, poi.tone, poi.routeShowPhotos],
   );
+  const companionsByUserId = useMemo(() => {
+    const map = new Map<string, Companion>();
+    (poi.companionList || []).forEach((c) => {
+      if (c.userId) map.set(c.userId, c);
+    });
+    return map;
+  }, [poi.companionList]);
   const inspoAsWall = useMemo(
     () =>
       isJourney || poi.routeShowPhotos !== false
@@ -1064,12 +1071,12 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             pairedVideoUri: m.pairedVideoUri,
             caption: m.caption,
             createdAt: m.createdAt,
-            author: momentAuthor,
+            author: (m.userId ? companionsByUserId.get(m.userId) : undefined) || momentAuthor,
             tone: poi.tone || 'ridge',
             ratio: 1,
           }))
         : [],
-    [inspo.media, poi.tone, isJourney, poi.routeShowPhotos, momentAuthor],
+    [inspo.media, poi.tone, isJourney, poi.routeShowPhotos, companionsByUserId, momentAuthor],
   );
   const allPhotos: JourneyMomentPreview[] = [...wallPhotos, ...inspoAsWall];
   const getMomentAuthorKey = (author?: JourneyMomentPreview['author']) => author?.name || '';
@@ -1097,10 +1104,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   });
   const momentKindOf = (moment: JourneyMomentPreview): Exclude<MomentFilter, 'all'> => (
     moment.kind === 'video' ? 'video' : moment.kind === 'livePhoto' ? 'livePhoto' : 'photo'
-  );
-  // A person with no moments is not a filter anyone should be able to pick.
-  const momentPileAuthors = momentAuthorOptions.filter(
-    (author) => author.count > 0 || author.key === momentAuthorFilter,
   );
   const filteredPhotos = allPhotos.filter((moment) => {
     const typeMatches = momentFilter === 'all' || momentKindOf(moment) === momentFilter;
@@ -1133,14 +1136,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       setMomentAuthorFilter(null);
     }
   }, [momentAuthorFilter, momentAuthorOptions]);
-  const selectedAuthorLabel = momentAuthorOptions.find((author) => author.key === momentAuthorFilter)?.name;
-  const activeMomentFilterCount = Number(momentFilter !== 'all') + Number(Boolean(momentAuthorFilter));
-  const momentCountLabel = [
-    selectedAuthorLabel,
-    activeMomentFilterCount > 0
-      ? `${filteredPhotos.length} / ${allPhotos.length}`
-      : t('journey.moments.countPhotos', { count: allPhotos.length }),
-  ].filter(Boolean).join(' · ');
   const clearMomentFilters = () => {
     setMomentViewerIndex(null);
     setMomentFilter('all');
@@ -2027,7 +2022,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   setMomentViewerIndex(null);
                   setMomentFilter(kind);
                 }}
-                authors={momentPileAuthors}
+                authors={momentAuthorOptions}
                 selectedAuthor={momentAuthorFilter}
                 onSelectAuthor={(author) => {
                   setMomentViewerIndex(null);
@@ -2045,9 +2040,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                     onMomentFilterMenuOpenChange?.(true, { x, y, width, height });
                   });
                 }}
-                label={momentCountLabel}
-                active={activeMomentFilterCount > 0}
-                onClear={clearMomentFilters}
               />
             ) : null}
             {inspo.loading ? (

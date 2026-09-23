@@ -93,3 +93,72 @@ export function positionAtDistance(measure: TrackMeasure, requestedMeters: numbe
     trackPointFraction: fraction,
   };
 }
+
+/**
+ * The part of a track between two distances along it — the geometry an itinerary
+ * leg takes when both of its places were picked on that track. Walking backwards
+ * along the file (`fromMeters` behind `toMeters`) is a 反穿 and reads as a
+ * reversed slice, which is a fact about the trip rather than a guess.
+ */
+export function trackSliceBetweenMeters(
+  measure: TrackMeasure,
+  fromMeters: number,
+  toMeters: number,
+): Coordinate[] | null {
+  if (!Number.isFinite(fromMeters) || !Number.isFinite(toMeters)) return null;
+  if (Math.abs(toMeters - fromMeters) < 1) return null;
+  const a = positionAtDistance(measure, fromMeters);
+  const b = positionAtDistance(measure, toMeters);
+  const backward = toMeters < fromMeters;
+  const start = backward ? b : a;
+  const end = backward ? a : b;
+  const slice: Coordinate[] = [start.coordinate];
+  for (let index = start.trackPointIndex + 1; index <= end.trackPointIndex; index += 1) {
+    slice.push(measure.coordinates[index]);
+  }
+  // A distance that lands on a vertex already put that vertex in the slice;
+  // appending the interpolated point again would draw a zero-length step. The
+  // comparison needs slack because the cumulative metres are summed floats —
+  // a distance asked for as `3 * step` comes back a fraction of a nanometre
+  // past the vertex it sits on.
+  if (end.trackPointFraction > 1e-6) slice.push(end.coordinate);
+  return slice.length >= 2 ? (backward ? slice.reverse() : slice) : null;
+}
+
+/**
+ * Where a place sits on a track: the nearest point of the line, as a distance
+ * along it. Only for places a human chose by tapping the visible line — two
+ * valleys a ridge apart can sit metres apart on the map and hundreds of metres
+ * apart on the ground, so projecting blind picks the wrong line.
+ */
+export function projectOnTrack(measure: TrackMeasure, coordinate: Coordinate): TrackPosition | null {
+  const points = measure.coordinates;
+  if (points.length < 2) return null;
+  // Local planar frame in metres: good enough over the few km a tap can span.
+  const lngScale = 111320 * Math.cos(toRadians(coordinate[1]));
+  const latScale = 110540;
+  let best: { meters: number; index: number; fraction: number } | null = null;
+  for (let index = 0; index + 1 < points.length; index += 1) {
+    const ax = (points[index][0] - coordinate[0]) * lngScale;
+    const ay = (points[index][1] - coordinate[1]) * latScale;
+    const bx = (points[index + 1][0] - coordinate[0]) * lngScale;
+    const by = (points[index + 1][1] - coordinate[1]) * latScale;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const span = dx * dx + dy * dy;
+    const t = span > 0 ? Math.max(0, Math.min(1, -((ax * dx + ay * dy)) / span)) : 0;
+    const ox = ax + dx * t;
+    const oy = ay + dy * t;
+    const offset = Math.hypot(ox, oy);
+    if (!best || offset < best.meters) best = { meters: offset, index, fraction: t };
+  }
+  if (!best) return null;
+  const { index, fraction } = best;
+  return {
+    coordinate: interpolate(points[index], points[index + 1], fraction),
+    distanceMeters: measure.cumulativeMeters[index]
+      + (measure.cumulativeMeters[index + 1] - measure.cumulativeMeters[index]) * fraction,
+    trackPointIndex: index,
+    trackPointFraction: fraction,
+  };
+}

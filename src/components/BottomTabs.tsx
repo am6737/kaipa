@@ -5,6 +5,7 @@ import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
 import { Press } from './Press';
 import { useNav, MainTab } from '../nav/NavContext';
+import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
@@ -13,6 +14,7 @@ const TABS: MainTab[] = ['discover', 'journey', 'me'];
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
+  countRender('Tabs');
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { unread } = useNotifCenter();
@@ -47,7 +49,7 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       style={[
         styles.position,
         {
-          bottom: Math.max(insets.bottom, space.sm) + space.xs,
+          bottom: Math.max(insets.bottom, space.sm),
           opacity,
           transform: [{ translateY }],
         },
@@ -66,7 +68,10 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
                 accessibilityRole="tab"
                 accessibilityLabel={t(`tabs.${tab}`)}
                 accessibilityState={{ selected: active }}
-                onPress={() => nav.setMainTab(tab)}
+                onPress={() => {
+                  if (nav.mainTab !== tab) markTabTap(nav.mainTab, tab);
+                  nav.setMainTab(tab);
+                }}
                 style={styles.tab}
               >
                 <Text

@@ -33,6 +33,10 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   interactive?: boolean;
   waypoints?: TrackMapWaypoint[];
   showWaypoints?: boolean;
+  /** a tap on the map itself, in WGS-84 — used to place a point on the line */
+  onMapPress?: (coordinate: [number, number]) => void;
+  /** lets a parent own the picked waypoint; the built-in callout still shows */
+  onWaypointPress?: (waypoint: TrackMapWaypoint) => void;
   mapStyle?: MapStyleId;
   showMapLabels?: boolean;
   onCameraOrientationChange?: (heading: number, pitch: number) => void;
@@ -49,6 +53,8 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   interactive = false,
   waypoints,
   showWaypoints = false,
+  onMapPress,
+  onWaypointPress,
   mapStyle = 'standard',
   showMapLabels = true,
   onCameraOrientationChange,
@@ -57,6 +63,9 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   const { t } = useI18n();
   const mapRef = useRef<NativeMapHandle>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<TrackMapWaypoint | null>(null);
+  // A marker tap also arrives as a map-background tap a beat later, which used to
+  // dismiss whatever the marker just chose.
+  const markerPressAt = useRef(0);
 
   useEffect(() => setSelectedWaypoint(null), [coords, showWaypoints]);
   useImperativeHandle(ref, () => ({
@@ -97,7 +106,11 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           coordinate: waypoint.coord,
           anchor: { x: 0.5, y: 0.5 },
           title: waypoint.name,
-          onPress: () => setSelectedWaypoint(waypoint),
+          onPress: () => {
+            markerPressAt.current = Date.now();
+            setSelectedWaypoint(waypoint);
+            onWaypointPress?.(waypoint);
+          },
           content: <View style={[styles.waypointMarker, { borderColor: accent }]} />,
         });
       });
@@ -120,7 +133,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, coords, scrubPt, selectedWaypoint, showWaypoints, theme, waypoints]);
+  }, [accent, coords, onWaypointPress, scrubPt, selectedWaypoint, showWaypoints, theme, waypoints]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
@@ -151,7 +164,11 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         interactive={interactive}
         markers={markers}
         polylines={polylines}
-        onPress={interactive ? () => setSelectedWaypoint(null) : undefined}
+        onPress={interactive ? (coordinate) => {
+          if (Date.now() - markerPressAt.current < 400) return;
+          setSelectedWaypoint(null);
+          onMapPress?.(coordinate);
+        } : undefined}
         onCameraChange={onCameraOrientationChange}
       />
       {showLegend ? (

@@ -13,6 +13,7 @@ import {
 import { GestureDetector, Gesture, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../theme/theme';
+import { countRender } from '../lib/tabSwitchProbe';
 
 const AnimatedGHScrollView = Animated.createAnimatedComponent(GHScrollView);
 
@@ -86,6 +87,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   },
   ref
 ) {
+  countRender('TrailSheet');
   const insets = useSafeAreaInsets();
   const bottomPad = 24 + insets.bottom; // clear the home indicator (sheet reaches bottom)
   const maxH = snapHeights[snapHeights.length - 1];

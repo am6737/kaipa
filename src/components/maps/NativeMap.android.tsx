@@ -143,8 +143,12 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
+        const gcj02 = point(coordinate);
+        const target = options?.edgePadding
+          ? shiftedTarget(gcj02, zoom, layoutSize.current, options.edgePadding)
+          : gcj02;
         void mapRef.current?.moveCamera({
-          target: point(coordinate),
+          target,
           zoom,
           ...(options?.resetOrientation ? { bearing: 0, tilt: 0 } : {}),
         }, duration);

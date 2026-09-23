@@ -302,10 +302,8 @@ export function NavProvider({
   };
 
   const setMainTab = (t: MainTab) => {
-    if (t === 'discover' && mainTab === 'discover') {
-      setSheetOpen((v) => !v);
-      return;
-    }
+    // Repeat taps on 发现 no longer toggle the list sheet: the sheet belongs to the map.
+    if (t === 'discover' && mainTab === 'discover') return;
     setMainTabRaw(t);
     setSheetOpen(false);
     setPointInfo(null);

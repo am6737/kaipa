@@ -10,6 +10,7 @@ import { DataProvider, useData } from './data/DataContext';
 import { supabase } from './lib/supabase';
 import { upgradeCurrentAnonymousSession } from './lib/auth';
 import { buildTrackDraft, parseTrackFile, TrackFileError } from './lib/trackImport';
+import { countRender, markTabCommit } from './lib/tabSwitchProbe';
 import { AuthFlow } from './screens/AuthFlow';
 import { OnboardingGate } from './screens/OnboardingFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
@@ -40,6 +41,7 @@ import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from './lib/journeyInvite';
 
 function AppShell() {
+  countRender('AppShell');
   const theme = useTheme();
   const { t } = useI18n();
   const nav = useNav();
@@ -51,6 +53,10 @@ function AppShell() {
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
   const [discoverOverlayOpen, setDiscoverOverlayOpen] = useState(false);
   const [searchOpaque, setSearchOpaque] = useState(false);
+
+  useEffect(() => {
+    markTabCommit();
+  }, [nav.mainTab]);
 
   useEffect(() => {
     if (!assistantReturnJourneyId || nav.pointInfo || nav.assistantOpen) return;

@@ -21,6 +21,28 @@ function region(coordinate: [number, number], zoom: number): Region {
   };
 }
 
+/**
+ * MapKit always puts the region's centre in the middle of the view, so a point
+ * that has to land inside a padded box is moved the other way by the distance
+ * between the two centres. Uses the same zoom-to-degrees mapping as `region`.
+ */
+export function offsetCenter(
+  coordinate: [number, number],
+  zoom: number,
+  edgePadding: [number, number, number, number] | undefined,
+  size: { width: number; height: number },
+): [number, number] {
+  if (!edgePadding || size.width <= 0 || size.height <= 0) return coordinate;
+  const [top, right, bottom, left] = edgePadding;
+  const delta = 360 / (2 ** Math.max(0, Math.min(20, zoom)));
+  const offsetX = size.width / 2 - (left + size.width - right) / 2;
+  const offsetY = size.height / 2 - (top + size.height - bottom) / 2;
+  return [
+    coordinate[0] + (offsetX * delta) / size.width,
+    coordinate[1] - (offsetY * delta) / size.height,
+  ];
+}
+
 export const NATIVE_MAP_AVAILABLE = true;
 
 export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function NativeMap({
@@ -48,6 +70,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const programmaticUntil = useRef(0);
   const mapReady = useRef(false);
   const hasLayout = useRef(false);
+  const layoutSize = useRef({ width: 0, height: 0 });
   const pendingCameraAction = useRef<(() => void) | null>(null);
   const programmaticStartedAt = useRef(0);
   const pendingProgrammaticCompletions = useRef(0);
@@ -81,10 +104,11 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
+        const target = offsetCenter(coordinate, zoom, options?.edgePadding, layoutSize.current);
         if (options?.resetOrientation) {
-          mapRef.current?.animateCamera({ center: point(coordinate), zoom, heading: 0, pitch: 0 }, { duration });
+          mapRef.current?.animateCamera({ center: point(target), zoom, heading: 0, pitch: 0 }, { duration });
         } else {
-          mapRef.current?.animateToRegion(region(coordinate, zoom), duration);
+          mapRef.current?.animateToRegion(region(target, zoom), duration);
         }
       });
     },
@@ -106,6 +130,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         hasLayout.current = width > 0 && height > 0;
+        layoutSize.current = { width, height };
         flushCameraAction();
       }}
       mapType={mapType}

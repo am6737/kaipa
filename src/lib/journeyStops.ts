@@ -1,6 +1,13 @@
 import type { TimelineLocation, TLRow } from '../data/timeline';
+import { trackLengthMatches } from './journeyTracks';
 import { groupJourneyRows, orderedJourneyRows } from './journeyOrdering';
-import { distanceMeters, measureTrack, positionAtDistance, type Coordinate } from './routeSegments';
+import {
+  distanceMeters,
+  measureTrack,
+  positionAtDistance,
+  trackSliceBetweenMeters,
+  type Coordinate,
+} from './routeSegments';
 
 export interface JourneyStop {
   rowId: string;
@@ -10,6 +17,12 @@ export interface JourneyStop {
   day?: string;
   name: string;
   coordinate: Coordinate;
+  /** Set when the place was picked on a recorded track. Two of these on one
+   *  track walk that track instead of a road plan. */
+  trackId?: string;
+  trackMeters?: number;
+  /** The track's length when the place was picked — see `trackLengthMatches`. */
+  trackLengthMeters?: number;
 }
 
 export interface JourneyLeg {
@@ -32,12 +45,13 @@ export interface JourneyLeg {
  *  a day's first place because yesterday ended there would leave that day empty. */
 const SAME_PLACE_METERS = 50;
 
-function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string } | null {
+function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string; location?: TimelineLocation } | null {
   const location = row.location;
   if (location && Number.isFinite(location.longitude) && Number.isFinite(location.latitude)) {
     return {
       coordinate: [location.longitude as number, location.latitude as number],
       name: location.name || row.title,
+      location,
     };
   }
   // Agent-produced transport rows keep their destination in `transport.to`.
@@ -46,6 +60,12 @@ function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string } | nu
     return { coordinate: [to.longitude as number, to.latitude as number], name: to.name || row.title };
   }
   return null;
+}
+
+/** A place a person put on a path, as opposed to one that exists on a map. */
+function trackWalk(from: JourneyStop, to: JourneyStop): boolean {
+  return Boolean(from.trackId && to.trackId && from.trackId === to.trackId
+    && from.trackMeters != null && to.trackMeters != null);
 }
 
 /** The days in the order the list shows them, so a day's colour is stable. */
@@ -61,8 +81,14 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
     const found = coordinateOf(row);
     if (!found) continue;
     const previous = stops[stops.length - 1];
-    if (previous && previous.day === (row.day || undefined)
-      && distanceMeters(previous.coordinate, found.coordinate) < SAME_PLACE_METERS) continue;
+    // The merge exists because a transport row and the place it points at are
+    // usually the same spot. A track place is not that: it means "here on the
+    // path", and the village POI next to it is a different place even when the
+    // two are metres apart.
+    const mergeable = previous && previous.day === (row.day || undefined)
+      && !previous.trackId && !found.location?.trackId
+      && distanceMeters(previous.coordinate, found.coordinate) < SAME_PLACE_METERS;
+    if (mergeable) continue;
     const dayCount = (perDay.get(row.day) ?? 0) + 1;
     perDay.set(row.day, dayCount);
     stops.push({
@@ -71,6 +97,9 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
       day: row.day || undefined,
       name: found.name,
       coordinate: found.coordinate,
+      trackId: found.location?.trackId,
+      trackMeters: found.location?.trackMeters,
+      trackLengthMeters: found.location?.trackLengthMeters,
     });
   }
   return stops;
@@ -82,10 +111,21 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
  */
 const MAX_WALKED_LEG_METERS = 5_000;
 
-/** Legs join consecutive stops within one day group. A group is a route; the
- *  hop from one group to the next is not part of either day's plan, so nothing
- *  is drawn for it and the day that has no travel of its own has no mileage. */
-export function buildJourneyLegs(stops: JourneyStop[], rowsById: Map<string, TLRow>): JourneyLeg[] {
+/**
+ * Legs join consecutive stops within one day group. A group is a route; the
+ * hop from one group to the next is not part of either day's plan, so nothing
+ * is drawn for it and the day that has no travel of its own has no mileage.
+ *
+ * `trackCoords` resolves a track id to its geometry. Two places on one recorded
+ * track walk that track — there is no road to plan between them, and asking for
+ * one sends the line out to the nearest valley road and reports the trip as its
+ * driving distance.
+ */
+export function buildJourneyLegs(
+  stops: JourneyStop[],
+  rowsById: Map<string, TLRow>,
+  trackCoords?: (trackId: string) => Coordinate[] | undefined,
+): JourneyLeg[] {
   const legs: JourneyLeg[] = [];
   for (let index = 1; index < stops.length; index += 1) {
     const from = stops[index - 1];
@@ -94,17 +134,39 @@ export function buildJourneyLegs(stops: JourneyStop[], rowsById: Map<string, TLR
     const directMeters = distanceMeters(from.coordinate, to.coordinate);
     const toRow = rowsById.get(to.rowId);
     const recordedGeometry = toRow?.transport?.geometry;
+    const trackGeometry = trackGeometryFor(from, to, trackCoords);
+    const onSomeTrack = Boolean(from.trackId || to.trackId);
     legs.push({
       id: `${from.rowId}->${to.rowId}`,
       day: to.day,
-      mode: toRow?.transport?.mode === 'walk' && directMeters <= MAX_WALKED_LEG_METERS ? 'walking' : 'driving',
+      mode: trackGeometry || onSomeTrack || (toRow?.transport?.mode === 'walk' && directMeters <= MAX_WALKED_LEG_METERS)
+        ? 'walking'
+        : 'driving',
       from: from.coordinate,
       to: to.coordinate,
-      recordedGeometry: recordedGeometry && recordedGeometry.length >= 2 ? recordedGeometry : undefined,
+      recordedGeometry: trackGeometry
+        ?? (recordedGeometry && recordedGeometry.length >= 2 ? recordedGeometry : undefined),
       directMeters,
     });
   }
   return legs;
+}
+
+/** The track slice between two of its places, or nothing to fall back on. */
+function trackGeometryFor(
+  from: JourneyStop,
+  to: JourneyStop,
+  trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
+): Coordinate[] | null {
+  if (!trackCoords || !trackWalk(from, to)) return null;
+  const coordinates = trackCoords(from.trackId as string);
+  if (!coordinates) return null;
+  const measure = measureTrack(coordinates);
+  if (!measure) return null;
+  // Stale distances would draw a confident wrong line, so the length the places
+  // were measured against has to still be this track's length.
+  if (!trackLengthMatches(measure, from.trackLengthMeters) || !trackLengthMatches(measure, to.trackLengthMeters)) return null;
+  return trackSliceBetweenMeters(measure, from.trackMeters as number, to.trackMeters as number);
 }
 
 export interface JourneyDayDistance {
@@ -148,6 +210,11 @@ export function measureJourneyDays(
  * The last place of the group before `day` — where the day before ended, which
  * is where this day usually starts. Chains never cross groups, so this is not
  * a link: it is only a place to fill a new item with instead of searching it.
+ *
+ * Only while `day` has no place of its own. Once the group has a stop, the row
+ * below this one is that group's own last place, not yesterday's — and which
+ * place sits below also depends on the time being typed, so there is no honest
+ * "上一站" left to offer.
  */
 export function carryPlaceFromPreviousDay(
   rows: TLRow[],
@@ -157,9 +224,11 @@ export function carryPlaceFromPreviousDay(
 ): TimelineLocation | null {
   if (!day) return null;
   const siblings = rows.filter((row) => row.id !== exceptRowId);
+  const stops = buildJourneyStops(siblings, knownGroups);
+  if (stops.some((stop) => stop.day === day)) return null;
   const order = journeyDayOrder([{ id: '__pending', title: '', day }, ...siblings], knownGroups);
   const dayIndex = order.indexOf(day);
-  const last = buildJourneyStops(siblings, knownGroups)
+  const last = stops
     .filter((stop) => stop.day && order.indexOf(stop.day) < dayIndex)
     .pop();
   if (!last) return null;

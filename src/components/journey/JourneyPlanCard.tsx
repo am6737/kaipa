@@ -8,6 +8,7 @@ import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
+import { countRender } from '../../lib/tabSwitchProbe';
 import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
 
 export type JourneyStatus = 'planned' | 'active' | 'completed' | 'unscheduled';
@@ -70,6 +71,7 @@ export function JourneyPlanCard({
   showStatus?: boolean;
 }) {
   const { t } = useI18n();
+  countRender('JourneyPlanCard');
   const status = journeyStatus(journey);
   const coverUri = journey.photoUris?.[0];
   const companions = journey.companionList?.slice(0, 2) || [];

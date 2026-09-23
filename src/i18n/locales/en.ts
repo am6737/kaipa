@@ -1439,6 +1439,15 @@ export const en: SameShape<typeof zh> = {
       placeSearchNoMatch: "No matching places",
       placeSearchClear: "Clear search",
       placeCarryHint: "Where the last day ended",
+      trackPlaceAction: "Pick a point on the track",
+      trackCount: "{count} tracks",
+      trackChooseTitle: "Choose a track",
+      trackBack: "Change",
+      trackMeta: "{km} km · {points} marked points",
+      trackPointName: "{km} km along",
+      trackPointConfirm: "Use this point",
+      trackPointHint: "Tap the line to place a point",
+      trackStale: "This track changed — pick the place again",
 
     },
     manage: {
