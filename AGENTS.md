@@ -4,11 +4,8 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 
 ## Guidelines
 
-- Keep changes small and scoped.
 - Do not overwrite or revert unrelated user changes.
 - Preserve existing Chinese UI copy unless asked otherwise.
-- Use existing theme, i18n, navigation, and shared components where practical.
-- Keep TypeScript strict-compatible.
 - Do not commit `.env`, tokens, service-role keys, or other secrets.
 
 ## Project notes
@@ -19,7 +16,9 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 - Web guest app: `App.web.tsx`, `src/web/`.
 - UI/navigation state: `src/nav/NavContext.tsx`.
 - Supabase data hooks: `src/hooks/`, composed by `src/data/DataContext.tsx`.
+- `admin/` is a separate Vite app (kaipa-admin) with its own `package.json`; it is not part of the Expo app.
 - Native maps use MapKit on iOS and AMap on Android; Expo Go should keep fallback behavior.
+- `docs/` holds per-topic writeups (agent harness, rail-query, admin console, sign-in, release checklist) — check there before re-investigating.
 
 ## Expo
 
@@ -27,8 +26,10 @@ Only check Expo SDK 56 docs when changing Expo APIs, native config, plugins, EAS
 
 ## Validation
 
-Run relevant checks before finishing, usually:
+Run checks from the directory you changed. The root command below covers only the Expo app: `tsconfig.json` excludes `admin/`, `supabase/functions/`, and `supabase/tests/`, so passing it there is a false green.
 
 ```bash
 npx tsc --noEmit
 ```
+
+In `admin/`, use its own scripts instead: `npm run lint`, `npm test`, or `npm run build`.
