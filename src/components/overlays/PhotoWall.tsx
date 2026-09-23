@@ -622,17 +622,27 @@ function SavePickerSheet({ theme: t, allPhotos, saveSelectedIds, setSaveSelected
               if (id.startsWith('real-')) realToDelete.push(id);
               else inspoToDelete.push(id);
             });
-            inspoToDelete.forEach(id => inspo.remove(id));
-            if (realToDelete.length > 0 && info.photoUris) {
-              const indices = new Set(realToDelete.map(id => parseInt(id.replace('real-', ''), 10) + 1));
-              const updated = info.photoUris.filter((_: any, i: number) => !indices.has(i));
-              nav.patchCurrent({ photoUris: updated });
-            }
-            nav.showToast(tr('journey.savePicker.deleted', { count: saveCount }));
-            closeSavePicker();
-            if (realToDelete.length > 0) {
-              nav.closePhotoWall();
-            }
+            void (async () => {
+              let failed = false;
+              try {
+                // Say "deleted" only once the rows are gone: this toast used to
+                // claim it even when the server had refused the delete.
+                await Promise.all(inspoToDelete.map((id) => inspo.remove(id)));
+              } catch (error) {
+                failed = true;
+                nav.showToast(isWriteBusy(error) ? tr('journey.photoWall.busyMessage') : tr('journey.photoWall.errorTitle'));
+              }
+              if (realToDelete.length > 0 && info.photoUris) {
+                const indices = new Set(realToDelete.map(id => parseInt(id.replace('real-', ''), 10) + 1));
+                const updated = info.photoUris.filter((_: any, i: number) => !indices.has(i));
+                nav.patchCurrent({ photoUris: updated });
+              }
+              if (!failed) nav.showToast(tr('journey.savePicker.deleted', { count: saveCount }));
+              closeSavePicker();
+              if (realToDelete.length > 0) {
+                nav.closePhotoWall();
+              }
+            })();
           },
         },
       ],
@@ -1233,7 +1243,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
 
       {/* ── Batch delete bar ── */}
       {/* ── Lightbox ── */}
-      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={(id) => { inspo.remove(id); if (visible.length <= 1) setBoxIdx(-1); }} info={info} theme={t} insets={insets} nav={nav} thumbCache={thumbCache} /> : null}
+      {boxIdx >= 0 && visible[boxIdx] ? <Lightbox visible={visible} index={boxIdx} setIndex={setBoxIdx} onClose={() => setBoxIdx(-1)} onDelete={(id) => { void inspo.remove(id).catch((error) => nav.showToast(isWriteBusy(error) ? tr('journey.photoWall.busyMessage') : tr('journey.photoWall.errorTitle'))); if (visible.length <= 1) setBoxIdx(-1); }} info={info} theme={t} insets={insets} nav={nav} thumbCache={thumbCache} /> : null}
 
       {/* ── Companions bottom sheet ── */}
       {compSheet && !filter ? (() => {

@@ -197,17 +197,24 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     }
   };
 
+  // The tile leaves the wall only once the server has dropped the row: a delete
+  // that lost the journey's row lock used to remove it here anyway, so the photo
+  // came back on the next open with nothing said in between.
   const remove = async (id: string) => {
     const item = media.find(x => x.id === id);
     if (!item) return;
     // Show removing overlay before actually deleting
     setRemovingIds(prev => new Set(prev).add(id));
     await new Promise(r => setTimeout(r, 400)); // brief visual feedback
-    setMedia(prev => prev.filter(x => x.id !== id));
-    if (!id.startsWith('uploading-')) {
-      await supabase.from('inspo_media').delete().eq('id', id);
+    try {
+      if (!id.startsWith('uploading-')) {
+        const { error } = await supabase.from('inspo_media').delete().eq('id', id);
+        if (error) throw error;
+      }
+      setMedia(prev => prev.filter(x => x.id !== id));
+    } finally {
+      setRemovingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
-    setRemovingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   };
 
   return { media, loading, add, addAll, remove, uploading: uploadingIds.size > 0, uploadingIds, removingIds };

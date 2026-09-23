@@ -993,7 +993,17 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
   const deleteMoments = async (ids: Set<string>) => {
     const uploadedIds = [...ids].filter((id) => !id.startsWith('real-'));
-    await Promise.all(uploadedIds.map((id) => inspo.remove(id)));
+    try {
+      await Promise.all(uploadedIds.map((id) => inspo.remove(id)));
+    } catch (error) {
+      // The photos are still stored, so leave the rest of the strip alone.
+      if (isWriteBusy(error)) {
+        Alert.alert(t('journey.photoWall.busyTitle'), t('journey.photoWall.busyMessage'));
+      } else {
+        Alert.alert(t('journey.photoWall.errorTitle'), error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
 
     const removedPhotoIndexes = new Set(
       [...ids]
