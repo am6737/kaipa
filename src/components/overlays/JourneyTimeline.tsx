@@ -33,7 +33,7 @@ import { AppCard, motion, radius, space, type } from '../../design-system';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
 import { groupJourneyRows, sortRowsWithinDay } from '../../lib/journeyOrdering';
 import { carryPlaceFromPreviousDay } from '../../lib/journeyStops';
-import { journeyTracks, trackLengthMatches, trackLocation, type JourneyTrack, type JourneyTrackPoint } from '../../lib/journeyTracks';
+import { journeyTracks, trackForId, trackLengthMatches, type JourneyTrack } from '../../lib/journeyTracks';
 import { TrackPointPickerSheet } from './TrackPointPicker';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
@@ -296,14 +296,11 @@ function HighlightedPlaceName({ theme, name, query }: { theme: Theme; name: stri
  *  The results list has to clear it, so this must match the row's own height. */
 const CARRY_ROW_HEIGHT = 46;
 
-function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, tracks, onSelect, onSelectTrackPoint, onOpenTrackPicker, onClose }: {
+function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose }: {
   theme: Theme;
   keyboardLift: number;
   carryPlace?: JourneyLocationValue;
-  tracks: JourneyTrack[];
   onSelect: (location: JourneyLocationValue) => void;
-  onSelectTrackPoint: (location: TimelineLocation) => void;
-  onOpenTrackPicker: () => void;
   onClose: () => void;
 }) {
   const { t, resolved } = useI18n();
@@ -312,22 +309,6 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, tracks, onSelect,
   const [results, setResults] = useState<JourneyLocationValue[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(false);
-  // Places that already exist on this journey's own tracks. They are local, so
-  // they answer before the map search does — and in the mountains the pass the
-  // reader is typing is usually on the line and nowhere on a map.
-  const trackMatches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle.length < 2) return [];
-    const matches: { track: JourneyTrack; point: JourneyTrackPoint }[] = [];
-    for (const track of tracks) {
-      for (const point of track.waypoints) {
-        if (point.name.toLowerCase().includes(needle)) matches.push({ track, point });
-        if (matches.length >= 5) break;
-      }
-      if (matches.length >= 5) break;
-    }
-    return matches;
-  }, [query, tracks]);
   useEffect(() => {
     if (query.trim().length < 2) { setResults([]); setError(false); return; }
     const controller = new AbortController();
@@ -349,21 +330,8 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, tracks, onSelect,
       <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} /></Press>
       {showList ? (
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 8, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12 }}>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + ((carryPlace ? 1 : 0) + (tracks.length ? 1 : 0)) * CARRY_ROW_HEIGHT }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? 1 : 0) * CARRY_ROW_HEIGHT }}>
             {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
-            {trackMatches.map(({ track, point }) => (
-              <Press
-                key={`track-${track.id}-${point.meters}`}
-                onPress={() => { onSelectTrackPoint(trackLocation(track, point)); onClose(); }}
-                style={{ paddingVertical: 13 }}
-              >
-                <HighlightedPlaceName theme={theme} name={point.name} query={query} />
-                <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 13, marginTop: 5 }}>
-                  {`${track.name}｜${t('journey.timeline.trackPointName', { km: (point.meters / 1000).toFixed(1) })}`}
-                  {point.elevation != null ? ` · ${Math.round(point.elevation)} m` : ''}
-                </Text>
-              </Press>
-            ))}
             {!searching && results.map((result, index) => {
               const category = poiCategoryLabel(result.category);
               return (
@@ -373,7 +341,7 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, tracks, onSelect,
                 </Press>
               );
             })}
-            {!searching && !results.length && !trackMatches.length ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? t('journey.timeline.placeSearchUnavailable') : t('journey.timeline.placeSearchNoMatch')}</Text></View> : null}
+            {!searching && !results.length ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><Text style={{ color: theme.text2, fontSize: 15 }}>{error ? t('journey.timeline.placeSearchUnavailable') : t('journey.timeline.placeSearchNoMatch')}</Text></View> : null}
           </ScrollView>
         </View>
       ) : null}
@@ -393,22 +361,6 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, tracks, onSelect,
           >
             <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 12, fontWeight: '600' }}>{t('journey.timeline.placeCarryHint')}</Text>
             <Text numberOfLines={1} style={{ color: theme.text, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{carryPlace.name}</Text>
-          </Press>
-        ) : null}
-        {/* The other kind of place. Always here once the journey carries a track,
-            because a pass or a camp is on the line and on no map. */}
-        {tracks.length ? (
-          <Press
-            accessibilityRole="button"
-            onPress={onOpenTrackPicker}
-            style={{ height: CARRY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16 }}
-          >
-            <Text numberOfLines={1} style={{ color: theme.text, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{t('journey.timeline.trackPlaceAction')}</Text>
-            <Text numberOfLines={1} style={{ color: theme.text3, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>
-              {tracks.length === 1
-                ? t('journey.timeline.trackMeta', { km: (tracks[0].totalMeters / 1000).toFixed(1), points: tracks[0].waypoints.length })
-                : t('journey.timeline.trackCount', { count: tracks.length })}
-            </Text>
           </Press>
         ) : null}
         <View style={{ height: 54, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 10 }}>
@@ -1791,6 +1743,17 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const keyboardHRef = useRef(0);
   const placeOpenRef = useRef(false);
   placeOpenRef.current = placeOpen;
+  // Below the toolbar there is one padding constant doing two jobs: at rest it
+  // clears the home indicator, and with the keyboard up it used to widen the gap
+  // above the keys (iOS measures the keyboard from the bottom of the SCREEN, so
+  // its height already spans that indicator region — confirmed on device).
+  // The padding stays constant either way — flipping it relayouts the sheet at
+  // the END of the rise tween, the flicker-then-rise seen before — so the LIFT
+  // absorbs the difference and leaves space.sm of air above the keys.
+  const sheetBottomPad = Math.max(insets.bottom, space.sm);
+  const sheetBottomPadRef = useRef(sheetBottomPad);
+  sheetBottomPadRef.current = sheetBottomPad;
+  const sheetLiftFor = (h: number) => (Platform.OS === 'ios' ? Math.max(0, h - sheetBottomPadRef.current + space.sm) : h);
   const entranceStartedRef = useRef(false);
   useEffect(() => {
     Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -1827,7 +1790,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
       keyboardVisibleRef.current = true;
       if (Platform.OS === 'ios') {
         const dur = e.duration || 250;
-        const offsetTarget = placeOpenRef.current ? 0 : -h;
+        const offsetTarget = placeOpenRef.current ? 0 : -sheetLiftFor(h);
         const rise = Animated.timing(keyboardOffset, { toValue: offsetTarget, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true });
         if (!entranceStartedRef.current) {
           entranceStartedRef.current = true;
@@ -1955,7 +1918,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   };
   // A re-imported track moves every distance on it, and a place measured against
   // the old file would draw a confident wrong line. Say so instead.
-  const placedTrack = location.source === 'track' ? tracks.find((item) => item.id === location.trackId) : undefined;
+  const placedTrack = location.source === 'track' ? trackForId(tracks, location.trackId) : undefined;
   const trackPlaceStale = location.source === 'track'
     && (!placedTrack || !trackLengthMatches(placedTrack, location.trackLengthMeters));
   // Where the previous day group ends, while this group has no place of its own
@@ -2016,7 +1979,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
       placeOpenFirstRun.current = false;
       return;
     }
-    const target = placeOpen || !keyboardVisibleRef.current ? 0 : -keyboardHRef.current;
+    const target = placeOpen || !keyboardVisibleRef.current ? 0 : -sheetLiftFor(keyboardHRef.current);
     if (Platform.OS !== 'ios') {
       keyboardOffset.setValue(target);
       return;
@@ -2051,7 +2014,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
             borderTopRightRadius: radius.feature,
             // Constant — must not flip with keyboard state, or the sheet
             // relayouts mid-animation (the flicker-then-rise the user saw).
-            paddingBottom: Math.max(insets.bottom, space.sm),
+            paddingBottom: sheetBottomPad,
             overflow: 'visible',
           }}
         >
@@ -2130,19 +2093,27 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
                 </Press>
               </Press>
             ) : (
-              // Two kinds of place, one line, same control — and the second only
-              // exists on a journey that actually carries a track.
-              <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', minHeight: 34, marginTop: 4, marginBottom: 2, gap: 7 }}>
-                <Press onPress={() => setPlaceOpen(true)} hitSlop={8} accessibilityRole="button">
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text2 }}>{t('journey.timeline.placeOptional')}</Text>
+              // Two kinds of place, two capsules. They used to sit on one line as
+              // identically styled text, which read as a single sentence — and
+              // their hitSlop overlapped, so a mis-tap opened the wrong panel.
+              // Same 34pt / radius 17 / fieldSurface as the day capsule above, and
+              // the second one only exists on a journey that carries a track.
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minHeight: 34, marginTop: 6, marginBottom: 2 }}>
+                <Press
+                  onPress={() => setPlaceOpen(true)}
+                  accessibilityRole="button"
+                  style={{ height: 34, borderRadius: 17, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+                >
+                  <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{t('journey.timeline.placeSearchPlaceholder')}</Text>
                 </Press>
                 {tracks.length ? (
-                  <>
-                    <Text style={{ fontSize: 15, color: theme.text3 }}>·</Text>
-                    <Press onPress={() => setTrackPickerOpen(true)} hitSlop={8} accessibilityRole="button">
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text2 }}>{t('journey.timeline.trackPlaceAction')}</Text>
-                    </Press>
-                  </>
+                  <Press
+                    onPress={() => setTrackPickerOpen(true)}
+                    accessibilityRole="button"
+                    style={{ height: 34, borderRadius: 17, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+                  >
+                    <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{t('journey.timeline.trackPlaceAction')}</Text>
+                  </Press>
                 ) : null}
               </View>
             )}
@@ -2208,10 +2179,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
           theme={theme}
           keyboardLift={keyboardLift}
           carryPlace={carryPlace}
-          tracks={tracks}
           onSelect={pickPlace}
-          onSelectTrackPoint={pickTrackPlace}
-          onOpenTrackPicker={() => { setPlaceOpen(false); setTrackPickerOpen(true); }}
           onClose={() => setPlaceOpen(false)}
         />
       ) : null}

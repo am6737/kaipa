@@ -1,6 +1,6 @@
 import { Theme } from '../../theme/theme';
 import { Tone } from '../../data/tones';
-import type { NativeMapCamera } from '../maps/types';
+import type { NativeMapCamera, NativeMapMarker } from '../maps/types';
 
 export interface GlobePoi {
   id: string;
@@ -15,6 +15,37 @@ export interface GlobePoi {
   coverUri?: string;
   /** route or journey name shown in the marker's capsule label */
   label?: string;
+  /** Which 发现 mode this pin belongs to, so the two layers can be told apart by
+      the visibility rail below. Part of the pin's key, not of its visibility:
+      a pin's own fields must not change when a switch hides it, or the switch is
+      back to rebuilding every marker. */
+  layer?: 'explore' | 'memory';
+}
+
+/** A pin's identity as the visibility rail knows it: its mode's layer plus its
+    place id. One POI can belong to both layers (a journey whose track is public is
+    also a route card), so the layer has to be in the key.
+    `MapGlobe` inlines the same string rather than importing this: the framing test
+    vm-loads that file against a fixed dependency whitelist. Change one, change the
+    other. */
+export const pinKey = (p: { id: string; layer?: 'explore' | 'memory' }) => `${p.layer ?? 'shared'}:${p.id}`;
+
+/**
+ * Lets the caller change which pins are on screen **without a React render**.
+ * Measured: a 探索↔旅程 switch costs ~190ms no matter what is done to the pins'
+ * contents, because that is what it costs React to walk the marker list again.
+ * The way out is already in this codebase - `pinScale` is an Animated.Value
+ * rather than state, precisely so zooming never re-registers a marker - so pin
+ * visibility rides the same rail: the caller writes the visible set here and the
+ * map moves per-pin alpha values. Only the native map honours it; everywhere else
+ * (Android's bitmap-baked markers, the SVG globe) the caller passes just the layer
+ * it wants drawn.
+ */
+export interface PinVisibilityApi {
+  /** Show exactly these pins (`pinKey` values), hide the rest. Hiding is
+      immediate - that layer is the one the user just left. `stagger` reveals the
+      new ones one after another, like the first screen's pins arrive. */
+  apply: (visibleKeys: Set<string>, options?: { stagger?: boolean }) => void;
 }
 
 export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
@@ -76,6 +107,9 @@ export interface GlobeProps {
   active?: boolean;
   /** keep native POI marker instances mounted while temporarily hiding them */
   showPoiMarkers?: boolean;
+  /** Filled in by the native map with the render-free way to change which pins are
+      on screen. See `PinVisibilityApi`. */
+  pinVisibilityApi?: { current: PinVisibilityApi | null };
   activePoiId?: string | null;
   onPoiPress?: (id: string) => void;
   /** tap on the empty map background (not a marker) — used to dismiss the sheet */
@@ -96,6 +130,11 @@ export interface GlobeProps {
   /** per-day mileage capsules along the itinerary chain */
   journeyDayLabels?: GlobeJourneyDayLabel[];
   onJourneyDayLabelPress?: (day: string) => void;
+  /** fully built extra markers (companion live-location pins) appended after
+   *  the map's own set. The caller supplies the content so MapGlobe stays
+   *  free of feature imports — its framing test loads this file with a fixed
+   *  dependency whitelist. */
+  extraMarkers?: NativeMapMarker[];
   /** show the current-location pin at this coordinate */
   pin?: { lng: number; lat: number; heading?: number } | null;
   /** keep the native map camera centered as the current location updates */

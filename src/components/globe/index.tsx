@@ -48,4 +48,5 @@ export const Globe = React.memo(GlobeBase, (prev, next) => {
   return frozen || unchanged;
 });
 
-export type { GlobeCameraAction, GlobeMapStyle, GlobeProps, GlobeRouteSegment, GlobeJourneyLeg, GlobeJourneyStop, GlobeJourneyDayLabel } from './types';
+export { pinKey } from './types';
+export type { GlobeCameraAction, GlobeMapStyle, GlobeProps, PinVisibilityApi, GlobeRouteSegment, GlobeJourneyLeg, GlobeJourneyStop, GlobeJourneyDayLabel } from './types';

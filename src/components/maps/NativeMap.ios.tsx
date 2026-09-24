@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
-import { projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
+import { fitBoundsCorners, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 function point(coordinate: [number, number]) {
@@ -44,6 +44,23 @@ export function offsetCenter(
 }
 
 export const NATIVE_MAP_AVAILABLE = true;
+
+/**
+ * Every prop of both annotation elements below comes off the descriptor object
+ * itself, so an unchanged descriptor can hand React the identical element and
+ * reconciliation bails out before it ever walks the marker's subtree. That
+ * subtree is a PhotoPin per pin: measured, re-rendering 85 of them in the middle
+ * of a camera animation costs half a second of JS thread. `projectTrack` on a
+ * 1500-point line is skipped for the same reason.
+ */
+const elementCache = new WeakMap<object, React.ReactElement>();
+function cachedElement(descriptor: object, build: () => React.ReactElement): React.ReactElement {
+  const hit = elementCache.get(descriptor);
+  if (hit) return hit;
+  const element = build();
+  elementCache.set(descriptor, element);
+  return element;
+}
 
 export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function NativeMap({
   style,
@@ -98,7 +115,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       if (!coordinates.length) return;
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        mapRef.current?.fitToCoordinates(projectTrack(coordinates), { edgePadding: padding(edgePadding), animated: duration > 0 });
+        mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(coordinates)), { edgePadding: padding(edgePadding), animated: duration > 0 });
       });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
@@ -152,7 +169,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           fitted.current = true;
           markProgrammaticMove(0);
           pendingCameraAction.current = () => {
-            mapRef.current?.fitToCoordinates(projectTrack(initialFitCoordinates), { edgePadding: padding(initialPadding), animated: false });
+            mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(initialFitCoordinates)), { edgePadding: padding(initialPadding), animated: false });
           };
         }
         flushCameraAction();
@@ -193,7 +210,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         }
       }}
     >
-      {polylines.map((line) => (
+      {polylines.map((line) => cachedElement(line, () => (
         <Polyline
           key={line.id}
           coordinates={projectTrack(line.coordinates)}
@@ -201,8 +218,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           strokeWidth={line.width}
           lineDashPattern={line.dashed ? [7, 7] : undefined}
         />
-      ))}
-      {markers.map((marker) => (
+      )))}
+      {markers.map((marker) => cachedElement(marker, () => (
         <Marker
           key={marker.id}
           coordinate={point(marker.coordinate)}
@@ -210,12 +227,13 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           centerOffset={marker.centerOffset}
           pinColor={marker.content ? undefined : marker.color}
           opacity={marker.opacity}
+          zIndex={marker.zIndex}
           onPress={() => marker.onPress?.()}
           tracksViewChanges={false}
         >
           {marker.content}
         </Marker>
-      ))}
+      )))}
     </MapView>
   );
 });

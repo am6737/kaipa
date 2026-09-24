@@ -52,13 +52,11 @@ function JourneyChecklistTabComponent({
   filterMenuRef,
   filterMenuOpen = false,
   pickerProgress,
-  toggleAllActionRef,
   onFilterStateChange,
   onFilterMenuOpenChange,
   selectionMode = false,
   selectedItemIds,
   onSelectedItemIdsChange,
-  onVisibleItemIdsChange,
   onCanEditChange,
   readOnly = false,
   preview,
@@ -76,13 +74,11 @@ function JourneyChecklistTabComponent({
   filterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>;
   filterMenuOpen?: boolean;
   pickerProgress?: Animated.Value;
-  toggleAllActionRef?: React.MutableRefObject<(() => void) | null>;
   onFilterStateChange?: (label: string, active: boolean) => void;
   onFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void;
   selectionMode?: boolean;
   selectedItemIds: Set<string>;
   onSelectedItemIdsChange: (ids: Set<string>) => void;
-  onVisibleItemIdsChange?: (ids: string[]) => void;
   onCanEditChange?: (canEdit: boolean) => void;
   readOnly?: boolean;
   preview?: { lists: Record<string, unknown>[]; items: Record<string, unknown>[] };
@@ -205,21 +201,6 @@ function JourneyChecklistTabComponent({
         .sort((a, b) => a.sortOrder - b.sortOrder),
     [activeView?.items, gearItemsById, gearItemsByName],
   );
-  const visibleItemIdsKey = displayItems.map((item) => item.id).join(',');
-
-  if (toggleAllActionRef) {
-    toggleAllActionRef.current =
-      canEdit && displayItems.length > 0
-        ? () => {
-            const allSelected = displayItems.every((item) => selectedItemIds.has(item.id));
-            onSelectedItemIdsChange(allSelected ? new Set() : new Set(displayItems.map((item) => item.id)));
-          }
-        : null;
-  }
-
-  useEffect(() => {
-    onVisibleItemIdsChange?.(visibleItemIdsKey ? visibleItemIdsKey.split(',') : []);
-  }, [onVisibleItemIdsChange, visibleItemIdsKey]);
 
   if (controller.loading || !activeView) {
     return (

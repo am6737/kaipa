@@ -63,9 +63,18 @@ function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string; locat
 }
 
 /** A place a person put on a path, as opposed to one that exists on a map. */
-function trackWalk(from: JourneyStop, to: JourneyStop): boolean {
-  return Boolean(from.trackId && to.trackId && from.trackId === to.trackId
-    && from.trackMeters != null && to.trackMeters != null);
+function trackWalk(
+  from: JourneyStop,
+  to: JourneyStop,
+  trackCoords?: (trackId: string) => Coordinate[] | undefined,
+): boolean {
+  if (!from.trackId || !to.trackId || from.trackMeters == null || to.trackMeters == null) return false;
+  if (from.trackId === to.trackId) return true;
+  // Two ids can name one line: the journey's own track row and the catalog route
+  // its geometry was promoted from. A place kept under either of them still sits
+  // on the same path, and the chain has to walk it.
+  const geometry = trackCoords && trackCoords(from.trackId);
+  return Boolean(geometry && geometry === trackCoords?.(to.trackId));
 }
 
 /** The days in the order the list shows them, so a day's colour is stable. */
@@ -158,7 +167,7 @@ function trackGeometryFor(
   to: JourneyStop,
   trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
 ): Coordinate[] | null {
-  if (!trackCoords || !trackWalk(from, to)) return null;
+  if (!trackCoords || !trackWalk(from, to, trackCoords)) return null;
   const coordinates = trackCoords(from.trackId as string);
   if (!coordinates) return null;
   const measure = measureTrack(coordinates);

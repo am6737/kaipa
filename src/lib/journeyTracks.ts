@@ -17,7 +17,14 @@ export interface JourneyTrackPoint {
 }
 
 export interface JourneyTrack {
+  /**
+   * The id new places store. Where one geometry arrives under several ids this
+   * is the journey's own track row, because that link outlives the day's route
+   * reference the copy was promoted from.
+   */
   id: string;
+  /** Every id that resolves to this one track, canonical first. */
+  ids: string[];
   name: string;
   coords: Coordinate[];
   measure: TrackMeasure;
@@ -61,6 +68,7 @@ function toTrack(source: TrackBearing, id: string): JourneyTrack | null {
     }));
   return {
     id,
+    ids: [id],
     name: source.name || id,
     coords,
     measure,
@@ -76,20 +84,33 @@ export function elevationAtMeters(track: JourneyTrack, meters: number): number |
 }
 
 /**
- * The tracks this journey actually has: the catalog routes its days are linked
- * to, plus the track bound to the journey itself. Ordered by first appearance in
- * the itinerary, because that is the order the reader is working through.
+ * The tracks this journey actually has: the catalog routes its days link to, plus
+ * the track bound to the journey itself. Ordered by first appearance in the
+ * itinerary, because that is the order the reader is working through.
+ *
+ * One file reaches the journey through more than one id: building a journey from
+ * a catalog route copies that route's geometry into a row of the track library
+ * (`NewJourneySheet`) and stores its id on the journey, so the same path arrives
+ * once as the day's route and once as the journey's own track. Ids alone cannot
+ * tell that apart, and offering the reader two identical rows is worse than
+ * offering none — it is the answer to "which one?", which has no answer. So the
+ * list is keyed by geometry and every id that means this track is kept on it.
  */
 export function journeyTracks(
   journey: Poi | undefined,
   rows: { routeId?: string }[],
   routes: Poi[],
 ): JourneyTrack[] {
-  const byId = new Map<string, JourneyTrack>();
-  const add = (source: TrackBearing | undefined, id: string | undefined) => {
-    if (!id || byId.has(id)) return;
+  const tracks: JourneyTrack[] = [];
+  const add = (source: TrackBearing | undefined, id: string | undefined, isOwnTrack = false) => {
+    if (!id) return;
+    const already = tracks.find((track) => track.ids.includes(id));
+    if (already) return;
     const track = source ? toTrack(source, id) : null;
-    if (track) byId.set(id, track);
+    if (!track) return;
+    const same = tracks.find((item) => sameGeometry(item.coords, track.coords));
+    if (same) mergeTrack(same, track, isOwnTrack);
+    else tracks.push(track);
   };
   const seen = new Set<string>();
   for (const row of rows) {
@@ -99,8 +120,38 @@ export function journeyTracks(
   }
   if (journey?.routeId) add(routes.find((route) => route.id === journey.routeId), journey.routeId);
   // The journey's own track is a projection of `journeys.track_id`.
-  if (journey) add(journey, journey.trackId || journey.id);
-  return [...byId.values()];
+  if (journey) add(journey, journey.trackId || journey.id, true);
+  return tracks;
+}
+
+/** Two candidates are the same path when one is this one re-labelled. */
+const COORD_EPSILON = 1e-7; // ~1 cm, well inside any two real tracks
+
+function sameGeometry(a: Coordinate[], b: Coordinate[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (Math.abs(a[index][0] - b[index][0]) > COORD_EPSILON) return false;
+    if (Math.abs(a[index][1] - b[index][1]) > COORD_EPSILON) return false;
+  }
+  return true;
+}
+
+/** Fold a duplicate's ids onto the track that already carries its geometry. */
+function mergeTrack(target: JourneyTrack, incoming: JourneyTrack, makeCanonical: boolean) {
+  if (!target.ids.includes(incoming.id)) target.ids.push(incoming.id);
+  if (!makeCanonical || target.id === incoming.id) return;
+  target.ids = [incoming.id, ...target.ids.filter((item) => item !== incoming.id)];
+  target.id = incoming.id;
+}
+
+/**
+ * The track a stored place sits on, by any id it could have been recorded under.
+ * A place picked before its day dropped the route link keeps the route id, and
+ * that is still the same line.
+ */
+export function trackForId(tracks: JourneyTrack[], id: string | undefined): JourneyTrack | undefined {
+  if (!id) return undefined;
+  return tracks.find((track) => track.id === id || track.ids.includes(id));
 }
 
 /** A track point as the itinerary stores it. */

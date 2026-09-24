@@ -4,9 +4,21 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const ts = require('typescript');
 
+/** The extent module is dependency-free, so both harnesses can use the real thing. */
+function loadExtent() {
+  const js = ts.transpileModule(fs.readFileSync('src/components/maps/extent.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const context = { exports: {} };
+  vm.runInNewContext(js, context);
+  return context.exports;
+}
+
 function loadMap() {
   const calls = [];
   const effects = [];
+  const refSlots = [];
+  let refIndex = 0;
   let effectIndex = 0;
   const camera = Object.fromEntries(['fitCoordinates', 'moveCamera', 'resetNorth'].map(name => [
     name, (...args) => calls.push({ name, args }),
@@ -15,7 +27,16 @@ function loadMap() {
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useCallback: fn => fn,
     useMemo: fn => fn(),
-    useRef: () => ({ current: camera }),
+    // The fake cannot tell one ref from another, and the map handle is the only
+    // ref whose identity has to be the spy - it is also the first useRef the
+    // component calls. Every other ref gets a slot that survives between renders,
+    // which is what a ref is for (the track-detail cache is one).
+    useRef: (initial) => {
+      const index = refIndex++;
+      const slot = refSlots[index]
+        ?? (refSlots[index] = { current: index === 0 ? camera : (initial?.current ?? initial) });
+      return slot;
+    },
     useState: value => [typeof value === 'function' ? value() : value, () => {}],
     useEffect: (fn, deps) => {
       const index = effectIndex++;
@@ -40,20 +61,30 @@ function loadMap() {
     },
     '../Icon': { Icon: 'Icon' },
     '../maps/NativeMap': { NativeMap: 'NativeMap' },
-    '../maps/extent': { trackSpanOnScreen: () => 0, trackWorldSpan: () => null },
+    '../maps/extent': loadExtent(),
     '../maps/types': {
       isValidMapCoordinate: isValidMapCoordinate,
       keepValidCoordinates: coordinates => (coordinates ?? []).filter(isValidMapCoordinate),
     },
     '../StaggerIn': { STAGGER_MAX_DELAY_MS: 0, STAGGER_STEP_MS: 0 },
     './CurrentLocationMarker': { CurrentLocationMarker: 'CurrentLocationMarker' },
-    './PhotoPin': { PhotoPin: 'PhotoPin', photoPinScaleForZoom: () => 1 },
+    './PhotoPin': {
+      PhotoPin: 'PhotoPin',
+      PHOTO_PIN_ANCHOR_Y: 20 / 70,
+      PHOTO_PIN_WIDTH: 116,
+      PHOTO_PIN_HEIGHT: 70,
+      PHOTO_SIZE: 40,
+      photoPinScaleForZoom: () => 1,
+    },
+    // This file is about framing, not presses; the real geometry is covered by
+    // scripts/test-pin-overlap.cjs.
+    '../../lib/pinOverlap': { pickPinUnderPress: () => null, MIN_PHOTO_OVERLAP: 0.5 },
     '../../lib/routeSegments': { measureTrack: () => ({ totalMeters: 0 }), positionAtDistance: () => null },
   };
   const js = ts.transpileModule(fs.readFileSync('src/components/globe/MapGlobe.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText;
-  const context = { exports: {}, require: name => {
+  const context = { exports: {}, __DEV__: true, require: name => {
     assert.ok(name in mocks, `Unexpected dependency: ${name}`);
     return mocks[name];
   } };
@@ -62,6 +93,7 @@ function loadMap() {
     calls,
     render(props) {
       effectIndex = 0;
+      refIndex = 0;
       const tree = context.exports.default(props);
       effects.forEach(effect => { if (effect.changed) effect.fn(); });
       return tree.props.children[0];
@@ -146,13 +178,13 @@ function loadIosMap() {
   const mocks = {
     react,
     'react-native-maps': { default: 'MapView', Marker: 'Marker', Polyline: 'Polyline' },
-    './types': { projectTrack: coordinates => coordinates },
+    './types': { projectTrack: coordinates => coordinates, fitBoundsCorners: coordinates => coordinates },
     '../../lib/coordinates': { gcj02ToWgs84: value => value, wgs84ToGcj02: value => value },
   };
   const js = ts.transpileModule(fs.readFileSync('src/components/maps/NativeMap.ios.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText;
-  const context = { exports: {}, require: name => {
+  const context = { exports: {}, __DEV__: true, require: name => {
     assert.ok(name in mocks, `Unexpected dependency: ${name}`);
     return mocks[name];
   } };

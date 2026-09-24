@@ -24,6 +24,33 @@ export function projectTrack(coordinates: MapCoordinate[]): ProjectedMapPoint[] 
   return projected;
 }
 
+/**
+ * A fit only needs a track's extent, and both native SDKs take it as the min/max
+ * of whatever points they are handed — so the four corners of the bounding box
+ * describe exactly the region the whole track does, at 1549/4 the cost. The
+ * difference is where it is paid: opening a route card asks for the fit in the
+ * same frame the 1500-point track is projected for its polyline, and every one of
+ * those points then crosses to the native side a second time to say where its own
+ * edges are, while the camera is trying to move.
+ */
+export function fitBoundsCorners(coordinates: MapCoordinate[]): MapCoordinate[] {
+  if (coordinates.length < 2) return coordinates;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const coordinate of coordinates) {
+    const [lng, lat] = coordinate;
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  if (!Number.isFinite(minLng)) return coordinates;
+  return [[minLng, minLat], [maxLng, minLat], [maxLng, maxLat], [minLng, maxLat]];
+}
+
 // MapKit and AMap polylines have no opacity prop, so the "this belongs to
 // another day" dim has to live in the stroke colour itself. AMap parses that
 // colour string natively, where an 8-digit hex means #AARRGGBB — only rgba()
@@ -78,6 +105,13 @@ export interface NativeMapMarker {
    * iOS (MapKit) only — the Android counterpart is `anchor`.
    */
   centerOffset?: { x: number; y: number };
+  /**
+   * Draw order against other markers. A larger value floats above a smaller
+   * one where they overlap; ties fall back to insertion order, which is why
+   * anything that must win an overlap sets this explicitly. Both native maps
+   * honour it (MapKit `zIndex`, AMap marker `zIndex`).
+   */
+  zIndex?: number;
   opacity?: number;
   onPress?: () => void;
 }

@@ -2,19 +2,23 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { ActivityIndicator, Animated, Easing, InteractionManager, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, Easing, InteractionManager, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { Theme } from '../theme/theme';
-import { useNav } from '../nav/NavContext';
-import { countRender } from '../lib/tabSwitchProbe';
+import { useNav, useNavSubTab } from '../nav/NavContext';
+import { countRender, markTabTap } from '../lib/tabSwitchProbe';
+import { visiblePinKeys as railVisibleKeys } from '../lib/pinVisibility';
+import { pressProbe } from '../lib/pinPressProbe';
+// TEMPORARY: what one card open/close costs in frames, and which thread owes it.
+import { beginFrameSample, endFrameSample, markFrameStage } from '../lib/pointFrameProbe';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
-import { Globe, NATIVE_MAP_ENABLED, type GlobeCameraAction, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeProps, type GlobeRouteSegment } from '../components/globe';
+import { Globe, NATIVE_MAP_ENABLED, pinKey, type GlobeCameraAction, type PinVisibilityApi, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeProps, type GlobeRouteSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
 import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
@@ -26,6 +30,16 @@ import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/R
 import { AppActionDialog, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
 import { Avatar } from '../components/Avatar';
+import Svg, { Circle, ClipPath, Defs, FeDropShadow, Filter, G, Image as SvgImage, Path } from 'react-native-svg';
+import { useCompanionLocations } from '../hooks/useCompanionPresence';
+import {
+  PRESENCE_DROP_MS,
+  PRESENCE_STALE_MS,
+  setSharingJourneyId,
+  useLastSelfPresence,
+  useSharingJourneyId,
+} from '../lib/companionPresence';
+import type { NativeMapMarker } from '../components/maps/types';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
@@ -35,7 +49,7 @@ import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
-import { Maximize2, Minimize2, RotateCcw, Search } from 'lucide-react-native';
+import { Maximize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
 import { refetchJourneyInspo } from '../hooks/useInspo';
 import { refetchJourneyPacking } from '../hooks/useJourneyPacking';
@@ -53,9 +67,15 @@ const MAP_DISPLAY_SETTINGS_KEY = 'kaipa:discover-map-display:v1';
 
 type PersistedMapDisplaySettings = {
   mapStyle?: GlobeMapStyle;
-  journeyMapDetailsVisible?: boolean;
+  journeyStopsVisible?: boolean;
+  journeyTrackVisible?: boolean;
+  journeyDistanceVisible?: boolean;
   mapLabelsVisible?: boolean;
   mapDistanceMarkersVisible?: boolean;
+  /** Written before the itinerary had three separate switches: one flag covered
+   *  stops, track and distance capsules alike. Read on hydrate to seed them,
+   *  never written again. */
+  journeyMapDetailsVisible?: boolean;
 };
 
 function mapDisplaySettingsKey(userId: string | null) {
@@ -93,6 +113,91 @@ function MapToolButton({
     >
       {children}
     </Press>
+  );
+}
+
+// A companion's live position as an avatar badge — no droplet silhouette at
+// all (2026-09-24 用户拍板). The body is a *pure circle*: the photo clipped
+// to a full disc with a white ring straddling its edge. The "pin" effect is
+// a needle drawn as one silhouette with the disc: its sides are *concave
+// Bézier curves that meet the circle tangentially* (±35° from the bottom,
+// 25° tip angle — variant A of preview-companion-pin.html; straight-sided
+// triangles read as a stuck-on dart, tangent continuity is the 丝滑). The
+// needle points at the small grey ground dot, which is the real anchor, so
+// the badge hovers over the place. Soft drop shadow behind the whole badge.
+// Fixed-size box keeps the dot at the same y whether or not the age pill row
+// is used. No onPress — the pin is something you read, not tap.
+const DROP_DISC_CX = 26;
+const DROP_DISC_CY = 24;
+// Photo disc grown + ring slimmed (2026-09-24 用户两轮"环再细一点"):
+// outer edge stays at 22.5 so the needle tangents still land on it; the
+// ring is now a 2px band and the visible avatar radius is 20.5. Going below
+// 2px risks a broken hairline in the Android marker snapshot.
+const DROP_PHOTO_R = 21.5;
+const DROP_RING_W = 2; // centred on the photo edge: 1px out, 1px in
+// Disc outer edge (r22.5) + concave needle to the tip at (26,53). The 1.5px
+// white stroke with round joins softens the needle point.
+const DROP_SIL_PATH = 'M26 53 C23.65 47.96 17.65 45.62 13.09 42.43 A22.5 22.5 0 1 1 38.91 42.43 C34.35 45.62 28.35 47.96 26 53 Z';
+const DROP_DOT_CY = 58; // the small ground dot — this is the position
+const DROP_BOX_W = 52;
+const DROP_SVG_H = 62;
+const DROP_BOX_H = DROP_SVG_H + 2 + 16; // + gap + reserved pill row
+
+function CompanionLocationPin({
+  theme,
+  avatarUrl,
+  stale,
+  ageLabel,
+  clipId,
+}: {
+  theme: Theme;
+  avatarUrl?: string;
+  stale: boolean;
+  ageLabel: string;
+  clipId: string;
+}) {
+  return (
+    <View pointerEvents="none" style={{ width: DROP_BOX_W, height: DROP_BOX_H, alignItems: 'center', opacity: stale ? 0.7 : 1 }}>
+      <Svg width={DROP_BOX_W} height={DROP_SVG_H}>
+        <Defs>
+          <ClipPath id={`${clipId}-disc`}>
+            <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} />
+          </ClipPath>
+          <Filter id={`${clipId}-shadow`} x="-50%" y="-50%" width="200%" height="200%">
+            <FeDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#000000" floodOpacity="0.25" />
+          </Filter>
+        </Defs>
+        <G filter={`url(#${clipId}-shadow)`}>
+          <Path d={DROP_SIL_PATH} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth={1.5} strokeLinejoin="round" />
+          <G clipPath={`url(#${clipId}-disc)`}>
+            {avatarUrl ? (
+              <SvgImage
+                href={{ uri: avatarUrl }}
+                x={DROP_DISC_CX - DROP_PHOTO_R}
+                y={DROP_DISC_CY - DROP_PHOTO_R}
+                width={DROP_PHOTO_R * 2}
+                height={DROP_PHOTO_R * 2}
+                preserveAspectRatio="xMidYMid slice"
+              />
+            ) : (
+              <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} fill={theme.fieldSurface} />
+            )}
+          </G>
+          <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} fill="none" stroke="#FFFFFF" strokeWidth={DROP_RING_W} />
+        </G>
+        <Circle cx={DROP_DISC_CX} cy={DROP_DOT_CY} r={2.4} fill="#48484A" stroke="#FFFFFF" strokeWidth={1} />
+      </Svg>
+      {!avatarUrl ? (
+        <View pointerEvents="none" style={{ position: 'absolute', top: 16 }}>
+          <Icon name="user" color={theme.text3} size={16} strokeWidth={1.8} />
+        </View>
+      ) : null}
+      {stale ? (
+        <View style={{ marginTop: 2, paddingHorizontal: 5, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 9.5, lineHeight: 12, fontWeight: '700' }}>{ageLabel}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -138,9 +243,99 @@ function JourneyFooterActionLabel({
   const color = disabled ? theme.text3 : danger ? theme.danger : theme.text;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-      <Icon name={icon} color={color} size={15} />
-      <Text style={{ color, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+      <Icon name={icon} color={color} size={17} strokeWidth={2} />
+      <Text style={{ color, fontSize: 15, fontWeight: '700' }}>{label}</Text>
     </View>
+  );
+}
+
+// The journey-detail floating dock pill: a borderless capsule with a soft,
+// wide drop shadow. The old 38pt pill carried a hairline border, which read
+// as clutter over the map; the dock now floats on shadow alone.
+// `muted` is the inactive/disabled look — sunken surface, no shadow.
+function journeyFooterPill(theme: Theme, muted = false) {
+  return {
+    height: 46,
+    minWidth: 46,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: muted ? theme.fieldSurface : theme.controlSurface,
+    boxShadow: muted
+      ? 'none'
+      : theme.dark
+        ? '0px 8px 24px rgba(0,0,0,0.45)'
+        : '0px 8px 24px rgba(0,0,0,0.10)',
+  };
+}
+
+// The companion live-location share control: the 路线 pill's anatomy (hairline
+// border, no shadow) shrunk one notch — 30pt tall, label first, the switch
+// trails it. The switch is drawn, not native: RN's <Switch> is fixed at 51x31
+// and only shrinks by scaling the whole thing, which stayed too loud for this
+// pill. The whole pill is the tap target.
+const MINI_TRACK_W = 26;
+const MINI_TRACK_H = 15;
+const MINI_THUMB = 11;
+function CompanionShareSwitchPill({
+  theme,
+  label,
+  on,
+  onToggle,
+}: {
+  theme: Theme;
+  label: string;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  const progress = React.useRef(new Animated.Value(on ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: on ? 1 : 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [on, progress]);
+  return (
+    <Press
+      onPress={onToggle}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={label}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 30,
+        paddingLeft: 9,
+        paddingRight: 6,
+        borderRadius: 15,
+        backgroundColor: theme.controlSurface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.fieldBorder,
+      }}
+    >
+      <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text2 }}>{label}</Text>
+      <View style={{
+        width: MINI_TRACK_W,
+        height: MINI_TRACK_H,
+        borderRadius: MINI_TRACK_H / 2,
+        backgroundColor: on ? theme.accent : (theme.dark ? 'rgba(120,120,128,0.42)' : 'rgba(120,120,128,0.26)'),
+        justifyContent: 'center',
+      }}>
+        <Animated.View style={{
+          width: MINI_THUMB,
+          height: MINI_THUMB,
+          borderRadius: MINI_THUMB / 2,
+          backgroundColor: '#FFFFFF',
+          marginLeft: 2,
+          transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, MINI_TRACK_W - MINI_THUMB - 4] }) }],
+          boxShadow: '0px 1px 3px rgba(0,0,0,0.25)',
+        }} />
+      </View>
+    </Press>
   );
 }
 
@@ -185,6 +380,41 @@ function groupByPlace(list: Poi[]): { rep: Poi; group: Poi[] }[] {
   }));
 }
 
+/**
+ * One pin per place, for one 探索/旅程 layer.
+ *
+ * `layer` is part of the pin because the map keeps both layers mounted and hides one
+ * of them by key - see `PinVisibilityApi`. `openRoute` is the route-detail case: the
+ * open route's own pin is off the map (the card is showing it) and any sibling
+ * already laid over it for comparison is skipped, so a shared trailhead keeps
+ * exposing the next candidate.
+ */
+function pinsFromGroups(
+  groups: { rep: Poi; group: Poi[] }[],
+  layer: 'explore' | 'memory',
+  openRoute: { id: string; comparisonIds: Set<string> } | null,
+) {
+  return groups.flatMap(({ rep, group }) => {
+    const markerCandidates = openRoute
+      ? group.filter((item) => item.id !== openRoute.id && !openRoute.comparisonIds.has(item.id))
+      : group;
+    const markerPoi = markerCandidates[0] ?? rep;
+    if (openRoute && markerCandidates.length === 0) return [];
+    const [lng, lat] = poiMapCoordinate(markerPoi);
+    return [{
+      id: rep.id,
+      layer,
+      lng,
+      lat,
+      mine: markerPoi.mine,
+      tone: markerPoi.tone,
+      count: markerCandidates.length,
+      coverUri: markerPoi.photoUris?.[0],
+      label: markerPoi.name,
+    }];
+  });
+}
+
 interface JourneySegmentGeometry {
   id: string;
   label: string;
@@ -197,6 +427,7 @@ interface JourneySegmentGeometry {
 // Stable identity: a fresh empty array per render would rebuild the map's
 // polyline and marker lists on every DiscoverScreen render.
 const NO_ITINERARY_LEGS: JourneyLeg[] = [];
+const NO_HIDDEN_JOURNEY_ROUTES: ReadonlySet<string> = new Set();
 
 // The map's props that must never change identity between renders, or its whole
 // annotation subtree is rebuilt. See the handler ref inside DiscoverScreen.
@@ -210,7 +441,20 @@ type MapHandlerSet = {
   onBackgroundPress: NonNullable<GlobeProps['onBackgroundPress']>;
 };
 
+// Fallback for the kilometre labels when the camera never reports a move: the
+// fit's own duration (MapGlobe uses 250ms on iOS, 760ms on AMap) plus a little,
+// so the labels cannot land inside an animation that is still running.
+const DISTANCE_LABEL_FALLBACK_MS = Platform.OS === 'android' ? 820 : 420;
+
 const NO_FOCUS_SEGMENTS: GlobeRouteSegment[] = [];
+
+const NO_COMPANION_PINS: NativeMapMarker[] = [];
+
+// Shared empty selection: `selectedIds` is only read or replaced wholesale, so one
+// instance lets `exitSelect()` bail instead of handing React a new Set identity and
+// forcing a render pass that draws the same pixels (measured: every sub-tab tap's
+// second `Discover` render).
+const NO_SELECTION: Set<string> = new Set();
 
 export function DiscoverScreen({
   theme,
@@ -244,12 +488,15 @@ export function DiscoverScreen({
     t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const isMemory = nav.subTab === 'memory';
+  const subTab = useNavSubTab();
+  const isMemory = subTab === 'memory';
   const [chip, setChip] = React.useState(0);
   const [mapStyle, setMapStyle] = useState<GlobeMapStyle>('standard');
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
   const [routeFeedbackOpen, setRouteFeedbackOpen] = useState(false);
-  const [journeyMapDetailsVisible, setJourneyMapDetailsVisible] = useState(true);
+  const [journeyStopsVisible, setJourneyStopsVisible] = useState(true);
+  const [journeyTrackVisible, setJourneyTrackVisible] = useState(true);
+  const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
@@ -266,7 +513,6 @@ export function DiscoverScreen({
   const mapMarkerPressAtRef = React.useRef(0);
   const wasMapActiveRef = React.useRef(active);
   const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
-  const mapCameraWatchUntilRef = React.useRef(0);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
@@ -285,7 +531,9 @@ export function DiscoverScreen({
     let cancelled = false;
     mapDisplaySettingsHydratedRef.current = false;
     setMapStyle('standard');
-    setJourneyMapDetailsVisible(true);
+    setJourneyStopsVisible(true);
+    setJourneyTrackVisible(true);
+    setJourneyDistanceVisible(true);
     setMapLabelsVisible(true);
     setMapDistanceMarkersVisible(true);
     AsyncStorage.getItem(mapDisplaySettingsKey(userId))
@@ -296,7 +544,25 @@ export function DiscoverScreen({
           if (saved.mapStyle === 'standard' || saved.mapStyle === 'terrain' || saved.mapStyle === 'satellite') {
             setMapStyle(saved.mapStyle);
           }
-          if (typeof saved.journeyMapDetailsVisible === 'boolean') setJourneyMapDetailsVisible(saved.journeyMapDetailsVisible);
+          // A stored preference from before the itinerary split into three
+          // switches carried one combined flag; let it seed all of them so a
+          // user who had the chain hidden keeps it hidden.
+          const legacy = saved.journeyMapDetailsVisible;
+          setJourneyStopsVisible(
+            typeof saved.journeyStopsVisible === 'boolean'
+              ? saved.journeyStopsVisible
+              : legacy ?? true,
+          );
+          setJourneyTrackVisible(
+            typeof saved.journeyTrackVisible === 'boolean'
+              ? saved.journeyTrackVisible
+              : legacy ?? true,
+          );
+          setJourneyDistanceVisible(
+            typeof saved.journeyDistanceVisible === 'boolean'
+              ? saved.journeyDistanceVisible
+              : legacy ?? true,
+          );
           if (typeof saved.mapLabelsVisible === 'boolean') setMapLabelsVisible(saved.mapLabelsVisible);
           if (typeof saved.mapDistanceMarkersVisible === 'boolean') setMapDistanceMarkersVisible(saved.mapDistanceMarkersVisible);
         } catch {
@@ -316,22 +582,54 @@ export function DiscoverScreen({
     if (!mapDisplaySettingsHydratedRef.current) return;
     const settings: PersistedMapDisplaySettings = {
       mapStyle,
-      journeyMapDetailsVisible,
+      journeyStopsVisible,
+      journeyTrackVisible,
+      journeyDistanceVisible,
       mapLabelsVisible,
       mapDistanceMarkersVisible,
     };
     AsyncStorage.setItem(mapDisplaySettingsKey(userId), JSON.stringify(settings)).catch(() => {});
-  }, [journeyMapDetailsVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, userId]);
+  }, [journeyDistanceVisible, journeyStopsVisible, journeyTrackVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, userId]);
 
-  const openPointFromCurrentMap = (poi: Poi) => {
+  // TEMPORARY probe snapshot: every `[pinpress]` line prints this, so one paste
+  // of two taps shows what each press gate believed at that moment.
+  React.useEffect(() => {
+    pressProbe.context({
+      pointInfo: nav.pointInfo ? `${nav.pointInfo.kind}:${nav.pointInfo.id}` : '',
+      sheetOpen: nav.sheetOpen,
+      immersive: mapImmersive,
+      layer: subTab,
+      rail: useRail,
+      pins: mapPois.length,
+      poiMarkers: !nav.pointInfo || nav.pointInfo.kind === 'route',
+      visibleSet: visiblePinKeys.size,
+      cameraRevision: mapCameraAction?.revision ?? 0,
+      markerPressAgo: mapMarkerPressAtRef.current ? Date.now() - mapMarkerPressAtRef.current : 0,
+      // The geometry of what is actually allowed to be seen, so a blocked press
+      // can be read as "the pin you tapped is not one of these" or "it is, and
+      // something invisible is stacked on top of it".
+      where: mapPois.filter((p) => visiblePinKeys.has(`${p.layer}:${p.id}`)).slice(0, 6)
+        .map((p) => `${p.layer}:${p.id}@${p.lng.toFixed(2)},${p.lat.toFixed(2)}`).join(' ') || '-',
+    });
+  });
+
+  const openPointFromCurrentMap = (poi: Poi, from: 'pin' | 'list' = 'list') => {
+    pressProbe.open(`from-${from} ${poi.kind}:${poi.id}`);
+    beginFrameSample(`open-from-${from} ${poi.kind}:${poi.id}`, `pins=${mapPois.length} track=${poi.trackCoords?.length ?? 0}`);
     mapBeforePointRef.current = mapCameraRef.current;
     mapPointGestureRef.current = false;
     nav.openPoint(poi);
   };
 
   const restoreMapAfterPoint = () => {
+    // The list sheet also calls this when it is dragged away; only a card's close
+    // is the transition worth sampling.
+    if (nav.pointInfo) {
+      beginFrameSample('close', `pins=${mapPois.length} track=${nav.pointInfo.trackCoords?.length ?? 0}`);
+    }
     const camera = mapBeforePointRef.current;
     if (camera) {
+      pressProbe.cameraRestore(`${camera.center[0].toFixed(4)},${camera.center[1].toFixed(4)} z${camera.zoom.toFixed(2)}`);
       setMapCameraAction((current) => ({
         type: 'restore',
         coordinate: camera.center,
@@ -344,6 +642,7 @@ export function DiscoverScreen({
   };
 
   const dismissPointSheet = () => {
+    pressProbe.dismissStart('back-button');
     restoreMapAfterPoint();
     sheetRef.current?.dismiss();
   };
@@ -370,17 +669,11 @@ export function DiscoverScreen({
     if (!active) {
       // Anything the map reports after this point moved on its own while hidden.
       mapCameraEventRef.current = null;
-      console.log(`[tabcam] left discover: camera=${JSON.stringify(mapCameraRef.current)}`);
       return;
     }
     const reloaded = mapReloadedWhileAwayRef.current;
     mapReloadedWhileAwayRef.current = false;
     const caughtUp = lastActiveFrameSignatureRef.current !== mapFrameSignature;
-    mapCameraWatchUntilRef.current = Date.now() + 2000;
-    console.log(
-      `[tabcam] returned to discover: camera=${JSON.stringify(mapCameraRef.current)} ` +
-        `reframe=${caughtUp || reloaded} (caughtUp=${caughtUp} reloaded=${reloaded})`,
-    );
     if (!caughtUp && !reloaded) return;
     const camera = mapCameraRef.current;
     if (!camera) return;
@@ -395,7 +688,7 @@ export function DiscoverScreen({
 
   // ── multi-select (long-press to enter, batch delete) ──
   const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => NO_SELECTION);
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [detailBodyHeight, setDetailBodyHeight] = useState(0);
@@ -403,13 +696,23 @@ export function DiscoverScreen({
   const [mapImmersive, setMapImmersive] = useState(false);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
   const [selectedJourneyDay, setSelectedJourneyDay] = useState<string | undefined>();
-  const [selectedJourneyRouteId, setSelectedJourneyRouteId] = useState<string | undefined>();
-  const [journeyRouteMenuOpen, setJourneyRouteMenuOpen] = useState(false);
+  // Each recorded track of a journey is its own on/off switch. Only the hidden
+  // set is stored, so a track that loads later is visible by default and a
+  // toggle never has to know the full route list up front.
+  const [hiddenJourneyRouteIds, setHiddenJourneyRouteIds] = useState<ReadonlySet<string>>(NO_HIDDEN_JOURNEY_ROUTES);
+  const toggleJourneyRouteVisible = useCallback((id: string, visible: boolean) => {
+    setHiddenJourneyRouteIds((current) => {
+      if (current.has(id) === !visible) return current;
+      const next = new Set(current);
+      if (visible) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day?: string; revision: number }>();
   const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
   const [momentSelectionMode, setMomentSelectionMode] = useState(false);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(() => new Set());
-  const [visibleMomentIds, setVisibleMomentIds] = useState<string[]>([]);
   const momentAddActionRef = React.useRef<(() => void) | null>(null);
   const momentDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const momentFilterMenuRef = React.useRef<JourneyMomentFilterMenuController | null>(null);
@@ -417,10 +720,8 @@ export function DiscoverScreen({
   const checklistDeleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const checklistFilterActionRef = React.useRef<(() => void) | null>(null);
   const checklistFilterMenuRef = React.useRef<JourneyChecklistFilterMenuController | null>(null);
-  const checklistToggleAllActionRef = React.useRef<(() => void) | null>(null);
   const [checklistSelectionMode, setChecklistSelectionMode] = useState(false);
   const [selectedChecklistItemIds, setSelectedChecklistItemIds] = useState<Set<string>>(() => new Set());
-  const [visibleChecklistItemIds, setVisibleChecklistItemIds] = useState<string[]>([]);
   const [checklistCanEdit, setChecklistCanEdit] = useState(true);
   const [versionRestoreDialogOpen, setVersionRestoreDialogOpen] = useState(false);
   const [versionRestoring, setVersionRestoring] = useState(false);
@@ -539,7 +840,6 @@ export function DiscoverScreen({
       setMomentFilterMenuOpen(false);
       setMomentSelectionMode(false);
       setSelectedMomentIds(new Set());
-      setVisibleMomentIds([]);
     }
     if (tab !== 'checklist') {
       checklistPickerTarget.current = false;
@@ -547,7 +847,6 @@ export function DiscoverScreen({
       setChecklistFilterMenuOpen(false);
       setChecklistSelectionMode(false);
       setSelectedChecklistItemIds(new Set());
-      setVisibleChecklistItemIds([]);
     }
   }, []);
   const handleChecklistCanEditChange = useCallback((canEdit: boolean) => {
@@ -570,7 +869,6 @@ export function DiscoverScreen({
     setSelectedJourneyTab('overview');
     setMomentSelectionMode(false);
     setSelectedMomentIds(new Set());
-    setVisibleMomentIds([]);
     momentAddActionRef.current = null;
     momentDeleteActionRef.current = null;
     momentFilterMenuProgress.setValue(0);
@@ -578,10 +876,8 @@ export function DiscoverScreen({
     checklistAddActionRef.current = null;
     checklistDeleteActionRef.current = null;
     checklistFilterActionRef.current = null;
-    checklistToggleAllActionRef.current = null;
     setChecklistSelectionMode(false);
     setSelectedChecklistItemIds(new Set());
-    setVisibleChecklistItemIds([]);
     setChecklistCanEdit(true);
     checklistPickerTarget.current = false;
     checklistPickerProgress.setValue(0);
@@ -651,8 +947,8 @@ export function DiscoverScreen({
     setSelectedIds(new Set([id]));
   }, []);
   const exitSelect = useCallback(() => {
-    setSelectMode(false);
-    setSelectedIds(new Set());
+    setSelectMode((on) => (on ? false : on));
+    setSelectedIds((ids) => (ids.size ? NO_SELECTION : ids));
   }, []);
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -672,8 +968,9 @@ export function DiscoverScreen({
 
   // Public-track journeys to inject into explore tab: shared journeys from
   // the user (and eventually from other users) that are trackPublic + have track data.
+  // Not gated on the visible mode: while 旅程 is on screen this is still the layer
+  // the map has to keep mounted and hidden, so it needs the same list.
   const publicTrackPois: Poi[] = useMemo(() => {
-    if (isMemory) return [];
     const all = [...nav.extraJourneys, ...journeys];
     const seen = new Set<string>();
     return all
@@ -682,22 +979,30 @@ export function DiscoverScreen({
       .map((p) => nav.merged(p)) // apply journeyPatch (e.g. trackPublic toggle before DB sync)
       .filter((p) => p.trackPublic && p.trackCoords && p.trackCoords.length > 0)
       .map((p) => ({ ...p, kind: 'route' as const, mine: true, fav: false })); // show as route card in explore tab
-  }, [isMemory, nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
+  }, [nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
 
-  const basePois: Poi[] = useMemo(() => {
-    if (isMemory) {
-      const merged = [...nav.extraJourneys, ...journeys];
-      const seen = new Set<string>();
-      const deduped = merged.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-      return deduped
-        .filter((p) => !nav.removedIds.includes(p.id))
-        .map((p) => nav.merged(p));
-    }
+  // Both modes' lists, built independently and *without* the chip or the
+  // route-detail rules, because those say which pins are visible and not what a pin
+  // is: keeping the two layers' content free of the mode means a switch changes no
+  // object identity at all, which is the whole point of the rail below.
+  const memoryBasePois: Poi[] = useMemo(() => {
+    const merged = [...nav.extraJourneys, ...journeys];
+    const seen = new Set<string>();
+    return merged
+      .filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
+      .filter((p) => !nav.removedIds.includes(p.id))
+      .map((p) => nav.merged(p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
+
+  const exploreBasePois: Poi[] = useMemo(() => {
     const merged = [...nav.savedRoutes, ...routes, ...publicTrackPois];
     const seen = new Set<string>();
     return merged.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMemory, nav.extraJourneys, nav.savedRoutes, nav.removedIds, nav.journeyPatch, routes, journeys, publicTrackPois]);
+  }, [nav.savedRoutes, routes, publicTrackPois]);
+
+  const basePois: Poi[] = isMemory ? memoryBasePois : exploreBasePois;
 
   const pois = useMemo(() => {
     let list = [...basePois];
@@ -723,7 +1028,7 @@ export function DiscoverScreen({
 
   const allSelected = displayPois.length > 0 && selectedIds.size === displayPois.length;
   const toggleAll = useCallback(() => {
-    setSelectedIds(allSelected ? new Set() : new Set(displayPois.map((p) => p.id)));
+    setSelectedIds(allSelected ? NO_SELECTION : new Set(displayPois.map((p) => p.id)));
   }, [allSelected, displayPois]);
   const deleteSelected = useCallback(() => {
     nav.openActionSheet({
@@ -773,6 +1078,10 @@ export function DiscoverScreen({
   const journeyMinimum = Math.round(height * 0.15);
   const full = Math.round(height * 0.88);
   const focusPanel = Math.round(height * 0.56);
+  // Fullscreen leaves nothing over the map, so the fit may use the whole screen.
+  // The snap-based paddings below would keep a dead band exactly as tall as the
+  // card that is currently off screen.
+  const immersiveFitBottom = Math.round(insets.bottom + 28);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
@@ -818,6 +1127,33 @@ export function DiscoverScreen({
   }, [nav.pointInfo?.id]);
   const detailReady = !nav.pointInfo || readyDetailId === nav.pointInfo.id;
   const focusCoords = detailReady ? rawFocusCoords : null;
+  // TEMPORARY: the two commits that make up one transition, timed apart. `card`
+  // is where the sheet's children swap; `track` is the frame the camera starts
+  // moving in, and the one that used to cost 510ms of JS thread.
+  React.useEffect(() => {
+    markFrameStage(nav.pointInfo ? 'card' : 'list', `pins=${mapPois.length}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.pointInfo?.id]);
+  React.useEffect(() => {
+    markFrameStage('track', `count=${focusCoords?.length ?? 0}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCoords?.length]);
+  // The kilometre labels are up to 60 snapshot markers. Mounting them in the same
+  // commit that starts the camera fit puts all of that inside the animation, which
+  // is exactly where the frames are — and the fit changes the zoom, so the step
+  // they were built for is stale 180ms later and they are built a second time.
+  // They now wait for the move to be reported; the timeout covers a card that
+  // never moves the camera (the map was panned by hand before the tap).
+  const [distanceMarkersReady, setDistanceMarkersReady] = useState(false);
+  useEffect(() => {
+    if (!nav.pointInfo || !detailReady) {
+      setDistanceMarkersReady(false);
+      return;
+    }
+    const timer = setTimeout(() => setDistanceMarkersReady(true), DISTANCE_LABEL_FALLBACK_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.pointInfo?.id, detailReady]);
   // Which geometry the journey map draws depends only on the tracks and the day
   // boundaries. Selecting a day only changes emphasis, so the per-day slicing
   // below stays out of that path — it copies the whole track into segments.
@@ -854,30 +1190,38 @@ export function DiscoverScreen({
     if (routeSegments.length) return routeSegments;
     return [];
   }, [focusedTimeline.rows, nav.pointInfo?.kind, nav.pointInfo?.name, routes]);
-  const focusSegments = useMemo(() => journeySegmentGeometry.map((segment) => ({
-    id: segment.id,
-    label: segment.label,
-    coordinates: segment.coordinates,
-    color: segment.color,
-    active: (!selectedJourneyDay || !segment.days || segment.days.includes(selectedJourneyDay))
-      && (!selectedJourneyRouteId || segment.id === selectedJourneyRouteId),
-  })), [journeySegmentGeometry, selectedJourneyDay, selectedJourneyRouteId]);
+  const focusSegments = useMemo(() => journeySegmentGeometry
+    // A track switched off is removed from the map entirely (and from camera
+    // framing), not merely dimmed — each recorded track is an independent layer.
+    .filter((segment) => !hiddenJourneyRouteIds.has(segment.id))
+    .map((segment) => ({
+      id: segment.id,
+      label: segment.label,
+      coordinates: segment.coordinates,
+      color: segment.color,
+      // Opening a day still only re-emphasises the visible tracks.
+      active: !selectedJourneyDay || !segment.days || segment.days.includes(selectedJourneyDay),
+    })), [hiddenJourneyRouteIds, journeySegmentGeometry, selectedJourneyDay]);
   const journeyRouteOptions = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
     const seen = new Set<string>();
-    return focusSegments.filter((segment) => {
+    return journeySegmentGeometry.filter((segment) => {
       // Day-based fallback sections are useful on the map, but they are not
-      // separate user-selectable route tracks. Only linked route geometries
-      // should create the multi-route control.
-      if (!segment.id.startsWith('journey-route-')) return false;
+      // separate user-selectable route tracks. Only a linked route geometry or
+      // the journey's own persisted track becomes a switch.
+      if (!segment.id.startsWith('journey-route-') && segment.id !== 'journey-persisted-track') return false;
       if (seen.has(segment.id)) return false;
       seen.add(segment.id);
       return segment.coordinates.length >= 2;
-    });
-  }, [focusSegments, nav.pointInfo?.kind]);
+    }).map((segment) => ({
+      id: segment.id,
+      label: segment.label,
+      color: segment.color,
+      visible: !hiddenJourneyRouteIds.has(segment.id),
+    }));
+  }, [hiddenJourneyRouteIds, journeySegmentGeometry, nav.pointInfo?.kind]);
   useEffect(() => {
-    setSelectedJourneyRouteId(undefined);
-    setJourneyRouteMenuOpen(false);
+    setHiddenJourneyRouteIds(NO_HIDDEN_JOURNEY_ROUTES);
   }, [nav.pointInfo?.id]);
   const routeComparisonSegments = useMemo(() => {
     if (nav.pointInfo?.kind !== 'route') return [];
@@ -935,7 +1279,7 @@ export function DiscoverScreen({
       : []
   ), [detailReady, focusedTimeline.rows, nav.pointInfo, routes]);
   const itineraryTrackCoords = useMemo(() => new Map(
-    itineraryTracks.map((track) => [track.id, track.coords]),
+    itineraryTracks.flatMap((track) => track.ids.map((id) => [id, track.coords] as const)),
   ), [itineraryTracks]);
   const itineraryLegs = useMemo(() => (
     itineraryStops.length >= 2
@@ -943,12 +1287,17 @@ export function DiscoverScreen({
         (trackId) => itineraryTrackCoords.get(trackId))
       : []
   ), [focusedTimeline.rows, itineraryStops, itineraryTrackCoords]);
+  // The numbered stops, the route chain and the per-day distance capsules are
+  // three independent switches, but they all read off the same chain geometry
+  // and the camera frames that chain. So the chain stays measured and framed as
+  // long as any one of them is on.
+  const journeyItineraryActive = journeyStopsVisible || journeyTrackVisible || journeyDistanceVisible;
   const legGeometry = useJourneyLegGeometry(
-    journeyMapDetailsVisible ? itineraryLegs : NO_ITINERARY_LEGS,
-    journeyMapDetailsVisible,
+    journeyItineraryActive ? itineraryLegs : NO_ITINERARY_LEGS,
+    journeyItineraryActive,
   );
   const journeyStops = useMemo<GlobeJourneyStop[]>(() => (
-    journeyMapDetailsVisible
+    journeyStopsVisible
       ? itineraryStops
         // Other days' places stay off the map while a day is open: their pins sit
         // between the reader and the chain being followed. Day chips below the
@@ -965,9 +1314,9 @@ export function DiscoverScreen({
           color: itineraryColor(stop.day),
         }))
       : []
-  ), [itineraryColor, itineraryStops, journeyMapDetailsVisible, selectedJourneyDay]);
+  ), [itineraryColor, itineraryStops, journeyStopsVisible, selectedJourneyDay]);
   const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
-    journeyMapDetailsVisible
+    journeyTrackVisible
       ? itineraryLegs.map((leg) => {
         const planned = legGeometry[leg.id];
         return {
@@ -980,7 +1329,7 @@ export function DiscoverScreen({
         };
       })
       : []
-  ), [itineraryColor, itineraryLegs, journeyMapDetailsVisible, legGeometry, selectedJourneyDay]);
+  ), [itineraryColor, itineraryLegs, journeyTrackVisible, legGeometry, selectedJourneyDay]);
   // Each day's own mileage, read off the chain rather than off a recorded
   // track: it is what that day's legs actually travel. Only the open day keeps
   // its capsule: "how far is each day" is a question the overview asks, and a
@@ -988,7 +1337,7 @@ export function DiscoverScreen({
   // cover the line the user is now reading. The dim chain stays tappable and
   // still switches days.
   const journeyDayLabels = useMemo<GlobeJourneyDayLabel[]>(() => (
-    journeyMapDetailsVisible
+    journeyDistanceVisible
       ? measureJourneyDays(itineraryLegs, legGeometry)
         .filter((measured) => !selectedJourneyDay || selectedJourneyDay === measured.day)
         .map((measured) => ({
@@ -999,7 +1348,7 @@ export function DiscoverScreen({
           color: itineraryColor(measured.day),
         }))
       : []
-  ), [itineraryColor, itineraryLegs, journeyMapDetailsVisible, legGeometry, resolved, selectedJourneyDay]);
+  ), [itineraryColor, itineraryLegs, journeyDistanceVisible, legGeometry, resolved, selectedJourneyDay]);
   const journeyDayChainRef = React.useRef<[number, number][] | null>(null);
   // What the map frames when no day is open: every leg, every place, and the
   // recorded track. The track alone is not enough — a planned day can sit well
@@ -1007,7 +1356,7 @@ export function DiscoverScreen({
   // rather than road geometry: plans arrive asynchronously, and a new array here
   // would refit the camera under the user.
   const journeyOverviewFrame = useMemo<[number, number][]>(() => (
-    journeyMapDetailsVisible
+    journeyItineraryActive
       ? [
         ...itineraryLegs.flatMap((leg) => [leg.from, leg.to]),
         ...itineraryStops.map((stop) => stop.coordinate),
@@ -1015,11 +1364,11 @@ export function DiscoverScreen({
         ...(rawFocusCoords ?? []),
       ]
       : []
-  ), [itineraryLegs, itineraryStops, journeyMapDetailsVisible, journeySegmentGeometry, rawFocusCoords]);
-  const dayLegs = journeyMapDetailsVisible && selectedJourneyDay
+  ), [itineraryLegs, itineraryStops, journeyItineraryActive, journeySegmentGeometry, rawFocusCoords]);
+  const dayLegs = journeyItineraryActive && selectedJourneyDay
     ? itineraryLegs.filter((leg) => leg.day === selectedJourneyDay)
     : [];
-  const dayTrackCoords = journeyMapDetailsVisible && selectedJourneyDay
+  const dayTrackCoords = journeyItineraryActive && selectedJourneyDay
     // Where the day also has recorded track of its own, keep that in frame: a
     // walked detour can leave the planned chain. A whole-journey track (which
     // carries no day) is deliberately out.
@@ -1028,7 +1377,7 @@ export function DiscoverScreen({
       .flatMap((segment) => segment.coordinates)
     : [];
   const legCoords = (leg: JourneyLeg) => legGeometry[leg.id] ?? [leg.from, leg.to];
-  journeyDayChainRef.current = !journeyMapDetailsVisible
+  journeyDayChainRef.current = !journeyItineraryActive
     ? null
     // Returning to the overview goes to the same box the journey opened with.
     : !selectedJourneyDay
@@ -1089,6 +1438,48 @@ export function DiscoverScreen({
     setMapAtRouteFrame(true);
     setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
   };
+
+  // Fullscreen is a card/camera state, not another page: the detail sheet stays
+  // mounted and slides off screen. Unmounting it would cost the card its active
+  // tab, scroll offset and day-collapse state, and re-measure the pager on the
+  // way back, so a mistimed exit would read as the detail reloading itself.
+  const enterMapImmersive = () => {
+    setMapStylePickerOpen(false);
+    setMapImmersive(true);
+    sheetRef.current?.hide();
+    // Only re-frame while the camera still belongs to the route. If the user
+    // panned away on their own, fullscreen must reveal the map, not move it.
+    if (mapAtRouteFrame) fitMapRoute();
+  };
+
+  const exitMapImmersive = () => {
+    setMapImmersive(false);
+    const index = nav.pointInfo?.kind === 'route' ? routeSheetIndex : journeySheetIndex;
+    sheetRef.current?.snapTo(index > 1 ? 1 : index);
+    if (mapAtRouteFrame) fitMapRoute();
+  };
+
+  // Nothing inside fullscreen can close the point, but another surface can (the
+  // leave-journey action in AppRoot does). Without the card there would be a map
+  // with no detail on it and no chrome around it.
+  React.useEffect(() => {
+    if (!nav.pointInfo) setMapImmersive(false);
+  }, [nav.pointInfo]);
+
+  // The one exit from fullscreen is a tap on the map, which is invisible by
+  // design. Android's back button is the safety net if that tap never lands.
+  const exitMapImmersiveRef = React.useRef(exitMapImmersive);
+  React.useEffect(() => {
+    exitMapImmersiveRef.current = exitMapImmersive;
+  });
+  React.useEffect(() => {
+    if (!mapImmersive || !active || Platform.OS !== 'android') return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      exitMapImmersiveRef.current();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [mapImmersive, active]);
 
   const toggleRouteDirection = () => {
     if (nav.pointInfo?.kind !== 'route') return;
@@ -1194,19 +1585,170 @@ export function DiscoverScreen({
 
 
 
+  // ── companion live location (旅程伙伴位置) ──
+  // The viewer side only; publishing lives app-wide behind the toggle (see
+  // src/lib/companionPresence.ts). The map stops taking re-renders while it is
+  // covered or inactive, and presence follows the same rule — an updating pin
+  // nobody can see is still churn on the marker arrays.
+  const openJourneyId = nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview
+    ? nav.pointInfo.id
+    : null;
+  const sharingJourneyId = useSharingJourneyId();
+  const sharingThisJourney = !!openJourneyId && sharingJourneyId === openJourneyId;
+  const { peers, presenceClock } = useCompanionLocations(openJourneyId, active && !covered);
+  const selfPresence = useLastSelfPresence();
+  const companionPins = useMemo<NativeMapMarker[]>(() => {
+    // While sharing, the publisher's own fix rides along as a pin too — the
+    // blue location dot exists regardless, but the avatar is what tells the
+    // user their share is live, and peers see the identical pin for them.
+    const entries: Array<{ peer: (typeof peers)[number]; self: boolean }> = [
+      ...peers.filter((peer) => peer.userId !== userId).map((peer) => ({ peer, self: false })),
+      ...(sharingThisJourney && selfPresence ? [{ peer: selfPresence, self: true }] : []),
+    ];
+    if (!entries.length) return NO_COMPANION_PINS;
+    const now = Date.now();
+    const companionList = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.companionList : undefined;
+    return entries.flatMap(({ peer, self }) => {
+      const companion = companionList?.find((c) => c.userId === peer.userId);
+      if (!companion && !self) return [];
+      // Measured from when *this* device last saw the entry change, never from
+      // the sender's stamp: phones do not agree on the time of day, and a
+      // companion two minutes fast used to compute a negative age here and be
+      // invisible to everyone forever, with nothing on screen to explain it.
+      const age = now - peer.seenAt;
+      if (age > PRESENCE_DROP_MS) return [];
+      // Your own pin goes grey on this rule too: a publisher that has stopped
+      // getting through is exactly what the grey ring means, and it is the only
+      // feedback this screen gives (no toast in either direction of the switch).
+      const stale = age > PRESENCE_STALE_MS;
+      return [{
+        // Android snapshots marker content by id, so everything the pixel
+        // depends on — position and the staleness step — has to live in it.
+        id: `companion-${peer.userId}-${Math.round(peer.longitude * 10000)}-${Math.round(peer.latitude * 10000)}-${stale ? `old-${Math.floor(age / 60_000)}` : 'live'}`,
+        coordinate: [peer.longitude, peer.latitude],
+        // The ground dot — not the pin tip — is the position: anchor there,
+        // so the pin hovers over the place like Apple's does.
+        anchor: { x: 0.5, y: DROP_DOT_CY / DROP_BOX_H },
+        centerOffset: { x: 0, y: DROP_BOX_H / 2 - DROP_DOT_CY },
+        // A live person outranks the static itinerary furniture they overlap:
+        // the numbered start/end pins sit at z 0, so the avatar floats above
+        // them wherever a companion is standing on the route.
+        zIndex: 100,
+        content: (
+          <CompanionLocationPin
+            theme={theme}
+            avatarUrl={companion?.avatarUrl || (self ? data.profile.avatarUrl : undefined)}
+            stale={stale}
+            ageLabel={t('discover.shareLocationAgo', { minutes: Math.max(1, Math.round(age / 60_000)) })}
+            clipId={`companion-drop-${peer.userId}`}
+          />
+        ),
+      }];
+    });
+  }, [data.profile.avatarUrl, nav.pointInfo, presenceClock, peers, selfPresence, sharingThisJourney, t, theme, userId]);
+  const toggleLocationShare = useCallback(async () => {
+    if (!openJourneyId) return;
+    if (sharingJourneyId === openJourneyId) {
+      // No toast on stop either — the switch sliding back and the avatars
+      // vanishing is the whole answer (user: "点击位置后不需要触发通知条").
+      setSharingJourneyId(null);
+      return;
+    }
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) {
+      nav.showToast(t('discover.locationPermissionDenied'));
+      return;
+    }
+    // Android grants permission without the device-wide provider being on, and
+    // the watch would then deliver nothing at all: the switch reads on and no
+    // avatar ever appears. Same escape the locate button uses, same reason.
+    try {
+      if (!await withTimeout(Location.hasServicesEnabledAsync(), 3_000, 'Checking location services timed out')) {
+        nav.showToast(t('discover.locationFailed'));
+        return;
+      }
+    } catch {
+      // A hung provider check must not block the share; the grey ring on the
+      // user's own pin is the fallback signal.
+    }
+    setSharingJourneyId(openJourneyId);
+  }, [nav, openJourneyId, sharingJourneyId, t]);
+
   // sheet stats
   const totalKm = useMemo(() => displayPois.reduce((s, p) => s + num(p.dist), 0), [displayPois]);
-  const mapPois = useMemo(() => placeGroups.flatMap(({ rep, group }) => {
-    // Hide only routes already participating in the comparison. At a shared
-    // trailhead, keep exposing the next unselected sibling.
-    const markerCandidates = nav.pointInfo?.kind === 'route'
-      ? group.filter((item) => item.id !== nav.pointInfo?.id && !comparisonRouteIds.has(item.id))
-      : group;
-    const markerPoi = markerCandidates[0] ?? rep;
-    if (nav.pointInfo?.kind === 'route' && markerCandidates.length === 0) return [];
-    const [lng, lat] = poiMapCoordinate(markerPoi);
-    return [{ id: rep.id, lng, lat, mine: markerPoi.mine, tone: markerPoi.tone, count: markerCandidates.length, coverUri: markerPoi.photoUris?.[0], label: markerPoi.name }];
-  }), [comparisonRouteIds, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups]);
+  // ── which pins are on screen, decided without a render ──
+  // The switch used to cost whatever the marker list costs, because changing what is
+  // on screen meant rebuilding it: 62ms for a handful of journey pins, 284ms for the
+  // whole route catalog, and still ~190ms both ways after every trick that keeps the
+  // pin *objects* stable - walking 148 markers is itself the price. So the price is
+  // taken out of React: both layers are mounted, and the visible set is pushed to the
+  // map, which moves per-pin Animated values the way zooming moves `pinScale`.
+  //
+  // iOS only. AMap snapshots a marker's children into a bitmap (its own docs: 当使用
+  // children 时，会将 React Native 组件渲染为图片显示在地图上), so an alpha set on the
+  // content afterwards is baked in and cannot be animated back - Android keeps the
+  // old path, unchanged from before.
+  const pinVisibilityApi = React.useRef<PinVisibilityApi | null>(null);
+  const railAvailable = Platform.OS === 'ios' && NATIVE_MAP_ENABLED;
+  // The rail stays up under a detail card too. It used to come down for one — the
+  // map got the visible layer alone, on the reasoning that hiding 74 pins behind a
+  // card only costs annotations. But taking the rail down *is* the swap the rail
+  // exists to avoid, and it lands in the same commit as the camera fit and the
+  // card: every pin of the layer that just went away is unmounted on the way in
+  // and remounted (each one an offscreen snapshot of a photo pin) on the way out.
+  // Idle annotations are the cheaper side of that trade by a wide margin — and now
+  // measured both ways on device: keeping the rail costs 255ms of blocked frames
+  // across an open and 113ms across a close, taking it down for the card costs 441ms
+  // and 284ms.
+  const useRail = railAvailable;
+  const exploreLayerPins = useMemo(
+    () => pinsFromGroups(groupByPlace(exploreBasePois), 'explore', null),
+    [exploreBasePois],
+  );
+  const memoryLayerPins = useMemo(
+    () => pinsFromGroups(groupByPlace(memoryBasePois), 'memory', null),
+    [memoryBasePois],
+  );
+  // Ordered by layer, never by role, so this array is the same object on both sides
+  // of a switch - which is the point: the map is never asked to re-render for one.
+  const railPins = useMemo(() => [...exploreLayerPins, ...memoryLayerPins], [exploreLayerPins, memoryLayerPins]);
+  const liveLayerPins = useMemo(
+    () => pinsFromGroups(
+      placeGroups,
+      subTab,
+      nav.pointInfo?.kind === 'route'
+        ? { id: nav.pointInfo.id, comparisonIds: comparisonRouteIds }
+        : null,
+    ),
+    [comparisonRouteIds, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, subTab],
+  );
+  const mapPois = useRail ? railPins : liveLayerPins;
+  const visiblePinKeys = useMemo(() => {
+    if (!useRail) {
+      const keys = new Set<string>();
+      mapPois.forEach((pin) => keys.add(pinKey(pin)));
+      return keys;
+    }
+    // The chip and the route-detail rules live here now: the same places the old code
+    // built pins from, said as who may be seen rather than who exists.
+    return railVisibleKeys(
+      placeGroups,
+      subTab,
+      nav.pointInfo?.kind === 'route'
+        ? { id: nav.pointInfo.id, comparisonIds: comparisonRouteIds }
+        : null,
+    );
+  }, [comparisonRouteIds, mapPois, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, subTab, useRail]);
+  const pushedModeRef = React.useRef<typeof subTab | null>(null);
+  React.useEffect(() => {
+    const api = pinVisibilityApi.current;
+    if (!api) return;
+    // A new mode (or the first paint of one) arrives one pin at a time, like the
+    // catalog did on the first screen; everything else is immediate.
+    const stagger = pushedModeRef.current !== subTab;
+    pushedModeRef.current = subTab;
+    api.apply(visiblePinKeys, { stagger });
+  }, [visiblePinKeys, subTab]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
@@ -1284,16 +1826,12 @@ export function DiscoverScreen({
         || Math.abs(prev.center[1] - camera.center[1]) > 1e-6
         || Math.abs(prev.zoom - camera.zoom) > 0.01;
       if (!moved) return;
+      endFrameSample();
+      // The move the card asked for is over: the kilometre labels can have these
+      // frames to themselves instead of competing with the animation.
+      setDistanceMarkersReady(true);
       const hidden = !wasMapActiveRef.current;
       if (hidden) mapCameraEventRef.current = { at: Date.now() };
-      // With the restore switched off, anything that moves the camera here
-      // moved it on its own - the auto-framing effect chasing a new array.
-      if (hidden || Date.now() < mapCameraWatchUntilRef.current) {
-        console.log(
-          `[tabcam] camera MOVED ${hidden ? 'while hidden' : 'after returning'}: ` +
-            `${JSON.stringify(prev?.center)} z${prev?.zoom?.toFixed?.(2)} -> ${JSON.stringify(camera.center)} z${camera.zoom?.toFixed?.(2)}`,
-        );
-      }
     },
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
@@ -1308,6 +1846,9 @@ export function DiscoverScreen({
       // Android. Keep that background event from dismissing the sheet.
       mapMarkerPressAtRef.current = Date.now();
       const group = repIdToGroup.get(id);
+      pressProbe.marker(id, visiblePinKeys.has(`${subTab}:${id}`), group ? 'hit' : 'MISS', group
+        ? nav.pointInfo?.kind === 'route' ? 'route-compare' : group.length === 1 ? 'OPEN CARD' : 'place-list'
+        : 'dropped');
       if (!group) return;
       if (nav.pointInfo?.kind === 'route') {
         const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id
@@ -1325,7 +1866,7 @@ export function DiscoverScreen({
       if (group.length === 1) {
         setPlaceSel(null);
         setFocusReturnToList(false);
-        openPointFromCurrentMap(group[0]);
+        openPointFromCurrentMap(group[0], 'pin');
         return;
       }
       setPlaceSel(placeKey(group[0]));
@@ -1334,10 +1875,26 @@ export function DiscoverScreen({
     },
     // Under a point detail the map *is* the content, and the card's own back
     // button closes it, so a tap on the map must stay a tap. Collapsing the list
-    // sheet this way is only for list mode.
+    // sheet this way is only for list mode. In fullscreen the card is off screen
+    // and there is no other control, so the tap becomes the way out.
     onBackgroundPress: () => {
-      if (nav.pointInfo) return;
-      if (Date.now() - mapMarkerPressAtRef.current < 500) return;
+      pressProbe.background();
+      // Every marker path stamps this guard first, because a marker press also
+      // bubbles here on both platforms.
+      if (Date.now() - mapMarkerPressAtRef.current < 500) {
+        pressProbe.backgroundSkipped('swallowed: a marker press bubbled here');
+        return;
+      }
+      if (mapImmersive) {
+        pressProbe.backgroundSkipped('-> exit fullscreen');
+        exitMapImmersive();
+        return;
+      }
+      if (nav.pointInfo) {
+        pressProbe.backgroundSkipped('ignored: a card is open');
+        return;
+      }
+      pressProbe.backgroundSkipped('-> dismiss the list sheet');
       sheetRef.current?.dismiss();
     },
   };
@@ -1395,6 +1952,7 @@ export function DiscoverScreen({
           theme={theme}
           size={globeSize}
           pois={mapPois}
+          pinVisibilityApi={railAvailable ? pinVisibilityApi : undefined}
           // Keep nearby route pins interactive while a route detail card is
           // open, so users can compare close tracks without first dismissing
           // the current card. Journey detail keeps its existing map-focused UI.
@@ -1402,9 +1960,9 @@ export function DiscoverScreen({
           activePoiId={nav.pointInfo?.kind === 'route' ? null : activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
-          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && detailReady}
+          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && distanceMarkersReady}
           cameraAction={mapCameraAction}
-          focusBottomPadding={nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
+          focusBottomPadding={mapImmersive ? immersiveFitBottom : nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
           staggerPins={!entrancePlayed}
           onCameraGestureStart={globeHandlers.onCameraGestureStart}
@@ -1424,6 +1982,7 @@ export function DiscoverScreen({
           journeyLegs={journeyLegs}
           journeyStops={journeyStops}
           journeyDayLabels={journeyDayLabels}
+          extraMarkers={companionPins}
           onJourneyDayLabelPress={globeHandlers.onJourneyDayLabelPress}
           onJourneyStopPress={globeHandlers.onJourneyStopPress}
           center={mapCenter}
@@ -1445,11 +2004,23 @@ export function DiscoverScreen({
               { id: 'explore', label: t('discover.tabExplore') },
               { id: 'memory', label: t('discover.tabMemory') },
             ].map((tab) => {
-              const active = nav.subTab === tab.id;
+              const active = subTab === tab.id;
               return (
                 <Press
                   key={tab.id}
-                  onPress={() => nav.setSubTab(tab.id as 'explore' | 'memory')}
+                  onPress={() => {
+                    if (active) {
+                      // Re-tapping the shown mode only means "put the sheet away".
+                      if (nav.sheetOpen) nav.setSubTab(tab.id as 'explore' | 'memory');
+                      return;
+                    }
+                    markTabTap(`sub:${subTab} ${nav.sheetOpen ? 'sheet' : 'clean'}`, tab.id);
+                    // Same batch as the mode change: leaving these to the post-commit
+                    // `[isMemory]` effect cost every tap a second full pass.
+                    setChip(0);
+                    setPlaceSel(null);
+                    nav.setSubTab(tab.id as 'explore' | 'memory');
+                  }}
                   style={{
                     paddingHorizontal: 20,
                     height: 30,
@@ -1524,114 +2095,50 @@ export function DiscoverScreen({
         </>
       ) : null}
 
-      {mapImmersive ? (
-        <Press
-          onPress={() => setMapImmersive(false)}
-          accessibilityRole="button"
-          accessibilityLabel={t('journey.map.exitFullscreen')}
-          style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, zIndex: 20, elevation: 1 }}
-        >
-          <Minimize2 color={theme.text} size={20} strokeWidth={2} />
-        </Press>
-      ) : null}
-
-
-
-
-
-      {((pointMapControlsVisible && !mapImmersive) || mapImmersive) ? (
+      {/* Fullscreen renders no chrome at all — the map is the whole screen and
+          a tap on it is the only way out (see mapHandlers.onBackgroundPress). */}
+      {pointMapControlsVisible && !mapImmersive ? (
         <>
-          {nav.pointInfo?.kind === 'journey' && journeyRouteOptions.length > 1 && (pointMapControlsVisible || mapImmersive) ? (
+          {/* Companion live-location share — the pill that used to sit at the
+              top-left, now in the slot the 路线 pill vacated (the route picker
+              itself moved into the map style sheet). Follows the sheet, and
+              keeps the route pill's visibility: gone when the card is fully
+              expanded or this is a version preview. */}
+          {nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview ? (
             <Animated.View style={[{
               position: 'absolute',
               left: space.md,
-              bottom: mapImmersive ? journeyMinimum + space.md : full + space.md,
+              bottom: full + space.md,
               zIndex: 8,
-              alignItems: 'flex-start',
-            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }] }>
-              {journeyRouteMenuOpen ? (
-                <View style={{
-                  width: 238,
-                  marginBottom: space.sm,
-                  padding: space.xs,
-                  borderRadius: radius.card,
-                  backgroundColor: theme.surfaceTop,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: theme.fieldBorder,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.14,
-                  shadowRadius: 14,
-                  shadowOffset: { width: 0, height: 5 },
-                  elevation: 5,
-                }}>
-                  <View style={{ paddingHorizontal: space.sm, paddingVertical: space.xs }}>
-                    <Text style={{ color: theme.text, fontSize: 12, fontWeight: '800' }}>路线</Text>
-                    <Text style={{ color: theme.text3, fontSize: 11, marginTop: 2 }}>选择要查看的轨迹</Text>
-                  </View>
-                  <Press
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: !selectedJourneyRouteId }}
-                    onPress={() => { setSelectedJourneyRouteId(undefined); setJourneyRouteMenuOpen(false); }}
-                    style={{ minHeight: 40, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: !selectedJourneyRouteId ? theme.fieldSurface : 'transparent' }}
-                  >
-                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: theme.accent }} />
-                    <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: '700' }}>全部路线</Text>
-                    {!selectedJourneyRouteId ? <Icon name="check" color={theme.accent} size={16} /> : null}
-                  </Press>
-                  {journeyRouteOptions.map((segment, index) => {
-                    const selected = selectedJourneyRouteId === segment.id;
-                    return (
-                      <Press
-                        key={segment.id}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        onPress={() => { setSelectedJourneyRouteId(segment.id); setJourneyRouteMenuOpen(false); }}
-                        style={{ minHeight: 40, paddingHorizontal: space.sm, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: selected ? theme.fieldSurface : 'transparent' }}
-                      >
-                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: segment.color }} />
-                        <Text numberOfLines={1} style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: selected ? '800' : '600' }}>{segment.label || `路线 ${index + 1}`}</Text>
-                        {selected ? <Icon name="check" color={theme.accent} size={16} /> : null}
-                      </Press>
-                    );
-                  })}
-                </View>
-              ) : null}
-              <Press
-                accessibilityRole="button"
-                accessibilityLabel="路线"
-                accessibilityState={{ expanded: journeyRouteMenuOpen }}
-                onPress={() => setJourneyRouteMenuOpen((value) => !value)}
-                style={{ height: 36, paddingHorizontal: 11, borderRadius: 18, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-              >
-                <Text style={{ color: journeyRouteMenuOpen || selectedJourneyRouteId ? theme.accent : theme.text2, fontSize: 11.5, fontWeight: '800' }}>路线</Text>
-              </Press>
+            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              <CompanionShareSwitchPill
+                theme={theme}
+                label={t('discover.shareLocation')}
+                on={sharingThisJourney}
+                onToggle={toggleLocationShare}
+              />
             </Animated.View>
           ) : null}
-          {pointMapControlsVisible && !mapImmersive ? (
-            <Animated.View style={[{
-              position: 'absolute',
-              right: space.md,
-              bottom: full + space.md + 92,
-            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
-              <Press
-                onPress={() => {
-                  setMapStylePickerOpen(false);
-                  setMapImmersive(true);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={t('journey.map.enterFullscreen')}
-                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-              >
-                <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
-              </Press>
-            </Animated.View>
-          ) : null}
+          <Animated.View style={[{
+            position: 'absolute',
+            right: space.md,
+            bottom: full + space.md + 92,
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <Press
+              onPress={enterMapImmersive}
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.map.enterFullscreen')}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+            >
+              <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
+            </Press>
+          </Animated.View>
           {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
             <Animated.View style={[{
               position: 'absolute',
               right: space.md,
-              bottom: mapImmersive ? journeyMinimum + space.md + 92 : full + space.md + 138,
-            }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              bottom: full + space.md + 138,
+            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
               <Press
                 onPress={() => setComparisonRoutes([])}
                 accessibilityRole="button"
@@ -1645,8 +2152,8 @@ export function DiscoverScreen({
           <Animated.View style={[{
             position: 'absolute',
             right: space.md,
-            bottom: mapImmersive ? journeyMinimum + space.md + 46 : full + space.md + 46,
-          }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            bottom: full + space.md + 46,
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
             <Press
               onPress={() => setMapStylePickerOpen((value) => !value)}
               accessibilityRole="button"
@@ -1661,8 +2168,8 @@ export function DiscoverScreen({
           <Animated.View style={[{
             position: 'absolute',
             right: space.md,
-            bottom: mapImmersive ? journeyMinimum + space.md : full + space.md,
-          }, !mapImmersive && { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            bottom: full + space.md,
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
             <Press
               onPress={fitMapRoute}
               accessibilityRole="button"
@@ -1699,10 +2206,11 @@ export function DiscoverScreen({
         </View>
       ) : null}
 
-      {sheetVisible && !mapImmersive && (
+      {/* Stays mounted through fullscreen: see enterMapImmersive. */}
+      {sheetVisible && (
       <TrailSheet
         ref={sheetRef}
-        key={`${nav.subTab}-${nav.pointInfo ? 'card' : 'list'}`}
+        key={`${subTab}-${nav.pointInfo ? 'card' : 'list'}`}
         theme={theme}
         snapHeights={nav.pointInfo ? [journeyMinimum, focusPanel, full] : [collapsed, full]}
         initialIndex={nav.pointInfo ? 1 : 0}
@@ -1722,6 +2230,7 @@ export function DiscoverScreen({
         bottomOffset={0}
         onBodyHeightChange={setDetailBodyHeight}
         onDismiss={() => {
+          pressProbe.dismissDone(`focusReturnToList=${focusReturnToList}`);
           setPlaceSel(null);
           if (nav.pointInfo && focusReturnToList) {
             nav.closePoint();
@@ -1769,17 +2278,14 @@ export function DiscoverScreen({
                 checklistFilterMenuRef={checklistFilterMenuRef}
                 checklistFilterMenuOpen={checklistFilterMenuOpen}
                 checklistPickerProgress={checklistPickerProgress}
-                checklistToggleAllActionRef={checklistToggleAllActionRef}
                 onChecklistFilterMenuOpenChange={setChecklistFilterMenuVisible}
                 checklistSelectionMode={checklistSelectionMode}
                 selectedChecklistItemIds={selectedChecklistItemIds}
                 onSelectedChecklistItemIdsChange={setSelectedChecklistItemIds}
-                onVisibleChecklistItemIdsChange={setVisibleChecklistItemIds}
                 onChecklistCanEditChange={handleChecklistCanEditChange}
                 momentSelectionMode={momentSelectionMode}
                 selectedMomentIds={selectedMomentIds}
                 onSelectedMomentIdsChange={setSelectedMomentIds}
-                onVisibleMomentIdsChange={setVisibleMomentIds}
                 onJourneyDaysChange={setAvailableJourneyDays}
                 timelineSelectionMode={timelineSelectionMode}
                 selectedTimelineItemIds={selectedTimelineItemIds}
@@ -1858,13 +2364,34 @@ export function DiscoverScreen({
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
           value={mapStyle}
+          routesTitle="路线"
+          routes={journeyRouteOptions.map((segment, index) => ({
+            id: segment.id,
+            label: segment.label || `路线 ${index + 1}`,
+            color: segment.color,
+            visible: segment.visible,
+          }))}
+          onRouteToggle={toggleJourneyRouteVisible}
+          fixedHeight={Math.round(height * 0.88)}
           detailsTitle={nav.pointInfo ? t('journey.map.displayTitle') : undefined}
           details={nav.pointInfo ? (nav.pointInfo.kind === 'journey' ? [
             {
               id: 'journey-stops',
               label: t('journey.map.journeyStops'),
-              value: journeyMapDetailsVisible,
-              onChange: setJourneyMapDetailsVisible,
+              value: journeyStopsVisible,
+              onChange: setJourneyStopsVisible,
+            },
+            {
+              id: 'journey-track',
+              label: t('journey.map.journeyTrack'),
+              value: journeyTrackVisible,
+              onChange: setJourneyTrackVisible,
+            },
+            {
+              id: 'journey-distance',
+              label: t('journey.map.journeyDayDistance'),
+              value: journeyDistanceVisible,
+              onChange: setJourneyDistanceVisible,
             },
             {
               id: 'map-labels',
@@ -2026,10 +2553,10 @@ export function DiscoverScreen({
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: space.xs,
+            gap: space.sm,
           }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
             <>
               {!timelineSelectionMode ? (
@@ -2037,7 +2564,7 @@ export function DiscoverScreen({
                   hitSlop={3}
                   onPress={() => nav.pointInfo?.kind === 'journey' && nav.openTimelineAdd(nav.pointInfo, selectedJourneyDay, availableJourneyDays)}
                   accessibilityRole="button"
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={journeyFooterPill(theme)}
                 >
                   <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
                 </Press>
@@ -2049,15 +2576,10 @@ export function DiscoverScreen({
                   if (timelineSelectionMode) setSelectedTimelineItemIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={journeyFooterPill(theme)}
               >
-                <JourneyFooterActionLabel theme={theme} icon={timelineSelectionMode ? 'check' : 'edit'} label={timelineSelectionMode ? t('common.done') : t('common.edit')} />
+                <JourneyFooterActionLabel theme={theme} icon={timelineSelectionMode ? 'check' : 'sliders'} label={timelineSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
-              {timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
-                <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
-                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
-                </Press>
-              ) : null}
             </>
           ) : selectedJourneyTab === 'moments' ? (
             <>
@@ -2067,7 +2589,7 @@ export function DiscoverScreen({
                   onPress={() => momentAddActionRef.current?.()}
                   accessibilityRole="button"
                   accessibilityLabel={t('common.add')}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={journeyFooterPill(theme)}
                 >
                   <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
                 </Press>
@@ -2079,62 +2601,10 @@ export function DiscoverScreen({
                   setSelectedMomentIds(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={journeyFooterPill(theme)}
               >
-                <JourneyFooterActionLabel theme={theme} icon={momentSelectionMode ? 'check' : 'edit'} label={momentSelectionMode ? t('common.done') : t('common.edit')} />
+                <JourneyFooterActionLabel theme={theme} icon={momentSelectionMode ? 'check' : 'sliders'} label={momentSelectionMode ? t('common.done') : t('common.edit')} />
               </Press>
-              {momentSelectionMode && visibleMomentIds.length > 0 ? (
-                <Press
-                  hitSlop={3}
-                  onPress={() => {
-                    const allSelected = visibleMomentIds.every((id) => selectedMomentIds.has(id));
-                    setSelectedMomentIds(allSelected ? new Set() : new Set(visibleMomentIds));
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={visibleMomentIds.every((id) => selectedMomentIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
-                >
-                  <JourneyFooterActionLabel
-                    theme={theme}
-                    icon="checkAll"
-                    label={visibleMomentIds.every((id) => selectedMomentIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
-                  />
-                </Press>
-              ) : null}
-              {momentSelectionMode ? (
-                <Press
-                  hitSlop={3}
-                  disabled={selectedMomentIds.size === 0}
-                  onPress={() => {
-                    if (selectedMomentIds.size === 0) return;
-                    Alert.alert(
-                      t('journey.savePicker.deleteTitle', { count: selectedMomentIds.size }),
-                      t('journey.savePicker.deleteMessage'),
-                      [
-                        { text: t('common.cancel'), style: 'cancel' },
-                        {
-                          text: t('common.delete'),
-                          style: 'destructive',
-                          onPress: () => {
-                            void momentDeleteActionRef.current?.().then(() => setSelectedMomentIds(new Set()));
-                          },
-                        },
-                      ],
-                    );
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: selectedMomentIds.size === 0 }}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedMomentIds.size > 0 ? theme.controlSurface : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: selectedMomentIds.size > 0 ? (theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)') : 'none' }}
-                >
-                  <JourneyFooterActionLabel
-                    theme={theme}
-                    icon="trash"
-                    label={t('common.delete')}
-                    danger={selectedMomentIds.size > 0}
-                    disabled={selectedMomentIds.size === 0}
-                  />
-                </Press>
-              ) : null}
             </>
           ) : selectedJourneyTab === 'checklist' ? (
             <>
@@ -2144,7 +2614,7 @@ export function DiscoverScreen({
                   onPress={() => checklistAddActionRef.current?.()}
                   accessibilityRole="button"
                   accessibilityLabel={t('common.add')}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={journeyFooterPill(theme)}
                 >
                   <JourneyFooterActionLabel theme={theme} icon="plus" label={t('common.add')} />
                 </Press>
@@ -2157,52 +2627,9 @@ export function DiscoverScreen({
                     setSelectedChecklistItemIds(new Set());
                   }}
                   accessibilityRole="button"
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                  style={journeyFooterPill(theme)}
                 >
-                  <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'edit'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
-                </Press>
-              ) : null}
-              {checklistSelectionMode ? (
-                <Press
-                  hitSlop={3}
-                  onPress={() => checklistToggleAllActionRef.current?.()}
-                  accessibilityRole="button"
-                  accessibilityLabel={visibleChecklistItemIds.length > 0 && visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
-                >
-                  <JourneyFooterActionLabel
-                    theme={theme}
-                    icon="checkAll"
-                    label={visibleChecklistItemIds.length > 0 && visibleChecklistItemIds.every((id) => selectedChecklistItemIds.has(id)) ? t('common.deselectAll') : t('common.selectAll')}
-                  />
-                </Press>
-              ) : null}
-              {checklistSelectionMode ? (
-                <Press
-                  hitSlop={3}
-                  disabled={selectedChecklistItemIds.size === 0}
-                  onPress={() => {
-                    if (selectedChecklistItemIds.size === 0) return;
-                    Alert.alert(
-                      t('common.delete'),
-                      undefined,
-                      [
-                        { text: t('common.cancel'), style: 'cancel' },
-                        { text: t('common.delete'), style: 'destructive', onPress: () => void checklistDeleteActionRef.current?.() },
-                      ],
-                    );
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: selectedChecklistItemIds.size === 0 }}
-                  style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedChecklistItemIds.size > 0 ? theme.controlSurface : theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: selectedChecklistItemIds.size > 0 ? (theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)') : 'none' }}
-                >
-                  <JourneyFooterActionLabel
-                    theme={theme}
-                    icon="trash"
-                    label={t('common.delete')}
-                    danger={selectedChecklistItemIds.size > 0}
-                    disabled={selectedChecklistItemIds.size === 0}
-                  />
+                  <JourneyFooterActionLabel theme={theme} icon={checklistSelectionMode ? 'check' : 'sliders'} label={checklistSelectionMode ? t('common.done') : t('common.edit')} />
                 </Press>
               ) : null}
             </>
@@ -2215,18 +2642,92 @@ export function DiscoverScreen({
                   if (planEditorOpen) setSelectedPlanDays(new Set());
                 }}
                 accessibilityRole="button"
-                style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+                style={journeyFooterPill(theme)}
               >
-                <JourneyFooterActionLabel theme={theme} icon={planEditorOpen ? 'check' : 'edit'} label={planEditorOpen ? t('common.done') : t('common.edit')} />
+                <JourneyFooterActionLabel theme={theme} icon={planEditorOpen ? 'check' : 'sliders'} label={planEditorOpen ? t('common.done') : t('common.edit')} />
               </Press>
-              {planEditorOpen && selectedPlanDays.size > 0 ? (
-                <Press hitSlop={3} onPress={deleteSelectedPlanDays} accessibilityRole="button" style={{ height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
-                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
-                </Press>
-              ) : null}
             </>
           )}
           </View>
+          {/* Selection mode: 删除 takes the right slot that 问AI vacates, so the
+              dock stays two pills — 完成 left, 删除 right. The branch order
+              mirrors the left group so a stale mode from another tab can never
+              claim the slot twice. */}
+          {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
+            timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
+              <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
+                <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
+              </Press>
+            ) : null
+          ) : selectedJourneyTab === 'moments' ? (
+            momentSelectionMode ? (
+              <Press
+                hitSlop={3}
+                disabled={selectedMomentIds.size === 0}
+                onPress={() => {
+                  if (selectedMomentIds.size === 0) return;
+                  Alert.alert(
+                    t('journey.savePicker.deleteTitle', { count: selectedMomentIds.size }),
+                    t('journey.savePicker.deleteMessage'),
+                    [
+                      { text: t('common.cancel'), style: 'cancel' },
+                      {
+                        text: t('common.delete'),
+                        style: 'destructive',
+                        onPress: () => {
+                          void momentDeleteActionRef.current?.().then(() => setSelectedMomentIds(new Set()));
+                        },
+                      },
+                    ],
+                  );
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: selectedMomentIds.size === 0 }}
+                style={journeyFooterPill(theme, selectedMomentIds.size === 0)}
+              >
+                <JourneyFooterActionLabel
+                  theme={theme}
+                  icon="trash"
+                  label={t('common.delete')}
+                  danger={selectedMomentIds.size > 0}
+                  disabled={selectedMomentIds.size === 0}
+                />
+              </Press>
+            ) : null
+          ) : selectedJourneyTab === 'checklist' ? (
+            checklistSelectionMode ? (
+              <Press
+                hitSlop={3}
+                disabled={selectedChecklistItemIds.size === 0}
+                onPress={() => {
+                  if (selectedChecklistItemIds.size === 0) return;
+                  Alert.alert(
+                    t('common.delete'),
+                    undefined,
+                    [
+                      { text: t('common.cancel'), style: 'cancel' },
+                      { text: t('common.delete'), style: 'destructive', onPress: () => void checklistDeleteActionRef.current?.() },
+                    ],
+                  );
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: selectedChecklistItemIds.size === 0 }}
+                style={journeyFooterPill(theme, selectedChecklistItemIds.size === 0)}
+              >
+                <JourneyFooterActionLabel
+                  theme={theme}
+                  icon="trash"
+                  label={t('common.delete')}
+                  danger={selectedChecklistItemIds.size > 0}
+                  disabled={selectedChecklistItemIds.size === 0}
+                />
+              </Press>
+            ) : null
+          ) : planEditorOpen && selectedPlanDays.size > 0 ? (
+            <Press hitSlop={3} onPress={deleteSelectedPlanDays} accessibilityRole="button" style={journeyFooterPill(theme)}>
+              <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
+            </Press>
+          ) : null}
           {!timelineSelectionMode && !momentSelectionMode && !checklistSelectionMode && !planEditorOpen ? (
             <Press
               hitSlop={3}
@@ -2240,8 +2741,8 @@ export function DiscoverScreen({
               accessibilityRole="button"
               accessibilityLabel={t('agent.journeyEntry')}
               style={{
-                height: 38,
-                maxWidth: 176,
+                height: 46,
+                maxWidth: 190,
                 paddingHorizontal: space.sm,
                 borderRadius: radius.pill,
                 flexDirection: 'row',
@@ -2249,11 +2750,11 @@ export function DiscoverScreen({
                 justifyContent: 'center',
                 gap: space.xs,
                 backgroundColor: theme.accent,
-                boxShadow: theme.dark ? '0px 5px 14px rgba(0,0,0,0.42)' : '0px 5px 14px rgba(0,0,0,0.12)',
+                boxShadow: theme.dark ? '0px 8px 24px rgba(0,0,0,0.55)' : '0px 8px 24px rgba(0,0,0,0.22)',
               }}
             >
               <AssistantMark color="#FFFFFF" size={21} />
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '700' }}>
                 {t('agent.journeyEntry')}
               </Text>
             </Press>

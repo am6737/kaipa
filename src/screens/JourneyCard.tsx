@@ -905,7 +905,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, checklistToggleAllActionRef, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onVisibleChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onVisibleMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; checklistToggleAllActionRef?: React.MutableRefObject<(() => void) | null>; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onVisibleChecklistItemIdsChange?: (ids: string[]) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onVisibleMomentIdsChange?: (ids: string[]) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
@@ -1110,13 +1110,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const authorMatches = !momentAuthorFilter || getMomentAuthorKey(moment.author) === momentAuthorFilter;
     return typeMatches && authorMatches;
   });
-  const visibleMomentIdsKey = filteredPhotos
-    .filter((moment) => !inspo.uploadingIds.has(moment.id))
-    .map((moment) => moment.id)
-    .join(',');
-  useEffect(() => {
-    onVisibleMomentIdsChange?.(visibleMomentIdsKey ? visibleMomentIdsKey.split(',') : []);
-  }, [onVisibleMomentIdsChange, visibleMomentIdsKey]);
   // Type counts follow the person filter, so the numbers on the chips are always
   // the numbers the grid will show.
   const momentTypeCounts: Record<MomentFilter, number> = { all: 0, photo: 0, video: 0, livePhoto: 0 };
@@ -1125,6 +1118,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     momentTypeCounts.all += 1;
     momentTypeCounts[momentKindOf(moment)] += 1;
   });
+  // The empty state names the active type chip ("没有符合条件的视频"), falling
+  // back to the generic wording for "all" or a people-only filter.
+  const momentsEmptyKey =
+    momentFilter === 'photo' ? 'journey.moments.emptyTypePhoto'
+    : momentFilter === 'video' ? 'journey.moments.emptyTypeVideo'
+    : momentFilter === 'livePhoto' ? 'journey.moments.emptyTypeLivePhoto'
+    : 'journey.moments.emptyFilter';
   const momentFilterOptions: { id: MomentFilter; label: string; icon: IconName; count: number }[] = [
     { id: 'all', label: t('common.all'), icon: 'grid', count: momentTypeCounts.all },
     { id: 'photo', label: t('journey.moments.filterPhotos'), icon: 'photo', count: momentTypeCounts.photo },
@@ -1136,11 +1136,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       setMomentAuthorFilter(null);
     }
   }, [momentAuthorFilter, momentAuthorOptions]);
-  const clearMomentFilters = () => {
-    setMomentViewerIndex(null);
-    setMomentFilter('all');
-    setMomentAuthorFilter(null);
-  };
   if (momentFilterMenuRef) {
     momentFilterMenuRef.current = {
       participantTitle: t('journey.moments.filterParticipant'),
@@ -1345,7 +1340,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const groupY = groupOffsetsRef.current.get(day);
     if (groupY == null) return undefined;
     const fixedHeaderHeight = !scrollContent && detailScrollY ? fixedHeaderHeightRef.current : 0;
-    return Math.max(0, contentTopRef.current + timelineTopRef.current + groupY - fixedHeaderHeight - space.xs);
+    // `contentTop`/`timelineTop`/`groupY` are all measured inside the pager page,
+    // so on their own they say "the timeline is the first thing in the page" (0).
+    // The page itself sits below the sticky header and the tab strip, and that
+    // absolute band is `pagerTop`. Without it every early day computed a negative
+    // offset, the clamp flattened them all to 0, and the day picker could not tell
+    // day 1 from day 2 (it resolved the tie to the later one and never came back).
+    return Math.max(0, pagerTopRef.current + contentTopRef.current + timelineTopRef.current + groupY - fixedHeaderHeight - space.xs);
   };
   const scrollToPendingDay = () => {
     const day = pendingScrollDayRef.current;
@@ -1400,10 +1401,16 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         .sort((a, b) => a.y - b.y);
       if (!positions.length) return;
       const threshold = value + space.sm;
+      // Ties go to the earlier day: two days sharing one anchor means a measurement
+      // collapsed, and taking the last match reads as "it jumped to 行程2 and would
+      // not come back", even at the top of the list.
       let visibleDay = positions[0].day;
+      let acceptedY = Number.NEGATIVE_INFINITY;
       for (const position of positions) {
-        if (position.y <= threshold) visibleDay = position.day;
-        else break;
+        if (position.y > threshold) break;
+        if (position.y <= acceptedY) continue;
+        acceptedY = position.y;
+        visibleDay = position.day;
       }
       const nextSegment = `day:${visibleDay}` as TabId;
       if (segRef.current !== nextSegment) {
@@ -1438,8 +1445,23 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const pagerRef = useRef<PagerView>(null);
   const pendingPagerSegmentRef = useRef<TabId | null>(null);
   const [tabPageHeights, setTabPageHeights] = useState<Record<string, number>>({});
-  const activePagerHeight = tabPageHeights[seg] || 600;
+  // The page PagerView actually shows. The scroll follower moves the highlighted
+  // day (`seg`) without moving the pager — every 行程 page carries the whole
+  // timeline — so the clip height has to track this, not `seg`: a highlighted day
+  // that was never mounted has no stored height, and falling back to the default
+  // collapsed the container, which made the host sheet clamp its own scroll offset.
+  const [pagerPage, setPagerPageState] = useState<TabId>('overview');
+  const pagerPageRef = useRef<TabId>('overview');
+  const lastMeasuredPageHeightRef = useRef<number | null>(null);
+  const setPagerPage = (value: TabId) => {
+    pagerPageRef.current = value;
+    setPagerPageState(value);
+  };
+  const measuredPageHeight = tabPageHeights[pagerPage];
+  const activePagerHeight = measuredPageHeight || lastMeasuredPageHeightRef.current || 600;
   const [pagerTop, setPagerTop] = useState(0);
+  // Same number, in a ref: `groupScrollY` runs inside the scroll listener.
+  const pagerTopRef = useRef(0);
   // The clip height tracks the page, so the band under it belongs to the host
   // sheet and not the pager — a horizontal swipe there had no gesture owner.
   // The floor hands that band back: a page shorter than the visible body fills
@@ -1455,8 +1477,10 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   }, [pageContentSize]);
 
   useEffect(() => {
-    if (!planOverviewAnimatingRef.current && !dayCollapseAnimatingRef.current) pagerHeight.value = activePagerHeight;
-  }, [activePagerHeight, pagerHeight, seg]);
+    if (measuredPageHeight) lastMeasuredPageHeightRef.current = measuredPageHeight;
+    if (planOverviewAnimatingRef.current || dayCollapseAnimatingRef.current) return;
+    pagerHeight.value = activePagerHeight;
+  }, [activePagerHeight, measuredPageHeight, pagerHeight]);
 
   const finishPlanOverviewAnimation = (open: boolean, targetPagerHeight: number) => {
     if (planOverviewOpenRef.current !== open) return;
@@ -1502,7 +1526,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   };
   const animateDayPageCollapse = ({ collapsed, delta }: { collapsed: boolean; delta: number }) => {
     if (!isJourney || scrollContent || delta <= 0 || planOverviewAnimatingRef.current) return;
-    const page = segRef.current;
+    // The page under the finger is the one PagerView shows, which the scroll
+    // follower may have moved the highlight away from.
+    const page = pagerPageRef.current;
     const from = tabPageHeights[page] || pagerHeight.value;
     const targetPagerHeight = Math.max(120, from + (collapsed ? -delta : delta));
     dayCollapseAnimatingRef.current = true;
@@ -1526,6 +1552,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     visualSegRef.current = value;
     setVisualSeg(value);
     selectSegment(value);
+    setPagerPage(value);
     pagerRef.current?.setPageWithoutAnimation(index);
   };
 
@@ -1967,13 +1994,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             filterMenuRef={checklistFilterMenuRef}
             filterMenuOpen={checklistFilterMenuOpen}
             pickerProgress={checklistPickerProgress}
-            toggleAllActionRef={checklistToggleAllActionRef}
             onFilterStateChange={onChecklistFilterStateChange}
             onFilterMenuOpenChange={onChecklistFilterMenuOpenChange}
             selectionMode={checklistSelectionMode}
             selectedItemIds={selectedChecklistItemIds ?? new Set<string>()}
             onSelectedItemIdsChange={onSelectedChecklistItemIdsChange ?? (() => {})}
-            onVisibleItemIdsChange={onVisibleChecklistItemIdsChange}
             onCanEditChange={onChecklistCanEditChange}
             readOnly={readOnly}
             preview={packingPreview}
@@ -2076,15 +2101,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                     );
                   })
                 ) : (
-                  <View style={{ alignItems: 'center', paddingVertical: space.xxxl, gap: space.xxs }}>
-                    <Text style={[type.caption, { color: theme.text2 }]}>{t('journey.moments.emptyFilter')}</Text>
-                    <Press
-                      onPress={clearMomentFilters}
-                      accessibilityRole="button"
-                      style={{ paddingVertical: space.xxs, paddingHorizontal: space.sm }}
-                    >
-                      <Text style={[type.body, { color: theme.accent, fontWeight: '700' }]}>{t('journey.moments.clearFilter')}</Text>
-                    </Press>
+                  <View style={{ alignItems: 'center', paddingVertical: space.xxxl }}>
+                    <Text style={[type.caption, { color: theme.text2 }]}>{t(momentsEmptyKey)}</Text>
                   </View>
                 )}
               </View>
@@ -2326,7 +2344,10 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
 
       {isJourney && !scrollContent ? (
         <ReAnimated.View
-          onLayout={(event) => setPagerTop(Math.round(event.nativeEvent.layout.y))}
+          onLayout={(event) => {
+            pagerTopRef.current = Math.round(event.nativeEvent.layout.y);
+            setPagerTop(pagerTopRef.current);
+          }}
           style={[{ overflow: 'hidden', minHeight: pagerFillMinHeight }, pagerHeightStyle]}
         >
           {/* Rows here are page-wide: see PressDragGuardContext. */}
@@ -2334,7 +2355,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         <PagerView
           ref={pagerRef}
           style={{ flex: 1 }}
-          initialPage={Math.max(0, tabOptions.findIndex((option) => option.id === seg))}
+          initialPage={Math.max(0, tabOptions.findIndex((option) => option.id === pagerPage))}
           scrollEnabled={!tabSwipeDisabled}
           offscreenPageLimit={1}
           overdrag={false}
@@ -2359,6 +2380,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             pendingPagerSegmentRef.current = null;
             visualSegRef.current = next.id;
             setVisualSeg(next.id);
+            setPagerPage(next.id);
             if (next.id !== segRef.current) selectSegment(next.id);
           }}
         >
@@ -2391,7 +2413,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                   scrollY={contentScrollY}
                   bottomPadding={scrollContentBottomPadding}
                   onLayout={(y) => {
-                    if (option.id !== segRef.current) return;
+                    if (option.id !== pagerPageRef.current) return;
                     contentTopRef.current = y;
                     scrollToPendingDay();
                   }}
@@ -2467,6 +2489,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
             if (!current || name === journeyDayDisplayLabel(current, resolved)) return;
             void timeline.renameGroup(current, name);
             if (seg === `day:${current}`) setSeg(`day:${name}`);
+            if (pagerPageRef.current === `day:${current}`) setPagerPage(`day:${name}`);
             if (selectedPlanDays.has(current)) {
               const next = new Set(selectedPlanDays);
               next.delete(current);

@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
-import { isValidMapCoordinate, keepValidCoordinates } from '../maps/types';
-import { trackSpanOnScreen, trackWorldSpan } from '../maps/extent';
-import { PhotoPin, PHOTO_PIN_ANCHOR_Y, photoPinScaleForZoom } from './PhotoPin';
+import { isValidMapCoordinate, keepValidCoordinates, type MapCoordinate } from '../maps/types';
+import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
+import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
 import { CurrentLocationMarker } from './CurrentLocationMarker';
+import { pickPinUnderPress } from '../../lib/pinOverlap';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
-import type { GlobeProps } from './types';
+import type { GlobePoi, GlobeProps } from './types';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 
 // A long route at high zoom would otherwise build one distance marker per
@@ -14,6 +15,13 @@ import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 // zoom crosses a step bucket causes a visible stutter — worst on Android
 // where each marker content is re-snapshotted into a bitmap.
 const MAX_DISTANCE_MARKERS = 60;
+// The camera the native map is created with. Needed to judge a press before the
+// map has ever reported a zoom change.
+const MAP_INITIAL_ZOOM = 3;
+// Reveal rhythm for the visibility rail: same step and cap as the first screen's pin
+// entrance, so a switch arrives the way the catalog did the first time.
+const ENTRANCE_LAST_INDEX = Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS);
+const ENTRANCE_REVEAL_MS = 180;
 function cappedStepKm(stepKm: number, totalMeters: number): number {
   const slots = Math.floor((totalMeters - 120) / 1000 / stepKm);
   if (slots <= MAX_DISTANCE_MARKERS) return stepKm;
@@ -24,6 +32,10 @@ function cappedStepKm(stepKm: number, totalMeters: number): number {
 }
 
 const MIN_TRACK_ENDPOINT_PIXELS = 100;
+// The overlay layer is empty most of the time, and a memo that returns a fresh
+// `[]` is a changed dependency to anything that reads it — which used to mean
+// that switching the kilometre labels off rebuilt all 85 pin markers.
+const NO_MARKERS: NativeMapMarker[] = [];
 
 const MAP_FRAME_TOP_PADDING = 90;
 const MAP_FRAME_SIDE_PADDING = 54;
@@ -37,6 +49,7 @@ export default function MapGlobe({
   theme,
   pois,
   showPoiMarkers = true,
+  pinVisibilityApi,
   activePoiId,
   onPoiPress,
   onBackgroundPress,
@@ -49,6 +62,7 @@ export default function MapGlobe({
   onJourneyStopPress,
   journeyDayLabels,
   onJourneyDayLabelPress,
+  extraMarkers,
   pin,
   followUserLocation = false,
   onUserLocationChange,
@@ -63,32 +77,106 @@ export default function MapGlobe({
   onCameraGestureStart,
   onCameraPositionChange,
 }: GlobeProps) {
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const mapRef = useRef<NativeMapHandle>(null);
   // The pin scale is an Animated.Value rather than state: a state change would
   // rebuild (and thus re-register) every marker on the native map mid-zoom,
   // which makes all pins flicker while pinching. setValue updates the
   // transform natively without a React render or a marker remount.
   const pinScale = useRef(new Animated.Value(photoPinScaleForZoom(3))).current;
+  // ─────────────────────── visibility without a render ───────────────────────
+  // One alpha per pin, created when the pin is built and carried along for as long
+  // as it stays in the array; `applyVisibility` below moves them. Neither end of
+  // that touches React, which is the only way this map has avoided paying ~190ms to
+  // change what is on screen: measured, a 探索↔旅程 switch costs that much even
+  // when every pin object is reused and every pin's own subtree is memoised,
+  // because walking 148 markers *is* the cost. `pinScale` above already solved the
+  // identical problem for zoom the same way, for the identical reason.
+  const pinAlphasRef = useRef(new Map<string, Animated.Value>());
+  /** The set `applyVisibility` was last given, or null before the first call -
+      read at press time, because a pin at alpha 0 is still hit-testable (verified
+      on device: the card opened from an invisible pin). */
+  const visiblePinsRef = useRef<Set<string> | null>(null);
+  /** Which keys are currently revealed, kept separately from the visible set: a pin
+      can mount *after* the set was last applied, and then the set says it should be
+      shown while nothing has ever told its value so. */
+  const revealedPinsRef = useRef(new Set<string>());
+  const applyVisibility = useCallback((keys: Set<string>, options?: { stagger?: boolean }) => {
+    visiblePinsRef.current = keys;
+    const revealed = revealedPinsRef.current;
+    let staggerIndex = 0;
+    pinAlphasRef.current.forEach((value, key) => {
+      const on = keys.has(key);
+      if (on === revealed.has(key)) return;
+      if (on) revealed.add(key); else revealed.delete(key);
+      if (on) {
+        if (!options?.stagger) {
+          value.setValue(1);
+          return;
+        }
+        value.setValue(0);
+        Animated.sequence([
+          Animated.delay(Math.min(staggerIndex++, ENTRANCE_LAST_INDEX) * STAGGER_STEP_MS),
+          Animated.timing(value, {
+            toValue: 1,
+            duration: ENTRANCE_REVEAL_MS,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+        return;
+      }
+      // Hiding is immediate: that is the layer the user just walked away from, and
+      // animating it out would only delay the new one arriving.
+      value.setValue(0);
+    });
+    (globalThis as any).__pinpress?.railApplied?.(
+      keys.size,
+      revealed.size,
+      pinAlphasRef.current.size,
+      !!options?.stagger,
+    );
+  }, []);
+  useEffect(() => {
+    if (!pinVisibilityApi) return;
+    pinVisibilityApi.current = { apply: applyVisibility };
+    return () => {
+      pinVisibilityApi.current = null;
+    };
+  }, [pinVisibilityApi, applyVisibility]);
   // Press handlers are read through refs so the marker memo does not depend on
   // them: callers commonly pass inline arrows, and depending on their identity
   // would rebuild (and on Android re-snapshot) every annotation on every parent
   // render — which is most of them while a detail sheet is opening.
+  // `ownerOfBlockedPress` below is left out of the memo deps for the same reason:
+  // it is a `useCallback` with no dependencies and reads only refs.
   const onPoiPressRef = useRef(onPoiPress);
+  /** The pins as the caller last had them, for the blocked-press resolution
+      below. A ref for the same reason as the handlers: reading it from a press
+      closure must not make the marker memo depend on it. */
+  const poisRef = useRef(pois);
   const onJourneyStopPressRef = useRef(onJourneyStopPress);
   const onJourneyDayLabelPressRef = useRef(onJourneyDayLabelPress);
   useEffect(() => {
     onPoiPressRef.current = onPoiPress;
+    poisRef.current = pois;
     onJourneyStopPressRef.current = onJourneyStopPress;
     onJourneyDayLabelPressRef.current = onJourneyDayLabelPress;
   });
   const [distanceStepKm, setDistanceStepKm] = React.useState(10);
+  // The zoom the track geometry is drawn for, updated once the camera has been
+  // quiet - `drawAtDetail` below is what waits for it, because re-cutting a line
+  // mid-animation is the cost this is trying to move out of that window.
+  const [cameraDetailZoom, setCameraDetailZoom] = React.useState(4);
   const [trackEndpointsVisible, setTrackEndpointsVisible] = React.useState(true);
   const lastZoomBucket = useRef<number | null>(null);
   const lastDistanceStep = useRef<number | null>(null);
   const distanceStepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detailZoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDetailZoom = useRef<number | null>(null);
   useEffect(() => () => {
     if (distanceStepTimer.current) clearTimeout(distanceStepTimer.current);
+    if (detailZoomTimer.current) clearTimeout(detailZoomTimer.current);
   }, []);
   const handleZoomChange = useCallback((zoom: number) => {
     if (!Number.isFinite(zoom)) return;
@@ -112,6 +200,18 @@ export default function MapGlobe({
       distanceStepTimer.current = setTimeout(() => {
         distanceStepTimer.current = null;
         setDistanceStepKm(distanceStep);
+      }, 180);
+    }
+    const detailZoom = Math.round(zoom);
+    if (lastDetailZoom.current !== detailZoom) {
+      lastDetailZoom.current = detailZoom;
+      // Same reason as the distance step above: a finer tolerance keeps more
+      // vertices, and handing the native map a new shape mid-pinch is the very
+      // cost this is trying to avoid - so the camera settles first.
+      if (detailZoomTimer.current) clearTimeout(detailZoomTimer.current);
+      detailZoomTimer.current = setTimeout(() => {
+        detailZoomTimer.current = null;
+        setCameraDetailZoom(detailZoom);
       }, 180);
     }
   }, [pinScale]);
@@ -150,6 +250,43 @@ export default function MapGlobe({
     return widest;
   }, [validFocusCoords, validFocusSegments]);
   const liveZoom = useRef<number | null>(null);
+  /**
+   * Whose press was this, when the pin the map pressed is one the visibility rail
+   * has hidden. Alpha lives on the pin's *content*, so the native annotation view
+   * is still perfectly interactive, and at a country-wide zoom its 116x70 layout
+   * frame covers most of the screen — MapKit hands the tap to whichever frame is
+   * on top, which is very often an invisible pin from the other mode. Dropping
+   * that press (the old behaviour) is what reads as "I tapped the pin, nothing
+   * happened; the second tap worked".
+   *
+   * Settle it by geometry instead: if a pin that IS allowed to be seen has its
+   * drawn photo inside the frame that ate the tap, the tap belonged to that pin.
+   * Photo-level overlap is the conservative part — it will not move a tap on
+   * empty Hunan onto a journey in Sichuan.
+   */
+  const ownerOfBlockedPress = useCallback((pressed: GlobePoi): GlobePoi | null => {
+    const visible = visiblePinsRef.current;
+    if (!visible) return null;
+    const zoom = liveZoom.current ?? MAP_INITIAL_ZOOM;
+    // Inlined `pinKey` for the same reason the marker memo does: this file is
+    // vm-loaded against a dependency whitelist by the framing test.
+    const candidates = poisRef.current.filter((poi) => visible.has(`${poi.layer ?? 'shared'}:${poi.id}`));
+    const match = pickPinUnderPress(pressed, candidates, zoom, {
+      frameWidth: PHOTO_PIN_WIDTH,
+      frameHeight: PHOTO_PIN_HEIGHT,
+      anchorY: PHOTO_PIN_ANCHOR_Y,
+      photoSize: PHOTO_SIZE,
+      scale: photoPinScaleForZoom(zoom),
+    });
+    (globalThis as any).__pinpress?.overlap?.(
+      pressed.id,
+      match ? match.pin.id : '',
+      match ? match.score : 0,
+      zoom,
+      candidates.length,
+    );
+    return match ? match.pin : null;
+  }, []);
   const trackSpanRef = useRef(trackSpan);
   const endpointVisibleRef = useRef(true);
   const syncTrackEndpoints = (zoom: number | null) => {
@@ -233,12 +370,39 @@ export default function MapGlobe({
     else mapRef.current?.moveCamera(cameraFocusCoords[0], 11, 650, { edgePadding: routePadding });
   }, [cameraAction?.revision]);
 
+  // What a track is drawn as, and what it has already been drawn as. The
+  // tolerance is half a pixel of whichever framing resolves it finest: the one the
+  // card gives this track - known the moment its coordinates are, which is what
+  // lets the frame that opens a card carry a few hundred vertices instead of every
+  // GPS sample of a two-hour walk - or wherever the user has since zoomed to.
+  const trackDetailZoom = useMemo(() => {
+    const boxPixels = Math.max(1, Math.min(
+      width - MAP_FRAME_SIDE_PADDING * 2,
+      height - frameTopPadding - focusBottom,
+    ));
+    // Whole zoom levels, so a sheet dragged up and down does not re-cut every
+    // line on the map for a few pixels of framing.
+    return Math.ceil(Math.max(cameraDetailZoom, zoomToFitSpan(trackSpan, boxPixels)));
+  }, [cameraDetailZoom, focusBottom, frameTopPadding, height, trackSpan, width]);
+  // Refinement is one-way per track: a line already drawn fine stays fine. Letting
+  // it coarsen again when the camera pulls back would make the road visibly
+  // reshape itself mid-session, which is a worse trade than the payload.
+  const drawnTracks = useRef(new WeakMap<MapCoordinate[], { zoom: number; coordinates: MapCoordinate[] }>());
+  const drawAtDetail = useCallback((coordinates: MapCoordinate[]) => {
+    const paid = drawnTracks.current.get(coordinates);
+    if (paid && paid.zoom >= trackDetailZoom) return paid.coordinates;
+    // A world is 360 degrees across and 256 * 2**zoom pixels wide.
+    const simplified = simplifyTrack(coordinates, 0.5 * (360 / (256 * 2 ** trackDetailZoom)));
+    drawnTracks.current.set(coordinates, { zoom: trackDetailZoom, coordinates: simplified });
+    return simplified;
+  }, [trackDetailZoom]);
+
   const polylines = useMemo<NativeMapPolyline[]>(() => {
     const values: NativeMapPolyline[] = [];
     if (validFocusCoords && validFocusCoords.length >= 2 && !validFocusSegments?.length) {
       values.push({
         id: 'discover-focus-route',
-        coordinates: validFocusCoords,
+        coordinates: drawAtDetail(validFocusCoords),
         color: validFocusSegments?.length ? theme.trailFaint : theme.accent,
         width: validFocusSegments?.length ? 3 : 4,
         opacity: validFocusSegments?.length ? 0.5 : 1,
@@ -246,7 +410,7 @@ export default function MapGlobe({
     }
     validFocusSegments?.forEach((segment, index) => values.push({
       id: `discover-segment-${index}`,
-      coordinates: segment.coordinates,
+      coordinates: drawAtDetail(segment.coordinates),
       color: segment.color,
       width: 4,
       opacity: segment.active ? 1 : 0.45,
@@ -256,7 +420,7 @@ export default function MapGlobe({
     // track rather than a second, disagreeing route.
     validJourneyLegs?.forEach((leg) => values.push({
       id: `journey-leg-${leg.id}`,
-      coordinates: leg.coordinates,
+      coordinates: drawAtDetail(leg.coordinates),
       color: leg.color,
       width: 3,
       // Not a copy of the dots' 0.34: a bare 3pt stroke on map tiles needs to
@@ -264,11 +428,19 @@ export default function MapGlobe({
       opacity: leg.active ? 0.95 : 0.45,
       dashed: leg.dashed,
     }));
+    // TEMPORARY probe: how many track vertices the native map was actually
+    // handed, against what came in. Reached through a global rather than an
+    // import because this file is loaded by a test with a dependency whitelist.
+    if (__DEV__) {
+      const drawn = values.reduce((widest, line) => Math.max(widest, line.coordinates.length), 0);
+      (globalThis as unknown as { __pointframe?: { vertices: (source: number, drawn: number) => void } })
+        .__pointframe?.vertices(validFocusCoords?.length ?? 0, drawn);
+    }
     return values;
-  }, [validFocusCoords, validFocusSegments, validJourneyLegs, theme]);
+  }, [drawAtDetail, validFocusCoords, validFocusSegments, validJourneyLegs, theme]);
 
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
-    if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return [];
+    if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return NO_MARKERS;
     const values: NativeMapMarker[] = [];
     const tracks = validFocusSegments && validFocusSegments.length > 1
       ? validFocusSegments
@@ -300,20 +472,67 @@ export default function MapGlobe({
     return values;
   }, [distanceStepKm, showDistanceMarkers, theme, validFocusCoords, validFocusSegments]);
 
-  const markers = useMemo<NativeMapMarker[]>(() => {
+  // Split in two because the pin layer is the expensive one (one offscreen
+  // snapshot per pin on iOS, a baked bitmap each on Android) and nothing in the
+  // overlay layer should be able to ask for it to be rebuilt. Measured: opening
+  // a route card zooms in, the zoom flips `trackEndpointsVisible` and re-steps
+  // `distanceStepKm`, and the single memo that mixed both layers then rebuilt 85
+  // pin markers mid-animation — a 510ms JS-thread block between the track commit
+  // and the camera settling, with nothing else scheduled.
+  const poiMarkers = useMemo<NativeMapMarker[]>(() => {
     // Journey detail keeps place pins off: they were built and then hidden at
     // opacity 0, which still registers a native annotation per place.
-    const values: NativeMapMarker[] = showPoiMarkers
-      ? pois.filter((poi) => isValidMapCoordinate([poi.lng, poi.lat])).map((poi, index) => {
-        const delay = staggerPins
-          ? Math.min(index, Math.floor(STAGGER_MAX_DELAY_MS / STAGGER_STEP_MS)) * STAGGER_STEP_MS
+    const values: NativeMapMarker[] = [];
+    // The visibility rail owns the reveal once it is wired up (a caller that can
+    // hide a pin without a render also has to be the one that shows it with the
+    // cascade); the mount-time entrance is for the callers without it.
+    const alphas = new Map<string, Animated.Value>();
+    if (showPoiMarkers) {
+      pois.forEach((poi, index) => {
+        if (!isValidMapCoordinate([poi.lng, poi.lat])) return;
+        // Inlined `pinKey` - see the note in ./types about the framing test's
+        // dependency whitelist.
+        const key = `${poi.layer ?? 'shared'}:${poi.id}`;
+        const alpha = pinAlphasRef.current.get(key)
+          // With the rail wired, a pin nobody has revealed yet starts hidden. The
+          // alternative - start shown - would put both layers on screen for the
+          // frame between this render and the caller's first `apply`.
+          ?? new Animated.Value(
+            !pinVisibilityApi
+            || (revealedPinsRef.current.has(key) && visiblePinsRef.current?.has(key) !== false)
+              ? 1
+              : 0,
+          );
+        alphas.set(key, alpha);
+        const delay = staggerPins && !pinVisibilityApi
+          ? Math.min(index, ENTRANCE_LAST_INDEX) * STAGGER_STEP_MS
           : undefined;
-        return {
-          id: `poi-${poi.id}`,
+        values.push({
+          id: `poi-${key}`,
           coordinate: [poi.lng, poi.lat],
           anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
           title: poi.label,
-          onPress: () => onPoiPressRef.current?.(poi.id),
+          onPress: () => {
+            // Alpha 0 does not make a pin un-tappable - verified on device, the card
+            // opened from a pin nobody could see. So the press is judged by the same
+            // set the visuals use, read at press time.
+            if (visiblePinsRef.current && !visiblePinsRef.current.has(key)) {
+              // Read through a global on purpose: `MapGlobe` is vm-loaded by two
+              // node tests against a fixed dependency whitelist, and a probe
+              // import would fail them. Delete with src/lib/pinPressProbe.ts.
+              const meant = ownerOfBlockedPress(poi);
+              (globalThis as any).__pinpress?.blocked?.(
+                key,
+                `${poi.lng},${poi.lat}`,
+                visiblePinsRef.current.size,
+                meant ? `redirect -> ${meant.layer ?? 'shared'}:${meant.id}` : 'dropped: nothing visible under the frame',
+              );
+              if (meant) onPoiPressRef.current?.(meant.id);
+              return;
+            }
+            (globalThis as any).__pinpress?.markerInMap?.(key, `${poi.lng},${poi.lat}`);
+            onPoiPressRef.current?.(poi.id);
+          },
           content: (
             <Pressable
               accessibilityRole="button"
@@ -322,7 +541,8 @@ export default function MapGlobe({
               hitSlop={6}
               style={{ opacity: 1 }}
             >
-              <PhotoPin
+              <Animated.View style={{ opacity: alpha }}>
+                <PhotoPin
                   theme={theme}
                   poi={poi}
                   active={activePoiId === poi.id}
@@ -330,11 +550,27 @@ export default function MapGlobe({
                   staticRender={Platform.OS === 'android'}
                   entranceDelayMs={Platform.OS === 'android' ? undefined : delay}
                 />
+              </Animated.View>
             </Pressable>
           ),
-        };
-      })
-      : [];
+        });
+      });
+    }
+    // Pins that left the array take their value with them; the ones that stayed keep
+    // the same Animated.Value, which is what makes a switch cost nothing here.
+    pinAlphasRef.current = alphas;
+    return values;
+    // staggerPins is deliberately not a dependency: it only picks the
+    // mount-time entrance, and rebuilding markers when it flips would
+    // interrupt the cascade (on Android every still-hidden pin would be
+    // revealed at once by the wrapper swap). Later rebuilds — chip
+    // switches, edits — run with the latest render's value, so pins mount
+    // instantly once the entrance has played.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activePoiId, pois, showPoiMarkers, theme]);
+
+  const overlayMarkers = useMemo<NativeMapMarker[]>(() => {
+    const values: NativeMapMarker[] = [];
     values.push(...distanceMarkers);
 
     // AMap's built-in location indicator does not match the iOS/ fallback
@@ -405,6 +641,11 @@ export default function MapGlobe({
       });
     });
 
+    // Built by the caller (companion live-location pins and anything else that
+    // needs its own component imports): appended last so they draw over the
+    // itinerary, and passed through untouched.
+    if (extraMarkers?.length) values.push(...extraMarkers);
+
     // The track's own endpoints only earn a marker once the route is big on
     // screen; zoomed out they compete with the itinerary dots.
     if (trackEndpointsVisible) {
@@ -422,14 +663,16 @@ export default function MapGlobe({
       }
     }
     return values;
-    // staggerPins is deliberately not a dependency: it only picks the
-    // mount-time entrance, and rebuilding markers when it flips would
-    // interrupt the cascade (on Android every still-hidden pin would be
-    // revealed at once by the wrapper swap). Later rebuilds — chip
-    // switches, edits — run with the latest render's value, so pins mount
-    // instantly once the entrance has played.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePoiId, distanceMarkers, pin, pois, showPoiMarkers, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
+  }, [distanceMarkers, extraMarkers, pin, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
+
+  // Concatenated rather than spread into one array so that the common case
+  // (nothing overlaid) hands NativeMap the very same array instance it already
+  // has, and the pin objects inside it keep their identity — which is what lets
+  // the marker elements below bail out of reconciliation entirely.
+  const markers = useMemo(
+    () => (overlayMarkers.length ? [...poiMarkers, ...overlayMarkers] : poiMarkers),
+    [overlayMarkers, poiMarkers],
+  );
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
@@ -439,7 +682,7 @@ export default function MapGlobe({
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialCenter={initialCenter}
-        initialZoom={3}
+        initialZoom={MAP_INITIAL_ZOOM}
         initialFitCoordinates={cameraFocusCoords?.length ? cameraFocusCoords : undefined}
         initialPadding={routePadding}
         mapStyle={mapStyle}
