@@ -12,7 +12,7 @@ import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
 import { paletteFor, photoUrlFor } from '../../data/tones';
 
-const PHOTO_SIZE = 40;
+export const PHOTO_SIZE = 40;
 const ACTIVE_SCALE = 1.08;
 const PHOTO_RADIUS = 8;
 

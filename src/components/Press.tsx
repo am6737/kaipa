@@ -1,12 +1,12 @@
-// Press.tsx — Pressable with the prototype's "kp-press" feedback (scale 0.97 +
-// fade on press). Use anywhere a tap target needs that tactile response.
+// Press.tsx — the app's tap target. It carries NO press animation: the
+// prototype's "kp-press" scale (0.97 + spring back) and fade (0.82) were both
+// removed app-wide on 2026-09-24 (user: "点击的时候不要触发缩小的效果，整个 app
+// 的按钮都是这样" → "淡出也去掉"). Feedback is carried by the content's state
+// change instead (switch slide, color, sheet opening). `scaleTo`/`opacityTo`
+// are still accepted so the ~30 legacy call sites compile, but they are
+// ignored — don't add new ones.
 import React, { createContext, useContext, useRef } from 'react';
-import { Animated, Pressable, PressableProps, ViewStyle, StyleProp, GestureResponderEvent } from 'react-native';
-
-// The style (flex/layout/background) must land on the Pressable itself so it
-// participates in its parent's layout — otherwise a `flex: 1` caller can't
-// stretch. Animate the Pressable directly so the whole box scales on press.
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+import { Pressable, PressableProps, ViewStyle, StyleProp, GestureResponderEvent } from 'react-native';
 
 // A page swipe that the pager claims never reaches the JS responder system, so a
 // row-wide tap target still holds its press-in state when the finger lifts and
@@ -55,35 +55,24 @@ export function useDragCancelledPress(
 interface Props extends PressableProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** @deprecated Ignored — the press-in scale was removed app-wide. */
   scaleTo?: number;
+  /** @deprecated Ignored — the press-in fade was removed app-wide. */
   opacityTo?: number;
   haptic?: boolean;
 }
 
-export function Press({ children, style, scaleTo = 0.97, opacityTo = 0.82, onPress, ...rest }: Props) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+export function Press({ children, style, onPress, ...rest }: Props) {
   const dragGuard = useDragCancelledPress(onPress, useContext(PressDragGuardContext));
 
-  const animate = (toScale: number, toOpacity: number) => {
-    Animated.parallel([
-      Animated.spring(scale, { toValue: toScale, useNativeDriver: true, speed: 40, bounciness: 0 }),
-      Animated.timing(opacity, { toValue: toOpacity, duration: 90, useNativeDriver: true }),
-    ]).start();
-  };
-
   return (
-    <AnimatedPressable
-      onPressIn={(event) => {
-        dragGuard.onPressIn(event);
-        animate(scaleTo, opacityTo);
-      }}
-      onPressOut={() => animate(1, 1)}
+    <Pressable
+      onPressIn={dragGuard.onPressIn}
       onPress={dragGuard.onPress}
-      style={[style, { transform: [{ scale }], opacity }]}
+      style={style}
       {...rest}
     >
       {children}
-    </AnimatedPressable>
+    </Pressable>
   );
 }

@@ -12,6 +12,7 @@ import { MONO } from '../theme/fonts';
 import { Press } from '../components/Press';
 import { Icon } from '../components/Icon';
 import { useNav } from '../nav/NavContext';
+import { countRender } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { GearCat, GearItem, GearSet, GearSetOverride, itemWeight, itemPrice, WeightUnit, fmtWeight, splitWeight } from '../data/gear';
 import { useData } from '../data/DataContext';
@@ -139,6 +140,7 @@ const sameGearItem = (a: GearItem, b: GearItem) => {
 };
 
 export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initialItem?: GearItem; onExit?: () => void }) {
+  countRender('Gear');
   const nav = useNav();
   const { t } = useI18n();
   const data = useData();

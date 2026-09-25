@@ -34,6 +34,8 @@ import { AppCard, motion, radius, space, type } from '../../design-system';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
 import { groupJourneyRows, sortRowsWithinDay } from '../../lib/journeyOrdering';
 import { carryPlaceFromPreviousDay } from '../../lib/journeyStops';
+import { journeyTracks, trackForId, trackLengthMatches, type JourneyTrack } from '../../lib/journeyTracks';
+import { TrackPointPickerSheet } from './TrackPointPicker';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -329,7 +331,7 @@ function PlaceSearchOverlay({ theme, keyboardLift, carryPlace, onSelect, onClose
       <Press onPress={onClose} style={StyleSheet.absoluteFill}><View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} /></Press>
       {showList ? (
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 8, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: theme.surfaceTop, paddingTop: 12 }}>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? CARRY_ROW_HEIGHT : 0) }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: keyboardLift + 70 + (carryPlace ? 1 : 0) * CARRY_ROW_HEIGHT }}>
             {searching ? <View style={{ paddingVertical: 28, alignItems: 'center' }}><ActivityIndicator color={theme.accent} /><Text style={{ color: theme.text3, fontSize: 13, marginTop: 8 }}>{t('journey.timeline.placeSearchSearching')}</Text></View> : null}
             {!searching && results.map((result, index) => {
               const category = poiCategoryLabel(result.category);
@@ -1701,13 +1703,14 @@ async function assetToMedia(a: ImagePicker.ImagePickerAsset): Promise<TLMedia> {
 
 // ── Quick add — a lightweight bottom sheet. Most entries are just a line or two
 //    of text (maybe a time + a few photos), so we skip the full-screen editor. ──
-function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, knownGroups, editRow, zIndex = 80, onSubmit, onClose }: {
+function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, knownGroups, tracks, editRow, zIndex = 80, onSubmit, onClose }: {
   theme: Theme;
   initialDay?: string;
   defaultDay: string;
   existingDays: string[];
   rows: TLRow[];
   knownGroups: string[];
+  tracks: JourneyTrack[];
   editRow?: TLRow;
   zIndex?: number;
   onSubmit: (it: Omit<TLRow, 'id'>) => void | Promise<unknown>;
@@ -1719,6 +1722,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const [text, setText] = useState(editRow?.title ?? '');
   const [location, setLocation] = useState<TimelineLocation>(editRow?.location ?? { name: '' });
   const [placeOpen, setPlaceOpen] = useState(false);
+  const [trackPickerOpen, setTrackPickerOpen] = useState(false);
   const [media, setMedia] = useState<TLMedia[]>(editRow?.media ?? []);
   const [day, setDay] = useState(initDay);
   const [dayOpen, setDayOpen] = useState(false);
@@ -1754,6 +1758,17 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const keyboardHRef = useRef(0);
   const placeOpenRef = useRef(false);
   placeOpenRef.current = placeOpen;
+  // Below the toolbar there is one padding constant doing two jobs: at rest it
+  // clears the home indicator, and with the keyboard up it used to widen the gap
+  // above the keys (iOS measures the keyboard from the bottom of the SCREEN, so
+  // its height already spans that indicator region — confirmed on device).
+  // The padding stays constant either way — flipping it relayouts the sheet at
+  // the END of the rise tween, the flicker-then-rise seen before — so the LIFT
+  // absorbs the difference and leaves space.sm of air above the keys.
+  const sheetBottomPad = Math.max(insets.bottom, space.sm);
+  const sheetBottomPadRef = useRef(sheetBottomPad);
+  sheetBottomPadRef.current = sheetBottomPad;
+  const sheetLiftFor = (h: number) => (Platform.OS === 'ios' ? Math.max(0, h - sheetBottomPadRef.current + space.sm) : h);
   const entranceStartedRef = useRef(false);
   useEffect(() => {
     Animated.timing(backdropOpacity, { toValue: 1, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -1790,7 +1805,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
       keyboardVisibleRef.current = true;
       if (Platform.OS === 'ios') {
         const dur = e.duration || 250;
-        const offsetTarget = placeOpenRef.current ? 0 : -h;
+        const offsetTarget = placeOpenRef.current ? 0 : -sheetLiftFor(h);
         const rise = Animated.timing(keyboardOffset, { toValue: offsetTarget, duration: dur, easing: Easing.inOut(Easing.ease), useNativeDriver: true });
         if (!entranceStartedRef.current) {
           entranceStartedRef.current = true;
@@ -1909,8 +1924,21 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const pickPlace = (loc: JourneyLocationValue) => {
     setLocation({ name: loc.name, source: 'map', longitude: loc.lng, latitude: loc.lat, address: loc.address });
   };
-  // Where the previous day group ends. A new day usually starts there, so the
-  // place search offers it instead of making the user type it again.
+  // A place picked on a recorded track keeps its distance along that track, which
+  // is what lets the chain draw the walk instead of planning a road.
+  const pickTrackPlace = (loc: TimelineLocation) => {
+    setTrackPickerOpen(false);
+    setPlaceOpen(false);
+    setLocation(loc);
+  };
+  // A re-imported track moves every distance on it, and a place measured against
+  // the old file would draw a confident wrong line. Say so instead.
+  const placedTrack = location.source === 'track' ? trackForId(tracks, location.trackId) : undefined;
+  const trackPlaceStale = location.source === 'track'
+    && (!placedTrack || !trackLengthMatches(placedTrack, location.trackLengthMeters));
+  // Where the previous day group ends, while this group has no place of its own
+  // yet. A new day usually starts there, so the place search offers it instead
+  // of making the user type it again.
   const carryPlace = useMemo(() => {
     const carried = carryPlaceFromPreviousDay(rows, knownGroups, day.trim() || defaultDay, editRow?.id);
     const lng = carried?.longitude;
@@ -1969,7 +1997,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
       placeOpenFirstRun.current = false;
       return;
     }
-    const target = placeOpen || !keyboardVisibleRef.current ? 0 : -keyboardHRef.current;
+    const target = placeOpen || !keyboardVisibleRef.current ? 0 : -sheetLiftFor(keyboardHRef.current);
     if (Platform.OS !== 'ios') {
       keyboardOffset.setValue(target);
       return;
@@ -2004,7 +2032,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
             borderTopRightRadius: radius.feature,
             // Constant — must not flip with keyboard state, or the sheet
             // relayouts mid-animation (the flicker-then-rise the user saw).
-            paddingBottom: Math.max(insets.bottom, space.sm),
+            paddingBottom: sheetBottomPad,
             overflow: 'visible',
           }}
         >
@@ -2063,6 +2091,15 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
                 style={{ alignSelf: 'flex-start', maxWidth: '100%', marginTop: 6, marginBottom: 4, minHeight: 34, borderRadius: 17, paddingLeft: 12, paddingRight: 6, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.fieldSurface }}
               >
                 <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text, flexShrink: 1 }}>{location.name}</Text>
+                {location.source === 'track' && location.trackMeters != null ? (
+                  // Where on the path it is, so the reader knows this place is not
+                  // a map pin — and can tell a stale one from the hint beside it.
+                  <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: trackPlaceStale ? theme.danger : theme.text2, flexShrink: 1 }}>
+                    {trackPlaceStale
+                      ? t('journey.timeline.trackStale')
+                      : t('journey.timeline.trackPointName', { km: (location.trackMeters / 1000).toFixed(1) })}
+                  </Text>
+                ) : null}
                 <Press
                   onPress={() => setLocation({ name: '' })}
                   hitSlop={8}
@@ -2074,12 +2111,29 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
                 </Press>
               </Press>
             ) : (
-              <Press
-                onPress={() => setPlaceOpen(true)}
-                style={{ alignSelf: 'flex-start', minHeight: 34, justifyContent: 'center', marginTop: 4, marginBottom: 2 }}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text2 }}>{t('journey.timeline.placeOptional')}</Text>
-              </Press>
+              // Two kinds of place, two capsules. They used to sit on one line as
+              // identically styled text, which read as a single sentence — and
+              // their hitSlop overlapped, so a mis-tap opened the wrong panel.
+              // Same 34pt / radius 17 / fieldSurface as the day capsule above, and
+              // the second one only exists on a journey that carries a track.
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minHeight: 34, marginTop: 6, marginBottom: 2 }}>
+                <Press
+                  onPress={() => setPlaceOpen(true)}
+                  accessibilityRole="button"
+                  style={{ height: 34, borderRadius: 17, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+                >
+                  <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{t('journey.timeline.placeSearchPlaceholder')}</Text>
+                </Press>
+                {tracks.length ? (
+                  <Press
+                    onPress={() => setTrackPickerOpen(true)}
+                    accessibilityRole="button"
+                    style={{ height: 34, borderRadius: 17, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+                  >
+                    <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '700', color: theme.text }}>{t('journey.timeline.trackPlaceAction')}</Text>
+                  </Press>
+                ) : null}
+              </View>
             )}
 
             {/* photos */}
@@ -2147,13 +2201,21 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
           onClose={() => setPlaceOpen(false)}
         />
       ) : null}
+      {trackPickerOpen ? (
+        <TrackPointPickerSheet
+          theme={theme}
+          tracks={tracks}
+          onPick={pickTrackPlace}
+          onClose={() => setTrackPickerOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
 
 // ── Direct add — pops the quick-add sheet straight up from the inline 行程 tab ─
 export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, editRow, onClose }: { theme: Theme; info: Poi; initialDay?: string; availableGroups?: string[]; editRow?: TLRow; onClose: () => void }) {
-  const { userId } = useData();
+  const { userId, routes } = useData();
   const tl = useTimeline(info.id, userId);
   const existingDays = groupJourneyRows(tl.rows, tl.knownGroups).map((g) => g.key).filter(Boolean);
   const sourceGroups = availableGroups?.length ? availableGroups : existingDays;
@@ -2165,6 +2227,10 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
   });
   const selectableGroups = [...selectableGroupMap.values()];
   const defaultDay = selectableGroups[0] ?? nextJourneyDayKey(existingDays);
+  // The tracks this journey already carries — the routes its days link to plus
+  // its own bound track. A hiking day puts its places on one of these, because
+  // between them there is no road to search for.
+  const tracks = useMemo(() => journeyTracks(info, tl.rows, routes), [info, routes, tl.rows]);
   return (
     <QuickAddSheet
       theme={theme}
@@ -2173,6 +2239,7 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
       existingDays={selectableGroups}
       rows={tl.rows}
       knownGroups={tl.knownGroups}
+      tracks={tracks}
       editRow={editRow}
       onClose={onClose}
       onSubmit={(it): Promise<unknown> => {

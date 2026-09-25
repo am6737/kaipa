@@ -2,7 +2,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
-import { projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
+import { fitBoundsCorners, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 
 let AMap: typeof import('expo-gaode-map') | null = null;
 let amapInitialized = false;
@@ -117,7 +117,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       const padding = edgePadding ?? [28, 28, 28, 28];
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        const points = projectTrack(coordinates);
+        const points = projectTrack(fitBoundsCorners(coordinates));
         const [top, right, bottom, left] = padding;
         const viewportWidthPx = Math.max(1, layoutSize.current.width - left - right);
         const viewportHeightPx = Math.max(1, layoutSize.current.height - top - bottom);
@@ -143,8 +143,12 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
+        const gcj02 = point(coordinate);
+        const target = options?.edgePadding
+          ? shiftedTarget(gcj02, zoom, layoutSize.current, options.edgePadding)
+          : gcj02;
         void mapRef.current?.moveCamera({
-          target: point(coordinate),
+          target,
           zoom,
           ...(options?.resetOrientation ? { bearing: 0, tilt: 0 } : {}),
         }, duration);
@@ -217,7 +221,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           pendingCameraAction.current = () => {
             const padding = initialPadding ?? [28, 28, 28, 28];
             const [top, right, bottom, left] = padding;
-            const points = projectTrack(initialFitCoordinates);
+            const points = projectTrack(fitBoundsCorners(initialFitCoordinates));
             const bounds = module.getRouteBounds?.(points, {
               viewportWidthPx: Math.max(1, layoutSize.current.width - left - right),
               viewportHeightPx: Math.max(1, layoutSize.current.height - top - bottom),
@@ -279,6 +283,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           title={marker.title}
           pinColor={marker.content ? undefined : 'red'}
           cacheKey={marker.id}
+          zIndex={marker.zIndex}
           onMarkerPress={() => marker.onPress?.()}
         >
           {marker.content}

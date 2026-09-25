@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
-import { projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
+import { fitBoundsCorners, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 function point(coordinate: [number, number]) {
@@ -21,7 +21,46 @@ function region(coordinate: [number, number], zoom: number): Region {
   };
 }
 
+/**
+ * MapKit always puts the region's centre in the middle of the view, so a point
+ * that has to land inside a padded box is moved the other way by the distance
+ * between the two centres. Uses the same zoom-to-degrees mapping as `region`.
+ */
+export function offsetCenter(
+  coordinate: [number, number],
+  zoom: number,
+  edgePadding: [number, number, number, number] | undefined,
+  size: { width: number; height: number },
+): [number, number] {
+  if (!edgePadding || size.width <= 0 || size.height <= 0) return coordinate;
+  const [top, right, bottom, left] = edgePadding;
+  const delta = 360 / (2 ** Math.max(0, Math.min(20, zoom)));
+  const offsetX = size.width / 2 - (left + size.width - right) / 2;
+  const offsetY = size.height / 2 - (top + size.height - bottom) / 2;
+  return [
+    coordinate[0] + (offsetX * delta) / size.width,
+    coordinate[1] - (offsetY * delta) / size.height,
+  ];
+}
+
 export const NATIVE_MAP_AVAILABLE = true;
+
+/**
+ * Every prop of both annotation elements below comes off the descriptor object
+ * itself, so an unchanged descriptor can hand React the identical element and
+ * reconciliation bails out before it ever walks the marker's subtree. That
+ * subtree is a PhotoPin per pin: measured, re-rendering 85 of them in the middle
+ * of a camera animation costs half a second of JS thread. `projectTrack` on a
+ * 1500-point line is skipped for the same reason.
+ */
+const elementCache = new WeakMap<object, React.ReactElement>();
+function cachedElement(descriptor: object, build: () => React.ReactElement): React.ReactElement {
+  const hit = elementCache.get(descriptor);
+  if (hit) return hit;
+  const element = build();
+  elementCache.set(descriptor, element);
+  return element;
+}
 
 export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function NativeMap({
   style,
@@ -48,6 +87,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const programmaticUntil = useRef(0);
   const mapReady = useRef(false);
   const hasLayout = useRef(false);
+  const layoutSize = useRef({ width: 0, height: 0 });
   const pendingCameraAction = useRef<(() => void) | null>(null);
   const programmaticStartedAt = useRef(0);
   const pendingProgrammaticCompletions = useRef(0);
@@ -75,16 +115,17 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       if (!coordinates.length) return;
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
-        mapRef.current?.fitToCoordinates(projectTrack(coordinates), { edgePadding: padding(edgePadding), animated: duration > 0 });
+        mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(coordinates)), { edgePadding: padding(edgePadding), animated: duration > 0 });
       });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
+        const target = offsetCenter(coordinate, zoom, options?.edgePadding, layoutSize.current);
         if (options?.resetOrientation) {
-          mapRef.current?.animateCamera({ center: point(coordinate), zoom, heading: 0, pitch: 0 }, { duration });
+          mapRef.current?.animateCamera({ center: point(target), zoom, heading: 0, pitch: 0 }, { duration });
         } else {
-          mapRef.current?.animateToRegion(region(coordinate, zoom), duration);
+          mapRef.current?.animateToRegion(region(target, zoom), duration);
         }
       });
     },
@@ -106,6 +147,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         hasLayout.current = width > 0 && height > 0;
+        layoutSize.current = { width, height };
         flushCameraAction();
       }}
       mapType={mapType}
@@ -127,7 +169,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           fitted.current = true;
           markProgrammaticMove(0);
           pendingCameraAction.current = () => {
-            mapRef.current?.fitToCoordinates(projectTrack(initialFitCoordinates), { edgePadding: padding(initialPadding), animated: false });
+            mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(initialFitCoordinates)), { edgePadding: padding(initialPadding), animated: false });
           };
         }
         flushCameraAction();
@@ -168,7 +210,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         }
       }}
     >
-      {polylines.map((line) => (
+      {polylines.map((line) => cachedElement(line, () => (
         <Polyline
           key={line.id}
           coordinates={projectTrack(line.coordinates)}
@@ -176,8 +218,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           strokeWidth={line.width}
           lineDashPattern={line.dashed ? [7, 7] : undefined}
         />
-      ))}
-      {markers.map((marker) => (
+      )))}
+      {markers.map((marker) => cachedElement(marker, () => (
         <Marker
           key={marker.id}
           coordinate={point(marker.coordinate)}
@@ -185,12 +227,13 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           centerOffset={marker.centerOffset}
           pinColor={marker.content ? undefined : marker.color}
           opacity={marker.opacity}
+          zIndex={marker.zIndex}
           onPress={() => marker.onPress?.()}
           tracksViewChanges={false}
         >
           {marker.content}
         </Marker>
-      ))}
+      )))}
     </MapView>
   );
 });

@@ -2119,6 +2119,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           ) : null}
         </ScrollView>
 
+
         <Animated.View
           style={[
             styles.bottomArea,

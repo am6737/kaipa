@@ -34,8 +34,17 @@ interface OverlayCfg {
 
 export interface NavValue {
   mainTab: MainTab;
-  subTab: SubTab;
   setMainTab: (t: MainTab) => void;
+  /**
+   * The 发现 page's own 探索/旅程 mode lives in `NavSubTabContext`, not here.
+   * It was read by exactly one component, but while it sat in this value every
+   * sub-tab tap rebuilt the context object and re-rendered every `useNav()`
+   * consumer — including the three screens that can never see it (Journey,
+   * Gear, Me). That is the same cost a plain bottom-tab switch already pays
+   * (MeScreen ~29ms + JourneyScreen ~16ms of its ~92ms floor), for a control
+   * whose only job is to recolour a pill. See the `tab-switch-render-cost`
+   * project note.
+   */
   setSubTab: (t: SubTab) => void;
 
   // Cross-feature navigation into the gear detail page.
@@ -180,6 +189,13 @@ export interface NavValue {
 
 const NavContext = createContext<NavValue | null>(null);
 
+/**
+ * The 发现 page's 探索/旅程 mode, kept out of `NavValue` so that changing it
+ * only re-renders the one component that reads it. Actions stay on `useNav()`
+ * (`nav.setSubTab`), so the writer never has to touch this.
+ */
+const NavSubTabContext = createContext<SubTab>('explore');
+
 export interface NavDB {
   updateJourney?: (id: string, patch: Partial<Poi>) => Promise<void>;
   updateRoute?: (id: string, patch: Partial<Poi>) => Promise<void>;
@@ -302,10 +318,8 @@ export function NavProvider({
   };
 
   const setMainTab = (t: MainTab) => {
-    if (t === 'discover' && mainTab === 'discover') {
-      setSheetOpen((v) => !v);
-      return;
-    }
+    // Repeat taps on 发现 no longer toggle the list sheet: the sheet belongs to the map.
+    if (t === 'discover' && mainTab === 'discover') return;
     setMainTabRaw(t);
     setSheetOpen(false);
     setPointInfo(null);
@@ -358,7 +372,6 @@ export function NavProvider({
   const value = useMemo<NavValue>(
     () => ({
       mainTab,
-      subTab,
       setMainTab,
       setSubTab,
       gearItemRequestId,
@@ -555,7 +568,6 @@ export function NavProvider({
     }),
     [
       mainTab,
-      subTab,
       gearItemRequestId,
       gearPageRequest,
       pointInfo,
@@ -594,11 +606,20 @@ export function NavProvider({
     ]
   );
 
-  return <NavContext.Provider value={value}>{children}</NavContext.Provider>;
+  return (
+    <NavSubTabContext.Provider value={subTab}>
+      <NavContext.Provider value={value}>{children}</NavContext.Provider>
+    </NavSubTabContext.Provider>
+  );
 }
 
 export function useNav(): NavValue {
   const v = useContext(NavContext);
   if (!v) throw new Error('useNav must be used within NavProvider');
   return v;
+}
+
+/** Which 发现 sub-page (探索 / 旅程) is showing. Narrower than `useNav()`. */
+export function useNavSubTab(): SubTab {
+  return useContext(NavSubTabContext);
 }

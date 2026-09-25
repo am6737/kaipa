@@ -25,10 +25,21 @@ export type TimelineTransportMode = 'car' | 'taxi' | 'bus' | 'shuttle' | 'walk' 
 
 export interface TimelineLocation {
   name: string;
-  source?: 'map' | 'custom';
+  source?: 'map' | 'custom' | 'track';
   longitude?: number;
   latitude?: number;
   address?: string;
+  /** Set when the place was picked on a recorded track rather than searched on
+   *  the map. The distance along the track is the identity — the coordinates are
+   *  only what it projected to when it was picked — because two places on one
+   *  track define the walking segment between them. */
+  trackId?: string;
+  trackName?: string;
+  trackMeters?: number;
+  /** The track's total length at pick time. A re-imported file shifts every
+   *  distance on it, and this is how that is noticed instead of silently drawing
+   *  the old number against the new line. */
+  trackLengthMeters?: number;
 }
 
 export interface TimelineTransport {

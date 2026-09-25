@@ -121,7 +121,6 @@ export function AccountPage({
       });
       setAvatarSaving(true);
       await data.updateAvatar(image.path);
-      showToast(t('account.profile.toastAvatarUpdated'));
     } catch (error) {
       const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
       if (code === 'E_PICKER_CANCELLED') return;

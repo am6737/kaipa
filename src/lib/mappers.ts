@@ -228,5 +228,6 @@ export function toInspoMedia(r: any): InspoMedia {
     pairedVideoUri: r.paired_video_uri ?? undefined,
     caption: r.caption ?? undefined,
     createdAt: r.created_at ?? undefined,
+    userId: r.user_id ?? undefined,
   };
 }

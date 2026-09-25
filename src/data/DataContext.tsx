@@ -8,6 +8,7 @@ import { useProfile } from '../hooks/useProfile';
 import type { UserProfile } from '../hooks/useProfile';
 import { usePlanningProfile } from '../hooks/usePlanningProfile';
 import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
+import { usePresencePublisher } from '../hooks/useCompanionPresence';
 import type { Poi } from './pois';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
@@ -96,6 +97,9 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     list: notifList, unread: notifUnread,
     markRead: markNotifRead, markAllRead: markAllNotifsRead,
   } = useNotifications(userId);
+  // Live companion sharing rides the toggle in the journey detail, but the
+  // publishing itself has to outlive that screen — it lives here.
+  usePresencePublisher(userId);
 
   // Deleting a track makes Postgres null out `journeys.track_id` everywhere it was
   // referenced, so those journeys must be re-read or their pages keep drawing a

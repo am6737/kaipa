@@ -17,6 +17,7 @@ import { TrailSheet } from '../components/Sheet';
 import { useAppearance } from '../theme/AppearanceContext';
 import { useI18n, Lang, TKey } from '../i18n';
 import { useNav } from '../nav/NavContext';
+import { countRender } from '../lib/tabSwitchProbe';
 import { useData } from '../data/DataContext';
 import { WEIGHT_UNITS, WeightUnit, itemPrice, itemWeight, fmtWeight } from '../data/gear';
 import { useNotifCenter, Notif } from '../data/notifications';
@@ -759,6 +760,7 @@ function JourneysPage({
 }
 
 export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
+  countRender('Me');
   const theme = makeMeTheme(baseTheme);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();

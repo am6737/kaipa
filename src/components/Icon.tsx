@@ -31,6 +31,7 @@ export type IconName =
   | 'camera'
   | 'copy'
   | 'edit'
+  | 'sliders'
   | 'trash'
   | 'upload'
   | 'gear'
@@ -321,6 +322,15 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Path d="M16.5 4.5l3 3L8 19l-4 1 1-4 11.5-11.5Z" {...common} />
+        </Svg>
+      );
+    case 'sliders':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" {...common} />
+          <Circle cx={14} cy={4} r={2} {...common} />
+          <Circle cx={10} cy={12} r={2} {...common} />
+          <Circle cx={16} cy={20} r={2} {...common} />
         </Svg>
       );
     case 'trash':
