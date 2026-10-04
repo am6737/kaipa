@@ -31,6 +31,15 @@ module.exports = ({ config }) => ({
     package: variantId(config.android.package),
     userInterfaceStyle: 'automatic',
   },
+  // EAS Update delivers signed JS/assets bundles to an already installed
+  // native binary. The channel is selected by the EAS build profile.
+  runtimeVersion: { policy: 'appVersion' },
+  updates: {
+    url: `https://u.expo.dev/${config.extra?.eas?.projectId}`,
+    enabled: true,
+    checkAutomatically: 'NEVER',
+    fallbackToCacheTimeout: 0,
+  },
   plugins: [
     [
       'expo-gaode-map',

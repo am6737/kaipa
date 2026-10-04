@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { I18nProvider } from './src/i18n';
 import { AppearanceProvider } from './src/theme/AppearanceContext';
 import { AppRoot } from './src/AppRoot';
+import { UpdateManager } from './src/updates/UpdateManager';
 
 function useWebTapReset() {
   if (Platform.OS !== 'web') return;
@@ -25,6 +26,7 @@ export default function App() {
         <KeyboardProvider>
           <I18nProvider>
             <AppearanceProvider>
+              <UpdateManager />
               <AppRoot />
             </AppearanceProvider>
           </I18nProvider>
