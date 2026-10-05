@@ -90,6 +90,7 @@ module.exports = ({ config }) => ({
     'expo-sharing',
     'expo-image',
     'expo-video',
+    'expo-updates',
     'expo-apple-authentication',
   ],
 });

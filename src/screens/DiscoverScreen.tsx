@@ -1666,22 +1666,25 @@ export function DiscoverScreen({
       setSharingJourneyId(null);
       return;
     }
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (!permission.granted) {
-      nav.showToast(t('discover.locationPermissionDenied'));
-      return;
-    }
-    // Android grants permission without the device-wide provider being on, and
-    // the watch would then deliver nothing at all: the switch reads on and no
-    // avatar ever appears. Same escape the locate button uses, same reason.
     try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        nav.showToast(t('discover.locationPermissionDenied'));
+        return;
+      }
+      // Android grants permission without the device-wide provider being on, and
+      // the watch would then deliver nothing at all: the switch reads on and no
+      // avatar ever appears. Same escape the locate button uses, same reason.
       if (!await withTimeout(Location.hasServicesEnabledAsync(), 3_000, 'Checking location services timed out')) {
         nav.showToast(t('discover.locationFailed'));
         return;
       }
     } catch {
-      // A hung provider check must not block the share; the grey ring on the
-      // user's own pin is the fallback signal.
+      // Permission dialogs and provider checks can reject when iOS services
+      // are toggled while the dialog is visible. Keep the switch off instead
+      // of allowing an unhandled promise to become a React Native fatal error.
+      nav.showToast(t('discover.locationFailed'));
+      return;
     }
     setSharingJourneyId(openJourneyId);
   }, [nav, openJourneyId, sharingJourneyId, t]);

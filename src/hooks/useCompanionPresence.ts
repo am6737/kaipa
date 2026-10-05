@@ -61,12 +61,17 @@ function metersBetween(a: CompanionPresence, bLng: number, bLat: number) {
   return Math.sqrt(x * x + y * y);
 }
 
-function toPresence(position: Location.LocationObject, userId: string): CompanionPresence {
+function toPresence(position: Location.LocationObject, userId: string): CompanionPresence | null {
+  const { longitude, latitude } = position.coords;
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    console.warn('companion presence: ignoring invalid location fix', position.coords);
+    return null;
+  }
   const now = Date.now();
   return {
     userId,
-    longitude: position.coords.longitude,
-    latitude: position.coords.latitude,
+    longitude,
+    latitude,
     fixedAt: typeof position.timestamp === 'number' && Number.isFinite(position.timestamp)
       ? position.timestamp
       : now,
@@ -137,8 +142,11 @@ export function usePresencePublisher(userId: string | null) {
             .catch(() => null);
           if (disposed) return;
           if (cached && !latest) {
-            latest = toPresence(cached, publisherId);
-            broadcast(true);
+            const cachedPresence = toPresence(cached, publisherId);
+            if (cachedPresence) {
+              latest = cachedPresence;
+              broadcast(true);
+            }
           }
         }
       } finally {
@@ -154,6 +162,7 @@ export function usePresencePublisher(userId: string | null) {
         (position) => {
           if (disposed) return;
           const next = toPresence(position, publisherId);
+          if (!next) return;
           const moved = !latest || metersBetween(latest, next.longitude, next.latitude) >= MOVE_MIN_METERS;
           latest = next;
           if (moved) broadcast(true);
@@ -234,10 +243,15 @@ export function useCompanionLocations(
   }, [journeyId, enabled]);
 
   const hasPeers = peers.length > 0;
+  // Hooks must run on every render. Calling useLastSelfPresence() on the
+  // right-hand side of `hasPeers || ...` made its execution depend on whether
+  // a roster had arrived, which triggered React's hook-order fatal error while
+  // opening the shared-location map.
+  const selfPresence = useLastSelfPresence();
   // The publisher's own pin has to age on this clock too, and it is the case
   // where a clock matters most: if publishing stalls, no new self presence
   // arrives, so nothing else would ever make the ring go grey.
-  const drawn = hasPeers || !!useLastSelfPresence();
+  const drawn = hasPeers || !!selfPresence;
   useEffect(() => {
     if (!drawn) return;
     const timer = setInterval(() => setTick((value) => value + 1), 30_000);
