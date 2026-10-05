@@ -1295,8 +1295,7 @@ export function DiscoverScreen({
   ), [itineraryTracks]);
   const itineraryLegs = useMemo(() => (
     itineraryStops.length >= 2
-      ? buildJourneyLegs(itineraryStops, new Map(focusedTimeline.rows.map((row) => [row.id, row])),
-        (trackId) => itineraryTrackCoords.get(trackId))
+      ? buildJourneyLegs(itineraryStops, (trackId) => itineraryTrackCoords.get(trackId))
       : []
   ), [focusedTimeline.rows, itineraryStops, itineraryTrackCoords]);
   // The numbered stops, the route chain and the per-day distance capsules are

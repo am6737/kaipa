@@ -33,16 +33,16 @@ export interface JourneyLeg {
   mode: 'driving' | 'walking';
   from: Coordinate;
   to: Coordinate;
-  /** Road geometry already recorded on the transport row: nothing to plan. */
+  /** Geometry recovered from a recorded track, when both stops share it. */
   recordedGeometry?: Coordinate[];
   /** Straight-line length: what decides walking versus driving above. */
   directMeters: number;
 }
 
-/** Two places inside the same day should not produce two pins — a transport row
- *  and the place it points at usually sit on the same spot. Across days this
- *  merge deliberately does not apply: each group stands on its own, so dropping
- *  a day's first place because yesterday ended there would leave that day empty. */
+/** Two places inside the same day should not produce two pins when they sit on
+ *  the same spot. Across days this merge deliberately does not apply: each
+ *  group stands on its own, so dropping a day's first place because yesterday
+ *  ended there would leave that day empty. */
 const SAME_PLACE_METERS = 50;
 
 function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string; location?: TimelineLocation } | null {
@@ -53,11 +53,6 @@ function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string; locat
       name: location.name || row.title,
       location,
     };
-  }
-  // Agent-produced transport rows keep their destination in `transport.to`.
-  const to = row.transport?.to;
-  if (to && Number.isFinite(to.longitude) && Number.isFinite(to.latitude)) {
-    return { coordinate: [to.longitude as number, to.latitude as number], name: to.name || row.title };
   }
   return null;
 }
@@ -90,10 +85,8 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
     const found = coordinateOf(row);
     if (!found) continue;
     const previous = stops[stops.length - 1];
-    // The merge exists because a transport row and the place it points at are
-    // usually the same spot. A track place is not that: it means "here on the
-    // path", and the village POI next to it is a different place even when the
-    // two are metres apart.
+    // A track place means "here on the path", and the village POI next to it
+    // is a different place even when the two are only metres apart.
     const mergeable = previous && previous.day === (row.day || undefined)
       && !previous.trackId && !found.location?.trackId
       && distanceMeters(previous.coordinate, found.coordinate) < SAME_PLACE_METERS;
@@ -115,12 +108,6 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
 }
 
 /**
- * A "walk" leg beyond this is planned as a drive: AMap caps walking routes at
- * 100 km, and a hop that long was not walked anyway.
- */
-const MAX_WALKED_LEG_METERS = 5_000;
-
-/**
  * Legs join consecutive stops within one day group. A group is a route; the
  * hop from one group to the next is not part of either day's plan, so nothing
  * is drawn for it and the day that has no travel of its own has no mileage.
@@ -132,7 +119,6 @@ const MAX_WALKED_LEG_METERS = 5_000;
  */
 export function buildJourneyLegs(
   stops: JourneyStop[],
-  rowsById: Map<string, TLRow>,
   trackCoords?: (trackId: string) => Coordinate[] | undefined,
 ): JourneyLeg[] {
   const legs: JourneyLeg[] = [];
@@ -141,20 +127,17 @@ export function buildJourneyLegs(
     const to = stops[index];
     if (from.day !== to.day) continue;
     const directMeters = distanceMeters(from.coordinate, to.coordinate);
-    const toRow = rowsById.get(to.rowId);
-    const recordedGeometry = toRow?.transport?.geometry;
     const trackGeometry = trackGeometryFor(from, to, trackCoords);
     const onSomeTrack = Boolean(from.trackId || to.trackId);
     legs.push({
       id: `${from.rowId}->${to.rowId}`,
       day: to.day,
-      mode: trackGeometry || onSomeTrack || (toRow?.transport?.mode === 'walk' && directMeters <= MAX_WALKED_LEG_METERS)
+      mode: trackGeometry || onSomeTrack
         ? 'walking'
         : 'driving',
       from: from.coordinate,
       to: to.coordinate,
-      recordedGeometry: trackGeometry
-        ?? (recordedGeometry && recordedGeometry.length >= 2 ? recordedGeometry : undefined),
+      recordedGeometry: trackGeometry ?? undefined,
       directMeters,
     });
   }

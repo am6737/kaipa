@@ -131,7 +131,7 @@ function plan(patch: PlanPatch = {}): PlanDocument {
   // 模型 schema 现在要求这些字段显式给出（strict 校验不接受缺字段），
   // 夹具保持简短：在这里补成 null。
   const normalized: Partial<PlanDocument> = { ...patch } as Partial<PlanDocument>;
-  if (patch.itineraryItems) normalized.itineraryItems = patch.itineraryItems.map((item) => ({ ...item, timeStart: item.timeStart ?? null, timeEnd: item.timeEnd ?? null, transport: item.transport ?? null })) as PlanDocument['itineraryItems'];
+  if (patch.itineraryItems) normalized.itineraryItems = patch.itineraryItems.map((item) => ({ ...item, timeStart: item.timeStart ?? null, timeEnd: item.timeEnd ?? null, location: item.location ?? null })) as PlanDocument['itineraryItems'];
   if (patch.endpoints) normalized.endpoints = patch.endpoints.map((endpoint) => ({ ...endpoint, waypointIndex: endpoint.waypointIndex ?? null, trackFinish: endpoint.trackFinish ?? null, endDistanceKm: endpoint.endDistanceKm ?? null, locationName: endpoint.locationName ?? null, estimateBasis: endpoint.estimateBasis ?? null, userDistanceQuote: endpoint.userDistanceQuote ?? null, overnightReview: endpoint.overnightReview ?? null, routeId: endpoint.routeId ?? null })) as PlanDocument['endpoints'];
   if (patch.mapLocation) normalized.mapLocation = { ...patch.mapLocation, region: patch.mapLocation.region ?? null } as PlanDocument['mapLocation'];
   return planDocumentSchema.parse({

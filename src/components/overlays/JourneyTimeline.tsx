@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Easing as ReanimatedEasing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Theme } from '../../theme/theme';
 import { Poi } from '../../data/pois';
-import { TLRow, TLMedia, TLGroup, TimelineLocation, TimelineTransportMode } from '../../data/timeline';
+import { TLRow, TLMedia, TLGroup, TimelineLocation } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
@@ -255,14 +255,6 @@ function TimeWheel({ theme, value, onChange, compact }: { theme: Theme; value: n
 }
 
 const fmtRange = (s?: number, e?: number) => (s == null ? '' : e == null || e === s ? fmtMins(s) : `${fmtMins(s)}-${fmtMins(e)}`);
-const transportModeLabel = (mode?: TimelineTransportMode) => ({ car: '驾车', taxi: '打车', bus: '巴士', shuttle: '接驳', walk: '步行', unknown: '交通' }[mode ?? 'unknown']);
-const transportSummary = (row: TLRow) => {
-  if (row.kind !== 'transport' || !row.transport) return null;
-  const parts = [transportModeLabel(row.transport.mode), row.transport.from.name && row.transport.to.name ? `${row.transport.from.name} → ${row.transport.to.name}` : null];
-  if (row.transport.distanceMeters != null) parts.push(`${(row.transport.distanceMeters / 1000).toFixed(1)} km`);
-  if (row.transport.durationMinutes != null) parts.push(`${Math.floor(row.transport.durationMinutes / 60)}小时${row.transport.durationMinutes % 60 ? `${row.transport.durationMinutes % 60}分` : ''}`);
-  return parts.filter(Boolean).join('  ');
-};
 
 // AMap returns `type` as a semicolon-hierarchy string (e.g. "风景名胜;博物馆").
 // Collapse it to the short tag shown above each search result.
@@ -1231,10 +1223,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     </View>
   ) : null;
   const timeNode = row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null;
-  const summary = transportSummary(row);
-  const transportNode = summary ? <Text style={[type.caption, { color: theme.accent, marginTop: space.xxs }]}>{summary}</Text> : null;
-
-  const hasText = row.timeStart != null || hasTitle || Boolean(summary);
+  const hasText = row.timeStart != null || hasTitle;
   // B1: the right-hand photo column only exists when the left has text to
   // carry — media-only items keep photos in the full-width grid, place-only
   // items stay a single line. 1–2 media go right, ≥3 fall back to the grid.
@@ -1301,7 +1290,6 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
     <View style={{ flex: 1, minWidth: 0 }}>
       {timeNode}
       {headNode}
-      {transportNode}
       {mediaGrid}
       {sideMedia ? <View style={{ flexGrow: 1 }} /> : null}
       {placeNode}

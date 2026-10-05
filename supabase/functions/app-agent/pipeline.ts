@@ -904,7 +904,7 @@ function normalizeOptionalPlanFields(candidate: unknown): string[] {
     record.itineraryItems = record.itineraryItems.map(item => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
       const normalized = { ...(item as Record<string, unknown>) };
-      for (const key of ['timeStart', 'timeEnd', 'transport']) if (normalized[key] == null) delete normalized[key];
+      for (const key of ['timeStart', 'timeEnd', 'location']) if (normalized[key] == null) delete normalized[key];
       return normalized;
     });
   }
@@ -1277,14 +1277,14 @@ const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查�
 - journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）。用户未填写日期时可保持 plannedDate=null；用户未填写天数时，若 ResearchBrief 提供了有依据的 suggestedDays，则使用系统推算天数创建，并在 assumptions 中说明依据，不要追问用户。
 - planProfile 之外的行程与装备判断都写入 itineraryItems 与 endpoints。
 - 多日徒步：先确定真实轨迹上的过夜点，再据此推导当日里程；禁止按天数或时长平均分配；每天一个终点。
-- 多路线旅程中，每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，确保每条已有 GPX 独立绑定；交通项 routeId=null。
+- 多路线旅程中，每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，确保每条已有 GPX 独立绑定；普通接驳安排不绑定 routeId。
 - ResearchBrief.routes.hikingDays 是根据 GPX 录制时长得到的确定日数；每条路线必须连续生成相同数量的徒步日，不能用“待核实”自定义项占位。
 - ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，并在 itineraryItems 的 title 里写出标注点名称与累计里程；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
 - endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一；无法定位的日期不要为它输出空条目（只有 day 的条目会被拒绝），改为把缺口写入 unverified。
 - 一次出行可以走多条路线（走完 A 再走 B）。每个徒步日的终点必须填写 routeId，指向该天所属路线的目录 ID；该天的 waypointIndex 与累计里程按**这条路线自己的轨迹**解析，不同路线各自从 0 开始，不需要跨路线递增。
 - 纯接驳、住宿或休整日不属于任何路线：不要为它们输出终点条目，把地点与安排写在 itineraryItems 里。
 - journey.routeId 绑定第一条路线的目录 ID（若提供了轨迹文件名则优先与它匹配的那条）。
-- 交通接驳段作为普通 itineraryItems 记录，不要为交通单独设置徒步日终点；交通项必须 kind=transport，并填写 transport.from、transport.to、mode 和 status。只有检索结果提供了坐标或导航 geometry 时才填写对应字段，否则保留地点名称并将 status 设为 unknown，不能编造路线。
+- 交通接驳段作为普通 itineraryItems 记录，不要创建独立交通类型，也不要为交通单独设置徒步日终点；把到达地点写入普通 location（有坐标才填写坐标），交通方式和说明写入 title。不要编造路线。
 - 没有证据的内容写入 unverified，不要编造时间、价格、水源或营地。
 - 无法完成的部分用 blocker 说明具体原因，需要用户决定时用 pendingQuestion，并把已经能确定的部分照常输出。
 输出只包含 PlanDocument 结构化结果。`;
@@ -1300,7 +1300,7 @@ dayNames 无法确定时留空并写入 blocker 或 pendingQuestion。只输出 
 
 const planChunkInstructions = `你是 Kaipa 的行程编排逐日细化轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，只依据本轮提供的 ResearchBrief、TransportPlan、整体框架与已核验事实编排。
 系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
-硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，交通项 routeId=null；交通接驳段必须 kind=transport 并填写 transport.from、transport.to、mode 和 status，没有坐标时 status=unknown；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
+硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，交通接驳段作为普通 itineraryItem，地点写入 location，交通方式和说明写入 title；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
 只输出 PlanChunk 结构化结果。`;
 
 const packingInstructions = `你是 Kaipa 的装备清单阶段，只输出一份完整的个人清单草稿，不保存任何数据。

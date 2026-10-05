@@ -495,23 +495,17 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
 export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
-  routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；交通项留空'),
+  routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；普通地点或接驳安排留空'),
   timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
   timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
-  kind: z.enum(['activity', 'transport', 'stay', 'custom']).default('activity'),
-  transport: z.object({
-    mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
-    from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
-    to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
-    distanceMeters: z.number().nonnegative().max(2_000_000).nullable().default(null),
-    durationMinutes: z.number().int().nonnegative().max(100_000).nullable().default(null),
-    // Object points keep the generated JSON Schema compatible with providers
-    // that reject tuple/array item schemas in structured output.
-    geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).max(20_000).nullable().default(null),
-    status: z.enum(['verified', 'estimated', 'unknown']).default('unknown'),
-    source: z.string().max(500).nullable().default(null),
-    note: z.string().max(500).nullable().default(null),
-  }).nullable().default(null).describe('kind=transport 时填写；普通行程项省略'),
+  kind: z.enum(['activity', 'stay', 'custom']).default('activity'),
+  location: z.object({
+    name: z.string().min(1).max(160),
+    source: z.enum(['map', 'custom']).default('custom'),
+    longitude: z.number().min(-180).max(180).nullable().default(null),
+    latitude: z.number().min(-90).max(90).nullable().default(null),
+    address: z.string().max(300).nullable().default(null),
+  }).nullable().default(null).describe('行程发生地点；有地图坐标时填写，交通安排也作为普通地点行程项保存'),
 });
 
 
@@ -994,7 +988,7 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
       client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
-      client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,transport').eq('journey_id', args.journeyId),
+      client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,location').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name').eq('journey_id', args.journeyId),
     ]);
     if (journey.error) throw journey.error;
@@ -1022,10 +1016,7 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
       item_kind: item.kind ?? 'activity',
       route_id: item.kind === 'activity' ? item.routeId || null : null,
-      transport: item.kind === 'transport' && item.transport ? {
-        ...item.transport,
-        geometry: item.transport.geometry?.map((point) => [point.longitude, point.latitude]),
-      } : null,
+      location: item.location ?? null,
       is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
     }));
     const groupNames = [...new Set(uniqueItems.map((item) => item.day))];

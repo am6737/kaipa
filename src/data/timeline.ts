@@ -1,6 +1,6 @@
 // timeline.ts — the unified 行程 model. ONE concept: a checkable, user-grouped
-// list of rich records. Groups are user-defined strings (e.g. "交通", "徒步",
-// "住宿" — whatever the user wants). Progress = how many rows are checked off.
+// list of rich records. Groups are user-defined strings (e.g. "徒步", "住宿" —
+// whatever the user wants). Progress = how many rows are checked off.
 // Checks are purely manual. Gear checklist stays separate.
 
 export interface TLMedia {
@@ -20,8 +20,7 @@ export interface TLMedia {
   };
 }
 
-export type TimelineItemKind = 'activity' | 'transport' | 'stay' | 'custom';
-export type TimelineTransportMode = 'car' | 'taxi' | 'bus' | 'shuttle' | 'walk' | 'unknown';
+export type TimelineItemKind = 'activity' | 'stay' | 'custom';
 
 export interface TimelineLocation {
   name: string;
@@ -42,18 +41,6 @@ export interface TimelineLocation {
   trackLengthMeters?: number;
 }
 
-export interface TimelineTransport {
-  mode: TimelineTransportMode;
-  from: TimelineLocation;
-  to: TimelineLocation;
-  distanceMeters?: number;
-  durationMinutes?: number;
-  geometry?: [number, number][];
-  status: 'verified' | 'estimated' | 'unknown';
-  source?: string;
-  note?: string;
-}
-
 export interface TLRow {
   id: string;
   routeId?: string;
@@ -68,8 +55,6 @@ export interface TLRow {
   kind?: TimelineItemKind;
   /** Where this item happens — picked on the map or via place search. */
   location?: TimelineLocation;
-  /** Only for agent-produced transport legs (a segment between two places). */
-  transport?: TimelineTransport;
 }
 
 export interface TimelineGroupRoute {

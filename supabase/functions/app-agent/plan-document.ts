@@ -205,17 +205,6 @@ export const planDocumentModelSchema = planDocumentSchema.extend({
   itineraryItems: z.array(itineraryItem.extend({
     timeStart: itineraryItem.shape.timeStart.default(null),
     timeEnd: itineraryItem.shape.timeEnd.default(null),
-    transport: z.object({
-      mode: z.enum(['car', 'taxi', 'bus', 'shuttle', 'walk', 'unknown']),
-      from: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
-      to: z.object({ name: z.string().min(1).max(160), source: z.enum(['map', 'custom']).default('custom'), longitude: z.number().min(-180).max(180).nullable().default(null), latitude: z.number().min(-90).max(90).nullable().default(null), address: z.string().max(300).nullable().default(null) }),
-      distanceMeters: z.number().nonnegative().max(2_000_000).nullable().default(null),
-      durationMinutes: z.number().int().nonnegative().max(100_000).nullable().default(null),
-      geometry: z.array(z.object({ longitude: z.number().min(-180).max(180), latitude: z.number().min(-90).max(90) })).default([]),
-      status: z.enum(['verified', 'estimated', 'unknown']).default('unknown'),
-      source: z.string().max(500).nullable().default(null),
-      note: z.string().max(500).nullable().default(null),
-    }).nullable().default(null),
   })).max(80).default([]),
   endpoints: z.array(itineraryGroupEndpoint.extend({
     waypointIndex: itineraryGroupEndpoint.shape.waypointIndex.default(null),
