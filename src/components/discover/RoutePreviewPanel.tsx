@@ -106,11 +106,10 @@ export function RoutePreviewActions({ theme, poi, style, onPlanRoute }: { theme:
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 // A 12-cell month strip highlighting the route's best season, with the
-// current month ringed and the free-form note (封山期, 雨季…) below.
+// free-form note (封山期, 雨季…) below.
 function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; note?: string }) {
   const { t } = useI18n();
   const best = new Set(months);
-  const currentMonth = new Date().getMonth() + 1;
   return (
     <View style={{ marginTop: space.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
@@ -119,7 +118,6 @@ function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; 
       <View style={{ flexDirection: 'row', gap: 4 }}>
         {MONTHS.map((m) => {
           const isBest = best.has(m);
-          const isCurrent = m === currentMonth;
           return (
             <View
               key={m}
@@ -130,8 +128,6 @@ function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; 
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: isBest ? theme.accent : theme.dark ? theme.fieldSurface : '#F3F3F4',
-                borderWidth: isCurrent && !isBest ? StyleSheet.hairlineWidth : 0,
-                borderColor: theme.accent,
               }}
             >
               <Text style={{ fontSize: 11, fontFamily: MONO, fontWeight: '700', color: isBest ? '#FFFFFF' : theme.text3 }}>{m}</Text>
