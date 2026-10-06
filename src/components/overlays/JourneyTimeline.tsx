@@ -180,6 +180,42 @@ function DayCollapseToggle({ theme, collapsed, onPress, label }: {
   );
 }
 
+function DragHandle({ theme, onDrop, label }: { theme: Theme; onDrop: (delta: number) => void; label: string }) {
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const responder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gesture) => draggingRef.current || Math.abs(gesture.dy) > 8,
+    onPanResponderGrant: () => {
+      timerRef.current = setTimeout(() => {
+        draggingRef.current = true;
+        setDragging(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }, 180);
+    },
+    onPanResponderMove: () => {},
+    onPanResponderRelease: (_, gesture) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      if (draggingRef.current) onDrop(Math.round(gesture.dy / 82));
+      draggingRef.current = false;
+      setDragging(false);
+    },
+    onPanResponderTerminate: () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      draggingRef.current = false;
+      setDragging(false);
+    },
+  })).current;
+  return (
+    <View {...responder.panHandlers} accessibilityRole="button" accessibilityLabel={label} style={{ width: 34, height: 42, alignItems: 'center', justifyContent: 'center', opacity: dragging ? 1 : 0.52 }}>
+      <Text style={{ color: dragging ? theme.accent : theme.text3, fontSize: 19, lineHeight: 20, letterSpacing: -3 }}>⋮⋮</Text>
+    </View>
+  );
+}
+
 const MAX_TL_MEDIA = 10;const fmtMins = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const HOUR_OPTS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: String(h).padStart(2, '0') }));
@@ -510,13 +546,14 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
 }
 
 // ── A collapsible day group: bold label, chevron when collapsible ─────────────
-function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, children }: {
+function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, headerAction, children }: {
   theme: Theme;
   label: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
   onBodyHeight?: (height: number) => void;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -534,6 +571,7 @@ function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeig
             <CollapseChevron theme={theme} collapsed={!!collapsed} />
           </View>
         ) : null}
+        {headerAction}
       </Pressable>
       <DayBody open={!collapsed} onHeightChange={onBodyHeight}>{children}</DayBody>
     </View>
@@ -1321,20 +1359,21 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
         opacity: pressed ? 0.72 : 1,
       })}
     >
-      {selectionMode ? (
-        <View
-          style={{
-            width: 24,
-            height: 24,
-            marginTop: dayLayout ? 1 : 0,
-            borderRadius: 12,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: 2,
-            borderColor: theme.fieldBorder,
-            overflow: 'hidden',
-          }}
-        >
+      <View
+        pointerEvents={selectionMode ? 'auto' : 'none'}
+        style={{
+          width: 24,
+          height: 24,
+          marginTop: dayLayout ? 1 : 0,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 2,
+          borderColor: selectionMode ? theme.fieldBorder : 'transparent',
+          overflow: 'hidden',
+          opacity: selectionMode ? 1 : 0,
+        }}
+      >
           <Animated.View
             style={{
               position: 'absolute',
@@ -1352,8 +1391,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
           >
             <Icon name="check" color={theme.featureSurface} size={13} strokeWidth={2.5} />
           </Animated.View>
-        </View>
-      ) : null}
+      </View>
       {content}
       {!dayLayout && !selectionMode && onPress ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
     </Pressable>
@@ -1388,7 +1426,9 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
   const defaultDays = info.kind === 'journey'
     ? selectedDay
       ? (availableDays?.length ? availableDays : [selectedDay])
-      : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
+      : tl.knownGroups.length
+        ? [...tl.knownGroups, ...(availableDays ?? []).filter((day) => !tl.knownGroups.includes(day))]
+        : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
     : [];
   const groups = groupJourneyRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
   const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t('journey.timeline.ungrouped');
@@ -1403,6 +1443,29 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
     } else {
       Alert.alert(t('journey.timeline.groupFailedTitle'), t('journey.timeline.groupFailedMessage'));
     }
+  };
+  const reportReorderFailure = (error: unknown) => {
+    if (isWriteBusy(error)) Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+    else Alert.alert(t('journey.timeline.groupFailedTitle'), t('journey.timeline.groupFailedMessage'));
+  };
+  const reorderGroup = (from: number, delta: number) => {
+    const to = Math.max(0, Math.min(groups.length - 1, from + delta));
+    if (to === from) return;
+    const ordered = groups.map((group) => group.key);
+    const [moved] = ordered.splice(from, 1);
+    ordered.splice(to, 0, moved);
+    void tl.reorderGroups(ordered).catch(reportReorderFailure);
+  };
+  const reorderRows = (group: TLGroup, from: number, delta: number) => {
+    const rows = sortedRows(group);
+    const to = Math.max(0, Math.min(rows.length - 1, from + delta));
+    if (to === from) return;
+    const nextGroupRows = [...rows];
+    const [moved] = nextGroupRows.splice(from, 1);
+    nextGroupRows.splice(to, 0, moved);
+    const ids = new Set(nextGroupRows.map((row) => row.id));
+    const nextAllRows = tl.rows.map((row) => ids.has(row.id) ? nextGroupRows[nextGroupRows.findIndex((item) => item.id === row.id)] : row);
+    void tl.reorderRows(nextAllRows).catch(reportReorderFailure);
   };
   const addNextDay = () => {
     const day = nextDayName();
@@ -1487,13 +1550,18 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
       >
         {rows.map((r, i) => (
           <View key={r.id} style={{ paddingHorizontal: 0, marginTop: i === 0 ? 0 : space.md }}>
-            <View style={{ paddingHorizontal: 0 }}>
+            <View style={{ paddingHorizontal: 0, position: 'relative' }}>
               <ItineraryItem
                 theme={theme}
                 row={r}
                 onPress={readOnly ? undefined : () => nav.openTimelineEdit(info, r, availableDays)}
                 onOpenMedia={(media, index, row) => setViewer({ rowId: row.id, media, index })}
               />
+              {selectionMode && !readOnly ? (
+                <View pointerEvents="box-only" style={{ position: 'absolute', top: 8, right: 0, zIndex: 5 }}>
+                  <DragHandle theme={theme} label={t('journey.timeline.reorderItem')} onDrop={(delta) => reorderRows(g, i, delta)} />
+                </View>
+              ) : null}
             </View>
           </View>
         ))}
@@ -1540,6 +1608,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               label={t(dayCollapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')}
             />
           ) : null}
+          {selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : null}
         </View>
 
         {rows.length ? (
@@ -1549,7 +1618,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
             onHeightChange={(height) => { groupBodyHeights.current.set(g.key, height); }}
           >
             <View style={{ gap: space.md }}>
-              {rows.map((row) => (
+              {rows.map((row, rowIndex) => (
                 <AppCard
                   key={row.id}
                   theme={theme}
@@ -1569,6 +1638,11 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
                     onToggleSelected={() => toggleSelectedItem(row.id)}
                     dayLayout
                   />
+                  {selectionMode && !readOnly ? (
+                    <View pointerEvents="box-only" style={{ position: 'absolute', top: 8, right: 6, zIndex: 5 }}>
+                      <DragHandle theme={theme} label={t('journey.timeline.reorderItem')} onDrop={(delta) => reorderRows(g, rowIndex, delta)} />
+                    </View>
+                  ) : null}
                 </AppCard>
               ))}
             </View>
@@ -1631,6 +1705,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
               onBodyHeight={(height) => { groupBodyHeights.current.set(g.key, height); }}
+              headerAction={selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : undefined}
             >
               {renderItems(g)}
             </DaySection>

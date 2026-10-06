@@ -130,12 +130,6 @@ export default function MapGlobe({
       // animating it out would only delay the new one arriving.
       value.setValue(0);
     });
-    (globalThis as any).__pinpress?.railApplied?.(
-      keys.size,
-      revealed.size,
-      pinAlphasRef.current.size,
-      !!options?.stagger,
-    );
   }, []);
   useEffect(() => {
     if (!pinVisibilityApi) return;
@@ -278,13 +272,6 @@ export default function MapGlobe({
       photoSize: PHOTO_SIZE,
       scale: photoPinScaleForZoom(zoom),
     });
-    (globalThis as any).__pinpress?.overlap?.(
-      pressed.id,
-      match ? match.pin.id : '',
-      match ? match.score : 0,
-      zoom,
-      candidates.length,
-    );
     return match ? match.pin : null;
   }, []);
   const trackSpanRef = useRef(trackSpan);
@@ -428,14 +415,6 @@ export default function MapGlobe({
       opacity: leg.active ? 0.95 : 0.45,
       dashed: leg.dashed,
     }));
-    // TEMPORARY probe: how many track vertices the native map was actually
-    // handed, against what came in. Reached through a global rather than an
-    // import because this file is loaded by a test with a dependency whitelist.
-    if (__DEV__) {
-      const drawn = values.reduce((widest, line) => Math.max(widest, line.coordinates.length), 0);
-      (globalThis as unknown as { __pointframe?: { vertices: (source: number, drawn: number) => void } })
-        .__pointframe?.vertices(validFocusCoords?.length ?? 0, drawn);
-    }
     return values;
   }, [drawAtDetail, validFocusCoords, validFocusSegments, validJourneyLegs, theme]);
 
@@ -517,20 +496,10 @@ export default function MapGlobe({
             // opened from a pin nobody could see. So the press is judged by the same
             // set the visuals use, read at press time.
             if (visiblePinsRef.current && !visiblePinsRef.current.has(key)) {
-              // Read through a global on purpose: `MapGlobe` is vm-loaded by two
-              // node tests against a fixed dependency whitelist, and a probe
-              // import would fail them. Delete with src/lib/pinPressProbe.ts.
               const meant = ownerOfBlockedPress(poi);
-              (globalThis as any).__pinpress?.blocked?.(
-                key,
-                `${poi.lng},${poi.lat}`,
-                visiblePinsRef.current.size,
-                meant ? `redirect -> ${meant.layer ?? 'shared'}:${meant.id}` : 'dropped: nothing visible under the frame',
-              );
               if (meant) onPoiPressRef.current?.(meant.id);
               return;
             }
-            (globalThis as any).__pinpress?.markerInMap?.(key, `${poi.lng},${poi.lat}`);
             onPoiPressRef.current?.(poi.id);
           },
           content: (

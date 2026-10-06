@@ -12,9 +12,6 @@ import { Theme } from '../theme/theme';
 import { useNav, useNavSubTab } from '../nav/NavContext';
 import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { visiblePinKeys as railVisibleKeys } from '../lib/pinVisibility';
-import { pressProbe } from '../lib/pinPressProbe';
-// TEMPORARY: what one card open/close costs in frames, and which thread owes it.
-import { beginFrameSample, endFrameSample, markFrameStage } from '../lib/pointFrameProbe';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
 import { useData } from '../data/DataContext';
@@ -592,45 +589,15 @@ export function DiscoverScreen({
     AsyncStorage.setItem(mapDisplaySettingsKey(userId), JSON.stringify(settings)).catch(() => {});
   }, [journeyDistanceVisible, journeyStopsVisible, journeyTrackVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, userId]);
 
-  // TEMPORARY probe snapshot: every `[pinpress]` line prints this, so one paste
-  // of two taps shows what each press gate believed at that moment.
-  React.useEffect(() => {
-    pressProbe.context({
-      pointInfo: nav.pointInfo ? `${nav.pointInfo.kind}:${nav.pointInfo.id}` : '',
-      sheetOpen: nav.sheetOpen,
-      immersive: mapImmersive,
-      layer: subTab,
-      rail: useRail,
-      pins: mapPois.length,
-      poiMarkers: !nav.pointInfo || nav.pointInfo.kind === 'route',
-      visibleSet: visiblePinKeys.size,
-      cameraRevision: mapCameraAction?.revision ?? 0,
-      markerPressAgo: mapMarkerPressAtRef.current ? Date.now() - mapMarkerPressAtRef.current : 0,
-      // The geometry of what is actually allowed to be seen, so a blocked press
-      // can be read as "the pin you tapped is not one of these" or "it is, and
-      // something invisible is stacked on top of it".
-      where: mapPois.filter((p) => visiblePinKeys.has(`${p.layer}:${p.id}`)).slice(0, 6)
-        .map((p) => `${p.layer}:${p.id}@${p.lng.toFixed(2)},${p.lat.toFixed(2)}`).join(' ') || '-',
-    });
-  });
-
   const openPointFromCurrentMap = (poi: Poi, from: 'pin' | 'list' = 'list') => {
-    pressProbe.open(`from-${from} ${poi.kind}:${poi.id}`);
-    beginFrameSample(`open-from-${from} ${poi.kind}:${poi.id}`, `pins=${mapPois.length} track=${poi.trackCoords?.length ?? 0}`);
     mapBeforePointRef.current = mapCameraRef.current;
     mapPointGestureRef.current = false;
     nav.openPoint(poi);
   };
 
   const restoreMapAfterPoint = () => {
-    // The list sheet also calls this when it is dragged away; only a card's close
-    // is the transition worth sampling.
-    if (nav.pointInfo) {
-      beginFrameSample('close', `pins=${mapPois.length} track=${nav.pointInfo.trackCoords?.length ?? 0}`);
-    }
     const camera = mapBeforePointRef.current;
     if (camera) {
-      pressProbe.cameraRestore(`${camera.center[0].toFixed(4)},${camera.center[1].toFixed(4)} z${camera.zoom.toFixed(2)}`);
       setMapCameraAction((current) => ({
         type: 'restore',
         coordinate: camera.center,
@@ -643,7 +610,6 @@ export function DiscoverScreen({
   };
 
   const dismissPointSheet = () => {
-    pressProbe.dismissStart('back-button');
     restoreMapAfterPoint();
     sheetRef.current?.dismiss();
   };
@@ -954,6 +920,33 @@ export function DiscoverScreen({
     );
   };
 
+  const moveSelectedTimelineItems = () => {
+    if (!selectedTimelineItemIds.size) return;
+    const targets = availableJourneyDays.filter((day) => day !== selectedJourneyDay);
+    if (!targets.length) return;
+    Alert.alert(
+      t('journey.timeline.moveItemsTitle', { count: selectedTimelineItemIds.size }),
+      t('journey.timeline.moveItemsMessage'),
+      [
+        ...targets.map((day) => ({
+          text: journeyDayDisplayLabel(day, resolved),
+          onPress: () => {
+            void (async () => {
+              try {
+                await Promise.all([...selectedTimelineItemIds].map((id) => focusedTimeline.update(id, { day })));
+                setSelectedTimelineItemIds(new Set());
+              } catch (error) {
+                if (isWriteBusy(error)) Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+                else Alert.alert(t('journey.timeline.groupFailedTitle'), t('journey.timeline.groupFailedMessage'));
+              }
+            })();
+          },
+        })),
+        { text: t('common.cancel'), style: 'cancel' as const },
+      ],
+    );
+  };
+
   const enterSelect = useCallback((id: string) => {
     setSelectMode(true);
     setSelectedIds(new Set([id]));
@@ -1139,17 +1132,6 @@ export function DiscoverScreen({
   }, [nav.pointInfo?.id]);
   const detailReady = !nav.pointInfo || readyDetailId === nav.pointInfo.id;
   const focusCoords = detailReady ? rawFocusCoords : null;
-  // TEMPORARY: the two commits that make up one transition, timed apart. `card`
-  // is where the sheet's children swap; `track` is the frame the camera starts
-  // moving in, and the one that used to cost 510ms of JS thread.
-  React.useEffect(() => {
-    markFrameStage(nav.pointInfo ? 'card' : 'list', `pins=${mapPois.length}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.pointInfo?.id]);
-  React.useEffect(() => {
-    markFrameStage('track', `count=${focusCoords?.length ?? 0}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusCoords?.length]);
   // The kilometre labels are up to 60 snapshot markers. Mounting them in the same
   // commit that starts the camera fit puts all of that inside the animation, which
   // is exactly where the frames are — and the fit changes the zoom, so the step
@@ -1840,7 +1822,6 @@ export function DiscoverScreen({
         || Math.abs(prev.center[1] - camera.center[1]) > 1e-6
         || Math.abs(prev.zoom - camera.zoom) > 0.01;
       if (!moved) return;
-      endFrameSample();
       // The move the card asked for is over: the kilometre labels can have these
       // frames to themselves instead of competing with the animation.
       setDistanceMarkersReady(true);
@@ -1860,9 +1841,6 @@ export function DiscoverScreen({
       // Android. Keep that background event from dismissing the sheet.
       mapMarkerPressAtRef.current = Date.now();
       const group = repIdToGroup.get(id);
-      pressProbe.marker(id, visiblePinKeys.has(`${subTab}:${id}`), group ? 'hit' : 'MISS', group
-        ? nav.pointInfo?.kind === 'route' ? 'route-compare' : group.length === 1 ? 'OPEN CARD' : 'place-list'
-        : 'dropped');
       if (!group) return;
       if (nav.pointInfo?.kind === 'route') {
         const nextRoute = group.find((item) => item.id !== nav.pointInfo?.id
@@ -1892,23 +1870,18 @@ export function DiscoverScreen({
     // sheet this way is only for list mode. In fullscreen the card is off screen
     // and there is no other control, so the tap becomes the way out.
     onBackgroundPress: () => {
-      pressProbe.background();
       // Every marker path stamps this guard first, because a marker press also
       // bubbles here on both platforms.
       if (Date.now() - mapMarkerPressAtRef.current < 500) {
-        pressProbe.backgroundSkipped('swallowed: a marker press bubbled here');
         return;
       }
       if (mapImmersive) {
-        pressProbe.backgroundSkipped('-> exit fullscreen');
         exitMapImmersive();
         return;
       }
       if (nav.pointInfo) {
-        pressProbe.backgroundSkipped('ignored: a card is open');
         return;
       }
-      pressProbe.backgroundSkipped('-> dismiss the list sheet');
       sheetRef.current?.dismiss();
     },
   };
@@ -2244,7 +2217,6 @@ export function DiscoverScreen({
         bottomOffset={0}
         onBodyHeightChange={setDetailBodyHeight}
         onDismiss={() => {
-          pressProbe.dismissDone(`focusReturnToList=${focusReturnToList}`);
           setPlaceSel(null);
           if (nav.pointInfo && focusReturnToList) {
             nav.closePoint();
@@ -2669,9 +2641,14 @@ export function DiscoverScreen({
               claim the slot twice. */}
           {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
             timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
-              <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
-                <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
-              </Press>
+              <View style={{ flexDirection: 'row', gap: space.xs }}>
+                <Press hitSlop={3} onPress={moveSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
+                  <JourneyFooterActionLabel theme={theme} icon="arrowDown" label={t('journey.timeline.moveItems')} />
+                </Press>
+                <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
+                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
+                </Press>
+              </View>
             ) : null
           ) : selectedJourneyTab === 'moments' ? (
             momentSelectionMode ? (

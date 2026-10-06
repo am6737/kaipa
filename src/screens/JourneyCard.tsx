@@ -1040,6 +1040,13 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       if (!usedOrdinals.has(day) && !removedOrdinals.has(day)) labels.add(journeyDayKey(day));
     }
     return [...labels].sort((a, b) => {
+      const knownA = timeline.knownGroups.indexOf(a);
+      const knownB = timeline.knownGroups.indexOf(b);
+      if (knownA >= 0 || knownB >= 0) {
+        if (knownA < 0) return 1;
+        if (knownB < 0) return -1;
+        return knownA - knownB;
+      }
       const ai = journeyDayOrdinal(a) ?? Number.POSITIVE_INFINITY;
       const bi = journeyDayOrdinal(b) ?? Number.POSITIVE_INFINITY;
       return ai === bi ? a.localeCompare(b) : ai - bi;
@@ -2021,7 +2028,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         ) : null}
 
         {/* 行程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onGroupCollapseChange={animateDayPageCollapse} /> : null}
+        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} selectionMode={timelineSelectionMode} selectedItemIds={selectedTimelineItemIds} onSelectedItemIdsChange={onSelectedTimelineItemIdsChange} onGroupCollapseChange={animateDayPageCollapse} /> : null}
         {activeJourneyDay ? (
           <View
             onLayout={(event) => {

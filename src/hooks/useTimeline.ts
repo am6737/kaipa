@@ -318,5 +318,41 @@ export function useTimeline(
     });
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
+  const reorderGroups = async (orderedNames: string[]) => {
+    if (!journeyId || !userId) return;
+    const previous = state.knownGroups;
+    const next = [...orderedNames];
+    setState(key, (s) => ({ ...s, knownGroups: next }));
+    try {
+      const results = await Promise.all(next.map((name, sortOrder) =>
+        supabase.from('timeline_groups').update({ sort_order: sortOrder, updated_at: new Date().toISOString() })
+          .eq('journey_id', journeyId).eq('name', name),
+      ));
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    } catch (error) {
+      setState(key, (s) => ({ ...s, knownGroups: previous }));
+      throw error;
+    }
+  };
+
+  const reorderRows = async (orderedRows: TLRow[]) => {
+    if (!journeyId || !userId) return;
+    const previous = state.rows;
+    const nextIds = new Set(orderedRows.map((row) => row.id));
+    const next = [...orderedRows, ...previous.filter((row) => !nextIds.has(row.id))];
+    setState(key, (s) => ({ ...s, rows: next }));
+    try {
+      const results = await Promise.all(next.map((row, sortOrder) =>
+        supabase.from('timeline_rows').update({ sort_order: sortOrder }).eq('id', row.id).eq('journey_id', journeyId),
+      ));
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    } catch (error) {
+      setState(key, (s) => ({ ...s, rows: previous }));
+      throw error;
+    }
+  };
+
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorderGroups, reorderRows };
 }
