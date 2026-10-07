@@ -101,6 +101,28 @@ function loadMap() {
   };
 }
 
+test('hidden tracks never fall back to a concatenated raw route', () => {
+  const { render } = loadMap();
+  const first = [[100, 30], [100.1, 30.1]];
+  const second = [[102, 32], [102.1, 32.1]];
+  const props = { theme: {}, pois: [], focusCoords: [...first, ...second], autoFrameRoute: false };
+  const segments = [
+    { id: 'first', coordinates: first, color: 'blue', active: true },
+    { id: 'second', coordinates: second, color: 'orange', active: true },
+  ];
+  const both = render({ ...props, focusSegments: segments });
+  assert.equal(both.props.polylines.length, 2);
+  const one = render({ ...props, focusSegments: segments.slice(1) });
+  assert.equal(one.props.polylines.length, 1);
+  assert.equal(one.props.markers.length, 2);
+  assert.equal(one.props.markers[0].coordinate.join(','), second[0].join(','));
+  const hidden = render({ ...props, focusSegments: [] });
+  assert.equal(hidden.props.polylines.length, 0);
+  assert.equal(hidden.props.markers.length, 0);
+  const restored = render({ ...props, focusSegments: segments });
+  assert.equal(restored.props.polylines.length, 2);
+});
+
 for (const dark of [false, true]) {
   test(`sheet framing pauses after a gesture and resumes on route reset (${dark ? 'dark' : 'light'})`, () => {
     const { render, calls } = loadMap();

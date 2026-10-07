@@ -1349,6 +1349,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
       accessibilityRole={selectionMode ? 'checkbox' : 'button'}
       accessibilityState={selectionMode ? { checked: selected } : undefined}
       style={({ pressed }) => ({
+        position: 'relative',
         flexDirection: 'row',
         alignItems: dayLayout ? 'flex-start' : 'center',
         gap: space.md,
@@ -1356,42 +1357,51 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
         // the whole tinted area is a tap target, not just the text lines.
         paddingVertical: dayLayout ? space.md : space.sm,
         paddingHorizontal: dayLayout ? space.md : 0,
+        paddingLeft: selectionMode ? (dayLayout ? space.md + 24 + space.md : 24 + space.md) : undefined,
         opacity: pressed ? 0.72 : 1,
       })}
     >
-      <View
-        pointerEvents={selectionMode ? 'auto' : 'none'}
-        style={{
-          width: 24,
-          height: 24,
-          marginTop: dayLayout ? 1 : 0,
-          borderRadius: 12,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: 2,
-          borderColor: selectionMode ? theme.fieldBorder : 'transparent',
-          overflow: 'hidden',
-          opacity: selectionMode ? 1 : 0,
-        }}
-      >
-          <Animated.View
+      {selectionMode ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            // Center the selector inside the left rail reserved by the row's
+            // selection padding, while keeping it vertically centered in the
+            // full card.
+            left: dayLayout ? space.md + (space.md + 24 - 26) / 2 : (24 + space.md - 26) / 2,
+            top: 0,
+            bottom: 0,
+            width: 26,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <View
             style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
+              width: 26,
+              height: 26,
+              borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: 12,
-              backgroundColor: theme.text,
-              opacity: selectionProgress,
-              transform: [{ scale: selectionProgress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
+              borderWidth: 2,
+              borderColor: '#FFFFFF',
+              backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.24)',
+              opacity: selected ? 1 : 0.9,
+              overflow: 'hidden',
             }}
           >
-            <Icon name="check" color={theme.featureSurface} size={13} strokeWidth={2.5} />
-          </Animated.View>
-      </View>
+            <Animated.View
+              style={{
+                opacity: selectionProgress,
+                transform: [{ scale: selectionProgress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
+              }}
+            >
+              <Icon name="check" color="#FFFFFF" size={14} strokeWidth={3} />
+            </Animated.View>
+          </View>
+        </View>
+      ) : null}
       {content}
       {!dayLayout && !selectionMode && onPress ? <Icon name="chevronR" color={theme.text3} size={15} /> : null}
     </Pressable>
@@ -1625,7 +1635,11 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
                   radius={radius.feature}
                   style={{
                     overflow: 'hidden',
-                    backgroundColor: theme.fieldSurface,
+                    backgroundColor: selectedIds.has(row.id) ? theme.accentSofter : theme.fieldSurface,
+                    // Keep the border's layout footprint constant so entering
+                    // or leaving selection never makes the card jump in size.
+                    borderWidth: 1,
+                    borderColor: selectedIds.has(row.id) ? theme.accent : 'transparent',
                   }}
                 >
                   <ItineraryItem

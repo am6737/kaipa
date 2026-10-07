@@ -1,0 +1,20 @@
+{
+  "stage": "respond",
+  "status": "completed",
+  "attempt": 1,
+  "artifact": {
+    "text": "已保留本轮能够确认的规划结果，未完成部分可以继续补齐。",
+    "draft": null,
+    "blocker": "两段路线间接驳尚无已核实的车辆、行驶时间和班次，且党岭、雅拉及桑措玉琼在 2026-09-25 后的现场放行、登记、封山及露营许可仍需确认；因此当前方案可作为 6 个徒步日的完整草案，但不能确认其可按 6 个连续自然日无缝完成。",
+    "quickReplies": null,
+    "travelContext": null,
+    "pendingQuestion": null,
+    "offerJourneyExtras": false
+  },
+  "error": null,
+  "created_at": "2026-09-25T04:22:20.677834+00:00",
+  "updated_at": "2026-09-25T04:22:20.681+00:00",
+  "route_facts": null,
+  "route_fact_stats": null,
+  "route_fact_error": null
+}

@@ -906,7 +906,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
   );
 }
 
-export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
+export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelectionChange, planEditorOpen: controlledPlanEditorOpen, onPlanEditorOpenChange, selectedPlanDays: controlledSelectedPlanDays, onSelectedPlanDaysChange, externalPlanEditorControls = false, onSelectedJourneyDayChange, journeyDaySelectionRequest, onSelectedTabChange, momentAddActionRef, momentDeleteActionRef, momentFilterMenuRef, onMomentFilterMenuOpenChange, checklistAddActionRef, checklistDeleteActionRef, checklistFilterActionRef, checklistFilterMenuRef, checklistFilterMenuOpen = false, checklistPickerProgress, onChecklistFilterStateChange, onChecklistFilterMenuOpenChange, checklistSelectionMode = false, selectedChecklistItemIds, onSelectedChecklistItemIdsChange, onChecklistCanEditChange, momentSelectionMode = false, selectedMomentIds, onSelectedMomentIdsChange, onJourneyDaysChange, timelineSelectionMode = false, selectedTimelineItemIds, onSelectedTimelineItemIdsChange, detailScrollY, onRequestDetailScroll, onIdentityHeightChange, pagerBodyHeight = 0, scrollContent = false, scrollContentBottomPadding = 18, readOnly = false, versionSnapshot }: { theme: Theme; poi: Poi; fullBleed?: boolean; embedded?: boolean; onTrackSelectionChange?: (index: number | null, coord?: [number, number]) => void; planEditorOpen?: boolean; onPlanEditorOpenChange?: (open: boolean) => void; selectedPlanDays?: Set<string>; onSelectedPlanDaysChange?: (days: Set<string>) => void; externalPlanEditorControls?: boolean; onSelectedJourneyDayChange?: (day?: string) => void; journeyDaySelectionRequest?: { day?: string; revision: number }; onSelectedTabChange?: (tab: TabId) => void; momentAddActionRef?: React.MutableRefObject<(() => void) | null>; momentDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; momentFilterMenuRef?: React.MutableRefObject<JourneyMomentFilterMenuController | null>; onMomentFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistAddActionRef?: React.MutableRefObject<(() => void) | null>; checklistDeleteActionRef?: React.MutableRefObject<(() => Promise<void>) | null>; checklistFilterActionRef?: React.MutableRefObject<(() => void) | null>; checklistFilterMenuRef?: React.MutableRefObject<JourneyChecklistFilterMenuController | null>; checklistFilterMenuOpen?: boolean; checklistPickerProgress?: Animated.Value; onChecklistFilterStateChange?: (label: string, active: boolean) => void; onChecklistFilterMenuOpenChange?: (open: boolean, anchor?: { x: number; y: number; width: number; height: number }) => void; checklistSelectionMode?: boolean; selectedChecklistItemIds?: Set<string>; onSelectedChecklistItemIdsChange?: (ids: Set<string>) => void; onChecklistCanEditChange?: (canEdit: boolean) => void; momentSelectionMode?: boolean; selectedMomentIds?: Set<string>; onSelectedMomentIdsChange?: (ids: Set<string>) => void; onJourneyDaysChange?: (days: string[]) => void; timelineSelectionMode?: boolean; selectedTimelineItemIds?: Set<string>; onSelectedTimelineItemIdsChange?: (ids: Set<string>) => void; detailScrollY?: Animated.Value; onRequestDetailScroll?: (y: number) => void; onIdentityHeightChange?: (height: number) => void; /** Visible height of the host sheet body; the tab pager fills down to it so blank space stays swipeable. */ pagerBodyHeight?: number; scrollContent?: boolean; scrollContentBottomPadding?: number; readOnly?: boolean; versionSnapshot?: JourneyVersionSnapshot }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const { userId, profile, sets, items: gearItems, cats: gearCategories, tracks } = useData();
@@ -1274,6 +1274,9 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const journeyTimingValue = formatJourneyDetailDate(poi, resolved)
     || poi.days
     || (poi.totalDays ? t('journeyEdit.duration.days', { count: poi.totalDays }) : t('journeyEdit.time.decideLater'));
+  const journeyDurationValue = poi.totalDays
+    ? t('journeyEdit.duration.days', { count: poi.totalDays })
+    : poi.days || t('journeyEdit.time.decideLater');
 
   // Distance + ascent stay as the headline numbers; journeys use highest elevation
   // as the third headline because it is more meaningful here than elapsed time.
@@ -2194,30 +2197,33 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       {/* identity header — lives in the sheet so the map remains focused on the route */}
       {embedded ? (
         isJourney ? (
-        <View style={{ paddingTop: space.xxs, paddingBottom: space.xs }}>
+        <View
+          onLayout={(event) => onIdentityHeightChange?.(event.nativeEvent.layout.height)}
+          style={{ paddingTop: space.xxs, paddingBottom: space.xs }}
+        >
           <Text numberOfLines={2} style={[type.pageTitle, { color: theme.text, fontSize: 28, lineHeight: 34 }]}>
             {poi.name}
           </Text>
-          <View style={{ marginTop: space.xxs, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
+          <View style={{ marginTop: space.xxs, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             <Press
               onPress={readOnly ? undefined : () => setTimePickerOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${journeyTimingLabel} ${journeyTimingValue}`}
-              style={{ minWidth: 0, maxWidth: '100%', minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+              style={{ minWidth: 0, minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
             >
               <Icon name={hasSpecificJourneyDate ? 'calendar' : 'clock'} color={theme.text3} size={15} />
-              <Text style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyTimingValue}</Text>
+              <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyDurationValue}</Text>
             </Press>
             <Press
               onPress={readOnly ? undefined : () => setDistanceEditorOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${t('journey.stat.distance')} ${poi.dist || '—'}`}
-              style={{ minHeight: 40, maxWidth: 108, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
+              style={{ minWidth: 0, minHeight: 40, maxWidth: 108, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
             >
               <Icon name="distance" color={theme.text3} size={15} />
-              <Text numberOfLines={1} style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{poi.dist || '—'}</Text>
+              <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{poi.dist || '—'}</Text>
             </Press>
-            <View style={{ marginLeft: 'auto' }}>
+            <View style={{ marginLeft: 'auto', flexShrink: 0 }}>
               <JourneyParticipantButton
               theme={theme}
               people={participantPeople}

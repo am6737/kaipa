@@ -92,8 +92,9 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
 
   // A journey created in this run has no verified snapshot yet; the write
   // transaction requires one for every dependency section.
+  let currentSections: Record<string, unknown>;
   try {
-    await readJourneySections(client, context, journeyId, [...WRITE_SECTIONS]);
+    currentSections = await readJourneySections(client, context, journeyId, [...WRITE_SECTIONS]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     for (const operation of pending) artifact.skipped.push({ tool: operation.tool, reason: `context_unavailable: ${message}` });
@@ -112,6 +113,9 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
       continue;
     }
     const args = { journeyId, ...operation.args };
+    if (operation.tool === 'update_journey_schedule') {
+      normalizeScheduleAssignments(args, currentSections);
+    }
     let outcome = await execute(operation.tool, args, runContext);
     // A model may summarize a guide instead of quoting its exact text. That
     // cannot prove campsite provenance, but it must not block a valid track
@@ -144,6 +148,25 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
     }
   }
   return artifact;
+}
+
+// Models sometimes return calendar dates in `from`, although the schedule RPC
+// addresses existing timeline row/group names. Resolve those dates against the
+// current groups before invoking the RPC; the write remains fully validated.
+function normalizeScheduleAssignments(args: Record<string, unknown>, sections: Record<string, unknown>) {
+  const schedule = args as { plannedDate?: string | null; dayAssignments?: Array<{ from: string; toDay: number }> };
+  if (!Array.isArray(schedule.dayAssignments) || !schedule.dayAssignments.length) return;
+  const itineraryGroups = Array.isArray(sections.itineraryGroups) ? sections.itineraryGroups as Array<{ name?: string }> : [];
+  const existing = new Set(itineraryGroups.map(group => group.name).filter((name): name is string => Boolean(name)));
+  if (!existing.size) return;
+  const start = schedule.plannedDate && /^\d{4}-\d{2}-\d{2}$/.test(schedule.plannedDate) ? Date.parse(`${schedule.plannedDate}T00:00:00Z`) : NaN;
+  schedule.dayAssignments = schedule.dayAssignments.map(assignment => {
+    if (existing.has(assignment.from) || !Number.isFinite(start)) return assignment;
+    const date = Date.parse(`${assignment.from}T00:00:00Z`);
+    const offset = Number.isFinite(date) ? Math.round((date - start) / 86400000) + 1 : assignment.toDay;
+    const candidate = `Day ${offset}`;
+    return existing.has(candidate) ? { ...assignment, from: candidate } : assignment;
+  });
 }
 
 async function execute(tool: SaveToolName, args: Record<string, unknown>, runContext: RunContext): Promise<{ output?: unknown; error?: string }> {

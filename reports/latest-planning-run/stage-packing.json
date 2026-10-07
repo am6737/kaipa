@@ -1,0 +1,40 @@
+{
+  "stage": "packing",
+  "status": "completed",
+  "attempt": 1,
+  "artifact": {
+    "issues": [
+      {
+        "code": "item",
+        "field": "name/attributes",
+        "itemIds": [
+          "item-22"
+        ],
+        "message": "名称过于笼统，请改成可直接购买或准备的具体物品"
+      },
+      {
+        "code": "item",
+        "field": "name/attributes",
+        "itemIds": [
+          "item-25"
+        ],
+        "message": "包装路餐必须注明单份克重或容量，例如 50g/根或 100g/袋"
+      },
+      {
+        "code": "coverage:blister",
+        "field": "additions",
+        "itemIds": [],
+        "message": "水泡或防磨处理用品"
+      }
+    ],
+    "status": "needs_repair",
+    "revision": 1,
+    "itemCount": 58
+  },
+  "error": null,
+  "created_at": "2026-09-25T04:20:42.977785+00:00",
+  "updated_at": "2026-09-25T04:22:20.668+00:00",
+  "route_facts": null,
+  "route_fact_stats": null,
+  "route_fact_error": null
+}

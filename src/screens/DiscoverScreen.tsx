@@ -44,6 +44,7 @@ import { buildJourneyLegs, buildJourneyStops, journeyDayOrder, measureJourneyDay
 import { journeyTracks } from '../lib/journeyTracks';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
+import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
 import { isWriteBusy } from '../lib/writeErrors';
 import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
@@ -168,6 +169,11 @@ function CompanionLocationPin({
         <G filter={`url(#${clipId}-shadow)`}>
           <Path d={DROP_SIL_PATH} fill="#FFFFFF" stroke="#FFFFFF" strokeWidth={1.5} strokeLinejoin="round" />
           <G clipPath={`url(#${clipId}-disc)`}>
+            {/* Keep a synchronous local surface underneath the network image.
+                Native map markers snapshot their children while an avatar may
+                still be loading; the position pin must remain visible even
+                when that remote image fails or never resolves. */}
+            <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} fill={theme.fieldSurface} />
             {avatarUrl ? (
               <SvgImage
                 href={{ uri: avatarUrl }}
@@ -177,19 +183,33 @@ function CompanionLocationPin({
                 height={DROP_PHOTO_R * 2}
                 preserveAspectRatio="xMidYMid slice"
               />
-            ) : (
-              <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} fill={theme.fieldSurface} />
-            )}
+            ) : null}
           </G>
           <Circle cx={DROP_DISC_CX} cy={DROP_DISC_CY} r={DROP_PHOTO_R} fill="none" stroke="#FFFFFF" strokeWidth={DROP_RING_W} />
         </G>
         <Circle cx={DROP_DISC_CX} cy={DROP_DOT_CY} r={2.4} fill="#48484A" stroke="#FFFFFF" strokeWidth={1} />
       </Svg>
-      {!avatarUrl ? (
+      {avatarUrl ? (
+        <Image
+          source={{ uri: avatarUrl }}
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          transition={0}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: DROP_DISC_CX - DROP_PHOTO_R,
+            top: DROP_DISC_CY - DROP_PHOTO_R,
+            width: DROP_PHOTO_R * 2,
+            height: DROP_PHOTO_R * 2,
+            borderRadius: DROP_PHOTO_R,
+          }}
+        />
+      ) : (
         <View pointerEvents="none" style={{ position: 'absolute', top: 16 }}>
           <Icon name="user" color={theme.text3} size={16} strokeWidth={1.8} />
         </View>
-      ) : null}
+      )}
       {stale ? (
         <View style={{ marginTop: 2, paddingHorizontal: 5, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
           <Text style={{ color: '#FFFFFF', fontSize: 9.5, lineHeight: 12, fontWeight: '700' }}>{ageLabel}</Text>
@@ -288,12 +308,20 @@ function CompanionShareSwitchPill({
   onToggle: () => void;
 }) {
   const progress = React.useRef(new Animated.Value(on ? 1 : 0)).current;
+  const thumbTranslate = React.useMemo(
+    () => progress.interpolate({ inputRange: [0, 1], outputRange: [0, MINI_TRACK_W - MINI_THUMB - 4] }),
+    [progress],
+  );
   useEffect(() => {
     Animated.timing(progress, {
       toValue: on ? 1 : 0,
       duration: 180,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
+      // The map/detail screen can perform a heavy render after the toggle.
+      // This tiny native animation must not hold an InteractionManager handle
+      // or wait behind that work.
+      isInteraction: false,
     }).start();
   }, [on, progress]);
   return (
@@ -329,7 +357,7 @@ function CompanionShareSwitchPill({
           borderRadius: MINI_THUMB / 2,
           backgroundColor: '#FFFFFF',
           marginLeft: 2,
-          transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, MINI_TRACK_W - MINI_THUMB - 4] }) }],
+          transform: [{ translateX: thumbTranslate }],
           boxShadow: '0px 1px 3px rgba(0,0,0,0.25)',
         }} />
       </View>
@@ -512,8 +540,58 @@ export function DiscoverScreen({
   const wasMapActiveRef = React.useRef(active);
   const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
+  const [routeNavigation, setRouteNavigation] = useState<PlannedLeg | null>(null);
+  const routeNavigationRequestRef = React.useRef<AbortController | null>(null);
+  useEffect(() => {
+    routeNavigationRequestRef.current?.abort();
+    routeNavigationRequestRef.current = null;
+    setRouteNavigation(null);
+    return () => routeNavigationRequestRef.current?.abort();
+  }, [nav.pointInfo?.id]);
+
+  const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
+    routeNavigationRequestRef.current?.abort();
+    const controller = new AbortController();
+    routeNavigationRequestRef.current = controller;
+    setRouteNavigation(null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+      if (controller.signal.aborted) return;
+      if (!permission.granted) throw new Error('permission');
+      const position = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('location')), 15000); }),
+      ]);
+      clearTimeout(timer);
+      if (controller.signal.aborted) return;
+      const from: [number, number] = [position.coords.longitude, position.coords.latitude];
+      setCurrentLocation({ lng: from[0], lat: from[1] });
+      timer = setTimeout(() => controller.abort(), 30000);
+      let result: PlannedLeg | undefined;
+      await planJourneyDirections([{ id: route.id, mode, from, to: [route.lng, route.lat] }], controller.signal, (leg) => { result = leg; });
+      if (controller.signal.aborted) throw new Error('plan');
+      if (!result?.coordinates || result.coordinates.length < 2) throw new Error('plan');
+      setRouteNavigation(result);
+      setMapAtRouteFrame(true);
+      setMapCameraAction({ type: 'fitCoordinates', revision: Date.now(), coordinates: result.coordinates });
+      sheetRef.current?.snapTo(1);
+    } catch (error) {
+      if (routeNavigationRequestRef.current !== controller) return;
+      const message = error instanceof Error && error.message === 'permission'
+        ? t('discover.locationPermissionDenied') : t('discover.routeNavigateUnavailable');
+      Alert.alert(t('discover.routeNavigate'), message);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const [locating, setLocating] = useState(false);
   const [mapAtCurrentLocation, setMapAtCurrentLocation] = useState(false);
+  // Permission/service checks are asynchronous. Ignore repeated taps while a
+  // check is in flight so an older result cannot turn sharing back on after a
+  // later tap intended to turn it off.
+  const locationShareToggleInFlightRef = React.useRef(false);
   const headingSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   const positionSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   // When a clustered map pin is tapped, the same journey-list sheet is scoped to
@@ -659,6 +737,11 @@ export function DiscoverScreen({
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [detailBodyHeight, setDetailBodyHeight] = useState(0);
+  const [detailHeaderHeight, setDetailHeaderHeight] = useState(0);
+  const [journeyIdentityHeight, setJourneyIdentityHeight] = useState(0);
+  useEffect(() => {
+    setJourneyIdentityHeight(0);
+  }, [nav.pointInfo?.id]);
   const [routeSheetIndex, setRouteSheetIndex] = useState(1);
   const [mapImmersive, setMapImmersive] = useState(false);
   const [selectedPlanDays, setSelectedPlanDays] = useState<Set<string>>(() => new Set());
@@ -922,27 +1005,32 @@ export function DiscoverScreen({
 
   const moveSelectedTimelineItems = () => {
     if (!selectedTimelineItemIds.size) return;
-    const targets = availableJourneyDays.filter((day) => day !== selectedJourneyDay);
-    if (!targets.length) return;
+    const selectedRows = focusedTimeline.rows.filter((row) => selectedTimelineItemIds.has(row.id));
+    const destinations = availableJourneyDays.filter((day) => selectedRows.some((row) => row.day !== day));
+    if (!destinations.length) return;
     Alert.alert(
-      t('journey.timeline.moveItemsTitle', { count: selectedTimelineItemIds.size }),
-      t('journey.timeline.moveItemsMessage'),
+      t('journey.timeline.moveToTitle'),
+      undefined,
       [
-        ...targets.map((day) => ({
-          text: journeyDayDisplayLabel(day, resolved),
+        ...destinations.map((group) => ({
+          text: group,
           onPress: () => {
             void (async () => {
               try {
-                await Promise.all([...selectedTimelineItemIds].map((id) => focusedTimeline.update(id, { day })));
+                await Promise.all(selectedRows.filter((row) => row.day !== group).map((row) => focusedTimeline.update(row.id, { day: group })));
                 setSelectedTimelineItemIds(new Set());
+                nav.showToast(t('journey.timeline.moveSuccess', { group }));
               } catch (error) {
-                if (isWriteBusy(error)) Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
-                else Alert.alert(t('journey.timeline.groupFailedTitle'), t('journey.timeline.groupFailedMessage'));
+                if (isWriteBusy(error)) {
+                  Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
+                } else {
+                  Alert.alert(t('journey.timeline.moveFailedTitle'), t('journey.timeline.moveFailedMessage'));
+                }
               }
             })();
           },
         })),
-        { text: t('common.cancel'), style: 'cancel' as const },
+        { text: t('common.cancel'), style: 'cancel' },
       ],
     );
   };
@@ -1080,7 +1168,12 @@ export function DiscoverScreen({
   const globeSize = Math.min(width * 0.86, 360);
   const tabSpace = insets.bottom + 76;
   const collapsed = Math.round(height * 0.4);
-  const journeyMinimum = Math.round(height * 0.15);
+  // Measure through the duration/distance/participants row, before the tabs.
+  // Include the sheet grabber so wrapped titles and font scaling remain flush
+  // with the bottom edge. The fallback is only used before the first layout.
+  const journeyMinimum = nav.pointInfo?.kind === 'journey' && journeyIdentityHeight > 0 && detailHeaderHeight > 0
+    ? detailHeaderHeight + journeyIdentityHeight
+    : Math.round(height * 0.15);
   const full = Math.round(height * 0.88);
   const focusPanel = Math.round(height * 0.56);
   // Fullscreen leaves nothing over the map, so the fit may use the whole screen.
@@ -1314,7 +1407,7 @@ export function DiscoverScreen({
         const planned = legGeometry[leg.id];
         return {
           id: leg.id,
-          coordinates: planned ?? [leg.from, leg.to],
+          coordinates: planned ?? leg.fallbackGeometry ?? [leg.from, leg.to],
           color: itineraryColor(leg.day),
           active: !selectedJourneyDay || selectedJourneyDay === leg.day,
           // No plan yet (or none available): a plain link, not a road.
@@ -1617,7 +1710,13 @@ export function DiscoverScreen({
       return [{
         // Android snapshots marker content by id, so everything the pixel
         // depends on — position and the staleness step — has to live in it.
-        id: `companion-${peer.userId}-${Math.round(peer.longitude * 10000)}-${Math.round(peer.latitude * 10000)}-${stale ? `old-${Math.floor(age / 60_000)}` : 'live'}`,
+        // Include the local arrival stamp in the id. After a rapid share
+        // off/on cycle native maps can retain a removed annotation's recycled
+        // view when it is re-added with the exact same id, leaving the data in
+        // the array but no avatar on screen. A new presence arrival must be a
+        // new native annotation identity, even when the coordinates are
+        // unchanged.
+        id: `companion-${peer.userId}-${Math.round(peer.longitude * 10000)}-${Math.round(peer.latitude * 10000)}-${peer.seenAt}-${stale ? `old-${Math.floor(age / 60_000)}` : 'live'}`,
         coordinate: [peer.longitude, peer.latitude],
         // The ground dot — not the pin tip — is the position: anchor there,
         // so the pin hovers over the place like Apple's does.
@@ -1641,16 +1740,19 @@ export function DiscoverScreen({
   }, [data.profile.avatarUrl, nav.pointInfo, presenceClock, peers, selfPresence, sharingThisJourney, t, theme, userId]);
   const toggleLocationShare = useCallback(async () => {
     if (!openJourneyId) return;
+    if (locationShareToggleInFlightRef.current) return;
     if (sharingJourneyId === openJourneyId) {
       // No toast on stop either — the switch sliding back and the avatars
       // vanishing is the whole answer (user: "点击位置后不需要触发通知条").
       setSharingJourneyId(null);
       return;
     }
+    locationShareToggleInFlightRef.current = true;
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
         nav.showToast(t('discover.locationPermissionDenied'));
+        locationShareToggleInFlightRef.current = false;
         return;
       }
       // Android grants permission without the device-wide provider being on, and
@@ -1658,6 +1760,7 @@ export function DiscoverScreen({
       // avatar ever appears. Same escape the locate button uses, same reason.
       if (!await withTimeout(Location.hasServicesEnabledAsync(), 3_000, 'Checking location services timed out')) {
         nav.showToast(t('discover.locationFailed'));
+        locationShareToggleInFlightRef.current = false;
         return;
       }
     } catch {
@@ -1665,9 +1768,16 @@ export function DiscoverScreen({
       // are toggled while the dialog is visible. Keep the switch off instead
       // of allowing an unhandled promise to become a React Native fatal error.
       nav.showToast(t('discover.locationFailed'));
+      locationShareToggleInFlightRef.current = false;
       return;
     }
-    setSharingJourneyId(openJourneyId);
+    // The detail card may have changed while the permission dialog was open.
+    // Do not publish for a journey that is no longer displayed.
+    const stillOpenJourneyId = nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview
+      ? nav.pointInfo.id
+      : null;
+    if (stillOpenJourneyId === openJourneyId) setSharingJourneyId(openJourneyId);
+    locationShareToggleInFlightRef.current = false;
   }, [nav, openJourneyId, sharingJourneyId, t]);
 
   // sheet stats
@@ -1947,7 +2057,7 @@ export function DiscoverScreen({
           activePoiId={nav.pointInfo?.kind === 'route' ? null : activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
-          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && distanceMarkersReady}
+          showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && distanceMarkersReady && !routeNavigation}
           cameraAction={mapCameraAction}
           focusBottomPadding={mapImmersive ? immersiveFitBottom : nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
           autoFrameRoute={!nav.pointInfo || mapAtRouteFrame}
@@ -1959,13 +2069,13 @@ export function DiscoverScreen({
           // InteractionManager drains reads as the map freezing for seconds.
           // The gate stays on the work that actually costs frames — the
           // per-route measuring and the distance labels.
-          focusCoords={nav.pointInfo?.kind === 'route' ? routeMapFocusCoords : rawFocusCoords}
+          focusCoords={nav.pointInfo?.kind === 'route' ? routeNavigation?.coordinates ?? routeMapFocusCoords : rawFocusCoords}
           frameCoords={journeyOverviewFrame}
           // The journey overview map must show every route leg as soon as the
           // journey detail opens, not only after entering the expanded map view.
           focusSegments={nav.pointInfo?.kind === 'journey'
             ? focusSegments
-            : nav.pointInfo?.kind === 'route' ? routeComparisonSegments : NO_FOCUS_SEGMENTS}
+            : nav.pointInfo?.kind === 'route' ? [...routeComparisonSegments, ...(routeNavigation?.coordinates ? [{ id: 'route-navigation', label: t('discover.routeNavigate'), coordinates: routeNavigation.coordinates, color: '#26B7E8', active: true }] : [])] : NO_FOCUS_SEGMENTS}
           journeyLegs={journeyLegs}
           journeyStops={journeyStops}
           journeyDayLabels={journeyDayLabels}
@@ -2216,6 +2326,7 @@ export function DiscoverScreen({
         animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : undefined}
         bottomOffset={0}
         onBodyHeightChange={setDetailBodyHeight}
+        onHeaderHeightChange={setDetailHeaderHeight}
         onDismiss={() => {
           setPlaceSel(null);
           if (nav.pointInfo && focusReturnToList) {
@@ -2231,7 +2342,9 @@ export function DiscoverScreen({
         {nav.newJourneyOpen ? null : nav.pointInfo ? (
           <View style={{ paddingHorizontal: space.md, paddingBottom: detailBottomInset }}>
             {nav.pointInfo.kind === 'route' ? (
-              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)} />
+              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
+                onNavigate={navigateToRoute}
+              />
             ) : !detailReady ? (
               <View style={{ minHeight: focusPanel, alignItems: 'center', justifyContent: 'center' }}>
                 <ActivityIndicator color={theme.accent} />
@@ -2277,6 +2390,7 @@ export function DiscoverScreen({
                 selectedTimelineItemIds={selectedTimelineItemIds}
                 onSelectedTimelineItemIdsChange={setSelectedTimelineItemIds}
                 detailScrollY={journeyDetailScrollY}
+                onIdentityHeightChange={setJourneyIdentityHeight}
                 pagerBodyHeight={detailPagerBodyHeight}
                 onRequestDetailScroll={(y) => sheetRef.current?.scrollTo(y)}
               />
@@ -2640,13 +2754,38 @@ export function DiscoverScreen({
               mirrors the left group so a stale mode from another tab can never
               claim the slot twice. */}
           {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
-            timelineSelectionMode && selectedTimelineItemIds.size > 0 ? (
-              <View style={{ flexDirection: 'row', gap: space.xs }}>
-                <Press hitSlop={3} onPress={moveSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
-                  <JourneyFooterActionLabel theme={theme} icon="arrowDown" label={t('journey.timeline.moveItems')} />
+            timelineSelectionMode ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Press
+                  hitSlop={3}
+                  disabled={selectedTimelineItemIds.size === 0}
+                  onPress={moveSelectedTimelineItems}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: selectedTimelineItemIds.size === 0 }}
+                  style={journeyFooterPill(theme, selectedTimelineItemIds.size === 0)}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="arrowDown"
+                    label={t('journey.timeline.moveTo')}
+                    disabled={selectedTimelineItemIds.size === 0}
+                  />
                 </Press>
-                <Press hitSlop={3} onPress={deleteSelectedTimelineItems} accessibilityRole="button" style={journeyFooterPill(theme)}>
-                  <JourneyFooterActionLabel theme={theme} icon="trash" label={t('common.delete')} danger />
+                <Press
+                  hitSlop={3}
+                  disabled={selectedTimelineItemIds.size === 0}
+                  onPress={deleteSelectedTimelineItems}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: selectedTimelineItemIds.size === 0 }}
+                  style={journeyFooterPill(theme, selectedTimelineItemIds.size === 0)}
+                >
+                  <JourneyFooterActionLabel
+                    theme={theme}
+                    icon="trash"
+                    label={t('common.delete')}
+                    danger={selectedTimelineItemIds.size > 0}
+                    disabled={selectedTimelineItemIds.size === 0}
+                  />
                 </Press>
               </View>
             ) : null

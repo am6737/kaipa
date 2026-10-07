@@ -2,7 +2,7 @@
 // 两个维度都常驻，让控件本身可被发现；计数为 0 的选项弱化但仍可点（点进去是空态）。
 // 再次点已选中的选项即取消该维度，所以没有额外的「清除」按钮。
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
 import type { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { radius, space, type } from '../../design-system';
@@ -64,7 +64,11 @@ export function MomentFilterBar({
 
   return (
     <View style={{ marginBottom: space.sm, gap: space.xs }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs - 2 }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: space.xs - 2 }}
+      >
         {typeOptions.map((option) => {
           const selected = option.id === selectedType;
           const empty = !selected && option.count === 0;
@@ -101,7 +105,7 @@ export function MomentFilterBar({
             </Press>
           );
         })}
-      </View>
+      </ScrollView>
       {showPeople ? (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {pile.map((author, index) => {

@@ -192,6 +192,7 @@ services:
       #   host.exp.Exponent       → Expo Go 里调试时的 audience
       GOTRUE_EXTERNAL_APPLE_ENABLED: "true"
       GOTRUE_EXTERNAL_APPLE_CLIENT_ID: "com.hitosea.letsgo,com.hitosea.letsgo.dev,host.exp.Exponent"
+      GOTRUE_EXTERNAL_IOS_BUNDLE_ID: "com.hitosea.letsgo"
       GOTRUE_EXTERNAL_APPLE_SECRET: "unused-for-id-token-flow"
       GOTRUE_EXTERNAL_APPLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
 

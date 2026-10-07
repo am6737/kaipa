@@ -1,0 +1,63 @@
+{
+  "stage": "transport",
+  "status": "completed",
+  "attempt": 1,
+  "artifact": {
+    "basis": "当前任务不安排往返大交通；路线间接驳需要根据实际起终点和当地车辆确认。",
+    "segments": [
+      {
+        "to": "雅拉温泉线",
+        "from": "党岭三湖连穿",
+        "mode": "unknown",
+        "note": "已核实线路资料（人工维护，接驳方式与价格以此为准；时间仍需按当地班次核对）：进出交通·成都—丹巴—党岭村进出交通·{\"to\":\"党岭村\",\"from\":\"成都\",\"mode\":\"拼车\",\"unit\":\"每人\",\"notes\":\"2026-09-22 依多篇攻略交叉核实（8264、马蜂窝、Trip.com）。价格为丹巴↔党岭村拼车往返区间，随季节与人数波动；班次时刻常年调整，出行前向客运站或当地司机/客栈确认。\",\"duration\":\"成都→丹巴约 9—10 小时；丹巴→党岭村约 2—4 小时（各来源口径不一，以实际路况为准）。\",\"schedule\":\"成都茶店子客运站 06:30 有班车至丹巴（约 350 km）；丹巴县城→党岭村约 60—68 km 乡村公路，需拼车或包车，末段路窄、建议越野车。\",\"price_max\":300,\"price_min\":200,\"effective_season\":\"全年；冬季与防火期可能封路或封山\"}；费用参考·党岭摩托、马帮与包车费用·{\"item\":\"党岭村↔葫芦海摩托车；卡尔杂↔甲依拉措摩托车；卡尔杂↔党岭村包车\",\"unit\":\"每人\"",
+        "toRoute": "雅拉温泉线",
+        "verified": false,
+        "fromRoute": "党岭三湖连穿",
+        "sourceUrl": "https://www.8264.com/youji/5763646.html",
+        "toLocation": {
+          "name": "雅拉温泉线 起点",
+          "latitude": 30.287811,
+          "longitude": 101.637548
+        },
+        "fromLocation": {
+          "name": "党岭三湖连穿 终点",
+          "latitude": 31.101975,
+          "longitude": 101.348157
+        },
+        "durationMinutes": null,
+        "overnightRequired": false
+      },
+      {
+        "to": "桑措玉琼（嘉措琼吉）",
+        "from": "雅拉温泉线",
+        "mode": "unknown",
+        "note": "已核实线路资料（人工维护，接驳方式与价格以此为准；时间仍需按当地班次核对）：进出交通·康定—雅拉温泉线两端进出·{\"to\":\"多日阿嘎莫一村 / 中谷村\",\"from\":\"康定\",\"mode\":\"班车\",\"notes\":\"2026-09-22 依多篇 2025—2026 攻略交叉核实路线与接驳方式。车费（有攻略记小巴约 66 元/人、出山口包车 5 人约 200 元）属单一来源且会变动，未写入价格字段，出行前请向客运站与当地司机确认；两端起终点相隔约 60 km，务必提前安排车辆。\",\"duration\":\"康定→多日阿嘎莫一村约 2 小时；山里每日徒步 6—9.5 小时，全程 4 天左右。\",\"schedule\":\"反穿进：康定汽车站乘往八美的营运小巴，在多日阿嘎莫一村下车（约 2 小时），再步行或坐摩托/马帮到二村；正穿进：直接到中谷村。出山：塔公草原牧道出山后可包车回康定。\",\"effective_season\":\"防火封山期（约 12 月至次年 5 月）不可进入；雨季（7—8 月）路况与水位风险高\"}",
+        "toRoute": "桑措玉琼（嘉措琼吉）",
+        "verified": false,
+        "fromRoute": "雅拉温泉线",
+        "sourceUrl": "https://m.8264.com/thread-5747169-1.html",
+        "toLocation": {
+          "name": "桑措玉琼（嘉措琼吉） 起点",
+          "latitude": 30.2460338,
+          "longitude": 102.0504881
+        },
+        "fromLocation": {
+          "name": "雅拉温泉线 终点",
+          "latitude": 30.282367,
+          "longitude": 101.837787
+        },
+        "durationMinutes": null,
+        "overnightRequired": false
+      }
+    ],
+    "unresolved": [],
+    "recommendedDays": null,
+    "totalTransportMinutes": null
+  },
+  "error": null,
+  "created_at": "2026-09-25T04:17:47.30826+00:00",
+  "updated_at": "2026-09-25T04:17:47.323+00:00",
+  "route_facts": null,
+  "route_fact_stats": null,
+  "route_fact_error": null
+}

@@ -1,0 +1,61 @@
+{
+  "stage": "interpret",
+  "status": "completed",
+  "attempt": 1,
+  "artifact": {
+    "days": null,
+    "mode": "execute",
+    "domain": "hiking",
+    "objective": "规划多日徒步行程，依据路线建议天数，安排每日户外活动、途中必要营地或住宿，并生成装备清单。",
+    "operations": [
+      "add_itinerary_items",
+      "update_journey_schedule",
+      "set_journey_map_location",
+      "set_itinerary_group_endpoints",
+      "add_packing_items"
+    ],
+    "constraints": [
+      {
+        "value": "日期为2026-09-25；天数未确定，需根据路线建议",
+        "evidence": "日期：Sep 25，天数待定，请根据路线给出建议天数，不要当作用户已确定的天数。"
+      },
+      {
+        "value": "不安排往返大交通及徒步前后住宿，不先询问相关条件",
+        "evidence": "默认不安排往返大交通和徒步前后的住宿，也不要先询问这些条件"
+      },
+      {
+        "value": "安排多日徒步途中必要的营地或住宿",
+        "evidence": "多日徒步途中必要的营地或住宿仍需安排。"
+      },
+      {
+        "value": "结合三个目的地安排每日户外行程及完整装备清单",
+        "evidence": "请结合目的地安排每日户外行程和装备清单。"
+      }
+    ],
+    "derivedDays": null,
+    "destination": "党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）",
+    "domainQuote": null,
+    "packingMode": "full",
+    "plannedDate": "2026-09-25",
+    "continuation": false,
+    "dateUndecided": false,
+    "fullHikingPlan": true,
+    "activeHoursPerDay": null,
+    "authorizationQuote": "请为旅程“党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）”做规划。",
+    "requiredOperations": [
+      "add_itinerary_items",
+      "update_journey_schedule",
+      "set_journey_map_location",
+      "set_itinerary_group_endpoints",
+      "add_packing_items"
+    ],
+    "trackAttachmentName": "党岭三湖连穿.kml",
+    "authorizationUnconfirmed": false
+  },
+  "error": null,
+  "created_at": "2026-09-25T04:17:46.989541+00:00",
+  "updated_at": "2026-09-25T04:17:46.993+00:00",
+  "route_facts": null,
+  "route_fact_stats": null,
+  "route_fact_error": null
+}

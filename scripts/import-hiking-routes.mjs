@@ -95,6 +95,30 @@ function parseKml(xml) {
   );
   const name = nameM ? nameM[1].trim() : '';
 
+  // The Document-level description is the route author's field notes in
+  // 2bulu exports. Keep it separate from waypoint descriptions so it can be
+  // shown as the catalog summary. Generated coordinate/stat blocks are not
+  // useful prose and are discarded below.
+  const documentDescription = (() => {
+    const m = xml.match(/<Document\b[\s\S]*?<description\b[^>]*>([\s\S]*?)<\/description>/i);
+    if (!m) return null;
+    const text = m[1]
+      .replace(/<!\[CDATA\[|\]\]>/g, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n+/g, '\n')
+      .trim();
+    // 2bulu's auto-generated coordinate/time block is metadata, not a route
+    // description. It is safe to omit it when no author prose is present.
+    if (!text || /^(经度：.*纬度：.*海拔：.*时间：)/s.test(text)) return null;
+    return text;
+  })();
+
   const excluded = [];
   const folderRe = /<Folder\b([^>]*)>[\s\S]*?<\/Folder>/g;
   let fm;
@@ -174,7 +198,7 @@ function parseKml(xml) {
   const durationMs =
     beginM && endM && +endM[1] > +beginM[1] ? +endM[1] - +beginM[1] : undefined;
 
-  return { name, points, waypoints, durationMs };
+  return { name, points, waypoints, durationMs, description: documentDescription };
 }
 
 // Snaps markers onto the track (same output shape as the app's snapWaypoints).
@@ -319,6 +343,7 @@ for (const fileName of files) {
   const first = stats.points[0];
   const id = `trk${String(rows.length + 1).padStart(3, '0')}`;
   const diff = diffFor(stats.distM, stats.hasEle ? stats.ascent : 0);
+  const fallbackDescription = `${regionsByStem[stem] ?? '中国'}的${name}，现有轨迹约${data.dist ?? '—'}、累计爬升${data.asc ?? '—'}。路线难度标注为${diff}；${seasonsByStem[stem]?.note ?? '请在出发前核实当季开放、天气与通行条件。'}`;
 
   rows.push({
     id,
@@ -327,6 +352,7 @@ for (const fileName of files) {
     region: regionsByStem[stem] ?? '中国',
     bestMonths: seasonsByStem[stem]?.months ?? null,
     seasonNote: seasonsByStem[stem]?.note ?? null,
+    description: parsed.description ?? fallbackDescription,
     lng: first.lon,
     lat: first.lat,
     dist: data.dist,
@@ -413,7 +439,7 @@ const sqlMonths = (months) => (months ? `'{${months.join(',')}}'` : null);
 const valueLines = rows.map((r, i) => {
   const coord = `${r.lat.toFixed(2)} N · ${r.lng.toFixed(2)} E`;
   return `  (${sqlStr(r.id)}, ${sqlStr(r.name)}, ${sqlStr(r.region)}, ${sqlStr(coord)}, ${sqlNum(r.lng)}, ${sqlNum(r.lat)},
-   ${sqlStr(r.dist)}, ${sqlStr(r.asc)}, ${sqlStr(r.diff)}, ${sqlStr(r.tone)}, null,
+   ${sqlStr(r.dist)}, ${sqlStr(r.asc)}, ${sqlStr(r.diff)}, ${sqlStr(r.tone)}, ${sqlStr(r.description)},
    ${sqlMonths(r.bestMonths)}, ${sqlStr(r.seasonNote)},
    ${sqlJson(r.trackCoords)}, ${sqlJson(r.trackElevation)}, ${sqlNum(r.durationMs)}, ${sqlJson(r.trackWaypoints)},
    null, ${sqlStr(r.fileName)}, now() - interval '${n - 1 - i} seconds')`;

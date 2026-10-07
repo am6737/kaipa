@@ -1269,7 +1269,14 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.groupedBg, zIndex: 200 }]}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={{ height: insets.top + layout.topBarHeight, paddingTop: insets.top, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' }}>
-          <AppIconButton theme={theme} name="close" onPress={onClose} noShadow accessibilityLabel={t('common.close')} />
+          <Press
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.close')}
+            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="close" color={theme.text} size={22} />
+          </Press>
           <View pointerEvents="none" style={{ position: 'absolute', left: 68, right: 68, bottom: 13, alignItems: 'center' }}>
             <Text numberOfLines={1} style={[type.navTitle, { color: theme.text }]}>{t('journeyEdit.newTitle')}</Text>
           </View>

@@ -1,11 +1,25 @@
 -- Remove the dedicated transport itinerary type. Transport planning remains an
 -- assistant capability, but saved itinerary rows are ordinary place/activity rows.
 -- Preserve old destinations as first-class locations before dropping the leg data.
-update public.timeline_rows
-set location = coalesce(location, transport -> 'to')
-where location is null
-  and jsonb_typeof(transport) = 'object'
-  and jsonb_typeof(transport -> 'to') = 'object';
+do $$
+begin
+  -- Some self-hosted runtimes may already have dropped the legacy column.
+  -- Preserve old destinations only when that column is still available.
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'timeline_rows'
+      and column_name = 'transport'
+  ) then
+    update public.timeline_rows
+    set location = coalesce(location, transport -> 'to')
+    where location is null
+      and jsonb_typeof(transport) = 'object'
+      and jsonb_typeof(transport -> 'to') = 'object';
+  end if;
+end;
+$$;
 
 update public.timeline_rows
 set item_kind = 'activity'

@@ -1,0 +1,89 @@
+[
+  {
+    "stage": "interpretation",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 59983,
+    "success": false,
+    "aborted": true,
+    "usage": null,
+    "created_at": "2026-09-25T04:16:56.539306+00:00"
+  },
+  {
+    "stage": "interpretation",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 38075,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 2488,
+      "totalTokens": 3728,
+      "outputTokens": 1240
+    },
+    "created_at": "2026-09-25T04:17:46.855091+00:00"
+  },
+  {
+    "stage": "plan",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 125060,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 32536,
+      "totalTokens": 36719,
+      "outputTokens": 4183
+    },
+    "created_at": "2026-09-25T04:19:52.427709+00:00"
+  },
+  {
+    "stage": "plan",
+    "model": "gpt-5.6-sol",
+    "duration_ms": 49860,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 41395,
+      "totalTokens": 44152,
+      "outputTokens": 2757
+    },
+    "created_at": "2026-09-25T04:20:42.820698+00:00"
+  },
+  {
+    "stage": "packing",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 62470,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 9790,
+      "totalTokens": 13155,
+      "outputTokens": 3365
+    },
+    "created_at": "2026-09-25T04:21:45.497874+00:00"
+  },
+  {
+    "stage": "packing",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 12550,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 2173,
+      "totalTokens": 2757,
+      "outputTokens": 584
+    },
+    "created_at": "2026-09-25T04:21:58.124388+00:00"
+  },
+  {
+    "stage": "packing",
+    "model": "gpt-5.6-luna",
+    "duration_ms": 22520,
+    "success": true,
+    "aborted": false,
+    "usage": {
+      "inputTokens": 2311,
+      "totalTokens": 2841,
+      "outputTokens": 530
+    },
+    "created_at": "2026-09-25T04:22:20.662931+00:00"
+  }
+]

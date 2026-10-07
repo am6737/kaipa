@@ -67,15 +67,17 @@ Deno.test('a planned leg joins every step and comes back in WGS-84', async () =>
   assertEquals(calls.length, 1);
   assertEquals(calls[0].path, 'direction/driving');
   assertEquals(planned.coordinates?.length, 4);
+  assertEquals(planned.distanceMeters, 4529);
+  assertEquals(planned.durationSeconds, 1210);
   // Request coordinates are GCJ-02, response coordinates are back to WGS-84.
   const [originLng, originLat] = calls[0].params.get('origin')!.split(',').map(Number);
   const [expectedLng, expectedLat] = wgs84ToGcj02([116.434307, 39.909376]);
   assertEquals(Math.abs(originLng - expectedLng) < 1e-5, true);
   assertEquals(Math.abs(originLat - expectedLat) < 1e-5, true);
-  const [lng, lat] = planned.coordinates![0];
-  const [wantLng, wantLat] = gcj02ToWgs84([116.433998, 39.90933]);
-  assertEquals(Math.abs(lng - wantLng) < 1e-9, true);
-  assertEquals(Math.abs(lat - wantLat) < 1e-9, true);
+  // The line is deliberately anchored to the exact WGS-84 endpoints supplied
+  // by the caller, so an AMap bridge cannot leave a seam at a track anchor.
+  assertEquals(planned.coordinates![0], [116.434307, 39.909376]);
+  assertEquals(planned.coordinates![planned.coordinates!.length - 1], [116.474446, 39.90985]);
 });
 
 Deno.test('a walking leg asks the walking endpoint', async () => {

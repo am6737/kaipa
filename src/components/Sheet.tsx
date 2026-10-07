@@ -51,6 +51,8 @@ interface Props {
   /** Reports the body scroll view's visible height, so a child can fill the
       sheet instead of leaving gesture-dead blank space under itself. */
   onBodyHeightChange?: (height: number) => void;
+  /** Reports the grabber/header height above the body for content-based detents. */
+  onHeaderHeightChange?: (height: number) => void;
 }
 
 /** imperative handle so a parent can trigger the animated dismiss (e.g. a tap on
@@ -82,6 +84,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     topAccessory,
     topAccessoryHeight = 0,
     onBodyHeightChange,
+    onHeaderHeightChange,
     entranceAnimation = 'spring',
     animatedTranslateY,
   },
@@ -102,6 +105,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const translateY = animatedTranslateY ?? internalTranslateY;
   const startY = useRef(hiddenY);
   const currentY = useRef(hiddenY);
+  const presentedRef = useRef(true);
   // live state read by the (created-once) pan responder callbacks
   const scrollY = useRef(0);
   const scrollRef = useRef<any>(null);
@@ -135,7 +139,21 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const snapY = yFor(snapHeights[index]);
+  const previousSnapRef = useRef({ index, y: snapY });
+  useEffect(() => {
+    const previous = previousSnapRef.current;
+    previousSnapRef.current = { index, y: snapY };
+    if (previous.index !== index || previous.y === snapY) return;
+    // Content can reflow while parked at the lowest detent (e.g. a title
+    // wraps). Keep the current detent aligned with its newly measured height.
+    // Index changes already animate in snapTo; only reconcile layout changes.
+    if (!presentedRef.current) return;
+    translateY.setValue(snapY);
+  }, [index, snapY, translateY]);
+
   const dismiss = () => {
+    presentedRef.current = false;
     Animated.timing(translateY, { toValue: hiddenY, duration: 220, useNativeDriver: true }).start(() => {
       onDismiss?.();
     });
@@ -144,6 +162,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   useImperativeHandle(ref, () => ({
     dismiss,
     hide: (onComplete) => {
+      presentedRef.current = false;
       Animated.timing(translateY, {
         toValue: hiddenY,
         duration: 180,
@@ -154,6 +173,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     },
     snapTo: (index, onComplete) => snapTo(index, 0, onComplete),
     transitionTo: (targetIndex, onComplete) => {
+      presentedRef.current = true;
       const clamped = Math.max(0, Math.min(snapHeights.length - 1, targetIndex));
       Animated.timing(translateY, {
         toValue: yFor(snapHeights[clamped]),
@@ -167,6 +187,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   }));
 
   const snapTo = (i: number, vy = 0, onComplete?: () => void) => {
+    presentedRef.current = true;
     const clamped = Math.max(0, Math.min(snapHeights.length - 1, i));
     setIndex(clamped);
     onIndexChange?.(clamped);
@@ -412,7 +433,11 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
       ) : (
         <View style={{ position: 'absolute', left: 0, top: accessoryHeight, right: 0, bottom: 0 }}>
           {/* draggable header */}
-          <View {...panResponder.panHandlers} style={{ paddingTop: 8 }}>
+          <View
+            {...panResponder.panHandlers}
+            onLayout={(event) => onHeaderHeightChange?.(event.nativeEvent.layout.height)}
+            style={{ paddingTop: 8 }}
+          >
             <View
               style={{
                 alignSelf: 'center',

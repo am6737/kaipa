@@ -1,6 +1,5 @@
 import React from 'react';
-import { Share, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
+import { Dimensions, Share, StyleSheet, Text, View } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
@@ -10,12 +9,14 @@ import { useNav } from '../../nav/NavContext';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
+import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 
-export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void }) {
+export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const route = nav.merged(poi);
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
+
 
   return (
     <View style={{ paddingTop: space.xxs, paddingBottom: showActions ? space.xl : 112 }}>
@@ -29,17 +30,24 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: space.md }}>
-        {difficultyLabel ? <InfoPill theme={theme} text={difficultyLabel} accent /> : null}
+        {difficultyLabel ? <InfoPill theme={theme} text={difficultyLabel} /> : null}
         <InfoPill theme={theme} icon="distance" text={route.dist} mono />
         <InfoPill theme={theme} icon="arrowUp" text={route.asc.replace('+', '')} mono />
-        <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
+        <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} onPress={onNavigate ? () => onNavigate(route) : undefined} />
       </View>
 
       {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}
 
-      <PhotoTile tone={route.tone} seed={route.id} radius={radius.feature} resWidth={900} style={{ height: 196, marginTop: space.xl }}>
-        {route.photoUris?.[0] ? <Image source={{ uri: route.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-      </PhotoTile>
+      <View style={{ marginTop: space.xl }}>
+        <RoutePhotoCarousel
+          theme={theme}
+          photos={route.photoUris}
+          width={Dimensions.get('window').width - space.md * 2}
+          height={196}
+          radius={radius.feature}
+          fallback={<PhotoTile tone={route.tone} seed={route.id} radius={radius.feature} resWidth={900} style={StyleSheet.absoluteFill} />}
+        />
+      </View>
 
       {route.desc ? (
         <View style={{ marginTop: space.xl }}>
@@ -142,13 +150,14 @@ function SeasonStrip({ theme, months, note }: { theme: Theme; months: number[]; 
   );
 }
 
-function InfoPill({ theme, icon, text, accent, mono }: { theme: Theme; icon?: IconName; text: string; accent?: boolean; mono?: boolean }) {
-  return (
+function InfoPill({ theme, icon, text, accent, mono, onPress }: { theme: Theme; icon?: IconName; text: string; accent?: boolean; mono?: boolean; onPress?: () => void }) {
+  const content = (
     <View style={{ height: 30, maxWidth: '100%', paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: accent ? theme.accent : theme.dark ? theme.fieldSurface : '#F3F3F4' }}>
       {icon ? <Icon name={icon} color={accent ? '#FFFFFF' : theme.text3} size={13} /> : null}
       <Text numberOfLines={1} style={{ fontFamily: mono ? MONO : undefined, fontSize: 11.5, fontWeight: '700', color: accent ? '#FFFFFF' : theme.text2, flexShrink: 1 }}>{text}</Text>
     </View>
   );
+  return onPress ? <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={text}>{content}</Press> : content;
 }
 
 function ActionPill({ theme, icon, label, active, preserveStyle = false, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; preserveStyle?: boolean; onPress: () => void }) {
