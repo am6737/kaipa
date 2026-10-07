@@ -1,0 +1,99 @@
+diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMap.h b/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
+--- a/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
++++ b/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
+@@ -64,6 +64,7 @@
+ @property (nonatomic, copy) RCTDirectEventBlock onRegionChange;
+ @property (nonatomic, copy) RCTDirectEventBlock onRegionChangeComplete;
+ @property (nonatomic, copy) RCTBubblingEventBlock onPress;
++@property (nonatomic, copy) RCTDirectEventBlock onPoiClick;
+ @property (nonatomic, copy) RCTBubblingEventBlock onLongPress;
+ @property (nonatomic, copy) RCTDirectEventBlock onPanDrag;
+ @property (nonatomic, copy) RCTDirectEventBlock onDoublePress;
+diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
+--- a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
++++ b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
+@@ -49,6 +49,10 @@
+ {
+     AIRMap *map = [AIRMap new];
+     map.delegate = self;
++    // MapKit POI annotations are selectable starting with iOS 16.
++    if (@available(iOS 16.0, *)) {
++        map.selectableMapFeatures = MKMapFeatureOptionPointsOfInterest;
++    }
+ 
+     map.isAccessibilityElement = NO;
+     map.accessibilityElementsHidden = NO;
+@@ -118,6 +122,7 @@
+ RCT_EXPORT_VIEW_PROPERTY(onRegionChangeComplete, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onPanDrag, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onPress, RCTBubblingEventBlock)
++RCT_EXPORT_VIEW_PROPERTY(onPoiClick, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onLongPress, RCTBubblingEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onDoublePress, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onMarkerPress, RCTDirectEventBlock)
+@@ -781,6 +786,26 @@
+ 
+ - (void)mapView:(AIRMap *)mapView didSelectAnnotationView:(MKAnnotationView *)view
+ {
++    if (@available(iOS 16.0, *)) {
++        if ([view.annotation isKindOfClass:[MKMapFeatureAnnotation class]]) {
++            MKMapFeatureAnnotation *feature = (MKMapFeatureAnnotation *)view.annotation;
++            CGPoint position = [mapView convertCoordinate:feature.coordinate toPointToView:mapView];
++            if (mapView.onPoiClick) {
++                mapView.onPoiClick(@{
++                    @"placeId": @"",
++                    @"name": feature.title ?: @"",
++                    @"coordinate": @{
++                        @"latitude": @(feature.coordinate.latitude),
++                        @"longitude": @(feature.coordinate.longitude)
++                    },
++                    @"position": @{@"x": @(position.x), @"y": @(position.y)}
++                });
++            }
++            // The app owns the selected-place card, not MapKit's callout.
++            [mapView deselectAnnotation:feature animated:NO];
++            return;
++        }
++    }
+     if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {
+         [(AIRMapMarker *)view.annotation showCalloutView];
+     } else if ([view.annotation isKindOfClass:[MKUserLocation class]] && mapView.userLocationAnnotationTitle != nil && view.annotation.title != mapView.userLocationAnnotationTitle) {
+diff --git a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm b/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
+--- a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
++++ b/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
+@@ -189,6 +189,35 @@
+     };
+ 
+ 
++    _view.onPoiClick =  [self](NSDictionary* dictionary) {
++        if (_eventEmitter) {
++
++            NSDictionary* coordinateDict = dictionary[@"coordinate"];
++            NSDictionary* positionDict = dictionary[@"position"];
++
++            // Populate the OnMapPressCoordinate struct
++            facebook::react::RNMapsMapViewEventEmitter::OnPoiClickCoordinate coordinate = {
++                .latitude = [coordinateDict[@"latitude"] doubleValue],
++                .longitude = [coordinateDict[@"longitude"] doubleValue],
++            };
++            // Populate the OnMapDouplePressPosition struct
++            facebook::react::RNMapsMapViewEventEmitter::OnPoiClickPosition position = {
++                .x = [positionDict[@"x"] doubleValue],
++                .y = [positionDict[@"y"] doubleValue],
++            };
++
++
++            auto mapViewEventEmitter = std::static_pointer_cast<RNMapsMapViewEventEmitter const>(_eventEmitter);
++            facebook::react::RNMapsMapViewEventEmitter::OnPoiClick data = {
++                .coordinate = coordinate,
++                .position = position,
++                .placeId = [dictionary[@"placeId"] UTF8String],
++                .name = [dictionary[@"name"] UTF8String],
++               };
++            mapViewEventEmitter->onPoiClick(data);
++        }
++    };
++
+     _view.onMapReady = [self](NSDictionary* dictionary) {
+         if (_eventEmitter) {
+ 

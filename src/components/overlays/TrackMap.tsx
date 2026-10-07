@@ -1,12 +1,17 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
+import { MONO } from '../../theme/fonts';
+import { clusterWaypoints as groupWaypoints } from '../maps/waypointClusters';
+import { trackWorldSpan } from '../maps/extent';
 import {
   NativeMap,
   type NativeMapHandle,
   type NativeMapMarker,
   type NativeMapPolyline,
+  type NativeMapCamera,
+  type NativeMapPoi,
 } from '../maps/NativeMap';
 
 export type MapStyleId = 'standard' | 'terrain' | 'satellite';
@@ -15,6 +20,7 @@ export type TrackMapWaypoint = { name: string; coord: [number, number]; km?: num
 export interface TrackMapHandle {
   fitRoute: () => void;
   resetNorth: () => void;
+  focusPoint: (coordinate: [number, number]) => void;
 }
 
 export function ensureNativeMapReady() {
@@ -33,9 +39,13 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   interactive?: boolean;
   waypoints?: TrackMapWaypoint[];
   showWaypoints?: boolean;
-  /** a tap on the map itself, in WGS-84 — used to place a point on the line */
+  numberWaypoints?: boolean;
+  clusterWaypoints?: boolean;
+  showWaypointCallout?: boolean;
+  /** a tap on the map itself, in WGS-84 — preserves the requested location */
   onMapPress?: (coordinate: [number, number]) => void;
-  /** lets a parent own the picked waypoint; the built-in callout still shows */
+  onPoiPress?: (poi: NativeMapPoi) => void;
+  /** Lets a parent own selection; showWaypointCallout controls the built-in label. */
   onWaypointPress?: (waypoint: TrackMapWaypoint) => void;
   mapStyle?: MapStyleId;
   showMapLabels?: boolean;
@@ -53,7 +63,11 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   interactive = false,
   waypoints,
   showWaypoints = false,
+  numberWaypoints = false,
+  clusterWaypoints = false,
+  showWaypointCallout = true,
   onMapPress,
+  onPoiPress,
   onWaypointPress,
   mapStyle = 'standard',
   showMapLabels = true,
@@ -61,7 +75,25 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   routePadding = [28, 28, 28, 28],
 }, ref) {
   const { t } = useI18n();
+  const window = useWindowDimensions();
+  const span = useMemo(() => trackWorldSpan(coords), [coords]);
+  const initialClusterZoom = useMemo(() => {
+    if (!span) return 11;
+    const availableWidth = Math.max(1, window.width - routePadding[1] - routePadding[3]);
+    const availableHeight = Math.max(1, (height ?? window.height) - routePadding[0] - routePadding[2]);
+    return Math.min(20, Math.log2(Math.min(availableWidth / Math.max(span.width, 1e-12), availableHeight / Math.max(span.height, 1e-12)) / 256));
+  }, [height, routePadding, span, window.height, window.width]);
+  const [clusterZoom, setClusterZoom] = useState(initialClusterZoom);
+  const updateZoom = (zoom: number) => {
+    cameraRef.current.zoom = zoom;
+    if (clusterWaypoints) {
+      // Rebuild annotation groups at half-zoom steps, not on every pinch frame.
+      const bucket = Math.floor(zoom * 2) / 2;
+      setClusterZoom((current) => current === bucket ? current : bucket);
+    }
+  };
   const mapRef = useRef<NativeMapHandle>(null);
+  const cameraRef = useRef<NativeMapCamera>({ center: coords[0] ?? [0, 0], zoom: 11 });
   const [selectedWaypoint, setSelectedWaypoint] = useState<TrackMapWaypoint | null>(null);
   // A marker tap also arrives as a map-background tap a beat later, which used to
   // dismiss whatever the marker just chose.
@@ -71,7 +103,14 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   useImperativeHandle(ref, () => ({
     fitRoute: () => mapRef.current?.fitCoordinates(coords, routePadding, 600),
     resetNorth: () => mapRef.current?.resetNorth(),
+    focusPoint: (coordinate) => mapRef.current?.moveCamera(coordinate, Math.max(cameraRef.current.zoom, 13), 360, { edgePadding: routePadding }),
+
   }), [coords, routePadding]);
+
+  const waypointGroups = useMemo(() => clusterWaypoints
+    ? groupWaypoints((waypoints ?? []).map((waypoint) => waypoint.coord), clusterZoom)
+    : (waypoints ?? []).map((waypoint, index) => ({ indices: [index], coordinate: waypoint.coord })),
+  [clusterWaypoints, clusterZoom, waypoints]);
 
   const markers = useMemo<NativeMapMarker[]>(() => {
     if (!coords.length) return [];
@@ -95,12 +134,39 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       values.push({
         id: 'track-scrub',
         coordinate: scrubPt,
+        zIndex: 10,
         anchor: { x: 0.5, y: 0.5 },
-        content: <View style={[styles.scrubMarker, { backgroundColor: accent }]} />,
+        onPress: () => { markerPressAt.current = Date.now(); },
+        content: <View style={[styles.scrubMarker, numberWaypoints ? styles.pickedMarker : null, { backgroundColor: accent }]} />,
       });
     }
     if (showWaypoints) {
-      (waypoints || []).forEach((waypoint, index) => {
+      waypointGroups.forEach((group) => {
+        const index = group.indices[0];
+        const waypoint = waypoints![index];
+        if (group.indices.length > 1) {
+          values.push({
+            id: `track-cluster-${group.indices[0]}`,
+            coordinate: group.coordinate,
+            anchor: { x: 0.5, y: 1 },
+            centerOffset: { x: 0, y: -18 },
+            zIndex: 2,
+            onPress: () => {
+              markerPressAt.current = Date.now();
+              // A group expands the map; it never silently picks one member.
+              mapRef.current?.moveCamera(group.coordinate, Math.min(19, cameraRef.current.zoom + 2), 360, { edgePadding: routePadding });
+            },
+            content: (
+              <View style={styles.clusterAnchor}>
+                <View style={[styles.clusterBadge, { backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
+                  <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text }}>{group.indices.length}</Text>
+                </View>
+                <View style={[styles.clusterStem, { backgroundColor: theme.text3 }]} />
+              </View>
+            ),
+          });
+          return;
+        }
         values.push({
           id: `track-waypoint-${index}`,
           coordinate: waypoint.coord,
@@ -108,10 +174,14 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           title: waypoint.name,
           onPress: () => {
             markerPressAt.current = Date.now();
-            setSelectedWaypoint(waypoint);
+            if (showWaypointCallout) setSelectedWaypoint(waypoint);
             onWaypointPress?.(waypoint);
           },
-          content: <View style={[styles.waypointMarker, { borderColor: accent }]} />,
+          content: numberWaypoints ? (
+            <View style={[styles.numberedWaypoint, { borderColor: theme.hairline }]}>
+              <Text style={{ fontFamily: MONO, fontSize: 11, fontWeight: '700', color: theme.text2 }}>{index + 1}</Text>
+            </View>
+          ) : <View style={[styles.waypointMarker, { borderColor: accent }]} />,
         });
       });
     }
@@ -133,7 +203,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, coords, onWaypointPress, scrubPt, selectedWaypoint, showWaypoints, theme, waypoints]);
+  }, [accent, coords, numberWaypoints, onWaypointPress, scrubPt, selectedWaypoint, showWaypointCallout, showWaypoints, theme, waypoints, waypointGroups, routePadding]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
@@ -169,7 +239,15 @@ export const TrackMap = forwardRef<TrackMapHandle, {
           setSelectedWaypoint(null);
           onMapPress?.(coordinate);
         } : undefined}
+        onPoiPress={interactive ? (poi) => {
+          markerPressAt.current = Date.now();
+          setSelectedWaypoint(null);
+          if (onPoiPress) onPoiPress(poi);
+          else onMapPress?.(poi.coordinate);
+        } : undefined}
         onCameraChange={onCameraOrientationChange}
+        onCameraPositionChange={(camera) => { cameraRef.current = camera; updateZoom(camera.zoom); }}
+        onZoomChange={updateZoom}
       />
       {showLegend ? (
         <View style={styles.legend}>
@@ -188,9 +266,14 @@ export const TrackMap = forwardRef<TrackMapHandle, {
 });
 
 const styles = StyleSheet.create({
+  clusterAnchor: { alignItems: 'center' },
+  clusterBadge: { minWidth: 30, height: 30, paddingHorizontal: 7, borderRadius: 15, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  clusterStem: { width: 1, height: 6 },
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
   scrubMarker: { width: 18, height: 18, borderRadius: 9, borderWidth: 2.5, borderColor: '#FFFFFF', opacity: 0.9 },
+  pickedMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, opacity: 1 },
+  numberedWaypoint: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   waypointMarker: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#FFFFFF', borderWidth: 3 },
   callout: { maxWidth: 220, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   legend: { position: 'absolute', left: 12, bottom: 10, flexDirection: 'row', gap: 12 },

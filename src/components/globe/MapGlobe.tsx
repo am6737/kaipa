@@ -76,6 +76,7 @@ export default function MapGlobe({
   pois,
   showPoiMarkers = true,
   pinVisibilityApi,
+  onPinVisibilityReady,
   activePoiId,
   onPoiPress,
   onBackgroundPress,
@@ -123,12 +124,14 @@ export default function MapGlobe({
       read at press time, because a pin at alpha 0 is still hit-testable (verified
       on device: the card opened from an invisible pin). */
   const visiblePinsRef = useRef<Set<string> | null>(null);
+  const visibilityOptionsRef = useRef<{ stagger?: boolean } | undefined>(undefined);
   /** Which keys are currently revealed, kept separately from the visible set: a pin
       can mount *after* the set was last applied, and then the set says it should be
       shown while nothing has ever told its value so. */
   const revealedPinsRef = useRef(new Set<string>());
   const applyVisibility = useCallback((keys: Set<string>, options?: { stagger?: boolean }) => {
     visiblePinsRef.current = keys;
+    visibilityOptionsRef.current = options;
     const revealed = revealedPinsRef.current;
     let staggerIndex = 0;
     pinAlphasRef.current.forEach((value, key) => {
@@ -166,10 +169,11 @@ export default function MapGlobe({
   useEffect(() => {
     if (!pinVisibilityApi) return;
     pinVisibilityApi.current = { apply: applyVisibility };
+    onPinVisibilityReady?.();
     return () => {
       pinVisibilityApi.current = null;
     };
-  }, [pinVisibilityApi, applyVisibility]);
+  }, [pinVisibilityApi, applyVisibility, onPinVisibilityReady]);
   // Press handlers are read through refs so the marker memo does not depend on
   // them: callers commonly pass inline arrows, and depending on their identity
   // would rebuild (and on Android re-snapshot) every annotation on every parent
@@ -599,6 +603,14 @@ export default function MapGlobe({
     // instantly once the entrance has played.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePoiId, pois, showPoiMarkers, theme]);
+
+  // Data may arrive while the caller's map is frozen, after its visibility
+  // command. Reveal newly mounted pins using the last requested visible set.
+  useEffect(() => {
+    if (pinVisibilityApi && visiblePinsRef.current) {
+      applyVisibility(visiblePinsRef.current, visibilityOptionsRef.current);
+    }
+  }, [poiMarkers, pinVisibilityApi, applyVisibility]);
 
   const overlayMarkers = useMemo<NativeMapMarker[]>(() => {
     const values: NativeMapMarker[] = [];

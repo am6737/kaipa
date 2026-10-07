@@ -32,6 +32,13 @@ interface OverlayCfg {
   title?: string;
 }
 
+export interface RouteGuideRequest {
+  route: Poi;
+  view: 'plan' | 'guides' | 'guide' | 'weather';
+  planId?: string;
+  guideId?: string;
+}
+
 export interface NavValue {
   mainTab: MainTab;
   setMainTab: (t: MainTab) => void;
@@ -78,6 +85,10 @@ export interface NavValue {
   // Any modal or pushed overlay that should suspend controls belonging to the
   // underlying screen (floating edit bars, bottom tabs, etc.).
   blockingOverlayOpen: boolean;
+
+  routeGuide: RouteGuideRequest | null;
+  openRouteGuide: (request: RouteGuideRequest) => void;
+  closeRouteGuide: () => void;
 
   // overlays
   actionSheet: ActionSheetConfig | null;
@@ -224,6 +235,7 @@ export function NavProvider({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [actionSheet, setActionSheet] = useState<ActionSheetConfig | null>(null);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const [routeGuide, setRouteGuide] = useState<RouteGuideRequest | null>(null);
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [journeyInviteScannerOpen, setJourneyInviteScannerOpen] = useState(false);
@@ -263,6 +275,7 @@ export function NavProvider({
   const tabBarHidden = tabBarHiddenSources.size > 0;
 
   const blockingOverlayOpen = Boolean(
+    routeGuide ||
     actionSheet ||
     addRouteOpen ||
     newJourneyOpen ||
@@ -292,6 +305,7 @@ export function NavProvider({
   const merged = (p: Poi): Poi => (p && p.id && journeyPatch[p.id] ? { ...p, ...journeyPatch[p.id] } : p);
 
   const closeOverlays = () => {
+    setRouteGuide(null);
     setActionSheet(null);
     setAddRouteOpen(false);
     setNewJourneyOpen(false);
@@ -426,6 +440,9 @@ export function NavProvider({
       },
       merged,
       blockingOverlayOpen,
+      routeGuide,
+      openRouteGuide: (request) => setRouteGuide(request),
+      closeRouteGuide: () => setRouteGuide(null),
       actionSheet,
       openActionSheet: (c) => setActionSheet(c),
       closeActionSheet: () => setActionSheet(null),
@@ -579,6 +596,7 @@ export function NavProvider({
       addRouteOpen,
       newJourneyOpen,
       newJourneyPreset,
+      routeGuide,
       journeyInviteScannerOpen,
       journeyCodeEntryOpen,
       elevFull,

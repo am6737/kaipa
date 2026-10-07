@@ -2,7 +2,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
-import { fitBoundsCorners, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
+import { fitBoundsCorners, mapPoiFromProvider, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 
 let AMap: typeof import('expo-gaode-map') | null = null;
 let amapInitialized = false;
@@ -76,6 +76,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   markers = [],
   polylines = [],
   onPress,
+  onPoiPress,
   onUserLocationChange,
   onCameraChange,
   onCameraPositionChange,
@@ -84,6 +85,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
 }, ref) {
   const mapRef = useRef<MapViewRef>(null);
   const fitted = useRef(false);
+  const poiPressAt = useRef(0);
   const programmaticUntil = useRef(0);
   // Fires onGestureStart once per user gesture instead of on every throttled
   // camera-move event (iOS fires it only at pan start). Reset when the map
@@ -239,8 +241,17 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         flushCameraAction();
       }}
       onMapPress={(event) => {
+        if (Date.now() - poiPressAt.current < 400) return;
         const { longitude, latitude } = event.nativeEvent;
         onPress?.(gcj02ToWgs84([longitude, latitude]));
+      }}
+      onPressPoi={(event) => {
+        const { position, name, id } = event.nativeEvent;
+        const poi = mapPoiFromProvider(name, [position.longitude, position.latitude], id);
+        if (!poi) return;
+        poiPressAt.current = Date.now();
+        if (onPoiPress) onPoiPress(poi);
+        else onPress?.(poi.coordinate);
       }}
       onLocation={(event) => {
         const { longitude, latitude } = event.nativeEvent;

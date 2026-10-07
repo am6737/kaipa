@@ -1,6 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
-import { fitBoundsCorners, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
+import { fitBoundsCorners, mapPoiFromProvider, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 function point(coordinate: [number, number]) {
@@ -76,6 +76,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   markers = [],
   polylines = [],
   onPress,
+  onPoiPress,
   onUserLocationChange,
   onCameraChange,
   onCameraPositionChange,
@@ -84,6 +85,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
 }, ref) {
   const mapRef = useRef<MapView>(null);
   const fitted = useRef(false);
+  const poiPressAt = useRef(0);
   const programmaticUntil = useRef(0);
   const mapReady = useRef(false);
   const hasLayout = useRef(false);
@@ -175,8 +177,17 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         flushCameraAction();
       }}
       onPress={(event) => {
+        if (Date.now() - poiPressAt.current < 400) return;
         const coordinate = event.nativeEvent.coordinate;
         onPress?.(gcj02ToWgs84([coordinate.longitude, coordinate.latitude]));
+      }}
+      onPoiClick={(event) => {
+        const { coordinate, name, placeId } = event.nativeEvent;
+        const poi = mapPoiFromProvider(name, [coordinate.longitude, coordinate.latitude], placeId);
+        if (!poi) return;
+        poiPressAt.current = Date.now();
+        if (onPoiPress) onPoiPress(poi);
+        else onPress?.(poi.coordinate);
       }}
       onUserLocationChange={(event) => {
         const coordinate = event.nativeEvent.coordinate;

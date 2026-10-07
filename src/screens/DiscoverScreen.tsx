@@ -17,6 +17,9 @@ import { pressProbe } from '../lib/pinPressProbe';
 import { beginFrameSample, endFrameSample, markFrameStage } from '../lib/pointFrameProbe';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
+import type { TLRow } from '../data/timeline';
+import { JourneyGroupMoveSheet } from '../components/journey/JourneyGroupMoveSheet';
+import { buildJourneyGroupChoices, journeyMoveDestinations } from '../lib/journeyGroupChoices';
 import { useData } from '../data/DataContext';
 import { Globe, NATIVE_MAP_ENABLED, pinKey, type GlobeCameraAction, type PinVisibilityApi, type GlobeJourneyDayLabel, type GlobeJourneyLeg, type GlobeJourneyStop, type GlobeMapStyle, type GlobeProps, type GlobeRouteSegment } from '../components/globe';
 import { Glass } from '../components/Glass';
@@ -40,6 +43,7 @@ import {
   useSharingJourneyId,
 } from '../lib/companionPresence';
 import type { NativeMapMarker } from '../components/maps/types';
+import { useMapPresentation } from '../components/maps/MapPresentationContext';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
@@ -520,14 +524,13 @@ export function DiscoverScreen({
   const subTab = useNavSubTab();
   const isMemory = subTab === 'memory';
   const [chip, setChip] = React.useState(0);
-  const [mapStyle, setMapStyle] = useState<GlobeMapStyle>('standard');
+  const { mapStyle, setMapStyle, mapLabelsVisible, setMapLabelsVisible } = useMapPresentation();
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
   const [routeFeedbackOpen, setRouteFeedbackOpen] = useState(false);
   const [journeyStopsVisible, setJourneyStopsVisible] = useState(true);
   const [journeyTrackVisible, setJourneyTrackVisible] = useState(true);
   const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
-  const [mapLabelsVisible, setMapLabelsVisible] = useState(true);
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
   // Keep a route-detail selection separate from the route whose card is open,
   // so a nearby route can be overlaid for visual comparison.
@@ -848,6 +851,14 @@ export function DiscoverScreen({
   const [selectedTimelineItemIds, setSelectedTimelineItemIds] = useState<Set<string>>(() => new Set());
   const focusedJourneyId = nav.pointInfo?.kind === 'journey' ? nav.pointInfo.id : undefined;
   const focusedRouteId = nav.pointInfo?.kind === 'route' ? nav.pointInfo.id : undefined;
+  const moveInFlightRef = React.useRef(false);
+  const focusedJourneyIdRef = React.useRef(focusedJourneyId);
+  focusedJourneyIdRef.current = focusedJourneyId;
+  const [timelineMovePicker, setTimelineMovePicker] = useState<{ rows: TLRow[]; journeyId: string } | null>(null);
+  const [movingGroup, setMovingGroup] = useState<string | undefined>();
+  const [timelineMoveError, setTimelineMoveError] = useState<string>();
+  useEffect(() => { setTimelineMovePicker(null); }, [focusedJourneyId, timelineSelectionMode, selectedJourneyDay]);
+
   const versionTimelinePreview = useMemo(
     () => nav.journeyVersionPreview
       ? { rows: nav.journeyVersionPreview.version.snapshot.timelineRows, groups: nav.journeyVersionPreview.version.snapshot.timelineGroups }
@@ -855,6 +866,11 @@ export function DiscoverScreen({
     [nav.journeyVersionPreview],
   );
   const focusedTimeline = useTimeline(focusedJourneyId, userId, versionTimelinePreview);
+  const timelineMoveChoices = useMemo(() => journeyMoveDestinations(
+    buildJourneyGroupChoices(focusedTimeline.rows, availableJourneyDays, resolved, t),
+    timelineMovePicker?.rows ?? [],
+  ), [focusedTimeline.rows, availableJourneyDays, resolved, t, timelineMovePicker]);
+
   React.useEffect(() => {
     if (!nav.journeyVersionPreview) return;
     setPlanEditorOpen(false);
@@ -896,7 +912,7 @@ export function DiscoverScreen({
   };
   const handleSelectedJourneyDayChange = useCallback((day?: string) => {
     setSelectedJourneyDay(day);
-    if (!day) {
+    if (day == null) {
       setTimelineSelectionMode(false);
       setSelectedTimelineItemIds(new Set());
     }
@@ -1038,35 +1054,39 @@ export function DiscoverScreen({
   };
 
   const moveSelectedTimelineItems = () => {
-    if (!selectedTimelineItemIds.size) return;
-    const selectedRows = focusedTimeline.rows.filter((row) => selectedTimelineItemIds.has(row.id));
-    const destinations = availableJourneyDays.filter((day) => selectedRows.some((row) => row.day !== day));
-    if (!destinations.length) return;
-    Alert.alert(
-      t('journey.timeline.moveToTitle'),
-      undefined,
-      [
-        ...destinations.map((group) => ({
-          text: group,
-          onPress: () => {
-            void (async () => {
-              try {
-                await Promise.all(selectedRows.filter((row) => row.day !== group).map((row) => focusedTimeline.update(row.id, { day: group })));
-                setSelectedTimelineItemIds(new Set());
-                nav.showToast(t('journey.timeline.moveSuccess', { group }));
-              } catch (error) {
-                if (isWriteBusy(error)) {
-                  Alert.alert(t('journey.timeline.saveBusyTitle'), t('journey.timeline.saveBusyMessage'));
-                } else {
-                  Alert.alert(t('journey.timeline.moveFailedTitle'), t('journey.timeline.moveFailedMessage'));
-                }
-              }
-            })();
-          },
-        })),
-        { text: t('common.cancel'), style: 'cancel' },
-      ],
-    );
+    if (!focusedJourneyId || moveInFlightRef.current || !selectedTimelineItemIds.size) return;
+    const rows = focusedTimeline.rows.filter((row) => selectedTimelineItemIds.has(row.id));
+    const choices = buildJourneyGroupChoices(focusedTimeline.rows, availableJourneyDays, resolved, t);
+    if (!journeyMoveDestinations(choices, rows).length) return;
+    setTimelineMoveError(undefined);
+    setTimelineMovePicker({ rows, journeyId: focusedJourneyId });
+  };
+  const closeTimelineMovePicker = () => {
+    if (!moveInFlightRef.current) setTimelineMovePicker(null);
+  };
+  const moveTimelineItemsToGroup = async (group: string) => {
+    if (!timelineMovePicker || moveInFlightRef.current || focusedJourneyId !== timelineMovePicker.journeyId) return;
+    const { rows, journeyId } = timelineMovePicker;
+    moveInFlightRef.current = true;
+    setMovingGroup(group);
+    setTimelineMoveError(undefined);
+    try {
+      // Settle every write before enabling another move, including partial failures.
+      const results = await Promise.allSettled(rows.filter((row) => row.day !== group).map((row) => focusedTimeline.update(row.id, { day: group })));
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (failure) throw failure.reason;
+      setTimelineMovePicker(null);
+      if (focusedJourneyIdRef.current === journeyId) {
+        setSelectedTimelineItemIds(new Set());
+        nav.showToast(t('journey.timeline.moveSuccess', { group: group || t('journey.timeline.pendingGroup') }));
+      }
+    } catch (error) {
+      // Preserve the selection so an unsuccessful move can be retried.
+      setTimelineMoveError(t(isWriteBusy(error) ? 'journey.timeline.saveBusyMessage' : 'journey.timeline.moveFailedMessage'));
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingGroup(undefined);
+    }
   };
 
   const enterSelect = useCallback((id: string) => {
@@ -1332,7 +1352,7 @@ export function DiscoverScreen({
       coordinates: segment.coordinates,
       color: segment.color,
       // Opening a day still only re-emphasises the visible tracks.
-      active: !selectedJourneyDay || !segment.days || segment.days.includes(selectedJourneyDay),
+      active: selectedJourneyDay == null || !segment.days || segment.days.includes(selectedJourneyDay),
     })), [hiddenJourneyRouteIds, journeySegmentGeometry, selectedJourneyDay]);
   const journeyRouteOptions = useMemo(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
@@ -1433,13 +1453,13 @@ export function DiscoverScreen({
         // Other days' places stay off the map while a day is open: their pins sit
         // between the reader and the chain being followed. Day chips below the
         // card are the way back to another day from here.
-        .filter((stop) => !selectedJourneyDay || selectedJourneyDay === stop.day)
+        .filter((stop) => selectedJourneyDay == null || selectedJourneyDay === (stop.day ?? ''))
         .map((stop) => ({
           id: stop.rowId,
           // Numbers belong to the open day alone: they match that day's card
           // positions. The overview shows plain dots, otherwise a previous day's
           // "2" sits in front of this day's "1" and reads as a reversed route.
-          order: selectedJourneyDay ? stop.order : undefined,
+          order: selectedJourneyDay != null ? stop.order : undefined,
           name: stop.name,
           coordinate: stop.coordinate,
           color: itineraryColor(stop.day),
@@ -1454,7 +1474,7 @@ export function DiscoverScreen({
           id: leg.id,
           coordinates: planned ?? leg.fallbackGeometry ?? [leg.from, leg.to],
           color: itineraryColor(leg.day),
-          active: !selectedJourneyDay || selectedJourneyDay === leg.day,
+          active: selectedJourneyDay == null || selectedJourneyDay === (leg.day ?? ''),
           // No plan yet (or none available): a plain link, not a road.
           dashed: !planned,
         };
@@ -1470,7 +1490,7 @@ export function DiscoverScreen({
   const journeyDayLabels = useMemo<GlobeJourneyDayLabel[]>(() => (
     journeyDistanceVisible
       ? measureJourneyDays(itineraryLegs, legGeometry)
-        .filter((measured) => !selectedJourneyDay || selectedJourneyDay === measured.day)
+        .filter((measured) => selectedJourneyDay == null || selectedJourneyDay === (measured.day ?? ''))
         .map((measured) => ({
           day: measured.day,
           title: journeyDayDisplayLabel(measured.day, resolved),
@@ -1496,10 +1516,10 @@ export function DiscoverScreen({
       ]
       : []
   ), [itineraryLegs, itineraryStops, journeyItineraryActive, journeySegmentGeometry, rawFocusCoords]);
-  const dayLegs = journeyItineraryActive && selectedJourneyDay
-    ? itineraryLegs.filter((leg) => leg.day === selectedJourneyDay)
+  const dayLegs = journeyItineraryActive && selectedJourneyDay != null
+    ? itineraryLegs.filter((leg) => (leg.day ?? '') === selectedJourneyDay)
     : [];
-  const dayTrackCoords = journeyItineraryActive && selectedJourneyDay
+  const dayTrackCoords = journeyItineraryActive && selectedJourneyDay != null
     // Where the day also has recorded track of its own, keep that in frame: a
     // walked detour can leave the planned chain. A whole-journey track (which
     // carries no day) is deliberately out.
@@ -1511,7 +1531,7 @@ export function DiscoverScreen({
   journeyDayChainRef.current = !journeyItineraryActive
     ? null
     // Returning to the overview goes to the same box the journey opened with.
-    : !selectedJourneyDay
+    : selectedJourneyDay == null
       ? journeyOverviewFrame
       // A day is its legs plus its own pins. Chains never cross into the next
       // day, so a day holding a single place has no leg at all and its pin has
@@ -1519,7 +1539,7 @@ export function DiscoverScreen({
       // one coordinate, kept clear of the card the same way a fit is.
       : [
         ...dayLegs.flatMap(legCoords),
-        ...itineraryStops.filter((stop) => stop.day === selectedJourneyDay).map((stop) => stop.coordinate),
+        ...itineraryStops.filter((stop) => (stop.day ?? '') === selectedJourneyDay).map((stop) => stop.coordinate),
         ...dayTrackCoords,
       ];
   // Framing runs off the day alone, not off the chain: the road plan for a leg
@@ -1532,7 +1552,7 @@ export function DiscoverScreen({
     const coordinates = journeyDayChainRef.current;
     // Back to the overview only counts as a real transition when a day was open
     // before it; on the first render there simply was no day yet.
-    if (!selectedJourneyDay && !previousDay) return;
+    if (selectedJourneyDay == null && previousDay == null) return;
     if (!coordinates?.length) return;
     setMapCameraAction((current) => ({ type: 'fitCoordinates', revision: (current?.revision ?? 0) + 1, coordinates }));
   }, [selectedJourneyDay]);
@@ -1891,15 +1911,23 @@ export function DiscoverScreen({
     );
   }, [comparisonRouteIds, mapPois, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, subTab, useRail]);
   const pushedModeRef = React.useRef<typeof subTab | null>(null);
-  React.useEffect(() => {
+  const pinVisibilityStateRef = React.useRef({ visiblePinKeys, subTab });
+  pinVisibilityStateRef.current = { visiblePinKeys, subTab };
+  const syncPinVisibility = React.useCallback(() => {
     const api = pinVisibilityApi.current;
     if (!api) return;
+    const { visiblePinKeys, subTab } = pinVisibilityStateRef.current;
     // A new mode (or the first paint of one) arrives one pin at a time, like the
     // catalog did on the first screen; everything else is immediate.
     const stagger = pushedModeRef.current !== subTab;
-    pushedModeRef.current = subTab;
+    // An empty catalog has not played an entrance yet. Keep it pending until
+    // the first visible places arrive from the route request.
+    if (visiblePinKeys.size > 0) pushedModeRef.current = subTab;
     api.apply(visiblePinKeys, { stagger });
-  }, [visiblePinKeys, subTab]);
+  }, []);
+  React.useEffect(() => {
+    syncPinVisibility();
+  }, [visiblePinKeys, subTab, active, syncPinVisibility]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
@@ -1987,7 +2015,7 @@ export function DiscoverScreen({
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
       const stop = itineraryStops.find((item) => item.rowId === rowId);
-      if (stop?.day) selectJourneyDayFromMap(stop.day);
+      if (stop) selectJourneyDayFromMap(stop.day ?? '');
     },
     onUserLocationChange: ([lng, lat]) => {
       setCurrentLocation((current) => ({ lng, lat, heading: current?.heading }));
@@ -2104,6 +2132,7 @@ export function DiscoverScreen({
           size={globeSize}
           pois={mapPois}
           pinVisibilityApi={railAvailable ? pinVisibilityApi : undefined}
+          onPinVisibilityReady={railAvailable ? syncPinVisibility : undefined}
           // Keep nearby route pins interactive while a route detail card is
           // open, so users can compare close tracks without first dismissing
           // the current card. Journey detail keeps its existing map-focused UI.
@@ -2712,7 +2741,7 @@ export function DiscoverScreen({
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
+          {selectedJourneyDay != null && selectedJourneyTab !== 'moments' ? (
             <>
               {!timelineSelectionMode ? (
                 <Press
@@ -2808,7 +2837,7 @@ export function DiscoverScreen({
               dock stays two pills — 完成 left, 删除 right. The branch order
               mirrors the left group so a stale mode from another tab can never
               claim the slot twice. */}
-          {selectedJourneyDay && selectedJourneyTab !== 'moments' ? (
+          {selectedJourneyDay != null && selectedJourneyTab !== 'moments' ? (
             timelineSelectionMode ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
                 <Press
@@ -3013,6 +3042,16 @@ export function DiscoverScreen({
           </View>
         </View>
       ) : null}
+      <JourneyGroupMoveSheet
+        theme={theme}
+        visible={timelineMovePicker != null}
+        count={timelineMovePicker?.rows.length ?? 0}
+        data={timelineMoveChoices}
+        busyValue={movingGroup}
+        errorMessage={timelineMoveError}
+        onSelect={(group) => { void moveTimelineItemsToGroup(group); }}
+        onClose={closeTimelineMovePicker}
+      />
       <Modal
         visible={routeFeedbackOpen}
         animationType="slide"

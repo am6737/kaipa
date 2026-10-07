@@ -869,8 +869,9 @@ function JourneyPlanEditContent({ theme, days, rows, selectedDays, onToggleDay, 
   );
 }
 
-function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onLayout, children }: {
+function SelectedPoiContent({ scrollable, interactionBlocked, scrollRef, scrollY, bottomPadding, onLayout, children }: {
   scrollable: boolean;
+  interactionBlocked?: boolean;
   scrollRef: React.RefObject<ScrollView | null>;
   scrollY: Animated.Value;
   bottomPadding: number;
@@ -881,6 +882,7 @@ function SelectedPoiContent({ scrollable, scrollRef, scrollY, bottomPadding, onL
     return (
       <ScrollView
         ref={scrollRef}
+        scrollEnabled={!interactionBlocked}
         style={{ flex: 1, minHeight: 0 }}
         showsVerticalScrollIndicator={false}
         bounces={false}
@@ -1045,7 +1047,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       return ai === bi ? a.localeCompare(b) : ai - bi;
     });
   }, [isJourney, poi.totalDays, poi.days, timeline.knownGroups, timeline.removedGroups, timeline.rows, resolved, t]);
-  useEffect(() => { onJourneyDaysChange?.(journeyDays); }, [journeyDays, onJourneyDaysChange]);
+  useEffect(() => { onJourneyDaysChange?.(isJourney ? ['', ...journeyDays] : journeyDays); }, [isJourney, journeyDays, onJourneyDaysChange]);
 
   // photo preview — genPhotos (from poi.photoUris) + inspo (user-uploaded)
   // For routes, show photos from index 1 onwards (index 0 is hero cover);
@@ -1181,6 +1183,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           id: `day:${day}` as TabId,
           label: journeyDayDisplayLabel(day, resolved),
         })),
+        { id: 'day:', label: t('journey.timeline.pendingGroup') },
       ];
     }
     const opts: { id: TabId; label: string }[] = [{ id: 'overview', label: t('journey.tab.overview') }];
@@ -1368,7 +1371,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   };
   const scrollToPendingDay = () => {
     const day = pendingScrollDayRef.current;
-    if (!day) return;
+    if (day == null) return;
     const y = groupScrollY(day);
     if (y == null) return;
     pendingScrollDayRef.current = null;
@@ -1407,7 +1410,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   useEffect(() => {
     if (!effectiveDetailScrollY || !isJourney) return undefined;
     const listener = effectiveDetailScrollY.addListener(({ value }) => {
-      if (!segRef.current.startsWith('day:')) return;
+      if (!segRef.current.startsWith('day:') || segRef.current === 'day:') return;
       const programmaticTarget = programmaticScrollTargetRef.current;
       if (programmaticTarget != null) {
         if (Math.abs(programmaticTarget - value) > space.xs) return;
@@ -1581,10 +1584,11 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     // Use the exact same path as a direct tab press so both the selected state
     // and PagerView's rendered page move to the requested itinerary group.
     // A request without a day is the map asking to go back to the overview.
-    selectPagerSegment(request.day ? `day:${request.day}` as TabId : 'overview');
+    selectPagerSegment(request.day != null ? `day:${request.day}` as TabId : 'overview');
   }, [journeyDaySelectionRequest?.revision]);
 
-  const tabSwipeDisabled = !isJourney
+  const [timelineReordering, setTimelineReordering] = useState(false);
+  const tabSwipeDisabled = timelineReordering || !isJourney
     || tabOptions.length < 2
     || planEditorOpen
     || checklistSelectionMode
@@ -2024,8 +2028,8 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
         ) : null}
 
         {/* 行程 timeline */}
-        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onGroupCollapseChange={animateDayPageCollapse} /> : null}
-        {activeJourneyDay ? (
+        {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering} /> : null}
+        {activeJourneyDay != null ? (
           <View
             onLayout={(event) => {
               timelineTopRef.current = event.nativeEvent.layout.y;
@@ -2047,7 +2051,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
                 groupOffsetsRef.current.set(day, y);
                 scrollToPendingDay();
               }}
-              onGroupCollapseChange={animateDayPageCollapse}
+              onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering}
             />
           </View>
         ) : null}
@@ -2450,6 +2454,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       ) : (
         <SelectedPoiContent
           scrollable={scrollContent}
+          interactionBlocked={timelineReordering}
           scrollRef={contentScrollRef}
           scrollY={contentScrollY}
           bottomPadding={scrollContentBottomPadding}

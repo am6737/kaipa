@@ -29,6 +29,7 @@ import { Icon } from '../Icon';
 import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
+import { routeGuideCopy } from '../discover/routeGuideCopy';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
 import { TrailSheet, type TrailSheetHandle } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
@@ -661,6 +662,7 @@ function NJPresetPlanner({
   creatingMode,
   onManualPlan,
   onSmartPlan,
+  planningTemplateTitle,
 }: {
   theme: Theme;
   route: NJRoute;
@@ -682,6 +684,7 @@ function NJPresetPlanner({
   creatingMode: 'manual' | 'smart' | null;
   onManualPlan: () => void;
   onSmartPlan: () => void;
+  planningTemplateTitle?: string;
 }) {
   const { t, resolved } = useI18n();
   const insets = useSafeAreaInsets();
@@ -817,15 +820,16 @@ function NJPresetPlanner({
         </View>
 
         <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) - (24 + insets.bottom) }}>
+          {planningTemplateTitle ? <Text numberOfLines={2} style={{ color: theme.text2, fontSize: 11.5, lineHeight: 19, marginBottom: space.sm }}>{planningTemplateTitle}{'\n'}{routeGuideCopy[resolved].templateHint}</Text> : null}
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onManualPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
               {creatingMode === 'manual' ? <ActivityIndicator color={theme.text} /> : null}
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : t('journeyEdit.form.manualPlan')}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : planningTemplateTitle ? routeGuideCopy[resolved].templateManual : t('journeyEdit.form.manualPlan')}</Text>
             </Press>
-            <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
+            {!planningTemplateTitle ? <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
               {creatingMode === 'smart' ? <ActivityIndicator color="#FFFFFF" /> : <AssistantMark color={nameValid ? '#FFFFFF' : theme.text3} accentColor={nameValid ? '#FFFFFF' : theme.text3} size={18} />}
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? '#FFFFFF' : theme.text3 }}>{creatingMode === 'smart' ? t('journeyEdit.form.planning') : t('journeyEdit.form.smartPlan')}</Text>
-            </Press>
+            </Press> : null}
           </View>
         </View>
         </View>
@@ -941,7 +945,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const [route, setRoute] = useState<NJRoute>(() => presetRoute || blankRoute);
   const [tripName, setTripName] = useState('');
   const [startDt, setStartDt] = useState<Date>(() => preset ? njInitialPlannedStart() : njRoundedNow());
-  const [durationMins, setDurationMins] = useState<number | undefined>();
+  const [durationMins, setDurationMins] = useState<number | undefined>(() => preset?.planningTemplate ? preset.planningTemplate.days.length * 24 * 60 : undefined);
   // Start with a concrete date range; users can switch to duration-only planning
   // from the "什么时候出发" picker when the trip dates are not decided yet.
   const [flexibleDates, setFlexibleDates] = useState(false);
@@ -1041,6 +1045,19 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       ? { ...route, region: tripName.trim() }
       : route;
     const poi = buildJourney(effectiveRoute, destinationNames, startDt, durationMins, flexibleDates, t);
+    if (preset?.planningTemplate) {
+      if (effectiveRoute.routeId !== preset.planningTemplate.routeId || selectedLocations.length !== 1) {
+        onToast(routeGuideCopy[resolved].templateMismatch);
+        setCreatingMode(null);
+        return;
+      }
+      if (poi.totalDays !== preset.planningTemplate.days.length) {
+        onToast(routeGuideCopy[resolved].templateDays);
+        setCreatingMode(null);
+        return;
+      }
+      poi.planningTemplate = preset.planningTemplate;
+    }
     if (trackSource && userId) {
       try {
         // The track row has to exist before the journey can point at it.
@@ -1095,7 +1112,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         ? `${selectedLocations.map((location, index) => `${index + 1}. ${location.name}`).join('；')}；${trackLabel}`
         : trackLabel,
     });
-    const created = mode === 'smart' ? await onSmartPlan(poi, prompt) : await onCreate(poi);
+    const created = mode === 'smart' && !poi.planningTemplate ? await onSmartPlan(poi, prompt) : await onCreate(poi);
     if (!created) setCreatingMode(null);
   };
 
@@ -1243,6 +1260,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
           onOpenTimePicker={openTimePicker}
           onClose={onClose}
           creatingMode={creatingMode}
+          planningTemplateTitle={preset?.planningTemplate?.title}
           onManualPlan={() => void submit('manual')}
           onSmartPlan={() => void submit('smart')}
         />

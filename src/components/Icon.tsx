@@ -61,7 +61,8 @@ export type IconName =
   | 'layers'
   | 'expand'
   | 'shrink'
-  | 'livePhoto';
+  | 'livePhoto'
+  | 'grip';
 
 interface Props {
   name: IconName;
@@ -76,6 +77,12 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
   const stroke = color;
   const common = { stroke, strokeWidth, fill, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   switch (name) {
+    case 'grip':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          {[7, 12, 17].map((y) => <React.Fragment key={y}><Circle cx={9} cy={y} r={1.4} fill={color} /><Circle cx={15} cy={y} r={1.4} fill={color} /></React.Fragment>)}
+        </Svg>
+      );
     case 'compass':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">

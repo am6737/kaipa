@@ -1,6 +1,7 @@
 // Sheet.tsx — draggable bottom sheet with snap detents (TrailSheet equivalent).
 // Built on Animated + PanResponder (no extra gesture deps). The grabber/header
 // drags the sheet; the body scrolls only when fully expanded.
+import { SheetInteractionContext } from './SheetInteractionContext';
 import React, { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import {
   View,
@@ -100,6 +101,9 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   // fully off-screen (below the visible area) — the closed / dismissed position
   const hiddenY = maxH + accessoryHeight + bottomOffset + 20;
   const openY = yFor(snapHeights[initialIndex]);
+  const [interactionBlocked, setInteractionBlocked] = useState(false);
+  const interactionBlockedRef = useRef(false);
+  interactionBlockedRef.current = interactionBlocked;
   const [index, setIndex] = useState(initialIndex);
   const internalTranslateY = useRef(new Animated.Value(hiddenY)).current;
   const translateY = animatedTranslateY ?? internalTranslateY;
@@ -226,6 +230,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) => {
+        if (interactionBlockedRef.current) return false;
         // compact mode decides in the capture phase (it wraps the scroll view)
         if (compactRef.current) return false;
         return Math.abs(g.dy) > 4;
@@ -235,6 +240,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
       // once expanded, only a downward pull from the top dismisses, otherwise
       // the body is left free to scroll.
       onMoveShouldSetPanResponderCapture: (_e, g) => {
+        if (interactionBlockedRef.current) return false;
         if (!compactRef.current) return false;
         if (Math.abs(g.dy) <= 4) return false;
         if (!expandedRef.current) return true;
@@ -313,6 +319,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
   const sheetBodyGesture = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(!interactionBlocked)
         .runOnJS(true)
         // The body carries horizontally swipeable pages (the journey tab pager),
         // so a drag only belongs to the sheet when it leaves vertically first:
@@ -330,7 +337,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
         .onFinalize(() => {
           if (dragging.current) dragEndRef.current(0);
         }),
-    []
+    [interactionBlocked]
   );
 
   const onBodyScroll = useMemo(
@@ -400,7 +407,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           <View style={{ position: 'absolute', left: 0, top: accessoryHeight, right: 0, bottom: 0, borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden' }}>
             <AnimatedGHScrollView
               ref={scrollRef}
-              scrollEnabled={compactCanScroll}
+              scrollEnabled={compactCanScroll && !interactionBlocked}
               // the drag-to-dismiss is driven by sheetBodyGesture, so kill the
               // scroll view's own overscroll — its rubber-band would otherwise
               // expose a blank strip above the hero while pulling the card down.
@@ -414,7 +421,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
               style={{ flex: 1 }}
             >
-              {children}
+              <SheetInteractionContext.Provider value={setInteractionBlocked}>{children}</SheetInteractionContext.Provider>
             </AnimatedGHScrollView>
             {/* visual grab handle only — the whole card handles the drag */}
             <View pointerEvents="none" style={{ position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' }}>
@@ -456,7 +463,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
             <GestureDetector gesture={sheetBodyGesture}>
               <AnimatedGHScrollView
                 ref={scrollRef}
-                scrollEnabled={expanded}
+                scrollEnabled={expanded && !interactionBlocked}
                 bounces={false}
                 alwaysBounceVertical={false}
                 overScrollMode="never"
@@ -468,7 +475,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
                 contentContainerStyle={{ paddingBottom: bottomPad }}
                 style={{ flex: 1 }}
               >
-                {children}
+                <SheetInteractionContext.Provider value={setInteractionBlocked}>{children}</SheetInteractionContext.Provider>
               </AnimatedGHScrollView>
             </GestureDetector>
           </View>

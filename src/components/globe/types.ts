@@ -99,6 +99,8 @@ export interface GlobeJourneyStop {
 }
 
 export interface GlobeProps {
+  /** Replay the caller's visibility when a native map first mounts. */
+  onPinVisibilityReady?: () => void;
   theme: Theme;
   size: number;
   pois: GlobePoi[];

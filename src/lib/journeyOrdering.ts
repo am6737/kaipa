@@ -27,11 +27,14 @@ export function groupJourneyRows(rows: TLRow[], knownGroups: string[]): TLGroup[
     .map(([key, group]) => ({ key, label: key, rows: group.rows }));
 }
 
-/** Within a day, timed rows come first in ascending order; untimed rows keep the order they were added. */
+/** Persisted order wins over time; unsaved/legacy content still falls back to time. */
 export function sortRowsWithinDay(rows: TLRow[]): TLRow[] {
   return [...rows]
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
+      if (a.row.sortOrder != null || b.row.sortOrder != null) {
+        return (a.row.sortOrder ?? Infinity) - (b.row.sortOrder ?? Infinity) || a.index - b.index;
+      }
       const ta = a.row.timeStart ?? Infinity, tb = b.row.timeStart ?? Infinity;
       return ta === tb ? a.index - b.index : ta - tb;
     })
@@ -41,4 +44,9 @@ export function sortRowsWithinDay(rows: TLRow[]): TLRow[] {
 /** Every row in exactly the sequence the itinerary list renders it. */
 export function orderedJourneyRows(rows: TLRow[], knownGroups: string[]): TLRow[] {
   return groupJourneyRows(rows, knownGroups).flatMap((group) => sortRowsWithinDay(group.rows));
+}
+
+/** The pending tab holds only undated rows; numbered tabs share the dated timeline. */
+export function journeyGroupsForSelectedDay(groups: TLGroup[], selectedDay: string): TLGroup[] {
+  return groups.filter((group) => selectedDay === '' ? group.key === '' : group.key !== '');
 }

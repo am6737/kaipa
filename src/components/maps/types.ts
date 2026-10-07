@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { wgs84ToGcj02 } from '../../lib/coordinates';
+import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 
 export type MapCoordinate = [number, number];
 export type NativeMapStyle = 'standard' | 'terrain' | 'satellite';
@@ -89,6 +89,18 @@ export function isValidMapCoordinate(value: unknown): value is MapCoordinate {
     && latitude <= 90;
 }
 
+export interface NativeMapPoi {
+  id?: string;
+  name: string;
+  coordinate: MapCoordinate;
+}
+
+/** Map providers report GCJ-02 in China; app locations always store WGS-84. */
+export function mapPoiFromProvider(name: string | undefined, coordinate: MapCoordinate, id?: string): NativeMapPoi | null {
+  if (!isValidMapCoordinate(coordinate)) return null;
+  return { id, name: name?.trim() ?? '', coordinate: gcj02ToWgs84(coordinate) };
+}
+
 export interface NativeMapMarker {
   id: string;
   coordinate: MapCoordinate;
@@ -157,6 +169,7 @@ export interface NativeMapProps {
   markers?: NativeMapMarker[];
   polylines?: NativeMapPolyline[];
   onPress?: (coordinate: MapCoordinate) => void;
+  onPoiPress?: (poi: NativeMapPoi) => void;
   onUserLocationChange?: (coordinate: MapCoordinate) => void;
   onCameraChange?: (heading: number, pitch: number) => void;
   onCameraPositionChange?: (camera: NativeMapCamera) => void;

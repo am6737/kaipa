@@ -945,7 +945,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const [request, setRequest] = useState<{ id: string; secret: string; expiresAt: string } | null>(null);
   const [phase, setPhase] = useState<'generating' | 'waiting' | 'scanned' | 'confirmed' | 'signingIn' | 'expired' | 'error'>('generating');
   const [error, setError] = useState('');
-  const [secondsLeft, setSecondsLeft] = useState(300);
   const slide = useSlideIn();
   const qrReveal = useRef(new Animated.Value(0)).current;
   const statusProgress = useRef(new Animated.Value(0)).current;
@@ -960,7 +959,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
     try {
       const next = await createQrLoginRequest();
       setRequest(next);
-      setSecondsLeft(Math.max(0, Math.ceil((new Date(next.expiresAt).getTime() - Date.now()) / 1000)));
       setPhase('waiting');
       Animated.spring(qrReveal, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 4 }).start();
     } catch (cause) {
@@ -977,7 +975,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
     if (!request || phase === 'expired' || phase === 'error') return;
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000));
-      setSecondsLeft(remaining);
       if (remaining === 0) setPhase('expired');
     };
     tick();
@@ -1062,8 +1059,6 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
   const qrValue = request ? encodeQrLoginPayload(request) : '';
   const qrScale = qrReveal.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
   const statusTranslate = statusProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = String(secondsLeft % 60).padStart(2, '0');
 
   const statusLabel = phase === 'scanned'
     ? tr('qrLogin.scanned')
@@ -1170,10 +1165,7 @@ function AuthQrLogin({ t, onBack }: { t: Theme; onBack: () => void }) {
 
           <View style={{ minHeight: 80, alignItems: 'center', justifyContent: 'center', marginTop: space.md }}>
             {phase === 'waiting' ? (
-              <>
-                <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
-                <Text style={{ color: t.text3, fontSize: 12, marginTop: space.xs }}>{tr('qrLogin.expiresIn', { time: `${minutes}:${seconds}` })}</Text>
-              </>
+              <Text style={{ color: t.text2, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{tr('qrLogin.openScannerHint')}</Text>
             ) : phase === 'error' ? (
               <Text style={{ color: t.danger, fontSize: 13.5, lineHeight: 20, textAlign: 'center' }}>{statusLabel}</Text>
             ) : phase === 'generating' ? null : (

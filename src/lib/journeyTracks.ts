@@ -6,7 +6,7 @@
 // itinerary chain can draw itself along them instead of asking for a road.
 
 import type { Poi } from '../data/pois';
-import { measureTrack, positionAtDistance, type Coordinate, type TrackMeasure } from './routeSegments';
+import { distanceMeters, measureTrack, positionAtDistance, projectOnTrack, type Coordinate, type TrackMeasure } from './routeSegments';
 
 export interface JourneyTrackPoint {
   name: string;
@@ -81,6 +81,22 @@ function toTrack(source: TrackBearing, id: string): JourneyTrack | null {
 /** Height at a distance along the track, when the file carries heights. */
 export function elevationAtMeters(track: JourneyTrack, meters: number): number | undefined {
   return elevationAt(track.elevation, meters / 1000);
+}
+
+/** Preserve the map tap exactly; projection supplies only the associated track
+ * distance. A nearby campsite need not sit on the recorded GPS line.
+ */
+export function trackPointAtCoordinate(track: JourneyTrack, coordinate: Coordinate): Omit<JourneyTrackPoint, 'name'> | null {
+  const position = projectOnTrack(track.measure, coordinate);
+  if (!position) return null;
+  return {
+    coordinate,
+    meters: position.distanceMeters,
+    // A recorded height belongs to the track, not to an arbitrary nearby place.
+    elevation: distanceMeters(coordinate, position.coordinate) <= 1
+      ? elevationAtMeters(track, position.distanceMeters)
+      : undefined,
+  };
 }
 
 /**

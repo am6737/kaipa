@@ -148,6 +148,7 @@ function timers() {
 
 function loadGlobe() {
   const { queue, globals } = timers();
+  const animations = [];
   // Every render is observed, including the ones a setState inside an event
   // handler starts: the transitions under test are driven that way.
   let latest = null;
@@ -160,9 +161,9 @@ function loadGlobe() {
       Animated: {
         Value: class { constructor(value) { this.value = value; } setValue(value) { this.value = value; } },
         View: 'Animated.View',
-        delay: () => ({ start() {} }),
-        timing: () => ({ start() {} }),
-        sequence: () => ({ start() {} }),
+        delay: (delay) => ({ delay, start() {} }),
+        timing: (value, options) => ({ value, options, start() {} }),
+        sequence: (steps) => ({ start() { animations.push(steps); } }),
       },
       Easing: { out: (fn) => fn, cubic: (t) => t },
       Platform: { OS: 'ios' },
@@ -177,7 +178,7 @@ function loadGlobe() {
     // the pin memo must survive.
     '../maps/extent': loadExtent(),
     '../maps/types': { isValidMapCoordinate, keepValidCoordinates: (coords) => (coords ?? []).filter(isValidMapCoordinate) },
-    '../StaggerIn': { STAGGER_MAX_DELAY_MS: 0, STAGGER_STEP_MS: 0 },
+    '../StaggerIn': { STAGGER_MAX_DELAY_MS: 660, STAGGER_STEP_MS: 55 },
     './CurrentLocationMarker': { CurrentLocationMarker: 'CurrentLocationMarker' },
     './PhotoPin': {
       PhotoPin: 'PhotoPin',
@@ -199,6 +200,7 @@ function loadGlobe() {
       return latest;
     },
     get markers() { return latest.props.markers; },
+    animations,
     flushTimers() { api.flushTimers(queue); },
   };
 }
@@ -446,6 +448,60 @@ const pressPin = (globe, key) => {
   marker.onPress();
 };
 
+const pinAlpha = (globe, key) => {
+  const marker = globe.markers.find((entry) => entry.id === `poi-${key}`);
+  return marker.content.props.children[0].props.style.opacity.value;
+};
+
+test('first map mount requests visibility even when the catalog already loaded', () => {
+  const globe = loadGlobe();
+  const api = { current: null };
+  let readyCalls = 0;
+  globe.render(baseProps({
+    pinVisibilityApi: api,
+    onPinVisibilityReady: () => {
+      readyCalls++;
+      api.current.apply(new Set(['explore:p1', 'explore:p2']));
+    },
+  }));
+  assert.equal(readyCalls, 1);
+  assert.equal(pinAlpha(globe, 'explore:p1'), 1);
+  assert.equal(pinAlpha(globe, 'memory:p3'), 0);
+});
+
+test('route data arriving after visibility was applied reveals the requested layer', () => {
+  const globe = loadGlobe();
+  const api = { current: null };
+  globe.render(baseProps({ pois: [], pinVisibilityApi: api }));
+  // The inactive map can skip the render that carried these route records.
+  api.current.apply(new Set(['explore:p1', 'explore:p2']));
+  globe.render(baseProps({ pinVisibilityApi: api }));
+  assert.equal(pinAlpha(globe, 'explore:p1'), 1);
+  assert.equal(pinAlpha(globe, 'explore:p2'), 1);
+  assert.equal(pinAlpha(globe, 'memory:p3'), 0);
+});
+
+test('late-mounted route pins preserve the pending stagger animation', () => {
+  const globe = loadGlobe();
+  const api = { current: null };
+  globe.render(baseProps({ pois: [], pinVisibilityApi: api }));
+  api.current.apply(new Set(['explore:p1', 'explore:p2']), { stagger: true });
+  globe.render(baseProps({ pinVisibilityApi: api }));
+  assert.equal(pinAlpha(globe, 'explore:p1'), 0, 'first pin awaits its animation');
+  assert.equal(pinAlpha(globe, 'explore:p2'), 0, 'second pin must not appear immediately');
+  assert.equal(pinAlpha(globe, 'memory:p3'), 0);
+  assert.deepEqual(globe.animations.map((steps) => steps[0].delay), [0, 55]);
+  assert.ok(globe.animations.every((steps) => steps[1].options.toValue === 1));
+  api.current.apply(new Set(['explore:p1', 'explore:p2']), { stagger: false });
+  assert.equal(globe.animations.length, 2, 'resync must not restart the entrance');
+  assert.equal(pinAlpha(globe, 'explore:p2'), 0, 'resync must not bypass the running animation');
+});
+
+test('an empty catalog does not consume the first mode entrance', () => {
+  const discover = fs.readFileSync('src/screens/DiscoverScreen.tsx', 'utf8');
+  assert.match(discover, /if \(visiblePinKeys\.size > 0\) pushedModeRef\.current = subTab;/);
+});
+
 test('a press the rail blocks is re-attributed to the visible pin under the frame', () => {
   const { globe, api, pressed } = globeWithRail();
   api.current.apply(new Set(['memory:shown', 'memory:far']));
@@ -472,4 +528,3 @@ test('a visible pin still presses itself, rail or no rail', () => {
   pressPin(globe, 'memory:shown');
   assert.deepEqual(pressed, ['shown']);
 });
-

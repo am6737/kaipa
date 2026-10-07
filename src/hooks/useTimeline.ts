@@ -196,7 +196,8 @@ export function useTimeline(
   const add = async (item: Omit<TLRow, 'id'>): Promise<string | undefined> => {
     if (!journeyId || !userId) return undefined;
     const id = 'c_' + Math.random().toString(36).slice(2, 10);
-    const optimistic: TLRow = { ...item, id };
+    const sortOrder = Math.max(-1, ...state.rows.map((row) => row.sortOrder ?? -1)) + 1;
+    const optimistic: TLRow = { ...item, id, sortOrder };
     setState(key, (s) => ({
       ...s,
       rows: [...s.rows, optimistic],
@@ -208,7 +209,7 @@ export function useTimeline(
       p_id: id,
       p_journey_id: journeyId,
       p_is_new: true,
-      p_fields: { ...itemFields(item), sortOrder: state.rows.length },
+      p_fields: { ...itemFields(item), sortOrder },
       });
       if (error) throw error;
       const saved = toTLRow(data);
@@ -318,5 +319,27 @@ export function useTimeline(
     });
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup };
+  const reorder = async (day: string, ids: string[]) => {
+    if (!journeyId || !userId || preview) throw new Error('Timeline is not editable');
+    const previous = new Map(getState(key).rows.filter((row) => row.day === day).map((row) => [row.id, row.sortOrder]));
+    if (ids.length !== previous.size || new Set(ids).size !== ids.length || ids.some((id) => !previous.has(id))) {
+      throw new Error('Timeline group changed; try again');
+    }
+    const positions = new Map(ids.map((id, index) => [id, index]));
+    setState(key, (s) => ({ ...s, rows: s.rows.map((row) => positions.has(row.id) ? { ...row, sortOrder: positions.get(row.id)! } : row) }));
+    try {
+      const { data, error } = await supabase.rpc('journey_reorder_timeline_items', {
+        p_journey_id: journeyId, p_day: day, p_ids: ids,
+      });
+      if (error) throw error;
+      const saved = new Map((data as any[]).map((row) => [row.id, row.sort_order as number]));
+      setState(key, (s) => ({ ...s, rows: s.rows.map((row) => saved.has(row.id) ? { ...row, sortOrder: saved.get(row.id)! } : row) }));
+    } catch (error) {
+      // Restore only the order: a simultaneous media/title edit must survive.
+      setState(key, (s) => ({ ...s, rows: s.rows.map((row) => previous.has(row.id) ? { ...row, sortOrder: previous.get(row.id) } : row) }));
+      throw error;
+    }
+  };
+
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder };
 }

@@ -12,6 +12,7 @@ export type {
   MapCoordinate,
   NativeMapHandle,
   NativeMapMarker,
+  NativeMapPoi,
   NativeMapPolyline,
   NativeMapProps,
   NativeMapStyle,

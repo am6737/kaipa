@@ -203,6 +203,7 @@ export function toNotif(r: any): Notif {
 export function toTLRow(r: any): TLRow {
   return {
     id: r.id,
+    sortOrder: r.sort_order ?? undefined,
     routeId: r.route_id ?? undefined,
     title: r.title,
     day: r.day,

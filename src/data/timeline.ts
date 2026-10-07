@@ -43,6 +43,7 @@ export interface TimelineLocation {
 
 export interface TLRow {
   id: string;
+  sortOrder?: number;
   routeId?: string;
   title: string;
   day: string;

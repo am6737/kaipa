@@ -19,6 +19,21 @@ the bottom of an otherwise full-screen map. Two rules that are easy to break:
   by dumping the content mid-view, so `MapGlobe` trades the *top* padding down
   first (`MAP_FRAME_MIN_BAND`) and the strip above the card stays the target.
 
+## First-load place pins
+
+The iOS visibility rail starts annotations at opacity zero. Visibility must be
+replayed when the map registers its API and when new annotations mount: route
+data and map mounting can arrive in either order. An inactive `Globe` skips
+renders, so the caller can send visibility while the map still has no pins.
+`DiscoverScreen` also reapplies visibility when it becomes active. Keep these
+handoffs without rebuilding the pin array on mode switches. Replay the pending
+stagger option as well as the visible keys; an empty catalog must not consume
+the first entrance. Otherwise the first route batch appears all at once.
+Regression cases
+live in `scripts/test-map-marker-rebuild.cjs` (catalog before map mount, and pins
+after the visibility command); they use a mocked map, so cold launch still needs
+device verification.
+
 ## Recorded-track polyline flickers during camera moves (MapKit limitation)
 
 **Symptom.** On iOS, a journey's recorded hiking track (the `discover-segment-*`
@@ -79,3 +94,32 @@ while the camera is moving and settles when it stops. The only true fix is to
 stop drawing the track as a vector `MKOverlay` — i.e. bake it into an
 image/tile overlay fed to MapKit's tile pipeline — which is a large, separate
 piece of work, not worth it unless the shimmer becomes a real UX complaint.
+
+## Track-point picker waypoint groups
+
+The full-screen itinerary picker enables `TrackMap.clusterWaypoints`. Nearby
+annotations combine into count badges at the current map zoom; zooming or
+pressing a badge reveals smaller groups. Badge presses only move the camera,
+while the complete waypoint list remains available for direct selection.
+`src/components/maps/waypointClusters.ts` groups in Mercator map pixels with fixed
+anchors, so a chain of nearby waypoints cannot swallow an entire long route.
+Each badge uses an actual member coordinate and sits above the line, keeping the
+polyline visible. Only annotations are grouped; track geometry and stored
+waypoint distances remain intact. Groups update at half-zoom steps to avoid
+rebuilding native annotations on every pinch frame. Check with
+`node --test scripts/test-waypoint-clusters.cjs`.
+
+## Selecting base-map places in the itinerary picker
+
+`NativeMap.onPoiPress` carries the provider's place name and coordinate, converted
+to WGS-84 once at the platform adapter. Android uses AMap's `onPressPoi`; iOS uses
+`onPoiClick`. Upstream react-native-maps 1.27.2 only implements that event for
+Google Maps, so `patches/react-native-maps+1.27.2.patch` enables MapKit selectable
+POI features on iOS 16+ and forwards their names/coordinates through the existing
+Fabric event. The app owns the place card; MapKit's callout is dismissed.
+Installing this iOS change requires a native rebuild, not a JavaScript refresh.
+Both adapters suppress the background tap that can follow a POI selection so it
+cannot overwrite the place with the finger's location. Plain background taps
+still preserve the exact tapped coordinate. Validate adapter events with
+`node --test scripts/test-map-poi-selection.cjs`; those mocked tests do not
+replace an iOS native build or real-device verification.

@@ -3,6 +3,7 @@
 // maps and the SVG fallback can place them geographically.
 
 import { Tone } from "./tones";
+import type { RouteGuideJourneyTemplate } from "./routeGuides";
 
 export const MAX_JOURNEY_PARTICIPANTS = 10;
 
@@ -40,6 +41,8 @@ export interface Companion {
 export interface Poi {
   id: string;
   kind: "route" | "journey";
+  /** Creation-only reference itinerary and packing payload; never a catalog field. */
+  planningTemplate?: RouteGuideJourneyTemplate;
   name: string;
   region: string;
   coord: string;

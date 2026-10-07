@@ -18,6 +18,7 @@ import { JourneyScreen } from './screens/JourneyScreen';
 import { GearScreen } from './screens/GearScreen';
 import { MeScreen } from './screens/MeScreen';
 import { BottomTabs } from './components/BottomTabs';
+import { MapPresentationProvider } from './components/maps/MapPresentationContext';
 import { ActionSheet } from './components/overlays/ActionSheet';
 import { AddRouteSheet } from './components/overlays/AddRouteSheet';
 import { NewJourneySheet, NJSharePanel } from './components/overlays/NewJourneySheet';
@@ -36,6 +37,11 @@ import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHi
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
+import { RouteGuidePage } from './components/discover/RouteGuidePage';
+import { RouteGuideImportRetry } from './components/discover/RouteGuideImportRetry';
+import type { RouteGuideJourneyTemplate } from './data/routeGuides';
+import { applyRouteGuideTemplate } from './lib/routeGuideImport';
+import { routeGuideCopy } from './components/discover/routeGuideCopy';
 import { AppAssistant } from './components/assistant/AppAssistant';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from './lib/journeyInvite';
@@ -43,11 +49,12 @@ import { joinJourneyByInvite } from './lib/journeyInvite';
 function AppShell() {
   countRender('AppShell');
   const theme = useTheme();
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
   const nav = useNav();
   const data = useData();
   const { userId, journeys } = data;
   const [trackLoading, setTrackLoading] = useState(false);
+  const [pendingGuideImport, setPendingGuideImport] = useState<{ journeyId: string; template: RouteGuideJourneyTemplate } | null>(null);
   const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
   const [passphrasePoi, setPassphrasePoi] = useState<typeof nav.sharePanel>(null);
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
@@ -184,6 +191,9 @@ function AppShell() {
           }}
         />
       )}
+      {nav.routeGuide && (
+        <RouteGuidePage key={nav.routeGuide.route.id} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} />
+      )}
       {nav.newJourneyOpen && (
         <NewJourneySheet
           key={`new-journey-${nav.newJourneyPreset?.id ?? 'blank'}`}
@@ -197,8 +207,18 @@ function AppShell() {
               nav.showToast(t('appShell.toastJourneyCreateFailed'));
               return false;
             }
+            let imported = false;
+            if (poi.planningTemplate) {
+              try {
+                await applyRouteGuideTemplate(saved.id, poi.planningTemplate);
+                imported = true;
+              } catch (error) {
+                console.warn('[RouteGuide] import failed:', error instanceof Error ? error.message : 'Unknown error');
+                setPendingGuideImport({ journeyId: saved.id, template: poi.planningTemplate });
+              }
+            }
             nav.closeNewJourney();
-            nav.showToast(t('appShell.toastJourneyCreated'));
+            nav.showToast(poi.planningTemplate ? routeGuideCopy[resolved][imported ? 'imported' : 'importFailed'] : t('appShell.toastJourneyCreated'));
             nav.openPoint(saved);
             return true;
           }}
@@ -405,6 +425,11 @@ function AppShell() {
         }}
       />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
+      {pendingGuideImport && nav.pointInfo?.id === pendingGuideImport.journeyId && !nav.blockingOverlayOpen ? <RouteGuideImportRetry
+        theme={theme} journeyId={pendingGuideImport.journeyId} template={pendingGuideImport.template}
+        onDone={() => { setPendingGuideImport(null); nav.showToast(routeGuideCopy[resolved].imported); }}
+        onDismiss={() => setPendingGuideImport(null)}
+      /> : null}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>
   );
@@ -423,7 +448,9 @@ function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAcco
         createJourney: data.createJourney,
       }}
     >
-      <AppShell />
+      <MapPresentationProvider>
+        <AppShell />
+      </MapPresentationProvider>
     </NavProvider>
   );
 }

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Dimensions, Share, StyleSheet, Text, View } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
+import { getRouteDemoGuides, getRouteGuidePlans } from '../../data/routeGuides';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
@@ -10,12 +11,18 @@ import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
+import { RouteGuideRow, RouteGuideSectionHeader, RouteReferencePlanCard, RouteWeatherCard } from './RouteGuideContent';
+import { routeGuideCopy } from './routeGuideCopy';
 
 export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void }) {
   const nav = useNav();
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
+  const c = routeGuideCopy[resolved];
   const route = nav.merged(poi);
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
+  const plans = useMemo(() => getRouteGuidePlans(route), [route.id, route.name]);
+  const guides = useMemo(() => getRouteDemoGuides(plans), [plans]);
+  const [selectedPlanId, setSelectedPlanId] = useState('day-hike');
 
 
   return (
@@ -56,6 +63,19 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         </View>
       ) : null}
 
+      <View style={{ marginTop: space.xxxl }}>
+        <RouteGuideSectionHeader theme={theme} title={c.conditions} />
+        <RouteWeatherCard theme={theme} lng={route.lng} lat={route.lat} onPress={() => nav.openRouteGuide({ route, view: 'weather' })} />
+        <View style={{ marginTop: space.lg, gap: space.xxs }}><Text style={{ color: theme.text2, fontSize: 12, lineHeight: 22 }}>{c.noReports}</Text><Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 21 }}>{c.noReportsHint}</Text></View>
+      </View>
+      <View style={{ marginTop: space.xxxl }}>
+        <RouteGuideSectionHeader theme={theme} title={c.plans} />
+        <RouteReferencePlanCard theme={theme} plans={plans} selectedId={selectedPlanId} onSelect={setSelectedPlanId} onOpen={(plan) => nav.openRouteGuide({ route, view: 'plan', planId: plan.id })} />
+      </View>
+      <View style={{ marginTop: space.xxxl }}>
+        <RouteGuideSectionHeader theme={theme} title={c.guides} action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
+        {guides.slice(0, 2).map((guide, index) => <View key={guide.id} style={{ borderBottomWidth: index === 0 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={guide} photoUri={route.photoUris?.[index] ?? route.photoUris?.[0]} onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} /></View>)}
+      </View>
       {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} /> : null}
       {onFeedback ? (
         <Press

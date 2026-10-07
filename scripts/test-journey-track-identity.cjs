@@ -31,8 +31,8 @@ function load(file) {
 }
 
 const segments = load('src/lib/routeSegments.ts');
-const { journeyTracks, trackForId } = load('src/lib/journeyTracks.ts');
-const { buildJourneyLegs } = load('src/lib/journeyStops.ts');
+const { journeyTracks, trackForId, trackPointAtCoordinate, trackLocation } = load('src/lib/journeyTracks.ts');
+const { buildJourneyLegs, buildJourneyStops } = load('src/lib/journeyStops.ts');
 const { measureTrack } = segments;
 
 // The same north-south line the legs test uses: known metres per vertex.
@@ -98,4 +98,27 @@ test('a re-imported track is not folded onto the route it no longer matches', ()
 test('one day listing the same route twice adds no track', () => {
   const tracks = journeyTracks(JOURNEY, [{ routeId: ROUTE.id }, { routeId: ROUTE.id }], [ROUTE]);
   assert.equal(tracks.length, 1);
+});
+
+
+test('an off-track map tap keeps its exact coordinate through selection and itinerary stops', () => {
+  const track = journeyTracks(JOURNEY, [], [ROUTE])[0];
+  const coordinate = [100.0004, 30.02];
+  const point = { name: '附近营地', ...trackPointAtCoordinate(track, coordinate) };
+  assert.deepEqual(point.coordinate, coordinate);
+  assert.ok(Math.abs(point.meters - track.measure.cumulativeMeters[2]) < 1);
+  const location = trackLocation(track, point);
+  assert.equal(location.longitude, coordinate[0]);
+  assert.equal(location.latitude, coordinate[1]);
+  assert.equal(location.trackId, track.id);
+  assert.equal(location.trackMeters, point.meters);
+  const stops = buildJourneyStops([{ id: 'camp', title: point.name, day: '第1天', location }], ['第1天']);
+  assert.deepEqual(stops[0].coordinate, coordinate);
+});
+
+test('a nearby map point does not inherit an elevation recorded on the track', () => {
+  const track = journeyTracks(JOURNEY, [], [ROUTE])[0];
+  track.elevation = [{ km: 0, ele: 1600 }];
+  assert.equal(trackPointAtCoordinate(track, [100.0004, 30.02]).elevation, undefined);
+  assert.equal(trackPointAtCoordinate(track, [100, 30.02]).elevation, 1600);
 });
