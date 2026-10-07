@@ -267,7 +267,12 @@ function researchStepTitle(step: ResearchStep) {
   if (key.includes('set_journey_map_location') || key.includes('set_itinerary_group_endpoints')) return '设置行程信息';
   if (key.includes('packing')) return '整理装备清单';
   if (key.includes('read_travel_guide')) return '读取攻略内容';
-  if (key === 'active_phase') return '规划处理';
+  // `active_phase` is a synthetic row added while the worker is between
+  // tool activities. Its text is the best available description of what the
+  // worker is doing (for example, the server-reported planning stage or the
+  // inferred phase from the last tool). Showing the fixed "规划处理" label
+  // made the progress indicator look stuck even though the phase had moved.
+  if (key === 'active_phase') return text || '规划处理';
   return step.status === 'running' ? '正在执行' : step.status === 'failed' ? '执行未完成' : '已完成';
 }
 
@@ -389,7 +394,14 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       }] : [];
       if (activity.status !== 'completed') return [searchStep, ...queryStep];
       const reports = searchReports(activity.output);
-      const providerSteps: ResearchStep[] = reports.map((report) => ({
+      // XHS/Douyin are optional research providers. Their temporary outage is
+      // retained in the activity output for diagnostics, but is too noisy to
+      // show as a user-facing failed step when the primary search completed.
+      const visibleReports = reports.filter((report) => !(
+        report.status === 'unavailable'
+        && (report.source === 'xhs' || report.source === 'douyin')
+      ));
+      const providerSteps: ResearchStep[] = visibleReports.map((report) => ({
         key: `${key}_${report.source}`,
         status: report.status === 'completed' ? 'completed' : 'failed',
         text: report.status === 'completed'
@@ -740,38 +752,21 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
 }
 
 function SourcesStrip({ theme, sources, title }: { theme: Theme; sources: AgentSource[]; title: string }) {
-  const { t } = useI18n();
   return (
     <View style={styles.sourcesWrap}>
       <Text style={[styles.supportLabel, { color: theme.text3 }]}>{title}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourcesContent}>
         {sources.map((source, index) => {
-          const verified = source.kind === 'fact';
-          const brandKind = verified ? undefined : sourceBrandKind(source.source, source.url);
+          const brandKind = sourceBrandKind(source.source, source.url);
           // A maintained fact may cite no page at all, so the chip is only
           // pressable when there is somewhere to go.
           const card = (
             <>
               <View style={styles.sourceTop}>
-                {verified
-                  ? <CheckCircle2 size={15} color={source.stale ? theme.danger : theme.accent} strokeWidth={1.8} />
-                  : brandKind
-                    ? <SourceBrandIcon kind={brandKind} />
-                    : <Globe2 size={15} color={theme.text3} strokeWidth={1.8} />}
-                {verified ? (
-                  <>
-                    <View style={[styles.sourcePill, { backgroundColor: source.stale ? theme.dangerSoft : theme.accentSoft }]}>
-                      <Text numberOfLines={1} style={[styles.sourcePillText, { color: source.stale ? theme.danger : theme.accent }]}>
-                        {source.stale ? t('agent.sourcesStale') : t('agent.sourcesVerified')}
-                      </Text>
-                    </View>
-                    {source.verifiedAt ? (
-                      <Text numberOfLines={1} style={[styles.sourceHost, { color: theme.text3 }]}>{source.verifiedAt.slice(0, 10)}</Text>
-                    ) : <View style={styles.sourceHost} />}
-                  </>
-                ) : (
-                  <Text numberOfLines={1} style={[styles.sourceHost, { color: theme.text3 }]}>{sourceHost(source.url)}</Text>
-                )}
+                {brandKind
+                  ? <SourceBrandIcon kind={brandKind} />
+                  : <Globe2 size={15} color={theme.text3} strokeWidth={1.8} />}
+                <Text numberOfLines={1} style={[styles.sourceHost, { color: theme.text3 }]}>{sourceHost(source.url)}</Text>
                 {source.url ? <ArrowUpRight size={14} color={theme.text3} strokeWidth={1.8} /> : null}
               </View>
               <Text numberOfLines={2} style={[styles.sourceTitle, { color: theme.text }]}>{source.title}</Text>
@@ -2348,8 +2343,6 @@ const styles = StyleSheet.create({
   sourcesContent: { paddingHorizontal: layout.pagePadding, gap: space.xs },
   sourceCard: { width: 220, height: 94, borderRadius: radius.card, padding: space.sm, justifyContent: 'space-between' },
   sourceTop: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
-  sourcePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill },
-  sourcePillText: { fontSize: 10.5, lineHeight: 13, fontWeight: '700', letterSpacing: 0 },
   sourceHost: { flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 15, letterSpacing: 0 },
   sourceTitle: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
   planPreview: { marginTop: space.lg, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.07)' },

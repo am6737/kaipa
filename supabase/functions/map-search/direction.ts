@@ -18,6 +18,8 @@ export interface PlannedLeg {
    *  errored, so the null carries no information and the client may ask again
    *  on the next open. true + null is AMap's verdict: there is no route here. */
   attempted: boolean;
+  distanceMeters?: number;
+  durationSeconds?: number;
 }
 
 export type AmapRequest = (path: string, params: URLSearchParams) => Promise<any>;
@@ -75,11 +77,23 @@ export async function planDirection(leg: DirectionRequest, amap: AmapRequest): P
   // Bus and shuttle legs plan as driving: the map is showing how the stops
   // connect, not which line to board, and transit needs a city id per request.
   const payload = await amap(`direction/${leg.mode}`, params);
-  const steps = payload?.route?.paths?.[0]?.steps;
+  const path = payload?.route?.paths?.[0];
+  const steps = path?.steps;
   const gcjPoints = (Array.isArray(steps) ? steps : []).flatMap((step: { polyline?: unknown }) => parseAmapPolyline(step?.polyline));
   if (gcjPoints.length < 2) return { id: leg.id, mode: leg.mode, coordinates: null, attempted: true };
   // AMap answers in GCJ-02; the itinerary and the map layer speak WGS-84.
-  return { id: leg.id, mode: leg.mode, coordinates: downsample(gcjPoints, DIRECTION_MAX_POINTS).map(gcj02ToWgs84), attempted: true };
+  // Keep the exact requested endpoints after conversion. A mixed leg may be
+  // joined to a recorded-track slice at a projected anchor; a few metres of
+  // AMap endpoint drift otherwise look like a gap between the two polylines.
+  const coordinates = downsample(gcjPoints, DIRECTION_MAX_POINTS).map(gcj02ToWgs84);
+  coordinates[0] = leg.from;
+  coordinates[coordinates.length - 1] = leg.to;
+  const distanceMeters = Number(path?.distance);
+  const durationSeconds = Number(path?.duration);
+  return { id: leg.id, mode: leg.mode, coordinates, attempted: true,
+    ...(Number.isFinite(distanceMeters) && distanceMeters >= 0 ? { distanceMeters } : {}),
+    ...(Number.isFinite(durationSeconds) && durationSeconds >= 0 ? { durationSeconds } : {}),
+  };
 }
 
 export function parseDirectionLegs(value: unknown): DirectionRequest[] {

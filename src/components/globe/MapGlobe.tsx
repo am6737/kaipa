@@ -37,6 +37,32 @@ const MIN_TRACK_ENDPOINT_PIXELS = 100;
 // that switching the kilometre labels off rebuilt all 85 pin markers.
 const NO_MARKERS: NativeMapMarker[] = [];
 
+// Daily distance cards are anchored at the middle of each day's route. When
+// two short days end up in the same area, their native annotations otherwise
+// occupy the same rectangle and the later one hides the earlier one. Keep the
+// cards at their real map positions, but stack only the cards that are close
+// enough to collide. The threshold is deliberately in degrees rather than
+// pixels: it is a conservative geographic cluster that works before the map
+// has reported its first zoom as well as after a refit.
+const DAY_LABEL_CLUSTER_DEGREES = 0.035;
+const DAY_LABEL_STACK_GAP = 6;
+
+function dayLabelStackIndex(
+  labels: ReadonlyArray<{ coordinate: [number, number] }>,
+  index: number,
+): number {
+  const [longitude, latitude] = labels[index].coordinate;
+  let stack = 0;
+  for (let previous = 0; previous < index; previous += 1) {
+    const [previousLongitude, previousLatitude] = labels[previous].coordinate;
+    const latitudeScale = Math.cos((latitude * Math.PI) / 180);
+    const dx = (longitude - previousLongitude) * latitudeScale;
+    const dy = latitude - previousLatitude;
+    if (Math.hypot(dx, dy) <= DAY_LABEL_CLUSTER_DEGREES) stack += 1;
+  }
+  return stack;
+}
+
 const MAP_FRAME_TOP_PADDING = 90;
 const MAP_FRAME_SIDE_PADDING = 54;
 // A card pulled all the way up leaves less room than the bottom padding asks
@@ -399,13 +425,15 @@ export default function MapGlobe({
 
   const polylines = useMemo<NativeMapPolyline[]>(() => {
     const values: NativeMapPolyline[] = [];
-    if (validFocusCoords && validFocusCoords.length >= 2 && !validFocusSegments?.length) {
+    // A supplied segment list owns track visibility, including an empty list
+    // after hiding every track. Raw coordinates can concatenate separate tracks.
+    if (validFocusCoords && validFocusCoords.length >= 2 && !validFocusSegments) {
       values.push({
         id: 'discover-focus-route',
         coordinates: drawAtDetail(validFocusCoords),
-        color: validFocusSegments?.length ? theme.trailFaint : theme.accent,
-        width: validFocusSegments?.length ? 3 : 4,
-        opacity: validFocusSegments?.length ? 0.5 : 1,
+        color: theme.accent,
+        width: 4,
+        opacity: 1,
       });
     }
     validFocusSegments?.forEach((segment, index) => values.push({
@@ -441,10 +469,13 @@ export default function MapGlobe({
 
   const distanceMarkers = useMemo<NativeMapMarker[]>(() => {
     if (!showDistanceMarkers || !validFocusCoords || validFocusCoords.length < 2) return NO_MARKERS;
+    // An explicitly empty segment list means every route track was hidden.
+    // Do not treat it as an omitted prop and fall back to the raw focus track:
+    // that would bring back the distance labels after the last track toggle is
+    // switched off.
+    if (validFocusSegments && validFocusSegments.length === 0) return NO_MARKERS;
     const values: NativeMapMarker[] = [];
-    const tracks = validFocusSegments && validFocusSegments.length > 1
-      ? validFocusSegments
-      : [{ id: 'route', coordinates: validFocusCoords }];
+    const tracks = validFocusSegments ?? [{ id: 'route', coordinates: validFocusCoords }];
     tracks.forEach((track) => {
       const measure = measureTrack(track.coordinates);
       if (!measure || measure.totalMeters < 1000) return;
@@ -612,17 +643,19 @@ export default function MapGlobe({
       });
     });
 
-    validJourneyDayLabels?.forEach((label) => {
+    validJourneyDayLabels?.forEach((label, index) => {
+      const stackIndex = dayLabelStackIndex(validJourneyDayLabels, index);
+      const stackOffset = stackIndex * (styles.dayLabel.height + DAY_LABEL_STACK_GAP);
       values.push({
         id: `journey-day-${label.day}`,
         coordinate: label.coordinate,
         // The mileage describes the road, so the coordinate stays at the arc
         // midpoint and only the pill lifts off the line. Each platform has its
         // own prop for that: `anchor` is Android-only, `centerOffset` is the
-        // MapKit one, and both are asked to put the pill's bottom edge on the
-        // point, which is half its height above the centre.
-        anchor: { x: 0.5, y: 1 },
-        centerOffset: { x: 0, y: -styles.dayLabel.height / 2 },
+        // MapKit one. A clustered card gets one extra row of lift on both
+        // platforms, keeping the two days readable without changing the route.
+        anchor: { x: 0.5, y: 1 + stackOffset / styles.dayLabel.height },
+        centerOffset: { x: 0, y: -styles.dayLabel.height / 2 - stackOffset },
         onPress: () => onJourneyDayLabelPressRef.current?.(label.day),
         content: (
           <Pressable
@@ -649,7 +682,7 @@ export default function MapGlobe({
     // The track's own endpoints only earn a marker once the route is big on
     // screen; zoomed out they compete with the itinerary dots.
     if (trackEndpointsVisible) {
-      if (validFocusSegments && validFocusSegments.length > 1) {
+      if (validFocusSegments) {
         validFocusSegments.forEach((segment, index) => {
           const start = segment.coordinates[0];
           const end = segment.coordinates[segment.coordinates.length - 1];

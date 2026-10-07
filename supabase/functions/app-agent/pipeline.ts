@@ -1253,10 +1253,14 @@ async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: 
   const failed = results.save?.failed || [];
   const packingFailed = results.packing && !['committed', 'skipped'].includes(results.packing.status);
   const complete = saved.length > 0 && failed.length === 0 && !results.plan.blocker && !packingFailed;
+  const packingPartial = results.packing?.status === 'committed' && results.packing.issues.length > 0;
+  const text = packingPartial
+    ? '行程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
+    : complete ? '行程规划已完成并保存。' : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。';
   return assistantOutput.parse({
-    text: complete ? '行程规划已完成并保存。' : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。',
+    text,
     pendingQuestion: results.plan.pendingQuestion,
-    blocker: results.plan.blocker || (failed.length ? '部分规划内容保存失败。' : packingFailed ? '装备清单尚未完整生成。' : null),
+    blocker: results.plan.blocker || (failed.length ? '部分规划内容保存失败。' : packingFailed ? '装备清单尚未完整生成。' : packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null),
     offerJourneyExtras: complete,
     travelContext: null,
   });

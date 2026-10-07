@@ -21,7 +21,11 @@ export function JourneyVersionHistoryPage({ theme, poi, onBack }: { theme: Theme
 
   const openPreview = (version: JourneyVersion) => {
     const previewPoi = toJourneyPoi(
-      { ...version.snapshot.journey, mine: false },
+      {
+        ...version.snapshot.journey,
+        ...(version.snapshot.track ? { tracks: version.snapshot.track } : {}),
+        mine: false,
+      },
       version.snapshot.companions,
       data.userId,
     );

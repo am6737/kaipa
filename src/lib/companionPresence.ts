@@ -161,10 +161,12 @@ export function useSharingJourneyId(): string | null {
 // waiting for its own presence round-trip. The publisher writes here whenever
 // it has a fresh fix while sharing; the journey map draws it as a self pin.
 let lastSelfPresence: CompanionPresence | null = null;
+let lastKnownSelfPresence: CompanionPresence | null = null;
 const selfPresenceListeners = new Set<() => void>();
 
 export function setLastSelfPresence(presence: CompanionPresence | null) {
   lastSelfPresence = presence;
+  if (presence) lastKnownSelfPresence = presence;
   selfPresenceListeners.forEach((listener) => listener());
 }
 
@@ -177,4 +179,14 @@ export function useLastSelfPresence(): CompanionPresence | null {
     () => lastSelfPresence,
     () => lastSelfPresence,
   );
+}
+
+/** Last local fix, retained across a quick share toggle so the pin can be
+ * drawn immediately while the next GPS callback is warming up. */
+export function getLastSelfPresence(): CompanionPresence | null {
+  return lastKnownSelfPresence;
+}
+
+export function clearLastSelfPresenceHistory() {
+  lastKnownSelfPresence = null;
 }

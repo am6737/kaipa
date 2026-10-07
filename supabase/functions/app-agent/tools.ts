@@ -1273,6 +1273,23 @@ export const runCommitPackingDraft = (args: z.infer<typeof commitPackingDraftPar
   if (feedback.status !== 'ready') return feedback;
   return executePackingItems(writeArgs, runContext);
 });
+
+// Best-effort completion for background planning. A semantic problem in one
+// draft item must not discard otherwise usable checklist entries. Invalid
+// item rows are omitted; cross-list completeness (coverage/nutrition) remains
+// feedback for the caller instead of blocking the write.
+export const runCommitPackingDraftBestEffort = (args: z.infer<typeof commitPackingDraftParams>, runContext?: RunContext) => draftTool('commit_packing_draft_partial', args, runContext, async (client, context) => {
+  const saved = await readPackingDraft(client, context.runId);
+  if (!saved || saved.state.revision !== args.revision) throw new Error('draft_revision_conflict: read_packing_draft first');
+  const draft = saved.state;
+  const invalid = new Set(validatePackingItems(draft.items.map(item => item.value)).map(issue => issue.index));
+  const usable = draft.items.filter((_, index) => !invalid.has(index)).map(item => item.value);
+  if (!usable.length) return { added: 0, skippedInvalid: invalid.size };
+  // Incremental mode intentionally omits full-list coverage and nutrition
+  // gates; item-level validation above still protects the canonical writer.
+  const result = await executePackingItems({ journeyId: draft.journeyId, mode: 'incremental', planProfile: null, items: usable }, runContext);
+  return { ...(result as Record<string, unknown>), skippedInvalid: invalid.size };
+});
 export const commitPackingDraft = tool({
   name: 'commit_packing_draft',
   description: 'Atomically save the current validated packing draft to the personal checklist. Supply only its revision, never repeat items. Rechecks current data and uses version-checked writes. Existing successful commit receipts are reused after recovery.',

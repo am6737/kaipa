@@ -4,7 +4,7 @@
 import { z } from 'npm:zod@4.1.12';
 import { packingItem, packingPlanProfile, type PackingProfile } from './packing-schema.ts';
 import { draftFeedback, draftPatchSchema } from './packing-draft.ts';
-import { runCommitPackingDraft, runEstimatePersonalPacking, runPreparePackingDraft, runReadPackingDraft, runRepairPackingDraft } from './tools.ts';
+import { runCommitPackingDraft, runCommitPackingDraftBestEffort, runEstimatePersonalPacking, runPreparePackingDraft, runReadPackingDraft, runRepairPackingDraft } from './tools.ts';
 import { readAgentGear, readJourneySections } from './context.ts';
 import { boundJourneyId } from './save-stage.ts';
 import type { AgentContext } from './types.ts';
@@ -102,6 +102,18 @@ export async function runPackingStage(deps: PackingRunners & {
       feedback = next;
     }
     if (feedback.status !== 'ready') {
+      // Keep the useful part of a checklist even when a few rows or global
+      // completeness checks cannot be repaired. The partial writer drops
+      // only item-level invalid rows and deliberately ignores coverage and
+      // nutrition gates; those are reported as warnings to the response.
+      try {
+        const partial = await runCommitPackingDraftBestEffort({ revision: feedback.revision }, runContext) as { added?: number; skippedInvalid?: number };
+        if ((partial.added ?? 0) > 0) {
+          return { status: 'committed', revision: feedback.revision, itemCount: partial.added ?? 0, issues: feedback.issues };
+        }
+      } catch (error) {
+        return { status: 'failed', revision: feedback.revision, itemCount: feedback.itemCount, issues: feedback.issues, error: message(error) };
+      }
       return { status: 'needs_repair', revision: feedback.revision, itemCount: feedback.itemCount, issues: feedback.issues };
     }
     // The commit transaction compares the observed versions of every section

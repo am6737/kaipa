@@ -4441,6 +4441,7 @@
         "npm:expo-sharing@~56.0.26",
         "npm:expo-speech-recognition@56.0.1",
         "npm:expo-status-bar@~56.0.4",
+        "npm:expo-updates@~56.0.28",
         "npm:expo-video-thumbnails@~56.0.3",
         "npm:expo-video@~56.1.4",
         "npm:expo@~56.0.21",

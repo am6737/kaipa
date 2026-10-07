@@ -97,6 +97,8 @@ export interface PlannedLeg {
    *  errored, so the null says nothing about whether a road exists. Absent on
    *  a function older than this field, whose nulls were undifferentiated. */
   attempted?: boolean;
+  distanceMeters?: number;
+  durationSeconds?: number;
 }
 
 /** The function plans one AMap request per leg, so it takes a bounded batch. */

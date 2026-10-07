@@ -5,6 +5,7 @@ export type JourneyVersionKind = 'create' | 'update' | 'restore';
 
 export interface JourneyVersionSnapshot {
   journey: Record<string, unknown>;
+  track?: Record<string, unknown>;
   companions: Record<string, unknown>[];
   timelineGroups: Record<string, unknown>[];
   timelineRows: Record<string, unknown>[];
@@ -29,6 +30,7 @@ function mapVersion(row: any): JourneyVersion {
   const rawSnapshot = row.snapshot || {};
   const snapshot: JourneyVersionSnapshot = {
     journey: rawSnapshot.journey || rawSnapshot,
+    track: rawSnapshot.track && typeof rawSnapshot.track === 'object' ? rawSnapshot.track : undefined,
     companions: Array.isArray(rawSnapshot.companions) ? rawSnapshot.companions : [],
     timelineGroups: Array.isArray(rawSnapshot.timelineGroups) ? rawSnapshot.timelineGroups : [],
     timelineRows: Array.isArray(rawSnapshot.timelineRows) ? rawSnapshot.timelineRows : [],

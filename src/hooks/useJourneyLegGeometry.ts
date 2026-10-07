@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
-import type { JourneyLeg } from '../lib/journeyStops';
+import { composeJourneyLegGeometry, type JourneyLeg } from '../lib/journeyStops';
 import type { Coordinate } from '../lib/routeSegments';
 
 // Keyed by the coordinate pair rather than the row ids: reordering or editing a
@@ -11,7 +11,7 @@ const failedLegs = new Set<string>();
 
 function legSignature(leg: JourneyLeg) {
   const point = ([lng, lat]: Coordinate) => `${lng.toFixed(5)},${lat.toFixed(5)}`;
-  return `${leg.mode}:${point(leg.from)}:${point(leg.to)}`;
+  return `${leg.mode}:${point(leg.directionFrom ?? leg.from)}:${point(leg.directionTo ?? leg.to)}`;
 }
 
 // Without this a cold start re-planned every leg of every journey, because the
@@ -120,8 +120,8 @@ export function useJourneyLegGeometry(legs: JourneyLeg[], enabled: boolean): Rec
     void planJourneyDirections(requested.map((leg) => ({
       id: legSignature(leg),
       mode: leg.mode,
-      from: leg.from,
-      to: leg.to,
+      from: leg.directionFrom ?? leg.from,
+      to: leg.directionTo ?? leg.to,
     })), controller.signal, applyLeg)
       .catch(() => {
         // A journey that cannot be planned still shows its numbered stops.
@@ -135,7 +135,8 @@ export function useJourneyLegGeometry(legs: JourneyLeg[], enabled: boolean): Rec
   return useMemo(() => {
     const geometryByLeg: Record<string, Coordinate[]> = {};
     legs.forEach((leg) => {
-      const coordinates = leg.recordedGeometry ?? plannedGeometries.get(legSignature(leg));
+      const planned = plannedGeometries.get(legSignature(leg));
+      const coordinates = leg.recordedGeometry ?? (planned ? composeJourneyLegGeometry(leg, planned) : undefined);
       if (coordinates && coordinates.length >= 2) geometryByLeg[leg.id] = coordinates;
     });
     return geometryByLeg;

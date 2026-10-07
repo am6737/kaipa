@@ -5,6 +5,7 @@ import {
   distanceMeters,
   measureTrack,
   positionAtDistance,
+  projectOnTrack,
   trackSliceBetweenMeters,
   type Coordinate,
 } from './routeSegments';
@@ -33,16 +34,28 @@ export interface JourneyLeg {
   mode: 'driving' | 'walking';
   from: Coordinate;
   to: Coordinate;
-  /** Geometry recovered from a recorded track, when both stops share it. */
+  /** Road geometry already recorded on the transport row: nothing to plan. */
   recordedGeometry?: Coordinate[];
+  /**
+   * A mixed leg can enter or leave a recorded track through a short AMap
+   * bridge. The direction request uses these endpoints; the actual stop
+   * coordinates remain `from`/`to`.
+   */
+  directionFrom?: Coordinate;
+  directionTo?: Coordinate;
+  /** Recorded track pieces before/after the AMap bridge. */
+  recordedPrefix?: Coordinate[];
+  recordedSuffix?: Coordinate[];
+  /** Geometry shown while the bridge is still being planned. */
+  fallbackGeometry?: Coordinate[];
   /** Straight-line length: what decides walking versus driving above. */
   directMeters: number;
 }
 
-/** Two places inside the same day should not produce two pins when they sit on
- *  the same spot. Across days this merge deliberately does not apply: each
- *  group stands on its own, so dropping a day's first place because yesterday
- *  ended there would leave that day empty. */
+/** Two places inside the same day should not produce two pins — a transport row
+ *  and the place it points at usually sit on the same spot. Across days this
+ *  merge deliberately does not apply: each group stands on its own, so dropping
+ *  a day's first place because yesterday ended there would leave that day empty. */
 const SAME_PLACE_METERS = 50;
 
 function coordinateOf(row: TLRow): { coordinate: Coordinate; name: string; location?: TimelineLocation } | null {
@@ -85,8 +98,10 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
     const found = coordinateOf(row);
     if (!found) continue;
     const previous = stops[stops.length - 1];
-    // A track place means "here on the path", and the village POI next to it
-    // is a different place even when the two are only metres apart.
+    // The merge exists because a transport row and the place it points at are
+    // usually the same spot. A track place is not that: it means "here on the
+    // path", and the village POI next to it is a different place even when the
+    // two are metres apart.
     const mergeable = previous && previous.day === (row.day || undefined)
       && !previous.trackId && !found.location?.trackId
       && distanceMeters(previous.coordinate, found.coordinate) < SAME_PLACE_METERS;
@@ -108,6 +123,12 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
 }
 
 /**
+ * A "walk" leg beyond this is planned as a drive: AMap caps walking routes at
+ * 100 km, and a hop that long was not walked anyway.
+ */
+const MAX_WALKED_LEG_METERS = 5_000;
+
+/**
  * Legs join consecutive stops within one day group. A group is a route; the
  * hop from one group to the next is not part of either day's plan, so nothing
  * is drawn for it and the day that has no travel of its own has no mileage.
@@ -119,8 +140,10 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
  */
 export function buildJourneyLegs(
   stops: JourneyStop[],
-  trackCoords?: (trackId: string) => Coordinate[] | undefined,
+  rowsOrTrack: Map<string, TLRow> | ((trackId: string) => Coordinate[] | undefined) | undefined,
+  maybeTrack?: (trackId: string) => Coordinate[] | undefined,
 ): JourneyLeg[] {
+  const trackCoords = typeof rowsOrTrack === 'function' ? rowsOrTrack : maybeTrack;
   const legs: JourneyLeg[] = [];
   for (let index = 1; index < stops.length; index += 1) {
     const from = stops[index - 1];
@@ -128,20 +151,105 @@ export function buildJourneyLegs(
     if (from.day !== to.day) continue;
     const directMeters = distanceMeters(from.coordinate, to.coordinate);
     const trackGeometry = trackGeometryFor(from, to, trackCoords);
+    const mixed = Boolean(from.trackId) !== Boolean(to.trackId);
+    const bridge = mixed ? buildTrackBridge(from, to, trackCoords) : null;
+    const fullRecordedGeometry = trackGeometry ?? undefined;
+    // Keep the existing walking semantics for any leg touching a recorded
+    // track; the new bridge only changes which endpoint AMap plans to, not the
+    // user's travel mode.
     const onSomeTrack = Boolean(from.trackId || to.trackId);
-    legs.push({
+    const mode = trackGeometry || onSomeTrack ? 'walking' : 'driving';
+    const leg: JourneyLeg = {
       id: `${from.rowId}->${to.rowId}`,
       day: to.day,
-      mode: trackGeometry || onSomeTrack
-        ? 'walking'
-        : 'driving',
+      mode,
       from: from.coordinate,
       to: to.coordinate,
-      recordedGeometry: trackGeometry ?? undefined,
+      recordedGeometry: fullRecordedGeometry,
       directMeters,
-    });
+    };
+    if (!fullRecordedGeometry && bridge) {
+      leg.directionFrom = bridge.directionFrom;
+      leg.directionTo = bridge.directionTo;
+      leg.recordedPrefix = bridge.recordedPrefix;
+      leg.recordedSuffix = bridge.recordedSuffix;
+      leg.fallbackGeometry = composeJourneyLegGeometry(leg, null);
+    }
+    legs.push(leg);
   }
   return legs;
+}
+
+const TRACK_BRIDGE_SNAP_METERS = 500;
+const COORDINATE_EPSILON = 1e-9;
+
+interface TrackBridge {
+  directionFrom: Coordinate;
+  directionTo: Coordinate;
+  recordedPrefix?: Coordinate[];
+  recordedSuffix?: Coordinate[];
+}
+
+function appendCoordinates(target: Coordinate[], coordinates?: Coordinate[]) {
+  coordinates?.forEach((coordinate) => {
+    const previous = target[target.length - 1];
+    if (previous
+      && Math.abs(previous[0] - coordinate[0]) <= COORDINATE_EPSILON
+      && Math.abs(previous[1] - coordinate[1]) <= COORDINATE_EPSILON) return;
+    target.push(coordinate);
+  });
+}
+
+/** Compose an AMap bridge and any recorded-track pieces into one connected line. */
+export function composeJourneyLegGeometry(leg: JourneyLeg, directionGeometry: Coordinate[] | null): Coordinate[] {
+  if (leg.recordedGeometry?.length) return leg.recordedGeometry;
+  const coordinates: Coordinate[] = [];
+  appendCoordinates(coordinates, leg.recordedPrefix ?? [leg.from]);
+  appendCoordinates(coordinates, directionGeometry ?? [leg.directionFrom ?? leg.from, leg.directionTo ?? leg.to]);
+  appendCoordinates(coordinates, leg.recordedSuffix ?? [leg.to]);
+  return coordinates;
+}
+
+function trackForStop(
+  stop: JourneyStop,
+  trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
+) {
+  if (!trackCoords || !stop.trackId || stop.trackMeters == null) return null;
+  const coordinates = trackCoords(stop.trackId);
+  const measure = measureTrack(coordinates);
+  if (!measure || !trackLengthMatches(measure, stop.trackLengthMeters)) return null;
+  return measure;
+}
+
+/**
+ * Build the hybrid part of a mixed leg when the non-track place is close to the
+ * recorded path. The short AMap bridge ends at the projected track point, and
+ * the rest of the leg follows the original track instead of asking AMap to
+ * invent a route through a hiking trail.
+ */
+function buildTrackBridge(
+  from: JourneyStop,
+  to: JourneyStop,
+  trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
+): TrackBridge | null {
+  const fromOnTrack = Boolean(from.trackId && from.trackMeters != null);
+  const toOnTrack = Boolean(to.trackId && to.trackMeters != null);
+  if (fromOnTrack === toOnTrack) return null;
+  const trackStop = fromOnTrack ? from : to;
+  const otherStop = fromOnTrack ? to : from;
+  const measure = trackForStop(trackStop, trackCoords);
+  if (!measure) return null;
+  const projected = projectOnTrack(measure, otherStop.coordinate);
+  if (!projected || distanceMeters(projected.coordinate, otherStop.coordinate) > TRACK_BRIDGE_SNAP_METERS) return null;
+
+  const recorded = fromOnTrack
+    ? trackSliceBetweenMeters(measure, from.trackMeters as number, projected.distanceMeters)
+    : trackSliceBetweenMeters(measure, projected.distanceMeters, to.trackMeters as number);
+
+  if (!recorded || recorded.length < 2) return null;
+  return fromOnTrack
+    ? { directionFrom: projected.coordinate, directionTo: to.coordinate, recordedPrefix: recorded }
+    : { directionFrom: from.coordinate, directionTo: projected.coordinate, recordedSuffix: recorded };
 }
 
 /** The track slice between two of its places, or nothing to fall back on. */
@@ -182,7 +290,7 @@ export function measureJourneyDays(
   legs.forEach((leg) => {
     if (!leg.day) return;
     const coordinates = byDay.get(leg.day) ?? [];
-    coordinates.push(...(geometryByLeg[leg.id] ?? [leg.from, leg.to]));
+    coordinates.push(...(geometryByLeg[leg.id] ?? leg.fallbackGeometry ?? [leg.from, leg.to]));
     byDay.set(leg.day, coordinates);
   });
   const measured: JourneyDayDistance[] = [];

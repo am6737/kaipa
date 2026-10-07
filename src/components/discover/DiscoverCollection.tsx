@@ -7,6 +7,7 @@ import { Poi } from '../../data/pois';
 import { AppCard, layout, radius, space, type } from '../../design-system';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
+import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 import { Press } from '../Press';
 import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
 
@@ -136,9 +137,14 @@ export function DiscoverRouteCard({ theme, poi, onPress, onFeedback, feedbackLab
     <View style={{ borderRadius: radius.card }}>
       <Press onPress={onPress} style={{ borderRadius: radius.card }}>
         <View style={{ flexDirection: 'row', minHeight: 100, gap: space.sm, alignItems: 'flex-start' }}>
-          <PhotoTile tone={poi.tone} seed={poi.id} radius={radius.card} resWidth={280} style={{ width: 92, height: 92, flexShrink: 0 }}>
-            {poi.photoUris?.[0] ? <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-          </PhotoTile>
+          <RoutePhotoCarousel
+            theme={theme}
+            photos={poi.photoUris}
+            width={92}
+            height={92}
+            radius={radius.card}
+            fallback={<PhotoTile tone={poi.tone} seed={poi.id} radius={radius.card} resWidth={280} style={StyleSheet.absoluteFill} />}
+          />
           <View style={{ flex: 1, minWidth: 0, minHeight: 92, justifyContent: 'space-between' }}>
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
@@ -151,7 +157,7 @@ export function DiscoverRouteCard({ theme, poi, onPress, onFeedback, feedbackLab
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
               <RouteStatPill theme={theme} text={poi.dist} mono />
               <RouteStatPill theme={theme} text={`↑ ${poi.asc.replace('+', '')}`} mono />
-              {poi.diff ? <RouteStatPill theme={theme} text={poi.diff} accent /> : null}
+              {poi.diff ? <RouteStatPill theme={theme} text={poi.diff} /> : null}
             </View>
           </View>
         </View>

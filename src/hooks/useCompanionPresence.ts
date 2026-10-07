@@ -32,6 +32,9 @@ import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 import {
   setLastSelfPresence,
+  getLastSelfPresence,
+  clearLastSelfPresenceHistory,
+  getSharingJourneyId,
   setSharingJourneyId,
   useLastSelfPresence,
   useSharingJourneyId,
@@ -53,6 +56,15 @@ const PRESENCE_REBROADCAST_MS = 30_000;
 // in a car or a cable car to the trailhead. Eight seconds keeps the worst case at
 // four tracks a window, keep-alive included, under that ceiling.
 const MIN_TRACK_GAP_MS = 8_000;
+
+// A rapid off/on on the same journey creates two publisher effects before the
+// realtime untrack from the first one has completed. Keep the old cleanup from
+// clearing the new publisher's local pin or untracking its presence.
+let publisherGeneration = 0;
+type PendingUntrack = { promise: Promise<unknown>; cancel: () => void };
+const pendingUntracks = new Map<string, PendingUntrack>();
+const UNTRACK_DEBOUNCE_MS = 8_000;
+const lastTrackedByJourney = new Map<string, CompanionPresence>();
 
 function metersBetween(a: CompanionPresence, bLng: number, bLat: number) {
   // Flat-earth at journey scales; a city-block error is not worth a haversine.
@@ -94,21 +106,33 @@ export function usePresencePublisher(userId: string | null) {
       // would hand its position to a journey it is not part of, while the switch
       // on that journey's card shows off.
       setSharingJourneyId(null);
+      clearLastSelfPresenceHistory();
       return;
     }
     if (!sharingJourneyId) return;
     const publisherId = userId;
+    const generation = ++publisherGeneration;
+    const priorPendingUntrack = pendingUntracks.get(sharingJourneyId);
+    // A new share supersedes a delayed cleanup from the previous share. This
+    // is also what keeps rapid toggles below the Realtime Presence call limit.
+    priorPendingUntrack?.cancel();
+    const priorUntrack = priorPendingUntrack?.promise;
+    if (priorPendingUntrack) pendingUntracks.delete(sharingJourneyId);
     const bus = acquireBus(sharingJourneyId);
     let disposed = false;
     let positionSub: Location.LocationSubscription | null = null;
-    let latest: CompanionPresence | null = null;
+    const cachedSelf = getLastSelfPresence();
+    let latest: CompanionPresence | null = cachedSelf
+      ? { ...cachedSelf, seenAt: Date.now() }
+      : null;
     let lastBroadcastAt = 0;
+    let untrackSettled = !priorUntrack;
 
     const broadcast = (force = false) => {
       // subscribed is only ever set by the join callback of a real channel, so
       // the null test is for the type, not for a race.
       const channel = bus.channel;
-      if (!channel || !bus.subscribed || !latest) return;
+      if (!channel || !bus.subscribed || !latest || !untrackSettled) return;
       const now = Date.now();
       if (now - lastBroadcastAt < (force ? MIN_TRACK_GAP_MS : PRESENCE_REBROADCAST_MS)) return;
       lastBroadcastAt = now;
@@ -122,7 +146,20 @@ export function usePresencePublisher(userId: string | null) {
         // toPresence, and a replay of an old fix deliberately keeps its age.)
         latest = { ...latest, fixedAt: now, seenAt: now };
       }
-      void channel.track(latest).catch(() => {});
+      const tracked = lastTrackedByJourney.get(sharingJourneyId);
+      const unchanged = tracked
+        && tracked.userId === latest.userId
+        && tracked.longitude === latest.longitude
+        && tracked.latitude === latest.latitude
+        && tracked.fixedAt === latest.fixedAt;
+      if (!unchanged) {
+        const payload = latest;
+        void channel.track(payload)
+          .then(() => {
+            lastTrackedByJourney.set(sharingJourneyId, payload);
+          })
+          .catch(() => {});
+      }
       setLastSelfPresence(latest);
     };
 
@@ -182,12 +219,28 @@ export function usePresencePublisher(userId: string | null) {
       });
     };
 
+    // Start the Android location watcher independently of the Realtime join.
+    // AMap/Android can take a moment to initialize (and a transient socket
+    // reconnect can take longer); tying the first GPS fix to SUBSCRIBED made
+    // the switch appear to do nothing whenever the channel was not ready yet.
+    // The watcher is still foreground-only and broadcast() remains gated by
+    // bus.subscribed, so this does not publish before the channel is joined.
+    void startWatch();
+
     const cancelReady = onBusReady(bus, () => {
       // On a (re)join: replay the presence the server dropped, then make sure
       // the location watch is running (it lapses while the app is suspended).
       if (latest) broadcast(true);
       void startWatch();
     });
+
+    if (priorUntrack) {
+      void priorUntrack.then(() => {
+        if (disposed) return;
+        untrackSettled = true;
+        broadcast(true);
+      });
+    }
 
     // Coming back to the foreground after a suspend the socket may still be up
     // but our last fix is now stale; republish the freshest one immediately.
@@ -200,14 +253,41 @@ export function usePresencePublisher(userId: string | null) {
       positionSub?.remove();
       appStateSub.remove();
       cancelReady();
-      setLastSelfPresence(null);
-      if (bus.channel && bus.subscribed) {
+      const isCurrentPublisher = publisherGeneration === generation;
+      if (isCurrentPublisher) setLastSelfPresence(null);
+      // If a newer publisher is already sharing this same journey, its track
+      // may have replaced ours on the channel. Untracking here would make the
+      // map lose the new position after a quick off/on sequence.
+      const newerSameJourneyPublisher = !isCurrentPublisher
+        && getSharingJourneyId() === sharingJourneyId;
+      if (bus.channel && bus.subscribed && !newerSameJourneyPublisher) {
         // Stop publishing here, not by leaving the channel. The map usually
         // still holds a ref to this bus, so the channel outlives the toggle and
         // an un-untracked presence keeps showing this position to everyone in
         // the journey until a viewer's 30 minute drop; the local avatar vanishes
         // immediately either way, so nothing on this screen says it is lying.
-        void bus.channel.untrack().catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let resolveCancelled!: () => void;
+        const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
+        const untrack = new Promise<unknown>((resolve) => {
+          timer = setTimeout(() => {
+            void bus.channel?.untrack().catch(() => {}).then(() => {
+              lastTrackedByJourney.delete(sharingJourneyId);
+              resolve(undefined);
+            });
+          }, UNTRACK_DEBOUNCE_MS);
+        });
+        const pending: PendingUntrack = {
+          promise: Promise.race([untrack, cancelled]),
+          cancel: () => {
+            if (timer) clearTimeout(timer);
+            resolveCancelled();
+          },
+        };
+        pendingUntracks.set(sharingJourneyId, pending);
+        void pending.promise.then(() => {
+          if (pendingUntracks.get(sharingJourneyId) === pending) pendingUntracks.delete(sharingJourneyId);
+        });
       }
       releaseBus(sharingJourneyId, bus);
     };

@@ -1,0 +1,243 @@
+{
+  "stage": "plan",
+  "status": "completed",
+  "attempt": 1,
+  "artifact": {
+    "blocker": "两段路线间接驳尚无已核实的车辆、行驶时间和班次，且党岭、雅拉及桑措玉琼在 2026-09-25 后的现场放行、登记、封山及露营许可仍需确认；因此当前方案可作为 6 个徒步日的完整草案，但不能确认其可按 6 个连续自然日无缝完成。",
+    "journey": {
+      "days": 6,
+      "name": "党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）",
+      "region": "四川 · 甘孜",
+      "routeId": "trk008",
+      "description": "按三条已选路线 GPX 徒步日数编排：党岭三湖连穿 2 天、雅拉温泉线 3 天、桑措玉琼（嘉措琼吉）1 天；路线间交通和露营许可仍待现场确认。",
+      "plannedDate": "2026-09-25",
+      "trackAttachmentName": "党岭三湖连穿.kml"
+    },
+    "schedule": {
+      "totalDays": 6,
+      "plannedDate": "2026-09-25",
+      "dayAssignments": [
+        {
+          "from": "党岭三湖连穿",
+          "toDay": 1
+        },
+        {
+          "from": "雅拉温泉线",
+          "toDay": 3
+        },
+        {
+          "from": "桑措玉琼（嘉措琼吉）",
+          "toDay": 6
+        }
+      ]
+    },
+    "endpoints": [
+      {
+        "day": "Day 1",
+        "routeId": "trk008",
+        "waypointIndex": 54
+      },
+      {
+        "day": "Day 2",
+        "routeId": "trk008",
+        "trackFinish": true
+      },
+      {
+        "day": "Day 3",
+        "routeId": "trk065",
+        "waypointIndex": 3
+      },
+      {
+        "day": "Day 4",
+        "routeId": "trk065",
+        "waypointIndex": 9
+      },
+      {
+        "day": "Day 5",
+        "routeId": "trk065",
+        "trackFinish": true
+      },
+      {
+        "day": "Day 6",
+        "routeId": "trk043",
+        "trackFinish": true
+      }
+    ],
+    "transport": {
+      "origin": null,
+      "hikeEnd": 6,
+      "inbound": [],
+      "outbound": [],
+      "direction": "outbound",
+      "hikeStart": 1,
+      "trailStart": "党岭三湖连穿起点",
+      "unverified": [
+        "党岭三湖连穿、雅拉温泉线及桑措玉琼（嘉措琼吉）在出发日期的实际放行、登记和封山状态。",
+        "卓雍措营地、热浪谷营地及牛圈子营地的当期露营许可、容量、收费和现场可用性。",
+        "各营地及沿线自然水源的当前流量、可达性和饮用安全；必须过滤或净化。",
+        "高海拔天气、降雪、冰冻、雷雨及碎石泥泞路况，尤其是党岭高垭口和雅拉线高海拔路段。",
+        "路线间接驳是否需要增加自然日或中途住宿。",
+        "桑措玉琼起点一带柳林子营地的当期住宿、扎营及接驳安排。"
+      ],
+      "trailFinish": "桑措玉琼（嘉措琼吉）终点",
+      "reviewIssues": [
+        "党岭三湖连穿→雅拉温泉线的路线间接驳未提供已核实班次、耗时或车辆。",
+        "雅拉温泉线→桑措玉琼（嘉措琼吉）的路线间接驳未提供已核实班次、耗时或车辆。",
+        "6 个徒步日不包含路线间接驳及可能产生的中途住宿。"
+      ],
+      "arrivalBuffer": 0,
+      "departureBuffer": 0,
+      "vehicleRetrieval": null,
+      "returnDestination": null
+    },
+    "unverified": [
+      "ResearchBrief 中雅拉温泉线与桑措玉琼（嘉措琼吉）的交通信息只足以确认方向和接驳需求，不足以生成已验证的交通时刻。",
+      "路线资料中的部分营地、水源、费用和住宿信息来自历史或单一来源，未视为当前保证。",
+      "未将往返大交通、徒步前后住宿及路线间可能增加的接驳日计入 6 个徒步日。"
+    ],
+    "assumptions": [
+      "采用系统依据三条路线 GPX 徒步时长推算的 6 个徒步日：党岭三湖连穿 2 天、雅拉温泉线 3 天、桑措玉琼（嘉措琼吉）1 天。",
+      "6 天仅覆盖徒步日，不包含三条路线之间的接驳时间，也不安排往返大交通及徒步前后住宿。",
+      "每日徒步终点优先采用轨迹中的营地或终点标注；标注为营地的地点仅代表轨迹记录或资料中的候选，不等同于已确认的露营许可。",
+      "装备按高海拔、多日露营、可能低温降雨及碎石泥泞路况配置，饮水以自然水源过滤净化为前提。",
+      "2026-09-25 至 2026-09-30 为连续徒步日的日期映射；路线间接驳若无法在当日完成，需要顺延后续徒步日。",
+      "建议携带高海拔徒步装备：防水登山鞋、登山杖、防水冲锋衣裤、保暖层、帽手套、睡袋、帐篷、防潮垫、炉具燃料、滤水器或净水片、头灯、离线轨迹、急救包、个人药品、保温水壶、备用电池及垃圾袋。",
+      "系统按路线徒步时长、中转与必要缓冲估算 6 天：当前任务不安排往返大交通；路线间接驳需要根据实际起终点和当地车辆确认。"
+    ],
+    "mapLocation": {
+      "query": "党岭三湖连穿、雅拉温泉线、桑措玉琼（嘉措琼吉）",
+      "region": "四川 · 甘孜"
+    },
+    "itineraryItems": [
+      {
+        "day": "Day 1",
+        "kind": "activity",
+        "title": "党岭三湖连穿：起点→D5：卓雍措营地（9.179 km）",
+        "routeId": "trk008"
+      },
+      {
+        "day": "Day 1",
+        "kind": "stay",
+        "title": "露营候选：D5：卓雍措营地（约 4340 m）",
+        "routeId": null
+      },
+      {
+        "day": "Day 2",
+        "kind": "activity",
+        "title": "党岭三湖连穿：卓雍措营地→终点：卡尔杂（10.284 km）",
+        "routeId": "trk008"
+      },
+      {
+        "day": "Day 2",
+        "kind": "transport",
+        "title": "路线间接驳：党岭三湖连穿终点→雅拉温泉线起点",
+        "routeId": null,
+        "transport": {
+          "to": {
+            "name": "雅拉温泉线起点",
+            "source": "custom",
+            "address": null,
+            "latitude": null,
+            "longitude": null
+          },
+          "from": {
+            "name": "党岭三湖连穿终点",
+            "source": "custom",
+            "address": null,
+            "latitude": null,
+            "longitude": null
+          },
+          "mode": "unknown",
+          "note": "需现场确认车辆、路线、耗时及是否需要中途住宿。",
+          "source": "ResearchBrief TransportPlan；未核实具体班次",
+          "status": "unknown",
+          "geometry": [],
+          "distanceMeters": null,
+          "durationMinutes": null
+        }
+      },
+      {
+        "day": "Day 3",
+        "kind": "activity",
+        "title": "雅拉温泉线：起点→第一天营地（热浪谷）（13.247 km）",
+        "routeId": "trk065"
+      },
+      {
+        "day": "Day 3",
+        "kind": "stay",
+        "title": "露营候选：第一天营地（热浪谷）",
+        "routeId": null
+      },
+      {
+        "day": "Day 4",
+        "kind": "activity",
+        "title": "雅拉温泉线：热浪谷→第二天河边营地（牛圈子）（16.783 km）",
+        "routeId": "trk065"
+      },
+      {
+        "day": "Day 4",
+        "kind": "stay",
+        "title": "露营候选：第二天河边营地（牛圈子）",
+        "routeId": null
+      },
+      {
+        "day": "Day 5",
+        "kind": "activity",
+        "title": "雅拉温泉线：牛圈子→终点：温泉公园民宿（16.232 km）",
+        "routeId": "trk065"
+      },
+      {
+        "day": "Day 5",
+        "kind": "transport",
+        "title": "路线间接驳：雅拉温泉线终点→桑措玉琼（嘉措琼吉）起点",
+        "routeId": null,
+        "transport": {
+          "to": {
+            "name": "桑措玉琼（嘉措琼吉）起点",
+            "source": "custom",
+            "address": null,
+            "latitude": null,
+            "longitude": null
+          },
+          "from": {
+            "name": "雅拉温泉线终点",
+            "source": "custom",
+            "address": null,
+            "latitude": null,
+            "longitude": null
+          },
+          "mode": "unknown",
+          "note": "需现场确认两端车辆、道路、耗时及是否需要中途住宿。",
+          "source": "ResearchBrief TransportPlan；未核实具体班次",
+          "status": "unknown",
+          "geometry": [],
+          "distanceMeters": null,
+          "durationMinutes": null
+        }
+      },
+      {
+        "day": "Day 6",
+        "kind": "activity",
+        "title": "桑措玉琼（嘉措琼吉）：起点→终点（11.425 km 往返轨迹）",
+        "routeId": "trk043"
+      }
+    ],
+    "packingProfile": {
+      "conditions": [
+        "cold",
+        "wet",
+        "high_altitude"
+      ],
+      "waterRefill": "natural",
+      "accommodation": "camping",
+      "mealPreparation": "cook"
+    },
+    "pendingQuestion": null
+  },
+  "error": null,
+  "created_at": "2026-09-25T04:17:47.335007+00:00",
+  "updated_at": "2026-09-25T04:19:52.447+00:00",
+  "route_facts": null,
+  "route_fact_stats": null,
+  "route_fact_error": null
+}
