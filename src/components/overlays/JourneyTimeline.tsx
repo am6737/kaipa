@@ -183,6 +183,42 @@ function DayCollapseToggle({ theme, collapsed, onPress, label }: {
   );
 }
 
+function DragHandle({ theme, onDrop, label }: { theme: Theme; onDrop: (delta: number) => void; label: string }) {
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const responder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gesture) => draggingRef.current || Math.abs(gesture.dy) > 8,
+    onPanResponderGrant: () => {
+      timerRef.current = setTimeout(() => {
+        draggingRef.current = true;
+        setDragging(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }, 180);
+    },
+    onPanResponderMove: () => {},
+    onPanResponderRelease: (_, gesture) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      if (draggingRef.current) onDrop(Math.round(gesture.dy / 82));
+      draggingRef.current = false;
+      setDragging(false);
+    },
+    onPanResponderTerminate: () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      draggingRef.current = false;
+      setDragging(false);
+    },
+  })).current;
+  return (
+    <View {...responder.panHandlers} accessibilityRole="button" accessibilityLabel={label} style={{ width: 34, height: 42, alignItems: 'center', justifyContent: 'center', opacity: dragging ? 1 : 0.52 }}>
+      <Text style={{ color: dragging ? theme.accent : theme.text3, fontSize: 19, lineHeight: 20, letterSpacing: -3 }}>⋮⋮</Text>
+    </View>
+  );
+}
+
 const MAX_TL_MEDIA = 10;const fmtMins = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const HOUR_OPTS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: String(h).padStart(2, '0') }));
@@ -461,13 +497,14 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
 }
 
 // ── A collapsible day group: bold label, chevron when collapsible ─────────────
-function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, children }: {
+function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, headerAction, children }: {
   theme: Theme;
   label: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
   onBodyHeight?: (height: number) => void;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -485,6 +522,7 @@ function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeig
             <CollapseChevron theme={theme} collapsed={!!collapsed} />
           </View>
         ) : null}
+        {headerAction}
       </Pressable>
       <DayBody open={!collapsed} onHeightChange={onBodyHeight}>{children}</DayBody>
     </View>
@@ -1355,7 +1393,9 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
   const defaultDays = info.kind === 'journey'
     ? selectedDay != null
       ? [...(availableDays?.length ? availableDays : [selectedDay]), ...(selectedDay === '' ? [''] : [])]
-      : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
+      : tl.knownGroups.length
+        ? [...tl.knownGroups, ...(availableDays ?? []).filter((day) => !tl.knownGroups.includes(day))]
+        : Array.from({ length: defaultDayCount }, (_, index) => `Day ${index + 1}`)
     : [];
   const groups = groupJourneyRows(tl.rows, [...new Set([...defaultDays, ...tl.knownGroups])]);
   const dayLabel = (g: TLGroup) => g.label.trim() ? journeyDayDisplayLabel(g.label, resolved) : t(info.kind === 'journey' ? 'journey.timeline.pendingGroup' : 'journey.timeline.ungrouped');
@@ -1376,6 +1416,14 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
       t(isWriteBusy(error) ? 'journey.timeline.saveBusyTitle' : 'journey.timeline.reorderFailedTitle'),
       t(isWriteBusy(error) ? 'journey.timeline.saveBusyMessage' : 'journey.timeline.reorderFailedMessage'),
     );
+  };
+  const reorderGroup = (from: number, delta: number) => {
+    const to = Math.max(0, Math.min(groups.length - 1, from + delta));
+    if (to === from) return;
+    const ordered = groups.map((group) => group.key);
+    const [moved] = ordered.splice(from, 1);
+    ordered.splice(to, 0, moved);
+    void tl.reorderGroups(ordered).catch(reportReorderFailure);
   };
   const addNextDay = () => {
     const day = nextDayName();
@@ -1521,6 +1569,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               label={t(dayCollapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')}
             />
           ) : null}
+          {selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : null}
         </View>
 
         {rows.length ? (
@@ -1615,6 +1664,7 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
               onBodyHeight={(height) => { groupBodyHeights.current.set(g.key, height); }}
+              headerAction={selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : undefined}
             >
               {renderItems(g)}
             </DaySection>

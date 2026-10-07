@@ -122,7 +122,7 @@ export function TrackDetailPage({
       >
         <View style={{ paddingHorizontal: 24 }}>
           <View style={{ marginTop: 10 }}>
-            <Text style={{ fontSize: 27, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}>
+            <Text style={{ fontSize: 20, fontWeight: '800', letterSpacing: -0.3, color: theme.text }}>
               {track.name || t('tracks.untitled')}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, minWidth: 0 }}>

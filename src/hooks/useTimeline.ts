@@ -319,6 +319,24 @@ export function useTimeline(
     });
   };
 
+  const reorderGroups = async (orderedNames: string[]) => {
+    if (!journeyId || !userId) return;
+    const previous = state.knownGroups;
+    const next = [...orderedNames];
+    setState(key, (s) => ({ ...s, knownGroups: next }));
+    try {
+      const results = await Promise.all(next.map((name, sortOrder) =>
+        supabase.from('timeline_groups').update({ sort_order: sortOrder, updated_at: new Date().toISOString() })
+          .eq('journey_id', journeyId).eq('name', name),
+      ));
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    } catch (error) {
+      setState(key, (s) => ({ ...s, knownGroups: previous }));
+      throw error;
+    }
+  };
+
   const reorder = async (day: string, ids: string[]) => {
     if (!journeyId || !userId || preview) throw new Error('Timeline is not editable');
     const previous = new Map(getState(key).rows.filter((row) => row.day === day).map((row) => [row.id, row.sortOrder]));
@@ -341,5 +359,5 @@ export function useTimeline(
     }
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder };
+  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder, reorderGroups };
 }

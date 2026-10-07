@@ -1,10 +1,9 @@
 import type { TLGroup, TLRow } from '../data/timeline';
-import { journeyDayOrdinal } from './journeyDays';
 
 // The itinerary's display order is a single rule shared by the list and the
 // map, so the two can never disagree about which stop is "第3站".
 
-/** Group rows by `day`. Default day names sort by day index; custom names keep their first-seen order after numbered days. */
+/** Group rows by `day`, preserving the persisted group order supplied by the caller. */
 export function groupJourneyRows(rows: TLRow[], knownGroups: string[]): TLGroup[] {
   const map = new Map<string, { rows: TLRow[]; order: number }>();
   let order = 0;
@@ -16,14 +15,7 @@ export function groupJourneyRows(rows: TLRow[], knownGroups: string[]): TLGroup[
     else map.set(key, { rows: [r], order: order++ });
   }
   return [...map.entries()]
-    .sort((a, b) => {
-      const ai = journeyDayOrdinal(a[0]);
-      const bi = journeyDayOrdinal(b[0]);
-      if (ai != null && bi != null) return ai - bi;
-      if (ai != null) return -1;
-      if (bi != null) return 1;
-      return a[1].order - b[1].order;
-    })
+    .sort((a, b) => a[1].order - b[1].order)
     .map(([key, group]) => ({ key, label: key, rows: group.rows }));
 }
 
