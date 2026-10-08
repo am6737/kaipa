@@ -4,6 +4,7 @@ import type { zh } from "./zh";
 import type { SameShape } from "../types";
 
 export const en: SameShape<typeof zh> = {
+  app: { name: "kaipa" },
   membership: {
     meteringStart: 'AI and image service counts start on {date} and reset each calendar month.',
     products: 'Monthly, yearly and lifetime membership share the same benefits. Access is currently open and purchases are disabled.',

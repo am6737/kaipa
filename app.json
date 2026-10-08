@@ -12,9 +12,9 @@
       "appleTeamId": "G365J5PZA2",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Kaipa 需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。",
-        "NSSpeechRecognitionUsageDescription": "Kaipa 需要使用系统语音识别，以便将你的语音转换为文字。",
-        "NSMicrophoneUsageDescription": "Kaipa 需要使用麦克风，以便将你的语音转换为文字。",
+        "NSPhotoLibraryUsageDescription": "开爬需要访问你的相册，以便选择头像、装备与旅程图片，以及在 AI 对话中添加照片。",
+        "NSSpeechRecognitionUsageDescription": "开爬需要使用系统语音识别，以便将你的语音转换为文字。",
+        "NSMicrophoneUsageDescription": "开爬需要使用麦克风，以便将你的语音转换为文字。",
         "ITSAppUsesNonExemptEncryption": false
       },
       "userInterfaceStyle": "automatic"

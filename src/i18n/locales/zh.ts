@@ -7,6 +7,7 @@
 // as Chinese data and is intentionally not translated.
 
 export const zh = {
+  app: { name: "开爬" },
   membership: {
     meteringStart: 'AI 与图片服务次数自 {date} 起统计，按自然月重置。',
     products: '会员提供月、年和永久三种有效期，权益相同。目前免费开放，暂未开放购买。',
@@ -735,7 +736,7 @@ export const zh = {
       systemShare: "系统分享",
       exportFailed: "导出失败，请稍后重试",
       exportImageSaved: "图片已保存",
-      generatedBy: "由 Kaipa 生成",
+      generatedBy: "由开爬生成",
       deleteConfirmTitle: "删除「{name}」？",
       deleteConfirmMessage:
         "该清单会被移除，清单内的装备仍保留在装备库中。此操作不可撤销。",
@@ -1320,7 +1321,7 @@ export const zh = {
         "你仍然可以保留当前地点，或在支持地图的开发版本中选点。",
       locationMapUnavailable: "当前环境不支持地图选点",
       locationMapUnavailableSub:
-        "你仍然可以通过上方搜索选择地点。地图选点需要 Kaipa 开发版本。",
+        "你仍然可以通过上方搜索选择地点。地图选点需要开爬开发版本。",
       locationPermissionDenied:
         "未获得定位权限，可在系统设置中开启或直接搜索地点",
       locationCurrentFailed: "暂时无法获取当前位置",
@@ -1752,7 +1753,7 @@ export const zh = {
     notif: {
       pageTitle: "通知",
       push: "推送通知",
-      pushSub: "允许 kaipa 发送通知",
+      pushSub: "允许开爬发送通知",
       social: "同行动态",
       socialSub: "同行者更新行程、上传照片时提醒",
       system: "系统消息",
@@ -1792,7 +1793,7 @@ export const zh = {
       toastTermsOpened: "已打开用户协议",
       toastPrivacyOpened: "已打开隐私政策",
       toastUpToDate: "已是最新版本",
-      copyright: "© {year} kaipa · 山野徒步",
+      copyright: "© {year} 开爬 · 山野徒步",
     },
   },
   guest: {
@@ -2019,7 +2020,7 @@ export const zh = {
       wechat: "微信好友",
       linkCopied: "链接已复制",
       shareMessage: "邀请你查看「{tripName}」的旅程计划",
-      passphraseMessage: "打开 Kaipa，使用口令 {code} 查看「{tripName}」",
+      passphraseMessage: "打开开爬，使用口令 {code} 查看「{tripName}」",
     },
   },
 } as const;

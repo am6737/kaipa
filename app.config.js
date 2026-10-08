@@ -16,10 +16,23 @@
 const IS_DEV_VARIANT = process.env.APP_VARIANT === 'development';
 
 const variantId = (value) => (IS_DEV_VARIANT && value ? `${value}.dev` : value);
+const variantName = (value) => (IS_DEV_VARIANT ? `${value} dev` : value);
+const localizedName = (name) => ({
+  ios: { CFBundleDisplayName: variantName(name), CFBundleName: variantName(name) },
+  android: { app_name: variantName(name) },
+});
 
 module.exports = ({ config }) => ({
   ...config,
-  name: IS_DEV_VARIANT ? `${config.name} dev` : config.name,
+  name: variantName(config.name),
+  // Launcher names follow the OS language; in-app names follow useI18n().
+  locales: {
+    ...config.locales,
+    en: localizedName(config.name),
+    zh: localizedName('开爬'),
+    'zh-Hans': localizedName('开爬'),
+    'zh-Hant': localizedName('开爬'),
+  },
   userInterfaceStyle: 'automatic',
   ios: {
     ...config.ios,
@@ -46,34 +59,34 @@ module.exports = ({ config }) => ({
       {
         androidKey: process.env.AMAP_ANDROID_KEY || process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '',
         enableLocation: true,
-        locationDescription: 'Kaipa 需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
+        locationDescription: '开爬需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
       },
     ],
     [
       'expo-location',
       {
-        locationWhenInUsePermission: 'Kaipa 需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
+        locationWhenInUsePermission: '开爬需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
       },
     ],
     [
       'expo-image-picker',
       {
-        photosPermission: 'Kaipa 需要访问你的相册，以便选择装备图片或把照片和视频加入旅程瞬间。',
-        cameraPermission: 'Kaipa 需要使用相机，以便拍摄装备图片或旅程照片和视频。',
-        microphonePermission: 'Kaipa 在录制视频时需要使用麦克风。',
+        photosPermission: '开爬需要访问你的相册，以便选择装备图片或把照片和视频加入旅程瞬间。',
+        cameraPermission: '开爬需要使用相机，以便拍摄装备图片或旅程照片和视频。',
+        microphonePermission: '开爬在录制视频时需要使用麦克风。',
       },
     ],
     [
       'expo-media-library',
       {
-        photosPermission: 'Kaipa 需要访问你的相册，以便在 AI 对话中展示和选择最近照片。',
+        photosPermission: '开爬需要访问你的相册，以便在 AI 对话中展示和选择最近照片。',
         granularPermissions: ['photo'],
       },
     ],
     [
       'expo-camera',
       {
-        cameraPermission: 'Kaipa 需要使用相机，以便扫描二维码登录其他设备。',
+        cameraPermission: '开爬需要使用相机，以便扫描二维码登录其他设备。',
         microphonePermission: false,
         recordAudioAndroid: false,
       },
@@ -81,8 +94,8 @@ module.exports = ({ config }) => ({
     [
       'expo-speech-recognition',
       {
-        microphonePermission: 'Kaipa 需要使用麦克风，以便将你的语音转换为文字。',
-        speechRecognitionPermission: 'Kaipa 需要使用系统语音识别，以便将你的语音转换为文字。',
+        microphonePermission: '开爬需要使用麦克风，以便将你的语音转换为文字。',
+        speechRecognitionPermission: '开爬需要使用系统语音识别，以便将你的语音转换为文字。',
       },
     ],
     'expo-font',

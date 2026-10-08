@@ -38,7 +38,7 @@ export function AboutPage({
           >
             <Text style={{ fontSize: 38, fontWeight: '700', color: '#fff' }}>开</Text>
           </LinearGradient>
-          <Text style={[type.sectionTitle, { color: theme.text, marginTop: space.md }]}>kaipa</Text>
+          <Text style={[type.sectionTitle, { color: theme.text, marginTop: space.md }]}>{t('app.name')}</Text>
           <Text style={{ fontFamily: MONO, fontSize: 12, color: theme.text2, marginTop: space.xxs }}>v1.0.2 (220)</Text>
         </View>
         <MeCard theme={theme}>

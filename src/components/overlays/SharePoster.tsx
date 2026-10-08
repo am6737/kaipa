@@ -287,7 +287,7 @@ function JourneyDocument({
       ]}
     >
       <View style={styles.documentBrand}>
-        <Text style={styles.documentBrandText}>KAIPA</Text>
+        <Text style={styles.documentBrandText}>{t('app.name')}</Text>
       </View>
       <View style={styles.documentHeader}>
         <Text style={styles.documentTitle}>{poi.name}</Text>
