@@ -12,7 +12,6 @@ import { countRender } from '../lib/tabSwitchProbe';
 import { useData } from '../data/DataContext';
 import type { Poi } from '../data/pois';
 import { Press } from '../components/Press';
-import { AssistantMark } from '../components/assistant/AssistantMark';
 import { JourneyCreateMenu } from '../components/journey/JourneyCreateMenu';
 import { JourneyPlanCard, journeyStartDate, journeyStatus, type JourneyStatus } from '../components/journey/JourneyPlanCard';
 import { usePinnedJourneys } from '../components/journey/usePinnedJourneys';
@@ -232,9 +231,6 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
         )}
       >
         <View style={styles.header}>
-          <View style={styles.brandMark}>
-            <AssistantMark color={theme.accent} accentColor={theme.accent} size={29} />
-          </View>
           <View style={styles.headerActions}>
             <Press accessibilityRole="button" accessibilityLabel={t('search.placeholder')} onPress={() => nav.openSearch()} style={styles.headerButton}>
               <Search color={theme.text} size={25} strokeWidth={2.2} />
@@ -397,8 +393,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
-  header: { height: layout.iconButton, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  brandMark: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
+  header: { height: layout.iconButton, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   headerButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
   hero: { paddingHorizontal: layout.pagePadding, paddingTop: space.xxl, paddingBottom: space.xxl },

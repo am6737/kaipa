@@ -2145,7 +2145,6 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               >
                 <Icon name="photo" color={theme.text3} size={28} strokeWidth={1.65} />
                 <Text style={[type.cardTitle, { color: theme.text, marginTop: space.lg }]}>{t('journey.empty.moments')}</Text>
-                <Text style={[type.caption, { color: theme.text2, marginTop: space.xs, textAlign: 'center', lineHeight: 17 }]}>{t('journey.empty.momentsHint')}</Text>
               </View>
             )}
           </View>

@@ -3,8 +3,8 @@ import type { TravelContext } from './travel-context.ts';
 
 export const travelContextSchema: z.ZodType<TravelContext> = z.object({
   journeyId: z.string().nullable(),
-  origin: z.string().max(200).nullable().describe('Only the user-confirmed departure place. GPS and assistant suggestions are not confirmation.'),
-  returnDestination: z.string().max(200).nullable().describe('Only the user-confirmed return place; resolve same-as-origin to its concrete place.'),
+  origin: z.string().max(200).nullable().describe('Explicit user departure place, or the available current location used as the default departure. Never an invented assistant suggestion.'),
+  returnDestination: z.string().max(200).nullable().describe('Explicit return place or default departure place; resolve same-as-origin to its concrete place.'),
   direction: z.enum(['outbound', 'return', 'round_trip']).nullable(),
   preferences: z.array(z.string().max(200)).max(12),
   bookings: z.array(z.string().max(300)).max(12),

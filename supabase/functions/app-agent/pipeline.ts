@@ -1,3 +1,6 @@
+import { presentItinerary } from './itinerary-presentation.ts';
+import { addTrackDayLocations, type ItineraryTrack } from './itinerary-track-locations.ts';
+import { carryDailyStarts } from './itinerary-locations.ts';
 // Staged pipeline for the tasks that used to blow a single model-loop budget.
 //
 // A full plan is minutes of model work: research, an itinerary over a real
@@ -6,6 +9,8 @@
 // holding journey locks. Here each stage has its own budget, its own durable
 // artifact and its own retry, and the planner no longer loops freely: it emits
 // one declarative PlanDocument that deterministic code saves.
+import { resolveTravelRequest, travelIntake, travelContextFromRequest } from './travel-request.ts';
+import { collectMainTransport, mergeMainTransportItems, transportEndpointsSchema, type MainTransport } from './main-transport.ts';
 import { assistantOutput } from './agent.ts';
 import { planningSkills } from './skills.ts';
 import { travelContextSchema } from './travel-context-schema.ts';
@@ -13,7 +18,7 @@ import { planChunkSchema, planDocumentModelSchema, planDocumentSchema, planDraft
 import { boundJourneyId, runSaveStage, type SaveArtifact } from './save-stage.ts';
 import { contextPrompt, readJourneySections } from './context.ts';
 import { packingPatchModelSchema, packingProposalModelSchema, runPackingStage, type PackingArtifact } from './packing-stage.ts';
-import { allowGuideQueries, allowGuideReads, clearGuideQueries, getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, runReadTravelGuide, runReadTravelGuideImages, runSearchTravelWeb, searchRoutes, searchTransport, searchTravelWeb, bindStageDeadline, releaseStageDeadline } from './tools.ts';
+import { allowGuideQueries, allowGuideReads, clearGuideQueries, getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, runReadTravelGuide, runReadTravelGuideImages, runSearchTravelWeb, searchRoutes, searchTransport, searchTravelWeb, bindStageDeadline, releaseStageDeadline, runSearchTransport, runSearchGroundTransport } from './tools.ts';
 import { GUIDE_LIMITS } from './search/guide-reader.ts';
 import { journeyDayOrdinal } from './journey-days.ts';
 import { reviewTransportPlan } from './transport-review.ts';
@@ -22,7 +27,7 @@ import { overnightReviewSchema } from './hiking-boundaries.ts';
 import type { TaskDecision, TaskState } from './task.ts';
 import type { AgentContext } from './types.ts';
 import {
-  bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factsForRoute, isStaleReview, loadRouteFacts, routeFactSourcesFromArtifact, transportLegNote,
+  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factsForRoute, isStaleReview, loadRouteFacts, routeFactSourcesFromArtifact, transportLegNote,
   type RouteFactRow, type RouteFactSource, type RouteFactStats,
 } from './route-fact-sources.ts';
 
@@ -49,16 +54,16 @@ export type StageName = 'interpret' | 'research' | 'transport' | 'plan' | 'save'
 // pipeline_test asserts the sum invariant; the ceiling values themselves are the
 // part that needs fresh measurement, not guessing.
 export const STAGE_BUDGETS: Record<StageName, number> = {
-  interpret: 30_000,
+  interpret: 10_000,
   research: 120_000,
-  transport: 30_000,
+  transport: 90_000,
   plan: 180_000,
   // Saving may need one deterministic evidence downgrade plus a complete
   // versioned write round; 30s routinely aborted valid repairs mid-flight, and
   // the repair round is itself a tool-using model call.
   save: 90_000,
   packing: 150_000,
-  respond: 60_000,
+  respond: 10_000,
 };
 
 // Worker fetch timeout and job lease ceiling, mirrored from
@@ -135,6 +140,18 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   const interpret = await runStage({ name: 'interpret', state, pipeline, execute: async () => pipeline.task.decision });
   if (interpret.aborted) return aborted();
 
+  const needsMainTravel = pipeline.task.decision.fullHikingPlan === true && pipeline.task.decision.includeRoundTripTransport !== false;
+  const travelRequest = resolveTravelRequest(pipeline.task.decision.travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentLocation);
+  if (needsMainTravel) {
+    const intake = travelIntake(travelRequest, pipeline.context.currentLocation, pipeline.context.confirmedTravel?.locationDeclined, pipeline.context.locale);
+    pipeline.context.confirmedTravel = travelContextFromRequest(travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentJourneyId || null);
+    if (intake) return { aborted: false, finalOutput: assistantOutput.parse({
+      text: intake.question, pendingQuestion: intake.question, quickReplies: intake.quickReplies,
+      travelContext: pipeline.context.confirmedTravel, offerJourneyExtras: false,
+    }) };
+    pipeline.task.decision.travelRequest = travelRequest;
+  }
+
   const research = await runStage<ResearchBrief>({
     name: 'research', state, pipeline,
     execute: signal => runResearch(pipeline, signal, transport),
@@ -142,9 +159,14 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   if (research.aborted) return aborted();
 
   const multiRoute = isMultiRouteRequest(pipeline.task.decision.destination);
-  const transportPlan = multiRoute ? await runStage<TransportPlan>({
+  const transportPlan = multiRoute || needsMainTravel ? await runStage<TransportPlan>({
     name: 'transport', state, pipeline,
-    execute: signal => runTransport(pipeline, signal, research.artifact),
+    execute: async signal => {
+      const interRoute = multiRoute ? await runTransport(pipeline, signal, research.artifact) : transportPlanSchema.parse({});
+      if (!needsMainTravel) return interRoute;
+      const mainTravel = await runMainTransport(pipeline, signal, research.artifact);
+      return transportPlanSchema.parse({ ...interRoute, mainTravel });
+    },
   }) : { artifact: null as TransportPlan | null, aborted: false };
   if (transportPlan.aborted) return aborted();
 
@@ -155,7 +177,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
     // Route recording durations do not include the user's journey to/from
     // the trail. Let the planner estimate the complete trip after travel reads.
     pipeline.task.decision.derivedDays = pipeline.task.decision.fullHikingPlan
-      ? null
+      ? transportPlan.artifact?.mainTravel?.suggestedDays ?? null
       : transportPlan.artifact?.recommendedDays ?? research.artifact?.suggestedDays ?? null;
   }
 
@@ -166,9 +188,30 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   });
   if (plan.aborted) return aborted();
 
+  // Concrete main-transport rows are built from actual provider responses. The
+  // itinerary model supplies local transfers/hiking, not invented ticket rows.
+  if (needsMainTravel && plan.artifact && transportPlan.artifact?.mainTravel) {
+    const main = transportPlan.artifact.mainTravel;
+    plan.artifact.itineraryItems = mergeMainTransportItems(plan.artifact.itineraryItems, main);
+    plan.artifact.unverified = [...main.unresolved, ...plan.artifact.unverified].slice(0, 30);
+    const missing = main.unresolved.find(value => value.includes('尚无可保存'));
+    if (missing) plan.artifact.blocker ||= missing;
+  }
+
+  if (pipeline.task.decision.fullHikingPlan && plan.artifact) {
+    await hydrateTrackDayLocations(pipeline, plan.artifact);
+    plan.artifact.itineraryItems = carryDailyStarts(plan.artifact.itineraryItems);
+  }
+
+  if (plan.artifact) {
+    const presentation = presentItinerary(plan.artifact.itineraryItems, plan.artifact.groupNotes);
+    plan.artifact.itineraryItems = presentation.items;
+    plan.artifact.groupNotes = presentation.groupNotes;
+  }
+
   const save = await runStage<SaveArtifact>({
     name: 'save', state, pipeline,
-    execute: signal => runSave(pipeline, signal, plan.artifact as PlanDocument, research.artifact),
+    execute: signal => runSave(pipeline, signal, plan.artifact as PlanDocument, research.artifact, transportPlan.artifact?.mainTravel),
   });
   if (save.aborted) return aborted();
 
@@ -759,11 +802,15 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   const loaded = await loadRouteFacts(pipeline.admin, names);
   stats.read_failed = loaded.error !== null;
   const previous = await findRecentBrief(pipeline, names);
-  const knownIds = new Set(previous?.routeFacts.map(fact => fact.entryId) || []);
-  const hasNewFacts = loaded.rows.some(row => !knownIds.has(row.id));
-  if (previous && !hasNewFacts && names.every(name => isResolvedRoute(previous.brief.routes.find(route => route.name === name)))) {
-    // Same destination, every requested route resolved, and nothing new in the
-    // library: the brief is reused wholesale. The previous run's sources come
+  const fingerprint = loaded.error === null ? await routeFactsFingerprint(loaded.rows) : null;
+  const factsUnchanged = fingerprint !== null
+    && canReuseRouteFacts(previous?.brief.routeFactsFingerprint, fingerprint, loaded.error);
+  // Discard all prior synthesized evidence on a library change, not just its
+  // source chips: stale facts can also be embedded in route prose and estimates.
+  const reusableBrief = factsUnchanged ? previous?.brief ?? null : null;
+  if (previous && factsUnchanged && names.every(name => isResolvedRoute(previous.brief.routes.find(route => route.name === name)))) {
+    // Same destination, every route resolved, and the full library fingerprint
+    // matches: the brief can be reused. The previous run's sources come
     // with it, so a replan still cites what its brief was built from.
     stats.reused = true;
     stats.loaded = loaded.rows.length;
@@ -782,16 +829,16 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   // Guide reading stays: its bodies are what keeps a route entry "resolved" for
   // cross-run reuse, and they are cache-backed. Only the synthesis call is
   // skipped, because it rewrites evidence the plan already has.
-  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, previous?.brief ?? null, loaded.rows);
+  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, reusableBrief, loaded.rows);
   const deterministic = bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
   // Recorded before the synthesis call so a synthesis failure or a budget cut
   // still leaves this run's fact usage on the record.
-  const recorded = bindRouteFacts(deterministic, loaded.rows, stats);
+  const recorded = { ...bindRouteFacts(deterministic, loaded.rows, stats), routeFactsFingerprint: fingerprint };
   await writeRouteFacts(pipeline, { sources: recorded.routeFacts, stats, error: loaded.error });
   if (covered) return recorded;
   try {
-    const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, previous?.brief ?? null)), catalogFacts);
-    const bound = bindRouteFacts(brief, loaded.rows, stats);
+    const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, reusableBrief)), catalogFacts);
+    const bound = { ...bindRouteFacts(brief, loaded.rows, stats), routeFactsFingerprint: fingerprint };
     await recordRouteFactSuggestions(pipeline, bound, loaded.rows, stats);
     // Written twice on purpose: the first write survives a synthesis failure or
     // a budget cut, this one carries the counters that only exist afterwards.
@@ -846,6 +893,34 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
   });
 }
 
+async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null): Promise<MainTransport> {
+  const request = resolveTravelRequest(pipeline.task.decision.travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentLocation);
+  const agent = pipeline.stageAgent({
+    name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
+    tools: [], outputType: transportEndpointsSchema,
+    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或行程文本。每个用户选择的 mode 输出一组往返枢纽。rail 使用准确中文车站名（站名不加站字），flight 使用真实 IATA 三字码，self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、城市往返耗时、进出山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案，方便先查询建议返程日期；明确标为估算，不得只复制 GPX 徒步天数，也不要因未给返程日期直接停止规划。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
+  });
+  let endpoints;
+  try {
+    endpoints = await stageCall(pipeline, agent, `${pipeline.userInput}
+已确认大交通需求：${JSON.stringify(request)}
+路线事实：${JSON.stringify(research)}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
+  } catch (error) {
+    if (signal.aborted) throw error;
+    endpoints = transportEndpointsSchema.parse({ endpoints: [], unresolved: ['大交通查询枢纽未能确定。'] });
+  }
+  return collectMainTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, days: pipeline.task.decision.days,
+    query: async query => {
+      if (signal.aborted) throw signal.reason;
+      const raw = query.mode === 'self_drive'
+        ? await runSearchGroundTransport({ origin: query.origin, destination: query.destination }, { context: pipeline.context } as never)
+        : await runSearchTransport({ mode: query.mode, origin: query.origin, destination: query.destination,
+          departureDate: query.departureDate!, adults: request.adults, earliestHour: query.earliestHour, viaStation: null }, { context: pipeline.context } as never);
+      return typeof raw === 'string' ? parseJsonString(raw) : raw;
+    },
+  });
+}
+
 async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, transport: boolean, transportPlan: TransportPlan | null): Promise<PlanDocument> {
   const domain = pipeline.task.decision.domain ?? 'general';
   const skill = domain === 'transport' ? planningSkills.travel
@@ -855,7 +930,7 @@ async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: Re
   const agent = pipeline.stageAgent({
     name: 'Kaipa Planner',
     instructions: [planInstructions, skill.body, pipeline.task.decision.fullHikingPlan ? planningSkills.travel.body : ''].join('\n\n'),
-    tools: transport || pipeline.task.decision.fullHikingPlan ? [...planTools, searchTransport, searchTravelWeb, reviewTransport] : planTools,
+    tools: transport ? [...planTools, searchTransport, searchTravelWeb, reviewTransport] : planTools,
     outputType: planDocumentModelSchema,
     // The research handoff and server snapshot already contain the expensive
     // evidence. Keep the long-form planner on the bounded model so a slow main
@@ -942,7 +1017,7 @@ function planStageText(pipeline: PipelineDeps, research: ResearchBrief | null, t
   return [
     pipeline.userInput,
     research ? `\n上一阶段检索结果（ResearchBrief，事实来源）：${JSON.stringify(research)}` : '',
-    transportPlan ? `\n独立交通阶段结果（TransportPlan，路线之间的交通事实）：${JSON.stringify(transportPlan)}` : '',
+    transportPlan ? `\n独立交通查询结果（TransportPlan，mainTravel 是实际往返大交通查询快照，segments 是路线间接驳）：${JSON.stringify(transportPlan)}` : '',
     `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定' : '无')}；用户指定全程天数（含往返交通）=${facts.days ?? '无'}；系统根据路线与中转推算天数=${facts.derivedDays ?? '无'}；本次编排采用天数=${effectiveDays ?? '无'}；默认往返交通=${facts.includeRoundTripTransport !== false ? '包含' : '用户明确不需要'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
   ].join('\n');
 }
@@ -984,6 +1059,9 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
   // convention — an absent key, not a null one — so the stripping has to run
   // after parsing, or parsing simply puts the keys back.
   const plan = planDocumentSchema.parse(value);
+  // Validate summary size during the model's repairable stage, but retain
+  // transport wording until provider/local-transfer merging has completed.
+  presentItinerary(plan.itineraryItems, plan.groupNotes);
   if (pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && !plan.pendingQuestion) {
     if (!plan.transport?.origin) {
       plan.pendingQuestion = '这次旅程从哪个城市出发？默认也返回这里；如果返回地不同，请一起告诉我。';
@@ -1151,6 +1229,7 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
     blocker: structure.blocker,
     pendingQuestion: structure.pendingQuestion,
     itineraryItems: collected.flatMap(chunk => chunk.itineraryItems).slice(0, 80),
+    groupNotes: collected.flatMap(chunk => chunk.groupNotes).slice(0, 30),
     endpoints: collected.flatMap(chunk => chunk.endpoints).slice(0, 30),
   }, pipeline, research, transportPlan, effectiveDays, { strictJourney: false });
   if (gapDays.length) {
@@ -1211,7 +1290,26 @@ export function fallbackPlan(pipeline: PipelineDeps, research: ResearchBrief | n
   });
 }
 
-async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDocument, research: ResearchBrief | null): Promise<SaveArtifact> {
+async function hydrateTrackDayLocations(pipeline: PipelineDeps, plan: PlanDocument) {
+  if (!plan.endpoints.length) return;
+  const ids = [...new Set(plan.endpoints.flatMap(endpoint => endpoint.routeId ? [endpoint.routeId] : []))];
+  const tracks = new Map<string | null, ItineraryTrack>();
+  if (ids.length) {
+    const result = await pipeline.client.from('routes').select('id,name,track_coords,track_waypoints').in('id', ids);
+    if (result.error) throw result.error;
+    for (const route of result.data || []) tracks.set(route.id, { id: route.id, name: route.name, coordinates: route.track_coords, waypoints: route.track_waypoints });
+  }
+  const journeyId = boundJourneyId(pipeline.context);
+  if (journeyId && plan.endpoints.some(endpoint => !endpoint.routeId)) {
+    const result = await pipeline.client.from('journeys').select('tracks ( id,name,coords,waypoints )').eq('id', journeyId).single();
+    if (result.error) throw result.error;
+    const track = result.data?.tracks as unknown as { id: string; name: string; coords: unknown; waypoints: ItineraryTrack['waypoints'] } | null;
+    if (track) tracks.set(null, { ...track, coordinates: track.coords });
+  }
+  addTrackDayLocations(plan, tracks);
+}
+
+async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDocument, research: ResearchBrief | null, mainTravel?: MainTransport | null): Promise<SaveArtifact> {
   const artifact = await runSaveStage(pipeline.client, pipeline.context, plan);
   if (!artifact.failed.length) return artifact;
   if (artifact.skipped.some(entry => entry.reason === 'journey_create_failed')) return artifact;
@@ -1220,6 +1318,16 @@ async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDo
   // Already-saved operations are pinned to the arguments that produced their
   // receipts, so the repair round can only change what actually failed.
   const merged = mergeSavedOperations(plan, patched, artifact);
+  if (mainTravel && !artifact.saved.some(entry => entry.tool === 'add_itinerary_items')) {
+    merged.itineraryItems = mergeMainTransportItems(merged.itineraryItems, mainTravel);
+  }
+  if (pipeline.task.decision.fullHikingPlan && !artifact.saved.some(entry => entry.tool === 'add_itinerary_items')) {
+    await hydrateTrackDayLocations(pipeline, merged);
+    merged.itineraryItems = carryDailyStarts(merged.itineraryItems);
+  }
+  const presentation = presentItinerary(merged.itineraryItems, merged.groupNotes);
+  merged.itineraryItems = presentation.items;
+  merged.groupNotes = presentation.groupNotes;
   const retried = await runSaveStage(pipeline.client, pipeline.context, merged);
   return { ...retried, repaired: true };
 }
@@ -1271,6 +1379,7 @@ function mergeSavedOperations(original: PlanDocument, patched: PlanDocument, art
     journey: saved.has('create_journey') ? original.journey : patched.journey,
     schedule: saved.has('update_journey_schedule') ? original.schedule : patched.schedule,
     itineraryItems: saved.has('add_itinerary_items') ? original.itineraryItems : patched.itineraryItems,
+    groupNotes: saved.has('add_itinerary_items') ? original.groupNotes : patched.groupNotes,
     endpoints: saved.has('set_itinerary_group_endpoints') ? original.endpoints : patched.endpoints,
     mapLocation: saved.has('set_journey_map_location') ? original.mapLocation : patched.mapLocation,
   };
@@ -1303,7 +1412,7 @@ async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: 
     pendingQuestion: results.plan.pendingQuestion,
     blocker: results.plan.blocker || (failed.length ? '部分规划内容保存失败。' : packingFailed ? '装备清单尚未完整生成。' : packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null),
     offerJourneyExtras: false,
-    travelContext: null,
+    travelContext: pipeline.context.confirmedTravel ? { ...pipeline.context.confirmedTravel, journeyId: pipeline.context.currentJourneyId || null } : null,
   });
 }
 
@@ -1322,18 +1431,21 @@ const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查�
 - journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）。用户未填写日期时可保持 plannedDate=null；用户未填写总天数时，结合交通查询与路线资料给出有依据的全程建议天数，在 assumptions 中说明交通和徒步分配；缺少出发地或无法可靠估算时用 pendingQuestion 询问，不要用轨迹徒步天数冒充全程天数。
 - 默认安排出发地→交通枢纽→徒步起点、徒步终点→返程枢纽→返回地的完整往返链路及必要住宿，用户明确不用时尊重该约束。复用已确认出发地，缺少时用 pendingQuestion 简短询问，不能猜测或声称完整规划已完成。
 - days 是从出发到返回的全程天数，包含路上时间；交通日也占 Day 序号。先评估交通耗时与缓冲，再分配徒步日，不得把全部天数用于徒步后把交通追加到日期范围之外。时间装不下时说明冲突并询问调整选择，不得静默改天数或压缩成不合理徒步。
-- 交通和休整 item 的 kind 必须为 custom，住宿为 stay，徒步为 activity；交通即使与徒步同一天也不绑定 routeId，不设置徒步终点。全程天数与徒步天数分别写入 assumptions。
-- 完整旅程可调用 search_transport 查询有日期的铁路/航班，search_travel_web 核实地面接驳；缺少实时票务时保留标注为估算的方案，不编造班次票价。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
-- planProfile 之外的行程与装备判断都写入 itineraryItems 与 endpoints。
+- 交通和休整 item 的 kind 必须为 custom，具体住宿为 stay，徒步为 activity；交通即使与徒步同一天也不绑定 routeId，不设置徒步终点。全程天数与徒步天数分别写入 assumptions。
+- 完整旅程的大交通已在独立 transport 阶段实际查询，mainTravel.itineraryItems 由服务端从真实班次/路径生成并在保存前合并；不要再输出这些重复大交通行程项，只编排必要的具体地点、进出山接驳与徒步，并用 mainTravel 查询结果确定徒步开始与结束窗口。禁止新增或改写铁路/航班班次和精确时间；查询不可用时如实说明，不能用一句文本代替已查询大交通。交通域补充任务仍可调用 search_transport。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
+- 普通城市住宿由用户自行决定，不创建“成都住宿”“车站附近住宿”“酒店待定”等独立行程项或地点，也不添加虚构的酒店接驳；当天摘要可简短交代停留城市。仅用户已指定的具体酒店或徒步路线必要的真实过夜地点保留为地点，徒步日终点仍须保留。
+- 每个行程日必须有 groupNotes 摘要，通常30—80字，1—2句交代当天怎么走、主要做什么、在哪里结束即可。不要逐项复述地点、车次时刻和查询票价，不解释资料来源，不堆叠常识、建议、免责声明或“待核实”说明。只有已确定且影响当天执行的关键限制才简短提一次；未解决问题写入 unverified、blocker 或 pendingQuestion，不在摘要反复写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不把计划住宿表述成已预订。示例：“南宁东乘高铁到成都东，抵达后入住成都。”“从党岭村出发，徒步至飞机坪，晚上在附近住宿。”摘要使用普通中文和路线名称，禁止出现 ResearchBrief、TransportPlan、mainTravel、trk 编号或字段名等内部实现信息。itineraryItems.title 只写简洁地点名称或必要可单独执行的事项，通常20字以内；禁止把整天摘要、长段路线介绍、费用和提醒塞入标题。起终点和沿途重要地点仍要有带 location 的独立行程项，不能只写在备注中。保留必要的 kind、routeId、时间、真实坐标和 endpoints，不因精简标题而丢失地图或徒步结构。
+- planProfile 之外的行程与装备判断分别写入 groupNotes、itineraryItems 与 endpoints。
 - 多日徒步：先确定真实轨迹上的过夜点，再据此推导当日里程；禁止按天数或时长平均分配；每天一个终点。
 - 多路线旅程中，每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，确保每条已有 GPX 独立绑定；普通接驳安排不绑定 routeId。
 - ResearchBrief.routes.hikingDays 是 GPX 录制时长参考，不是用户指定徒步天数，更不是全程天数。实际徒步天数根据用户单独指定的徒步约束、路线努力程度和全程时间安排；不能机械复制记录天数或用“待核实”项凑天数。
-- ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，并在 itineraryItems 的 title 里写出标注点名称与累计里程；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
+- ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，每日终点的标注点名称与累计里程保留在 endpoints 和地点数据中，摘要不必重复，行程项标题只保留简洁地点或路线段；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
 - endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一；无法定位的日期不要为它输出空条目（只有 day 的条目会被拒绝），改为把缺口写入 unverified。
 - 一次出行可以走多条路线（走完 A 再走 B）。每个徒步日的终点必须填写 routeId，指向该天所属路线的目录 ID；该天的 waypointIndex 与累计里程按**这条路线自己的轨迹**解析，不同路线各自从 0 开始，不需要跨路线递增。
 - 纯接驳、住宿或休整日不属于任何路线：不要为它们输出终点条目，把地点与安排写在 itineraryItems 里。
 - journey.routeId 绑定第一条路线的目录 ID（若提供了轨迹文件名则优先与它匹配的那条）。
-- 交通接驳段作为普通 itineraryItems 记录，不要创建独立交通类型，也不要为交通单独设置徒步日终点；把到达地点写入普通 location（有坐标才填写坐标），交通方式和说明写入 title。不要编造路线。
+- 每个移动安排都要给出具体 startLocation（出发站/机场/住宿/轨迹点）与 location（到达地点），系统拆成独立地点项。地点 name 只能是一个真实地点，禁止写 A→B 或只写出发城市；有证据才填坐标。每天必须有起点和终点，次日从前一天实际落脚点开始；进出山与返程车站的链路不得漏掉。用户没有指定酒店时，以已知车站/机场等具体地点作为该城市当天终点与次日起点，不虚构住宿地点或到酒店的接驳。未知班次和耗时标为待核实，不得虚构。
+- 交通接驳段作为普通 itineraryItems 记录，不要创建独立交通类型，也不要为交通单独设置徒步日终点；把到达地点写入普通 location（有坐标才填写坐标），交通方式简写在 title，摘要仅保留必要的安排信息。不要编造路线。
 - 没有证据的内容写入 unverified，不要编造时间、价格、水源或营地。
 - 无法完成的部分用 blocker 说明具体原因，需要用户决定时用 pendingQuestion，并把已经能确定的部分照常输出。
 输出只包含 PlanDocument 结构化结果。`;
@@ -1348,8 +1460,10 @@ const planSkeletonInstructions = `你是 Kaipa 的行程编排骨架轮，只做
 dayNames 无法确定时留空并写入 blocker 或 pendingQuestion。只输出 PlanSkeleton 结构化结果。`;
 
 const planChunkInstructions = `你是 Kaipa 的行程编排逐日细化轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，只依据本轮提供的 ResearchBrief、TransportPlan、整体框架与已核验事实编排。
-系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
-硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，交通接驳段作为普通 itineraryItem，地点写入 location，交通方式和说明写入 title；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
+系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 groupNotes、itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
+硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，所有移动安排填写具体 startLocation 与 location，分别为单一出发/到达地点，次日起点承接前一日落脚点，不能用 A→B 作为地点名；交通接驳段作为普通 itineraryItem，地点写入 location，交通方式简写在 title，摘要仅保留必要的安排信息；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
+普通城市住宿由用户自行决定，不创建泛泛住宿项、待定酒店地点或酒店接驳；未指定酒店时，城市日终点与次日起点使用已知车站/机场。仅用户指定的具体酒店或徒步必要的真实过夜点保留。
+摘要只用普通中文和真实路线名，不输出内部字段名或 trk 编号。每一天都要输出 groupNotes 摘要：通常30—80字，用1—2句概括当天怎么走、做什么、在哪里结束；不逐项复述地点和交通数据，不解释资料来源或堆叠常识提醒，已确定的关键限制只简短提一次，可行性问题写入 unverified，不在摘要写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不声称住宿已预订；行程项标题只保留简洁地点和必要可执行事项，不重复整段摘要。
 只输出 PlanChunk 结构化结果。`;
 
 const packingInstructions = `你是 Kaipa 的装备清单阶段，只输出一份完整的个人清单草稿，不保存任何数据。

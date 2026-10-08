@@ -7,4 +7,7 @@ test -f "$RUNTIME_DIR/.env"
 mkdir -p "$RUNTIME_DIR/rail-query"
 install -m 644 "$ROOT"/infra/supabase/rail-query/{Dockerfile,server.mjs,policy.mjs,gate.mjs,connections.mjs,upstream-single-page.patch} "$RUNTIME_DIR/rail-query/"
 install -m 644 "$ROOT/infra/supabase/rail-query.compose.yml" "$RUNTIME_DIR/rail-query.compose.yml"
-docker compose --project-directory "$RUNTIME_DIR" -f "$RUNTIME_DIR/docker-compose.yml" -f "$RUNTIME_DIR/rail-query.compose.yml" up -d --build --no-deps rail-query functions
+compose=(-f "$RUNTIME_DIR/docker-compose.yml" -f "$RUNTIME_DIR/rail-query.compose.yml")
+if [[ -f "$RUNTIME_DIR/flyai-query.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/flyai-query.compose.yml"); fi
+if [[ -f "$RUNTIME_DIR/topic-guard.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/topic-guard.compose.yml"); fi
+docker compose --project-directory "$RUNTIME_DIR" "${compose[@]}" up -d --build --no-deps rail-query functions

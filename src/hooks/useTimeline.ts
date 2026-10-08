@@ -1,3 +1,4 @@
+import { MAX_TIMELINE_GROUP_NOTE_LENGTH } from '../data/timeline';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toTLRow } from '../lib/mappers';
@@ -334,7 +335,7 @@ export function useTimeline(
   const saveGroupNote = async (day: string, note: string) => {
     if (!journeyId || !userId || preview) throw new Error('Timeline is not editable');
     const trimmed = note.trim();
-    if (trimmed.length > 1000) throw new Error('Group note is too long');
+    if (trimmed.length > MAX_TIMELINE_GROUP_NOTE_LENGTH) throw new Error('Group note is too long');
     const { error } = await supabase.rpc('journey_save_timeline_group_note', {
       p_journey_id: journeyId, p_day: day, p_note: trimmed,
     });

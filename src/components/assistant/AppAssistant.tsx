@@ -146,6 +146,7 @@ function formatTime(minutes?: number) {
 
 type ResearchStep = {
   key: string;
+  title?: string;
   text: string;
   status: AgentRunActivity['status'];
 };
@@ -179,6 +180,7 @@ function runElapsed(activities: AgentRunActivity[], now: number, timing?: AgentM
 
 function modelStageLabel(stage: string) {
   const labels: Record<string, string> = {
+    topic_check: '请求检查',
     interpretation: '任务解析',
     execution: '模型决策',
     memory: '历史摘要',
@@ -226,6 +228,7 @@ function aggregateModelMetrics(metrics: AgentModelMetric[], stages: AgentStage[]
 }
 
 function researchStepTitle(step: ResearchStep) {
+  if (step.title) return step.title;
   const key = step.key;
   const text = step.text;
   if (key.endsWith('_query')) return '搜索关键词';
@@ -239,6 +242,7 @@ function researchStepTitle(step: ResearchStep) {
   if (key.includes('get_route_facts')) return '读取线路资料';
   if (key.includes('review_hiking')) return '核对徒步分段';
   if (key.includes('review_transport')) return '核对交通方案';
+  if (key.includes('search_ground_transport')) return '自驾';
   if (key.includes('search_transport')) return '查询交通信息';
   if (key.includes('search_journeys')) return '搜索已有旅程';
   if (key.includes('get_journey_details')) return '读取旅程详情';
@@ -317,6 +321,12 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
   return activities.flatMap((activity, index) => {
     const key = `${activity.toolName}_${index}`;
     const query = String(activity.arguments.query || '').trim();
+    if (activity.toolName === 'search_ground_transport') {
+      const result = activity.output as { status?: string; distanceKm?: number; durationMinutes?: number } | undefined;
+      const status = activity.status === 'completed' && result?.status !== 'results' ? 'failed' : activity.status;
+      return [{ key, status, text: activity.status === 'running' ? '正在查询高德自驾路径…' : result?.status === 'results'
+        ? `高德路径：${result.distanceKm} 公里 · 估算 ${result.durationMinutes} 分钟` : `自驾路径暂未取得：${result?.status || activity.status}` }];
+    }
     if (activity.toolName === 'search_transport') {
       const rail = activity.arguments.mode === 'rail';
       const connecting = rail && Boolean(activity.arguments.viaStation);
@@ -330,7 +340,10 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
         : result?.status === 'not_on_sale' ? 'agent.research.railNotOnSale'
         : ['invalid_request', 'invalid_station'].includes(result?.status || '') ? rail ? 'agent.research.railQueryNeedsCheck' : 'agent.research.airportCodesNeeded'
         : rail ? 'agent.research.railNotConnected' : 'agent.research.flightNotConnected';
-      return [{ key, status: activity.status, text: t(label, { count: result?.count ?? result?.offers?.length ?? 0 }) }];
+      const { origin, destination } = activity.arguments;
+      const route = typeof origin === 'string' && typeof destination === 'string' && origin && destination
+        ? ` · ${origin} → ${destination}` : '';
+      return [{ key, title: `${rail ? '火车' : '航班'}${route}`, status: activity.status, text: t(label, { count: result?.count ?? result?.offers?.length ?? 0 }) }];
     }
     if (activity.toolName === 'search_travel_web') {
       const transport = activity.arguments.purpose === 'transport';
@@ -615,6 +628,28 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
     ...timedSteps.filter((step) => step.status !== 'running'),
     ...timedSteps.filter((step) => step.status === 'running'),
   ];
+  const isTransportStep = (step: ResearchStep) => /^search_(transport|ground_transport)_/.test(step.key);
+  const transportSteps = orderedTimedSteps.filter(isTransportStep);
+  const transportStatus = transportSteps.some((step) => step.status === 'running') ? 'running'
+    : transportSteps.some((step) => step.status === 'failed') ? 'failed' : 'completed';
+  const firstCompletedTransport = transportSteps.find((step) => step.status !== 'running');
+  const transportGroup = transportSteps.length ? (
+    <View key="transport" style={styles.researchTransportGroup}>
+      <View style={styles.researchLine}>
+        <Text style={[styles.researchLineTitle, { color: theme.text }]}>{t('agent.research.transportTitle')}{transportStatus === 'failed' ? ' · 未完成' : ''}</Text>
+        {transportStatus === 'running' ? <View style={styles.researchLineIcon}><LoadingDots color={theme.text3} /></View> : null}
+      </View>
+      {transportSteps.map((step) => (
+        <View key={step.key} style={[styles.researchLine, styles.researchTransportRow]}>
+          <View style={styles.researchLineCopy}>
+            <Text style={[styles.researchTransportSubtitle, { color: theme.text2 }]}>{researchStepTitle(step)}{step.status === 'failed' ? ' · 未完成' : ''}</Text>
+            {researchStepSubtitle(step) ? <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>{researchStepSubtitle(step)}</Text> : null}
+          </View>
+          {step.status === 'running' ? <View style={styles.researchLineIcon}><LoadingDots color={theme.text3} /></View> : null}
+        </View>
+      ))}
+    </View>
+  ) : null;
   const toggleExpanded = () => {
     const next = !expanded;
     arrowProgress.stopAnimation();
@@ -656,35 +691,34 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
       {expanded && !running && !hasResearchActivity(activities) ? (
         <Text style={[styles.researchLineText, { color: theme.text2 }]}>{t('agent.research.noResearchRecord')}</Text>
       ) : null}
-      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => (
+      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => isTransportStep(step)
+        ? step.key === firstCompletedTransport?.key ? transportGroup : null
+        : (
         <View key={step.key} style={styles.researchLine}>
-          <View style={styles.researchLineIcon}>
-            {step.status === 'completed' ? <Check size={14} color={theme.text2} strokeWidth={2} /> : <X size={14} color={theme.text2} strokeWidth={2} />}
-          </View>
           <View style={styles.researchLineCopy}>
             <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}{step.status === 'failed' ? ' · 未完成' : ''}</Text>
             {researchStepSubtitle(step) ? <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>{researchStepSubtitle(step)}</Text> : null}
             {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
-            {showTiming && step.elapsed != null ? <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text> : null}
+            {showTiming && step.elapsed != null && !step.key.startsWith('search_transport_') ? <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text> : null}
           </View>
         </View>
       )) : null}
+      {expanded && !firstCompletedTransport ? transportGroup : null}
       {showTiming && expanded && (modelElapsed || toolElapsed) ? (
-        <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
+        <Text style={[styles.researchLineText, { color: theme.text3 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
       ) : null}
       {showTiming && expanded ? aggregatedModelMetrics.map((metric) => (
         <View key={`model_${metric.stage}`} style={styles.researchLine}>
-          {metric.success ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
           <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.degraded ? ' · 部分完成' : metric.success ? '' : ' · 失败'}</Text>
         </View>
       )) : null}
-      {expanded ? orderedTimedSteps.filter((step) => step.status === 'running').map((step) => (
+      {expanded ? orderedTimedSteps.filter((step) => step.status === 'running' && !isTransportStep(step)).map((step) => (
         <View key={step.key} style={styles.researchLine}>
-          <View style={styles.researchLineIcon}>
-            <LoadingDots color={theme.text3} />
-          </View>
           <View style={styles.researchLineCopy}>
-            <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}</Text>
+            <View style={styles.researchActiveTitle}>
+              <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}</Text>
+              <View style={styles.researchLineIcon}><LoadingDots color={theme.text3} /></View>
+            </View>
             {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
             {researchStepSubtitle(step) ? (
               <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>
@@ -1576,8 +1610,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setRunStages([]);
       const creatingThread = !threadId;
       const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
-      const skipSuggestedLocation = locationIntent === 'transport' && !shouldSuggestTransportLocation(travel, activeJourneyId);
-      const currentLocation = skipSuggestedLocation ? undefined : await getAgentLocation(visibleMessage, 15_000, locationIntent);
+      const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' ? 'transport' : undefined);
+      const skipSuggestedLocation = effectiveLocationIntent === 'transport' && !shouldSuggestTransportLocation(travel, activeJourneyId);
+      const currentLocation = skipSuggestedLocation ? undefined : await getAgentLocation(visibleMessage, 15_000, effectiveLocationIntent);
       if (generation !== submitGenerationRef.current) return;
       const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
       const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
@@ -2314,10 +2349,14 @@ const styles = StyleSheet.create({
   researchProgress: { alignSelf: 'stretch', marginBottom: space.xl, paddingVertical: space.sm },
   researchHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   researchTitle: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
-  researchLine: { minHeight: 30, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, paddingVertical: 2 },
+  researchLine: { minHeight: 30, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, paddingVertical: 4 },
   researchLineIcon: { width: 18, minHeight: 20, alignItems: 'center', justifyContent: 'center', paddingTop: 2 },
-  researchLineCopy: { flex: 1, minWidth: 0, gap: 1 },
+  researchLineCopy: { flex: 1, minWidth: 0, gap: 3 },
   researchLineTitle: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  researchTransportGroup: { gap: 4, paddingVertical: 2 },
+  researchTransportRow: { marginLeft: 12 },
+  researchTransportSubtitle: { fontSize: 12.5, lineHeight: 18, fontWeight: '500' },
+  researchActiveTitle: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
   researchLineMeta: { fontSize: 11.5, lineHeight: 16, letterSpacing: 0 },
   loadingDots: { width: 14, height: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

@@ -37,6 +37,9 @@ select pg_temp.check((select g->>'note'=E'穿舒服的鞋\n\n抵达成都\n晚�
   from jsonb_array_elements(public.build_journey_version_snapshot(current_setting('test.journey'))->'timelineGroups') g
   where g->>'name'='Day 2'), 'Version snapshot omitted note');
 set local role authenticated;
+select public.journey_save_timeline_group_note(current_setting('test.journey'), 'Day 2', repeat('字',100));
+select pg_temp.check((select char_length(note)=100 from public.timeline_groups
+  where journey_id=current_setting('test.journey') and name='Day 2'), '100-character note was rejected');
 select public.journey_save_timeline_group_note(current_setting('test.journey'), 'Day 2', '  ');
 select pg_temp.check((select note is null from public.timeline_groups
   where journey_id=current_setting('test.journey') and name='Day 2'), 'Clearing did not remove note');
@@ -44,7 +47,7 @@ select pg_temp.check((select note is null from public.timeline_groups
 -- Limits and stale group checks must refuse writes without resurrecting a day.
 do $$ begin
   begin
-    perform public.journey_save_timeline_group_note(current_setting('test.journey'), 'Day 2', repeat('字',1001));
+    perform public.journey_save_timeline_group_note(current_setting('test.journey'), 'Day 2', repeat('字',101));
     raise exception 'Oversized note accepted';
   exception when invalid_parameter_value then null; end;
   begin

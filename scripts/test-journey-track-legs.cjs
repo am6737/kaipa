@@ -241,3 +241,21 @@ test('imported access slices the real track in either direction and rejects unco
   assert.deepEqual(forward, [...reverse].reverse());
   assert.equal(access.importedAccessPath([100, 29.9], path[2], path), null);
 });
+
+test('airport and station stops use normal driving navigation regardless of transport metadata', () => {
+  for (const incomingMode of ['rail', 'flight']) {
+    const pins = stops.buildJourneyStops([
+      { id: 'depart', day: 'Day 1', title: '出发', location: { name: incomingMode === 'flight' ? '南宁吴圩机场' : '南宁东', longitude: 108.42, latitude: 22.85 } },
+      { id: 'arrive', day: 'Day 1', title: '到达', location: { name: incomingMode === 'flight' ? '成都天府机场' : '成都东', longitude: 104.14, latitude: 30.63, incomingMode } },
+    ], ['Day 1']);
+    const legs = stops.buildJourneyLegs(pins);
+    assert.equal(legs.length, 1);
+    assert.equal(legs[0].mode, 'driving');
+    assert.equal(legs[0].pendingTrack, false);
+    assert.equal(legs[0].recordedGeometry, undefined);
+    const road = [legs[0].from, [106, 28], legs[0].to];
+    const measured = stops.measureJourneyDays(legs, { [legs[0].id]: road });
+    assert.equal(measured.length, 1);
+    assert.equal(measured[0].meters, segments.measureTrack(road).totalMeters);
+  }
+});

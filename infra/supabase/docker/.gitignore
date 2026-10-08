@@ -13,6 +13,10 @@ _archive/
 /agent-worker.compose.yml
 /rail-query/
 /rail-query.compose.yml
+/flyai-query/
+/flyai-query.compose.yml
+/topic-guard/
+/topic-guard.compose.yml
 
 # docker-compose state / local overrides
 docker-compose.override.yml

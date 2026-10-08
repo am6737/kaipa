@@ -188,3 +188,10 @@ a temporary staging tree contained the existing map-search entrypoint plus only
 the access-router integration, and used `infra/supabase/deploy-functions.sh
 map-search`. The checkout's unrelated resource-guard edits were preserved. A
 later full-checkout deployment must install those guard RPCs first.
+
+
+The walking-network credit is a compact, tappable “© OpenStreetMap” at the lower
+left of the visible journey map. It is rendered inside `MapGlobe`, anchored to the bottom of its visible-map
+viewport (`mapBottomInset` excludes the covering detail card), and respects the
+safe-area bottom in fullscreen. Cover images omit the map and its credit. Tapping opens
+source details for OpenStreetMap/BRouter and a link to the data license.

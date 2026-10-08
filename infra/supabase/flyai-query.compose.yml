@@ -1,0 +1,26 @@
+services:
+  flyai-query:
+    build: ./flyai-query
+    container_name: kaipa-flyai-query
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: node
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 64
+    environment:
+      FLYAI_API_KEY: "${FLYAI_API_KEY:?FlyAI API key is required}"
+      FLYAI_QUERY_TOKEN: "${FLYAI_QUERY_TOKEN:?Private query token is required}"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:8788/health').then(r=>r.json()).then(r=>process.exit(r.ready?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  functions:
+    environment:
+      FLYAI_QUERY_URL: http://flyai-query:8788
+      FLYAI_QUERY_TOKEN: "${FLYAI_QUERY_TOKEN}"

@@ -1,3 +1,5 @@
+import { presentItinerary } from './itinerary-presentation.ts';
+import { expandItineraryLocations } from './itinerary-locations.ts';
 // @ts-ignore Deno npm specifier
 import { tool } from 'npm:@openai/agents@0.16.1';
 // @ts-ignore Deno npm specifier
@@ -12,6 +14,7 @@ import { aggregateTravelSearch } from './search/aggregate.ts';
 import { createTravelSearchProviders, travelSearchNumberSetting } from './search/registry.ts';
 import { searchPurpose } from './search/routing.ts';
 import { analyzeGuideImages, readGuide, publicGuideUrl, GUIDE_LIMITS, type GuideContent, type GuideObservation } from './search/guide-reader.ts';
+import { queryGroundTransport } from './search/ground-transport.ts';
 import { queryTransport } from './search/transport.ts';
 import { journeyDayOrdinal, resolveJourneyDay } from './journey-days.ts';
 import { itineraryMinutes } from './itinerary-time.ts';
@@ -33,7 +36,7 @@ declare const Deno: { env: { get(name: string): string | undefined } };
 type Client = any;
 type RunContext = { context: AgentContext };
 type UndoableResult<T> = { __undoable: true; value: T; undo: Record<string, unknown> };
-type JourneyMapLocation = { name: string; region: string; coord: string; lng: number; lat: number };
+type JourneyMapLocation = { name: string; region: string; coord: string; lng: number; lat: number; address?: string };
 type UploadedTrackData = {
   name?: string;
   fileUrl: string;
@@ -286,7 +289,7 @@ async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Pro
     citylimit: 'false',
     language: language.startsWith('en') ? 'en' : 'zh_cn',
   });
-  const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`);
+  const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`, { signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error('地图定位服务暂不可用');
   const json = await response.json() as { status?: string; pois?: any[] };
   const poi = json.status === '1' ? json.pois?.[0] : null;
@@ -299,6 +302,7 @@ async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Pro
   const regionParts = [name, parent].filter((part, index, parts) => part && parts.indexOf(part) === index);
   return {
     name,
+    address: [poi.pname, poi.cityname, poi.adname, poi.address].filter(value => typeof value === 'string').join(''),
     region: regionParts.slice(0, 2).join(' · ') || name,
     coord: coordinateLabel(lng, lat),
     lng,
@@ -492,15 +496,28 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
   }
 }
 
+export const itineraryLocation = z.object({
+  name: z.string().min(1).max(160),
+  source: z.enum(['map', 'custom']).default('custom'),
+  longitude: z.number().min(-180).max(180).nullable().default(null),
+  latitude: z.number().min(-90).max(90).nullable().default(null),
+  address: z.string().max(300).nullable().default(null),
+});
+
 export const itineraryItem = z.object({
   day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
   routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；普通地点或接驳安排留空'),
   timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
   timeEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制结束时间，必须使用 HH:mm，例如 05:30、21:00'),
+  startLocation: itineraryLocation.nullable().default(null).describe('移动安排的具体出发地点；location 填具体到达地点。系统拆成两个地点项，不能把 A→B 当作地点名称'),
   kind: z.enum(['activity', 'stay', 'custom']).default('activity'),
   location: z.object({
     name: z.string().min(1).max(160),
+    incomingMode: z.enum(['rail', 'flight']).nullable().default(null).describe('到达该地点的大交通方式标记，用于识别交通到达项；普通地点间的地图路线统一使用驾车导航'),
+    trackId: z.string().max(100).nullable().default(null),
+    trackMeters: z.number().min(0).nullable().default(null),
+    trackLengthMeters: z.number().positive().nullable().default(null),
     source: z.enum(['map', 'custom']).default('custom'),
     longitude: z.number().min(-180).max(180).nullable().default(null),
     latitude: z.number().min(-90).max(90).nullable().default(null),
@@ -874,7 +891,7 @@ export const runReadTravelGuideImages = async (args: { url: string; imageIds: nu
 
 export const searchTransport = tool({
   name: 'search_transport',
-  description: 'Read-only dated rail/flight query, never community timetables. Rail uses exact Chinese station names within 15 days including today in Shanghai; default direct trains, or set viaStation for one-page two-leg connection candidates. Inspect each connection.status: buffer_met means only a conservative 45-minute same-station time floor, not guaranteed transfer or ticket access. Never recommend same_train_split, insufficient_buffer or station_change_unverified as validated transfers. Prices are per adult per leg, not through/group fares. Use earliestHour for evening returns. Flights need verified IATA codes and production Amadeus. No booking; empty never means no service.',
+  description: 'Read-only dated rail/flight query, never community timetables. Rail uses exact Chinese station names within 15 days including today in Shanghai; default direct trains, or set viaStation for one-page two-leg connection candidates. Inspect each connection.status: buffer_met means only a conservative 45-minute same-station time floor, not guaranteed transfer or ticket access. Never recommend same_train_split, insufficient_buffer or station_change_unverified as validated transfers. Prices are per adult per leg, not through/group fares. Use earliestHour for evening returns. Flights use FlyAI when configured (verified city names or IATA city/airport codes); otherwise production Amadeus needs IATA codes. FlyAI prices are per adult, with taxes/baggage/group availability unverified. No booking; empty never means no service.',
   parameters: z.object({
     mode: z.enum(['rail', 'flight']),
     origin: z.string().min(1).max(120),
@@ -886,7 +903,8 @@ export const searchTransport = tool({
   }),
   execute: (args, runContext) => mutate('search_transport', args, runContext as RunContext,
     async (client) => {
-      const cacheKey = `transport:v1:${await sha256(stable(args))}`;
+      const flightProvider = Deno.env.get('FLYAI_QUERY_URL') ? 'flyai' : 'amadeus';
+      const cacheKey = `transport:v2:${args.mode === 'flight' ? flightProvider : '12306'}:${await sha256(stable(args))}`;
       const cacheClient = cacheClientFor(contextFor(runContext as RunContext).runId, client);
       const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
       if (cached?.available || cached?.status === 'empty') return { ...cached, cached: true,
@@ -903,6 +921,19 @@ export const searchTransport = tool({
       return result;
     }),
 });
+
+export const runSearchTransport = (args: import('./search/transport.ts').TransportQuery, runContext: RunContext) =>
+  searchTransport.invoke(runContext as never, JSON.stringify(args), undefined);
+
+export const searchGroundTransport = tool({
+  name: 'search_ground_transport',
+  description: 'Query AMap driving distance, duration estimate and tolls between named places. Does not query tickets, road closures or shuttle availability.',
+  parameters: z.object({ origin: z.string().min(1).max(200), destination: z.string().min(1).max(200) }),
+  execute: (args, runContext) => mutate('search_ground_transport', args, runContext as RunContext,
+    async () => queryGroundTransport(args, name => Deno.env.get(name))),
+});
+export const runSearchGroundTransport = (args: { origin: string; destination: string }, runContext: RunContext) =>
+  searchGroundTransport.invoke(runContext as never, JSON.stringify(args), undefined);
 
 export const addGear = tool({
   name: 'add_gear',
@@ -983,13 +1014,17 @@ export const createJourney = tool({
   execute: runCreateJourney,
 });
 
-export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80) });
+export const itineraryGroupNote = z.object({
+  day: z.string().min(1).max(40),
+  note: z.string().trim().min(1).max(1000).describe('简短当天摘要，通常30—80字、1—2句：怎么走、做什么、在哪里结束。不复述地点列表或交通数据，不解释资料来源、不堆叠常识提醒；已确定的关键限制仅简短提一次；不写“尚未核实”“未纳入查询”“需自行预留”等过程解释'),
+});
+export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(100), items: z.array(itineraryItem).min(1).max(80), groupNotes: z.array(itineraryGroupNote).max(30).default([]) });
 export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, runContext?: RunContext): Promise<unknown> => mutate('add_itinerary_items', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
       client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
       client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,location').eq('journey_id', args.journeyId),
-      client.from('timeline_groups').select('name').eq('journey_id', args.journeyId),
+      client.from('timeline_groups').select('name,note,sort_order,deleted').eq('journey_id', args.journeyId),
     ]);
     if (journey.error) throw journey.error;
     if (existingRows.error) throw existingRows.error;
@@ -998,17 +1033,32 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       ...(existingGroups.data || []).map((group: { name: string }) => group.name),
       ...(existingRows.data || []).map((row: { day: string }) => row.day),
     ].filter(Boolean))];
-    const normalizedItems = args.items.map((item) => ({ ...item, day: resolveJourneyDay(item.day, existingNames) }));
+    const presentation = presentItinerary(expandItineraryLocations(args.items), args.groupNotes);
+    const normalizedItems = presentation.items.map((item) => ({ ...item, day: resolveJourneyDay(item.day, existingNames) }));
     const validationIssues = validateItineraryItems(normalizedItems, journey.data.total_days || undefined);
     if (validationIssues.length) throw new Error(itineraryValidationError(validationIssues));
     const existingKeys = new Set((existingRows.data || []).map((row: { day: string; title: string }) => `${resolveJourneyDay(row.day, existingNames).toLocaleLowerCase()}\u0000${row.title.trim().toLocaleLowerCase()}`));
     const uniqueItems = normalizedItems.filter((item) => !existingKeys.has(`${item.day.toLocaleLowerCase()}\u0000${item.title.trim().toLocaleLowerCase()}`));
-    if (!uniqueItems.length) return { journeyId: args.journeyId, added: 0, skippedDuplicates: args.items.length };
+    const notes = new Map<string, string>();
+    for (const entry of presentation.groupNotes) {
+      const day = resolveJourneyDay(entry.day, existingNames);
+      if (notes.has(day)) throw new Error('同一个行程组只能提交一份摘要');
+      if (!normalizedItems.some(item => item.day === day)) throw new Error(`找不到摘要对应的行程组「${day}」`);
+      const existing = (existingGroups.data || []).find((group: { name: string }) => group.name === day);
+      if (!existing?.note?.trim() && !existing?.deleted) notes.set(day, entry.note);
+    }
+    if (!uniqueItems.length && !notes.size) return { journeyId: args.journeyId, added: 0, skippedDuplicates: normalizedItems.length };
     const clock = (minutes: number | null) => minutes == null ? undefined : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
     const conflicts = validateItineraryConflicts(uniqueItems, (existingRows.data || []).map((row: { day: string; title: string; time_mins: number | null; time_end_mins: number | null }) => ({
       day: resolveJourneyDay(row.day, existingNames), title: row.title, timeStart: clock(row.time_mins), timeEnd: clock(row.time_end_mins),
     })));
     if (conflicts.length) throw new Error(itineraryValidationError(conflicts));
+    // Resolve named map places once per batch; failure retains the name without inventing coordinates.
+    const locations = new Map<string, JourneyMapLocation | null>();
+    const queries = [...new Set(uniqueItems.filter(item => item.location && (item.location.longitude == null || item.location.latitude == null) && !/→|->|住宿地点|候选营地|附近|住宿$|轨迹起点|轨迹终点/.test(item.location.name)).map(item => item.location!.name))];
+    for (let offset = 0; offset < queries.length; offset += 4) {
+      await Promise.all(queries.slice(offset, offset + 4).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name))));
+    }
     const rows = uniqueItems.map((item, index) => ({
       id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
       title: item.title, day: item.day,
@@ -1016,27 +1066,30 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
       item_kind: item.kind ?? 'activity',
       route_id: item.kind === 'activity' ? item.routeId || null : null,
-      location: item.location ?? null,
+      location: item.location && locations.get(item.location.name)
+        ? { ...item.location, longitude: locations.get(item.location.name)!.lng, latitude: locations.get(item.location.name)!.lat, address: item.location.address || locations.get(item.location.name)!.address || null, source: 'map' }
+        : item.location ?? null,
       is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
     }));
-    const groupNames = [...new Set(uniqueItems.map((item) => item.day))];
+    const groupNames = [...new Set([...uniqueItems.map((item) => item.day), ...notes.keys()])];
     const createdGroupNames = groupNames.filter((name) => !existingNames.includes(name));
-    const groups = createdGroupNames.map((name, index) => ({
+    const groups = groupNames.filter(name => createdGroupNames.includes(name) || notes.has(name)).map((name, index) => ({
       journey_id: args.journeyId,
       user_id: context.userId,
       name,
+      note: notes.get(name) ?? null,
       deleted: false,
-      sort_order: journeyDayOrdinal(name) ? journeyDayOrdinal(name)! - 1 : existingNames.length + index,
+      sort_order: (existingGroups.data || []).find((group: { name: string }) => group.name === name)?.sort_order ?? (journeyDayOrdinal(name) ? journeyDayOrdinal(name)! - 1 : existingNames.length + index),
       updated_at: new Date().toISOString(),
     }));
     return commitJourneyChange(client, context, args.journeyId, { rows, groups },
-      { journeyId: args.journeyId, added: rows.length, skippedDuplicates: args.items.length - rows.length },
-      { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames },
+      { journeyId: args.journeyId, added: rows.length, groupNotesSaved: notes.size, skippedDuplicates: normalizedItems.length - rows.length },
+      { kind: 'add_itinerary_items', journeyId: args.journeyId, rowIds: rows.map((row) => row.id), createdGroupNames, groupNotes: [...notes].map(([name, applied]) => ({ name, previous: (existingGroups.data || []).find((group: { name: string }) => group.name === name)?.note ?? null, applied })) },
     );
 });
 export const addItinerary = tool({
   name: 'add_itinerary_items',
-  description: 'Add an executable itinerary to an existing journey. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
+  description: 'Add an executable itinerary to an existing journey. Supply one brief groupNotes summary per day, normally 30–80 Chinese characters in 1–2 sentences about the journey, main activity and overnight/end place. Do not repeat the stop list, service times/fares, provider provenance, obvious advice or disclaimers. Mention a known material constraint briefly once; report unresolved feasibility issues separately, not as repeated unverified/not-included/allow-extra-time caveats in the daily note. State planned arrangements without claiming lodging is booked. Keep location and actionable item titles short. Do not create generic city lodging rows or placeholder hotels; lodging is the user’s choice unless they selected a specific hotel. Retain necessary real hiking overnight places. Preserve existing user notes. Each title must identify a specific place, route segment, activity, or transport action; never submit vague titles such as 早餐, 徒步, 游览, or 返程. Keep items in chronological order, use valid time ranges, stay within the journey day count, read journey details first, and avoid duplicates.',
   parameters: addItineraryParams,
   execute: runAddItinerary,
 });

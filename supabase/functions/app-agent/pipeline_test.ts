@@ -97,7 +97,7 @@ Deno.test('stage budgets stay inside the worker and lease ceilings', () => {
   // inside the same fetch after the last stage; the model budgets must leave it
   // room even when every stage spends its full budget.
   const modelLoop = Object.entries(STAGE_BUDGETS)
-    .filter(([stage]) => ['research', 'plan', 'packing', 'respond'].includes(stage))
+    .filter(([stage]) => ['research', 'transport', 'plan', 'packing', 'respond'].includes(stage))
     .reduce((sum, [, budget]) => sum + budget, 0);
   assert(700_000 - modelLoop >= 150_000, `only ${700_000 - modelLoop}ms remain for the non-model stages and finalize`);
 });

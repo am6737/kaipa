@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTablePagination } from '@/components/data-table'
 import { ListSearch } from '@/components/data-table/list-search'
 import { Header } from '@/components/layout/header'
@@ -40,6 +41,9 @@ export function RouteFacts() {
   const [review, setReview] = useState<{ open: boolean; suggestionId?: string }>({ open: false })
   const [history, setHistory] = useState<{ open: boolean; entryId?: string }>({ open: false })
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FactEntry | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const factsQuery = useQuery({ queryKey: ['admin-route-facts'], queryFn: async () => (await adminApi<{ data: FactEntry[] }>('routeFacts')).data })
   const categoriesQuery = useQuery({ queryKey: ['admin-route-fact-categories'], queryFn: async () => { const { data } = await adminApi<{ data: FactCategory[] }>('routeFactCategories'); return (data || []).slice().sort((a, b) => a.sort_order - b.sort_order) } })
@@ -69,8 +73,24 @@ export function RouteFacts() {
   useEffect(() => { setPagination((current) => current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }) }, [rows.length])
 
   const refresh = () => {
-    void client.invalidateQueries({ queryKey: ['admin-route-facts'] })
-    void client.invalidateQueries({ queryKey: ['admin-route-fact-revisions'] })
+    return Promise.all([
+      client.invalidateQueries({ queryKey: ['admin-route-facts'] }),
+      client.invalidateQueries({ queryKey: ['admin-route-fact-revisions'] }),
+    ])
+  }
+  async function deleteFact() {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await adminMutation('routeFacts', { action: 'delete-route-fact', id: deleteTarget.id })
+      setDeleteTarget(null)
+      await refresh()
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : '删除失败，请重试')
+    } finally {
+      setDeleting(false)
+    }
   }
   async function runMutation(body: Record<string, string>) {
     setError(null)
@@ -179,7 +199,10 @@ export function RouteFacts() {
                         <Button size='sm' variant='ghost' className='me-1' onClick={() => setHistory({ open: true, entryId: entry.id })}>历史</Button>
                         {entry.status !== 'archived'
                           ? <Button size='sm' variant='ghost' onClick={() => runMutation({ action: 'archive-route-fact', id: entry.id })}>归档</Button>
-                          : <Button size='sm' variant='ghost' onClick={() => runMutation({ action: 'confirm-route-fact', id: entry.id })}>恢复</Button>}
+                          : <>
+                            <Button size='sm' variant='ghost' onClick={() => runMutation({ action: 'confirm-route-fact', id: entry.id })}>恢复</Button>
+                            <Button size='sm' variant='ghost' className='text-destructive hover:text-destructive' onClick={() => { setDeleteError(null); setDeleteTarget(entry) }}>删除</Button>
+                          </>}
                       </TableCell>
                     </TableRow>
                   })}
@@ -204,6 +227,19 @@ export function RouteFacts() {
             onReject={() => runMutation({ action: 'reject-route-fact-revision', id: suggestion.id })}
           />
         })()}
+        <ConfirmDialog
+          open={Boolean(deleteTarget)}
+          onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null) }}
+          title='删除线路资料'
+          desc={`确定永久删除「${deleteTarget?.title || ''}」？该条资料的修改历史及关联修订建议也会一并删除，删除后无法恢复。`}
+          cancelBtnText='取消'
+          confirmText={deleting ? '删除中…' : '确认删除'}
+          destructive
+          isLoading={deleting}
+          handleConfirm={() => void deleteFact()}
+        >
+          {deleteError && <p role='alert' className='text-sm text-destructive'>{deleteError}</p>}
+        </ConfirmDialog>
         <FactHistorySheet
           open={history.open}
           entry={(factsQuery.data ?? []).find((entry) => entry.id === history.entryId) || null}

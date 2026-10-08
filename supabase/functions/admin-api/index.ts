@@ -178,6 +178,19 @@ Deno.serve(async (req) => {
         const fileUrl = existing.data?.file_url;
         const marker = '/storage/v1/object/public/kaipa/';
         if (fileUrl?.includes(marker)) await service.storage.from('kaipa').remove([decodeURIComponent(fileUrl.split(marker)[1])]);
+      } else if (body.action === 'delete-route-fact') {
+        // Keep the status predicate on DELETE itself so a concurrent restore
+        // cannot turn an archived-only deletion into deletion of a live fact.
+        const deleted = await service.from('route_fact_entries').delete()
+          .eq('id', body.id).eq('status', 'archived').select('id').maybeSingle();
+        if (deleted.error) throw deleted.error;
+        if (!deleted.data) {
+          const current = await service.from('route_fact_entries').select('id').eq('id', body.id).maybeSingle();
+          if (current.error) throw current.error;
+          return current.data
+            ? json({ error: '请先归档线路资料，再删除' }, 409)
+            : json({ error: '线路资料不存在或已被删除' }, 404);
+        }
       } else if (body.action === 'save-route-fact' || body.action === 'confirm-route-fact' || body.action === 'archive-route-fact'
         || body.action === 'review-route-fact' || body.action === 'apply-route-fact-revision' || body.action === 'reject-route-fact-revision') {
         if (body.action === 'save-route-fact') {

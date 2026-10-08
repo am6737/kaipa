@@ -79,6 +79,23 @@ export async function loadRouteFacts(admin: any, names: string[]): Promise<{ row
   }
 }
 
+/** Compare the whole confirmed library, including expiry state. Sorting object
+ * keys and rows avoids invalidation from JSON/RPC ordering alone. Old briefs
+ * without a fingerprint fail closed and are rebuilt once. */
+export async function routeFactsFingerprint(rows: RouteFactRow[], now = Date.now()): Promise<string> {
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, canonical(entry)])) : value;
+  const snapshot = rows.map(row => ({ ...row, stale: isStaleReview(row.review_due_at, now) }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(canonical(snapshot))));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function canReuseRouteFacts(cached: string | null | undefined, current: string, readError: string | null): boolean {
+  return readError === null && !!cached && cached === current;
+}
+
 export function factsForRoute(rows: RouteFactRow[], name: string, preferredRouteId?: string | null): RouteFactRow[] {
   if (preferredRouteId) {
     const exact = rows.filter(row => row.route_id === preferredRouteId);

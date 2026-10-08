@@ -1,0 +1,7 @@
+# IORails.check_async runs only this input rail, without answer generation,
+# intent embeddings, retrieval, tools or the Colang dialogue engine.
+rails:
+  input:
+    flows:
+      - self check input
+prompts: []

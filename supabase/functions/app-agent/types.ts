@@ -3,6 +3,8 @@ export type AgentContext = {
   threadId: string;
   runId: string;
   currentJourneyId?: string;
+  confirmedTravel?: import('./travel-context.ts').TravelContext | null;
+  locale?: string;
   currentLocation?: import('./location.ts').AgentLocation;
   task?: import('./task.ts').TaskState;
   originalUserMessage?: string;

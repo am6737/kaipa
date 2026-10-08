@@ -1,5 +1,6 @@
 import { z } from 'npm:zod@4.1.12';
 import { queryRail } from './rail.ts';
+import { queryFlyai } from './flyai.ts';
 
 export type TransportQuery = {
   mode: 'rail' | 'flight';
@@ -29,6 +30,7 @@ export async function queryTransport(query: TransportQuery, getEnv: EnvGetter, r
   const common = { query, retrievedAt: new Date().toISOString(), results: query.mode === 'rail' ? [railReference] : [], offers: [] as unknown[],
     limitation: 'No booking is made. Missing results do not prove that no service exists. Prices and seats require revalidation before purchase.' };
   if (query.mode === 'rail') return queryRail(query, getEnv, request);
+  if (getEnv('FLYAI_QUERY_URL')) return queryFlyai(query, getEnv, request);
   const key = getEnv('AMADEUS_CLIENT_ID')?.trim(), secret = getEnv('AMADEUS_CLIENT_SECRET')?.trim();
   if (!key || !secret || getEnv('AMADEUS_ENVIRONMENT') !== 'production') return { ...common, available: false, status: 'not_configured', provider: 'amadeus',
     reason: 'Production flight-offer access is not configured. Test data must not be presented as real flight availability. Continue comparing flight vs rail at route level without inventing flights or prices.' };

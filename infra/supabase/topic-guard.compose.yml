@@ -1,0 +1,32 @@
+services:
+  topic-guard:
+    build: ./topic-guard
+    container_name: kaipa-topic-guard
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 96
+    environment:
+      DO_NOT_TRACK: "1"
+      TOPIC_GUARD_TOKEN: ${TOPIC_GUARD_TOKEN}
+      TOPIC_GUARD_MODEL: ${TOPIC_GUARD_MODEL:-}
+      KAIPA_AI_API_KEY: ${KAIPA_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      KAIPA_AI_BASE_URL: ${KAIPA_AI_BASE_URL:-https://ai.dootask.com/v1}
+      KAIPA_AI_FLASH_MODEL: ${KAIPA_AI_FLASH_MODEL:-gpt-5.6-luna}
+      KAIPA_AI_MODEL: ${KAIPA_AI_MODEL:-gpt-5.6-sol}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8788/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+  functions:
+    environment:
+      TOPIC_GUARD_URL: http://topic-guard:8788
+      TOPIC_GUARD_TOKEN: ${TOPIC_GUARD_TOKEN}

@@ -1,5 +1,5 @@
 import {
-  bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factSourceChips, factsForRoute, isStaleReview,
+  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factSourceChips, factsForRoute, isStaleReview,
   routeFactSourcesFromArtifact, transportLegNote, ROUTE_FACT_SOURCE_LIMIT, type RouteFactRow,
 } from './route-fact-sources.ts';
 import { TRANSPORT_NOTE_MAX, transportPlanSchema, type ResearchBrief } from './plan-document.ts';
@@ -158,4 +158,37 @@ Deno.test('the model key/value list folds back into the record the RPC takes', (
   assert(JSON.stringify(factFieldsRecord([])) === '{}', 'an empty list is an empty record');
   assert(JSON.stringify(factFieldsRecord(null)) === '{}', 'a missing list is an empty record');
   assert(JSON.stringify(factFieldsRecord([{ key: '', value: 'x' }, { key: 'ok', value: 'y' }])) === JSON.stringify({ ok: 'y' }), 'a blank key is dropped');
+});
+
+Deno.test('research cache invalidates additions, archived removals and edits with the same id', async () => {
+  const original = row({ category: { slug: 'access_transport', name: '进出交通' },
+    fields: { from: '成都', to: '党岭村', duration: '经丹巴9—10小时' } });
+  const cached = await routeFactsFingerprint([original], NOW);
+  assert(canReuseRouteFacts(cached, await routeFactsFingerprint([original], NOW), null), 'unchanged facts can reuse');
+  for (const changed of [
+    [original, row({ id: 'fact-2' })],
+    [], // get_route_facts omits archived/deleted entries
+    [{ ...original, fields: { ...original.fields, duration: '直达约9小时' } }],
+    [{ ...original, source_url: 'https://example.com/updated' }],
+    [{ ...original, reviewed_at: '2026-09-22T00:00:00Z' }],
+  ]) assert(!canReuseRouteFacts(cached, await routeFactsFingerprint(changed, NOW), null), 'changed evidence cannot reuse');
+});
+
+Deno.test('research fingerprints ignore row/object order but include all entries and expiry', async () => {
+  const facts = [row({ fields: { from: '成都', to: '党岭村' } }), row({ id: 'fact-2' })];
+  const cached = await routeFactsFingerprint(facts, NOW);
+  assert(cached === await routeFactsFingerprint([facts[1], { ...facts[0], fields: { to: '党岭村', from: '成都' } }], NOW), 'ordering alone does not invalidate');
+  assert(cached !== await routeFactsFingerprint(facts, Date.parse('2027-01-01')), 'passing review due date invalidates');
+  const many = Array.from({ length: ROUTE_FACT_SOURCE_LIMIT + 1 }, (_, i) => row({ id: `fact-${i}` }));
+  const before = await routeFactsFingerprint(many, NOW);
+  many.at(-1)!.fields = { duration: '新耗时' };
+  assert(before !== await routeFactsFingerprint(many, NOW), 'entries beyond source chip limit still affect reuse');
+});
+
+Deno.test('legacy briefs and failed library reads cannot resurrect stale research', async () => {
+  const current = await routeFactsFingerprint([], NOW);
+  assert(!canReuseRouteFacts(undefined, current, null), 'old artifacts rebuild once');
+  assert(!canReuseRouteFacts(null, current, null), 'unverified snapshots cannot reuse');
+  assert(!canReuseRouteFacts(current, current, 'RPC unavailable'), 'read failure cannot certify unchanged facts');
+  assert(canReuseRouteFacts(current, current, null), 'a confirmed empty library can reuse');
 });

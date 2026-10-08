@@ -152,6 +152,9 @@ export interface GlobeProps {
   cameraAction?: GlobeCameraAction;
   /** bottom camera padding reserved for the journey detail sheet */
   focusBottomPadding?: number;
+  /** Bottom of the visible map, excluding content that covers the map. */
+  mapBottomInset?: number;
+  showWalkingAttribution?: boolean;
   /** suspend automatic route framing after the user manually adjusts the map */
   autoFrameRoute?: boolean;
   /** cascade the POI pins in one-by-one (first data load) instead of showing them all at once */

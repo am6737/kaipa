@@ -6,6 +6,8 @@ export type ItineraryItemDraft = {
   title: string;
   timeStart?: string | null;
   timeEnd?: string | null;
+  location?: { name: string } | null;
+  startLocation?: { name: string } | null;
 };
 
 export type ItineraryValidationIssue = {
@@ -41,6 +43,7 @@ export function validateItineraryItems(items: ItineraryItemDraft[], maxDays?: nu
     const start = itineraryMinutes(item.timeStart);
     const end = itineraryMinutes(item.timeEnd);
 
+    if ([item.location, item.startLocation].some(place => place && /→|->|⇒/.test(place.name))) issue('地点必须是一个具体地点，出发地填 startLocation、到达地填 location，不能把起终点合并为一个地点');
     if (VAGUE_TITLE.test(title)) issue('标题过于笼统，请写明具体地点、路线段、活动内容或交通方式');
     if (VAGUE_TRANSPORT.test(title)) issue('交通方式过于笼统，请写明公交、地铁、网约车、自驾等明确方式；有可靠信息时同时写明线路或上下车点');
     if (maxDays && ordinal && ordinal > maxDays) issue(`日序超出旅程的 ${maxDays} 天范围`);

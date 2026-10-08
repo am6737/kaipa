@@ -2,6 +2,7 @@ import { assertCreationFacts, assertTaskPackingMode, assertTaskWrite, constrainT
 import { coreInstructions } from './instructions.ts';
 import { planningSkills, loadPlanningSkill } from './skills.ts';
 import { createAgentRuntime } from './agent.ts';
+import { offTopicResponse } from './topic-boundary.ts';
 
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 function throws(fn: () => void) { let failed = false; try { fn(); } catch { failed = true; } assert(failed, 'Expected rejection'); }
@@ -14,6 +15,30 @@ export function decision(overrides: Partial<TaskDecision> = {}): TaskDecision {
 function state(overrides: Partial<TaskState> = {}): TaskState {
   return { runId: 'run', journeyId: 'journey', decision: decision(), outcome: null, ...overrides };
 }
+
+Deno.test('off-topic requests cannot resume pending writes or enter full planning', () => {
+  const prior = state({ outcome: { status: 'waiting', pendingQuestion: 'When?', draft: null, missingOperations: ['add_itinerary_items'] } });
+  const rejected = constrainTaskDecision(decision({ offTopic: true, continuation: true,
+    authorizationQuote: '生成', fullHikingPlan: true, packingMode: 'full',
+  }), '生成一个骑自行车的鹅鹅的 SVG', prior, 'journey', { hasBoundTrack: true, intent: 'plan_journey' });
+  assert(rejected.mode === 'discuss' && rejected.offTopic);
+  assert(!rejected.continuation && !rejected.fullHikingPlan && rejected.packingMode === 'none');
+  assert(rejected.operations.length === 0 && rejected.requiredOperations.length === 0);
+  throws(() => assertTaskWrite(state({ decision: rejected }), 'add_itinerary_items', 'journey'));
+  // Even an unnormalized task must fail the write boundary.
+  throws(() => assertTaskWrite(state({ decision: decision({ offTopic: true }) }), 'add_itinerary_items', 'journey'));
+  for (const locale of ['zh', 'en']) {
+    const reply = offTopicResponse(locale);
+    assert(reply.draft === null && reply.pendingQuestion === null);
+    assert(reply.quickReplies.length === 3 && reply.quickReplies.every(item => item.action === undefined));
+    assert(taskOutcome(state({ decision: rejected }), reply, []).status === 'completed');
+  }
+});
+
+Deno.test('older persisted tasks keep their supported execution behavior', () => {
+  const supported = constrainTaskDecision(decision(), 'save', null, 'journey');
+  assert(supported.offTopic === false && supported.mode === 'execute');
+});
 
 Deno.test('five total trip days can complete with two hiking boundaries', () => {
   const task = state({ decision: decision({ days: 5, fullHikingPlan: true,
@@ -113,10 +138,9 @@ Deno.test('outcome requires receipts for requested deliverables and preserves dr
 });
 
 Deno.test('skills are discoverable but not eagerly injected; runtime hides denied writes', async () => {
-  // The core prompt is budgeted so it cannot grow without a decision. Raised
-  // from 4500 for the authorizationUnconfirmed rule: an explicit request whose
-  // wording the interpreter cannot match must ask instead of saving nothing.
-  assert(coreInstructions.length < 4700, 'Core prompt grew beyond its budget');
+  // Reserve 300 additional characters for the topic boundary, including mixed
+  // requests that remain on the conversational path. Keep skill bodies lazy.
+  assert(coreInstructions.length < 5000, 'Core prompt grew beyond its budget');
   for (const [name, skill] of Object.entries(planningSkills)) {
     assert(coreInstructions.includes(name) && !coreInstructions.includes(skill.body));
     const loaded = await loadPlanningSkill.invoke({} as never, JSON.stringify({ name }));

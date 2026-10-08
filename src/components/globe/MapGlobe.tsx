@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Easing, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { isValidMapCoordinate, keepValidCoordinates, type MapCoordinate } from '../maps/types';
 import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
@@ -8,6 +8,7 @@ import { CurrentLocationMarker } from './CurrentLocationMarker';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobePoi, GlobeProps } from './types';
+import { useI18n } from '../../i18n';
 import { measureTrack, positionAtDistance } from '../../lib/routeSegments';
 
 // A long route at high zoom would otherwise build one distance marker per
@@ -98,12 +99,15 @@ export default function MapGlobe({
   showDistanceMarkers = false,
   cameraAction,
   focusBottomPadding,
+  mapBottomInset = 0,
+  showWalkingAttribution = false,
   autoFrameRoute = true,
   staggerPins = false,
   onCameraOrientationChange,
   onCameraGestureStart,
   onCameraPositionChange,
 }: GlobeProps) {
+  const { t } = useI18n();
   const { width, height } = useWindowDimensions();
   const mapRef = useRef<NativeMapHandle>(null);
   // The pin scale is an Animated.Value rather than state: a state change would
@@ -712,6 +716,26 @@ export default function MapGlobe({
         onZoomChange={handleZoomChange}
         onGestureStart={onCameraGestureStart}
       />
+      {showWalkingAttribution ? (
+        <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { bottom: mapBottomInset }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('journey.map.walkingAttributionTitle')}
+            hitSlop={{ left: 4, right: 4, bottom: 2, top: 0 }}
+            onPress={() => Alert.alert(
+              t('journey.map.walkingAttributionTitle'),
+              t('journey.map.walkingAttributionDetails'),
+              [
+                { text: t('common.close'), style: 'cancel' },
+                { text: t('journey.map.walkingAttributionLicense'), onPress: () => { void Linking.openURL('https://www.openstreetmap.org/copyright').catch(() => {}); } },
+              ],
+            )}
+            style={{ position: 'absolute', bottom: 2, left: 16, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: theme.surfaceTop }}
+          >
+            <Text style={{ fontSize: 10, lineHeight: 12, color: theme.text2 }}>© OpenStreetMap</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }

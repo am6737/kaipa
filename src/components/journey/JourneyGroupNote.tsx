@@ -1,3 +1,4 @@
+import { MAX_TIMELINE_GROUP_NOTE_LENGTH } from '../../data/timeline';
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, Text, TextInput, View } from 'react-native';
 import type { Theme } from '../../theme/theme';
@@ -18,7 +19,7 @@ export function JourneyGroupNote({ theme, label, note = '', onSave }: {
   const savingRef = useRef(false);
   const close = () => { if (!savingRef.current) setOpen(false); };
   const save = async () => {
-    if (!onSave || savingRef.current || draft.trim().length > 1000) return;
+    if (!onSave || savingRef.current || draft.trim().length > MAX_TIMELINE_GROUP_NOTE_LENGTH) return;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -78,7 +79,7 @@ export function JourneyGroupNote({ theme, label, note = '', onSave }: {
                 editable={!saving}
                 value={draft}
                 onChangeText={setDraft}
-                maxLength={Math.max(1000, note.length)}
+                maxLength={Math.max(MAX_TIMELINE_GROUP_NOTE_LENGTH, note.length)}
                 placeholder={t('journey.timeline.groupNotePlaceholder')}
                 placeholderTextColor={theme.text3}
                 accessibilityLabel={t('journey.timeline.groupNoteTitle', { name: label })}
@@ -86,16 +87,16 @@ export function JourneyGroupNote({ theme, label, note = '', onSave }: {
               />
               <Press
                 onPress={() => void save()}
-                disabled={saving || draft.trim().length > 1000}
+                disabled={saving || draft.trim().length > MAX_TIMELINE_GROUP_NOTE_LENGTH}
                 accessibilityRole="button"
                 accessibilityLabel={t('journey.timeline.groupNoteConfirm')}
-                accessibilityState={{ disabled: saving || draft.trim().length > 1000, busy: saving }}
-                style={{ minWidth: 64, height: 40, paddingHorizontal: 18, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent, opacity: draft.trim().length > 1000 ? 0.4 : 1 }}
+                accessibilityState={{ disabled: saving || draft.trim().length > MAX_TIMELINE_GROUP_NOTE_LENGTH, busy: saving }}
+                style={{ minWidth: 64, height: 40, paddingHorizontal: 18, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent, opacity: draft.trim().length > MAX_TIMELINE_GROUP_NOTE_LENGTH ? 0.4 : 1 }}
               >
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>{t('journey.timeline.groupNoteConfirm')}</Text>}
               </Press>
             </View>
-            {draft.length >= 900 ? <Text style={[type.caption, { color: draft.trim().length > 1000 ? theme.danger : theme.text3, marginTop: 8 }]}>{draft.length}/1000</Text> : null}
+            {draft.length >= 90 ? <Text style={[type.caption, { color: draft.trim().length > MAX_TIMELINE_GROUP_NOTE_LENGTH ? theme.danger : theme.text3, marginTop: 8 }]}>{draft.length}/100</Text> : null}
           </> : <ScrollView style={{ maxHeight: 220 }}><Text selectable style={[type.body, { color: theme.text2, lineHeight: 24 }]}>{note}</Text></ScrollView>}
         </View>
       </NJBottomSheet>

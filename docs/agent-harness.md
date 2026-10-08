@@ -56,13 +56,13 @@ language.
 
 | Stage | Model | Budget | Work |
 | --- | --- | --- | --- |
-| interpret | flash | 30s | Existing `prepareTask`; recorded, not re-run |
+| interpret | none | 10s | Existing `prepareTask` output; recorded, not re-run |
 | research | flash | 120s | Deterministic search/read collection, then one synthesis call, output `ResearchBrief` |
-| transport | none | 30s | Deterministic route-to-route legs; no model call |
+| transport | flash + queries | 90s | Resolve main-transport hubs, query actual providers, retain route-to-route legs |
 | plan | flash | 180s | One declarative `PlanDocument`, with skeleton + per-day chunks as the fallback |
-| save | none | 60s | Deterministic; replays the scoped write tools |
+| save | none + bounded repair | 90s | Deterministic; replays the scoped write tools |
 | packing | flash | 150s | One generation call, bounded batch repairs (2), deterministic commit |
-| respond | none | 60s | Deterministic; states what was actually saved |
+| respond | none | 10s | Deterministic; states what was actually saved |
 
 Model roles are stated where they are chosen, in `createAgentRuntime` and the
 stage agents; `plan` runs on the flash model on purpose, so a slow main model
@@ -107,7 +107,12 @@ state: realtime only triggers an early refresh, so a dropped socket degrades to
 the old cadence. Expanded progress preserves individual tool receipts, including
 failed attempts and provider outages. Query text, guide URLs, returned counts,
 write counts and cache reuse are shown from recorded arguments/results; write
-counts must never be inferred from requested items. Unknown tools remain visible
+counts must never be inferred from requested items. Transport queries are grouped
+under one transport heading, including pending queries and road lookups. Each uses two
+compact lines: mode and route, then the result count or an actionable failure
+summary. Completed entries omit status icons and their empty placeholders;
+pending entries show a loading indicator. They omit separate argument fields, raw provider statuses, per-query
+elapsed time and repeated purchase reminders. Unknown tools remain visible
 by their recorded name. A run without route/guide/transport lookup records says
 that no such records are available, rather than implying verified research.
 Persisted older message payloads may lack the newer result summaries. Stage labels are `agent.stage.*`; the client-side phase

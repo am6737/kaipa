@@ -2076,6 +2076,9 @@ export function DiscoverScreen({
           activePoiId={nav.pointInfo?.kind === 'route' ? null : activeRepId}
           mapStyle={mapStyle}
           showMapLabels={mapLabelsVisible}
+          // Temporarily hidden during layout testing; retain the map footer for later.
+          showWalkingAttribution={false}
+          mapBottomInset={mapImmersive ? insets.bottom : Math.max(0, journeyMapBottomPadding - (journeySheetIndex < 2 ? space.xl : space.md))}
           showDistanceMarkers={mapDistanceMarkersVisible && !!nav.pointInfo && distanceMarkersReady && !routeNavigation}
           cameraAction={mapCameraAction}
           focusBottomPadding={mapImmersive ? immersiveFitBottom : nav.pointInfo?.kind === 'journey' ? journeyMapBottomPadding : routeMapFull ? journeyMinimum + space.xl : undefined}
@@ -2108,11 +2111,6 @@ export function DiscoverScreen({
           onPoiPress={globeHandlers.onPoiPress}
           onBackgroundPress={globeHandlers.onBackgroundPress}
         />
-        ) : null}
-        {nav.pointInfo?.kind === 'journey' && journeyTrackVisible && itineraryLegs.some((leg) => leg.trackBridge && legGeometry[leg.id]) ? (
-          <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 68, left: 16, padding: 4, borderRadius: 6, backgroundColor: theme.surfaceTop }}>
-            <Text style={{ fontSize: 10, color: theme.text2 }}>{t('journey.map.walkingAttribution')}</Text>
-          </View>
         ) : null}
         {!nav.pointInfo && !mapImmersive && !isMemory && routesLoading && exploreBasePois.length === 0 ? (
           <View

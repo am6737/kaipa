@@ -266,7 +266,7 @@ function FootprintShortcut({ theme, points, title, detail, onPress }: { theme: T
   );
 }
 
-function PlanningProfileCard({ theme, profile, loading, onPress }: {
+function PlanningProfileCard({ theme, profile, onPress }: {
   theme: Theme;
   profile: UserPlanningProfile;
   loading: boolean;
@@ -301,9 +301,7 @@ function PlanningProfileCard({ theme, profile, loading, onPress }: {
                 {tags.join('、')}{dietary.length > tags.length ? ` +${dietary.length - tags.length}` : ''}
               </Text>
             </View>
-          ) : loading ? null : (
-            <Text numberOfLines={2} style={[type.caption, { color: theme.text3 }]}>{t('planningProfile.emptyHint')}</Text>
-          )}
+          ) : null}
         </View>
       </Press>
     </AppCard>

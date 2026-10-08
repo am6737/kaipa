@@ -89,7 +89,7 @@ test('server validates and strips location payloads, including old queued fixes'
 test('location is carried through request, queue, runtime and context tool', () => {
   const ui = fs.readFileSync('src/components/assistant/AppAssistant.tsx', 'utf8');
   const server = fs.readFileSync('supabase/functions/app-agent/index.ts', 'utf8');
-  assert.match(ui, /await getAgentLocation\(visibleMessage, 15_000, locationIntent\)/);
+  assert.match(ui, /await getAgentLocation\(visibleMessage, 15_000, effectiveLocationIntent\)/);
   assert.match(ui, /attachments, currentLocation, \.\.\.localAgentTimeContext/);
   assert.equal((server.match(/currentLocation: normalizeAgentLocation\(body.currentLocation\)/g) || []).length, 2);
   assert.match(server, /JSON.stringify\(context.currentLocation\)/);

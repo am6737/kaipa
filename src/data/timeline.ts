@@ -3,6 +3,8 @@
 // whatever the user wants). Progress = how many rows are checked off.
 // Checks are purely manual. Gear checklist stays separate.
 
+export const MAX_TIMELINE_GROUP_NOTE_LENGTH = 1000;
+
 export interface TLMedia {
   tone: string;
   uri?: string;
@@ -32,6 +34,8 @@ export interface TimelineLocation {
   /** An explicitly supplied path from the previous stop; ignored after reorder/move. */
   incomingPath?: TimelineIncomingPath;
   name: string;
+  /** Transport metadata; ordinary map places still use driving navigation. */
+  incomingMode?: 'rail' | 'flight' | null;
   source?: 'map' | 'custom' | 'track';
   longitude?: number;
   latitude?: number;

@@ -1,11 +1,12 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@openai/agents-core@0.16.1": "0.16.1_zod@4.1.12",
+    "npm:@openai/agents-core@0.16.1": "0.16.1_zod@4.1.12_ws@8.21.1",
     "npm:@openai/agents@0.16.1": "0.16.1_zod@4.1.12",
     "npm:@supabase/supabase-js@2.108.1": "2.108.1",
     "npm:fflate@0.8.3": "0.8.3",
     "npm:openai@7.4.0": "7.4.0_zod@4.1.12",
+    "npm:openai@7.5.0": "7.5.0_ws@8.21.1_zod@4.1.12",
     "npm:zod@4.1.12": "4.1.12"
   },
   "npm": {
@@ -27,12 +28,12 @@
         "zod@4.4.3"
       ]
     },
-    "@openai/agents-core@0.16.1_zod@4.1.12": {
+    "@openai/agents-core@0.16.1_zod@4.1.12_ws@8.21.1": {
       "integrity": "sha512-h6X7P95NP/uLwGvWTRg2gHYZ5peB4662s+yDn894gIyC1XUH+B9olJyZy6+pdTVJNq4V9Thi7A43PeYFe8S4LA==",
       "dependencies": [
         "@standard-schema/spec",
         "debug",
-        "openai",
+        "openai@7.5.0_ws@8.21.1_zod@4.1.12",
         "zod@4.1.12"
       ],
       "optionalDependencies": [
@@ -47,7 +48,7 @@
       "dependencies": [
         "@openai/agents-core",
         "debug",
-        "openai",
+        "openai@7.5.0_ws@8.21.1_zod@4.1.12",
         "zod@4.1.12"
       ]
     },
@@ -68,7 +69,7 @@
         "@openai/agents-openai",
         "@openai/agents-realtime",
         "debug",
-        "openai",
+        "openai@7.5.0_ws@8.21.1_zod@4.1.12",
         "zod@4.1.12"
       ]
     },
@@ -172,6 +173,17 @@
     },
     "openai@7.4.0_zod@4.1.12": {
       "integrity": "sha512-+C9Muit5x8j9R8ej8ZzVgKcrVDtqFqTy9gxFdov0EItLgU68zrJtF9ZeT0cyqJQW9S3PCJkdFgADtRGquRBtew==",
+      "dependencies": [
+        "ws",
+        "zod@4.1.12"
+      ],
+      "optionalPeers": [
+        "ws",
+        "zod@4.1.12"
+      ]
+    },
+    "openai@7.5.0_ws@8.21.1_zod@4.1.12": {
+      "integrity": "sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==",
       "dependencies": [
         "ws",
         "zod@4.1.12"

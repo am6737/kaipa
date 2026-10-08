@@ -68,7 +68,7 @@ export function createAgentRuntime(config: { apiKey: string; baseUrl: string; mo
     instructions: taskInterpreterInstructions,
     model: measuredModel(provider, flashModel, 'interpretation', recordMetric, budget),
     tools: [],
-    outputType: taskDecisionSchema,
+    outputType: taskDecisionSchema.omit({ offTopic: true }),
     modelSettings: { temperature: 0, ...reasoningOff },
   });
   const interpret = async (input: unknown) => {

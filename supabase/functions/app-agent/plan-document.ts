@@ -5,8 +5,9 @@
 // here mirrors the parameters of the tool that consumes it, so the save stage
 // passes validated arguments straight into the same code path the light-path
 // agent uses, including receipt replay, version checks and undo payloads.
+import { mainTransportSchema } from './main-transport.ts';
 import { z } from 'npm:zod@4.1.12';
-import { createJourneyParams, itineraryItem, itineraryGroupEndpoint, setJourneyMapLocationParams, updateJourneyScheduleParams } from './tools.ts';
+import { createJourneyParams, itineraryGroupNote, itineraryItem, itineraryGroupEndpoint, setJourneyMapLocationParams, updateJourneyScheduleParams } from './tools.ts';
 import { reviewTransportParams } from './transport-tool.ts';
 import { packingPlanProfile } from './packing-schema.ts';
 import type { PlanDraft } from './task.ts';
@@ -61,6 +62,7 @@ export const researchBriefSchema = z.object({
   // told to leave it empty and nothing it invents can reach the caller. Kept in
   // the schema rather than bolted onto the parsed object so that artifacts
   // written before this field existed still parse on the reuse path.
+  routeFactsFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional().describe('系统填充的线路资料缓存指纹，模型留空'),
   routeFacts: z.array(z.object({
     entryId: z.string().min(1).max(64),
     routeName: z.string().max(200).default(''),
@@ -122,6 +124,7 @@ export type ResearchBrief = z.infer<typeof researchBriefSchema>;
 // note past this bound and threw away a whole transport stage.
 export const TRANSPORT_NOTE_MAX = 500;
 export const transportPlanSchema = z.object({
+  mainTravel: mainTransportSchema.nullable().default(null),
   segments: z.array(z.object({
     fromRoute: z.string().min(1).max(120),
     toRoute: z.string().min(1).max(120),
@@ -156,7 +159,8 @@ export const planDocumentSchema = z.object({
   }).nullable().default(null),
   // Exactly the add_itinerary_items items; transport legs are ordinary
   // itinerary items and have no separate write.
-  itineraryItems: z.array(itineraryItem).max(80).default([]).describe('本任务没有行程项时留空数组，不要为凑数编造条目'),
+  itineraryItems: z.array(itineraryItem).max(80).default([]).describe('按顺序列出简洁地点和必要可执行事项；描述信息放到 groupNotes，不要为凑数编造条目'),
+  groupNotes: z.array(itineraryGroupNote).max(30).default([]).describe('每个行程日简短摘要，通常30—80字、1—2句，与地点顺序一致；概括当天安排，不重复交通数据、资料解释或常识提醒'),
   // Exactly the set_itinerary_group_endpoints endpoints.
   endpoints: z.array(itineraryGroupEndpoint).max(30).default([]).describe('没有可用轨迹终点时留空数组'),
   // Full review_transport_plan input for the transport domain, with every field
@@ -248,6 +252,7 @@ export const planSkeletonSchema = planDocumentSchema.pick({
 export type PlanSkeleton = z.infer<typeof planSkeletonSchema>;
 
 export const planChunkSchema = z.object({
+  groupNotes: z.array(itineraryGroupNote).max(15).default([]).describe('仅本组天数的每日摘要，不能遗漏或写其他天'),
   itineraryItems: z.array(itineraryItem).max(30).default([])
     .describe('仅本组覆盖天数的行程条目；其他天留给后续轮次，不要重复前序天'),
   endpoints: z.array(itineraryGroupEndpoint).max(15).default([])
@@ -269,7 +274,10 @@ export function planDraftFrom(plan: PlanDocument): PlanDraft {
     const times = item.timeStart ? `${item.timeStart}${item.timeEnd ? `-${item.timeEnd}` : ''} ` : '';
     byDay.set(item.day, [...(byDay.get(item.day) || []), `${times}${item.title}`]);
   }
-  for (const [day, items] of byDay) lines.push(`${day}: ${items.join('；')}`);
+  for (const [day, items] of byDay) {
+    const summary = plan.groupNotes.find(entry => entry.day === day)?.note;
+    lines.push(`${day}${summary ? `：${summary}` : ''}\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}`);
+  }
   for (const endpoint of plan.endpoints || []) {
     lines.push(`${endpoint.day} 终点：${endpoint.locationName || (endpoint.trackFinish ? '轨迹终点' : `${endpoint.endDistanceKm ?? ''} km`)}${
       endpoint.overnightReview ? `（过夜候选，水源${endpoint.overnightReview.waterStatus === 'reported' ? '有攻略提及' : '未知'}）` : ''}`);
@@ -304,7 +312,7 @@ export function saveOperations(plan: PlanDocument) {
   const operations: Array<{ tool: SaveToolName; args: Record<string, unknown> }> = [];
   if (plan.journey) operations.push({ tool: 'create_journey', args: { ...plan.journey } });
   if (plan.schedule) operations.push({ tool: 'update_journey_schedule', args: { ...plan.schedule } });
-  if (plan.itineraryItems?.length) operations.push({ tool: 'add_itinerary_items', args: { items: plan.itineraryItems } });
+  if (plan.itineraryItems?.length) operations.push({ tool: 'add_itinerary_items', args: { items: plan.itineraryItems, groupNotes: plan.groupNotes } });
   if (plan.endpoints?.length) operations.push({ tool: 'set_itinerary_group_endpoints', args: { endpoints: plan.endpoints } });
   if (plan.mapLocation) operations.push({ tool: 'set_journey_map_location', args: { ...plan.mapLocation } });
   return operations;

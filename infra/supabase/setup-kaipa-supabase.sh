@@ -351,7 +351,11 @@ PY
 fi
 
 if [[ "$START_STACK" == 1 ]]; then
-  (cd "$RUNTIME_DIR" && docker compose up -d)
+  compose=(-f "$RUNTIME_DIR/docker-compose.yml")
+  for provider in rail-query flyai-query topic-guard; do
+    if [[ -f "$RUNTIME_DIR/$provider.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/$provider.compose.yml"); fi
+  done
+  docker compose --project-directory "$RUNTIME_DIR" "${compose[@]}" up -d
 fi
 
 if [[ "$INIT_DB" == 1 ]]; then
@@ -422,6 +426,7 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922220000_route_fact_revisions.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922230000_agent_route_fact_stats.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20261008130000_timeline_group_notes.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20261008150000_timeline_group_note_limit.sql"
   # The foundation migration owns versioned policy seeds and a stock backfill;
   # do not replay it when a runtime has already installed it.
   membership_installed="$(docker exec kaipa-supabase-db psql -X -At -U postgres -d postgres -c "select to_regclass('public.membership_runtime') is not null")"
