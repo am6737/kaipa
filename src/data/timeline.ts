@@ -22,7 +22,15 @@ export interface TLMedia {
 
 export type TimelineItemKind = 'activity' | 'stay' | 'custom';
 
+export interface TimelineIncomingPath {
+  fromRowId: string;
+  source: 'drawn' | 'imported';
+  coordinates: [number, number][];
+}
+
 export interface TimelineLocation {
+  /** An explicitly supplied path from the previous stop; ignored after reorder/move. */
+  incomingPath?: TimelineIncomingPath;
   name: string;
   source?: 'map' | 'custom' | 'track';
   longitude?: number;

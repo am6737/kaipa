@@ -116,10 +116,75 @@ to WGS-84 once at the platform adapter. Android uses AMap's `onPressPoi`; iOS us
 `onPoiClick`. Upstream react-native-maps 1.27.2 only implements that event for
 Google Maps, so `patches/react-native-maps+1.27.2.patch` enables MapKit selectable
 POI features on iOS 16+ and forwards their names/coordinates through the existing
-Fabric event. The app owns the place card; MapKit's callout is dismissed.
+Fabric event. The native feature remains selected, while the app draws a compact
+name label and its own place card. MKMapItemRequest fills in names not yet
+available on the feature annotation; stale requests are cancelled on deselection.
 Installing this iOS change requires a native rebuild, not a JavaScript refresh.
 Both adapters suppress the background tap that can follow a POI selection so it
 cannot overwrite the place with the finger's location. Plain background taps
 still preserve the exact tapped coordinate. Validate adapter events with
 `node --test scripts/test-map-poi-selection.cjs`; those mocked tests do not
 replace an iOS native build or real-device verification.
+
+The picker reverse-geocodes selected coordinates to show an address. A native
+POI name always takes precedence over a reverse-geocoded locality. A background
+tap starts as “已选位置” and becomes its resolved address; it never moves to a
+nearby POI or back onto the track. Each selection aborts the previous lookup,
+including when choosing a waypoint, switching tracks or closing the picker.
+Check this flow with `node --test scripts/test-track-point-picker-selection.cjs`.
+
+
+## Mixed map-place / hiking-track itinerary legs
+
+Map places within 50 m of a uniquely associated track position follow the
+recorded track directly. Nearby competing positions more than 100 m apart along
+the file require explicit selection. Names and POI coordinates stay intact.
+
+Distant map places can request a walking access road to the track start/end
+when the nearest projection is within 100 m along that endpoint. Interior or
+ambiguous access is not inferred. The remaining route follows the original
+track slice, in either direction. `pendingTrack` remains set until access has
+been verified; `trackBridge` enables this limited road request.
+
+The map-search function reports `actualFrom` / `actualTo` before normalizing
+its display endpoints. Both actual endpoints must be within the same 50 m
+association tolerance used for nearby map places. A road leaving a larger gap
+is rejected. For `trackAccess` walking requests up to 10 km apart, a missing or
+truncated AMap route falls back to BRouter's OSM `hiking-mountain` profile, with
+a 12-second timeout and verified endpoints. `TRACK_ACCESS_ROUTER_URL` can point
+to a dedicated BRouter instance; the default is the public brouter.de endpoint.
+Ordinary road plans do not use this fallback. Returned WGS-84 geometry is kept
+in the access-v3 device/server cache namespace; failed requests remain askable.
+The map attributes the supplementary road network to OpenStreetMap/BRouter.
+These services establish mapped connectivity, not current on-site access.
+
+Live validation using the reported sixth-day coordinates found AMap stopped
+~260 m before the selected track start. BRouter hiking returned 53 road points,
+about 2.06 km, with raw endpoints ~41 m / ~43 m from the selected places. The
+road fixture stores only public route geometry, without account identifiers.
+
+While unresolved, the map omits that connecting line and the distance capsule
+reads “接入点待确认”. Edit the destination stop and choose “补充上一站到这里的路线”
+to draw the road or import a GPX/KML/KMZ covering both locations. Drawing requires
+intermediate points and no segment longer than 250 m. Imported tracks are sliced
+between unambiguous positions within 50 m of both places. The added path lives
+in the destination's `location.incomingPath` JSON and uses existing timeline
+persistence/versioning, so no schema migration is required. It is ignored if the
+previous stop or either endpoint changes. Saved entries retain their source;
+drawn mileage is explicitly estimated. Finish saving the itinerary editor to
+persist the added path. This does not overwrite the journey's original track.
+
+Validation: journey track/identity/geometry and track-picker selection scripts,
+`npx tsc --noEmit`, and the map-search Deno direction tests. Native map behavior
+and the specific real-world road still need device/provider verification.
+
+
+Deployment verification: the real sixth-day coordinate pair was sent through
+an authenticated HTTP request to the self-hosted map-search function. It returned
+HTTP 200, `source: osm`, 53 points and about 2.067 km; the temporary test account
+was removed. A concurrent, unfinished resource-guard integration in the checkout
+references database RPCs not yet installed in this runtime. For this deployment,
+a temporary staging tree contained the existing map-search entrypoint plus only
+the access-router integration, and used `infra/supabase/deploy-functions.sh
+map-search`. The checkout's unrelated resource-guard edits were preserved. A
+later full-checkout deployment must install those guard RPCs first.

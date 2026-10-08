@@ -6,7 +6,7 @@ import { createAgentRuntime } from './agent.ts';
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 function throws(fn: () => void) { let failed = false; try { fn(); } catch { failed = true; } assert(failed, 'Expected rejection'); }
 export function decision(overrides: Partial<TaskDecision> = {}): TaskDecision {
-  return { objective: 'Plan a hike', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'save',
+  return { includeRoundTripTransport: true, objective: 'Plan a hike', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'save',
     operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], destination: 'Hangzhou',
     plannedDate: '2026-09-09', dateUndecided: false, days: 1, derivedDays: null, trackAttachmentName: null,
     packingMode: 'none', constraints: [], ...overrides };
@@ -14,6 +14,17 @@ export function decision(overrides: Partial<TaskDecision> = {}): TaskDecision {
 function state(overrides: Partial<TaskState> = {}): TaskState {
   return { runId: 'run', journeyId: 'journey', decision: decision(), outcome: null, ...overrides };
 }
+
+Deno.test('five total trip days can complete with two hiking boundaries', () => {
+  const task = state({ decision: decision({ days: 5, fullHikingPlan: true,
+    operations: ['add_itinerary_items', 'set_itinerary_group_endpoints'],
+    requiredOperations: ['add_itinerary_items', 'set_itinerary_group_endpoints'] }) });
+  const result = taskOutcome(task, { draft: null, pendingQuestion: null }, [
+    { toolName: 'add_itinerary_items', status: 'completed' },
+    { toolName: 'set_itinerary_group_endpoints', status: 'completed', output: { coverage: { groupCount: 2, requiredGroupCount: 2, reachesTrackEnd: true } } },
+  ]);
+  assert(result.status === 'completed', 'transport days must not require hiking boundaries');
+});
 
 Deno.test('discussion and stop cannot gain writes even with requested operations', () => {
   for (const mode of ['discuss', 'stop'] as const) {

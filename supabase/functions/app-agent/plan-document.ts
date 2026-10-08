@@ -104,10 +104,10 @@ export const researchBriefSchema = z.object({
       priceCny: z.number().nullable().default(null),
       note: z.string().max(400).nullable().default(null),
     })).max(12).default([]),
-  })).max(4).default([]).describe('仅交通域填写，来自 search_transport 的实际查询结果'),
+  })).max(4).default([]).describe('完整旅程或交通域填写，来自 search_transport 的实际查询结果'),
   unresolved: z.array(z.string().max(300)).max(12).default([]).describe('仍未解决的事实缺口，必须如实记录'),
   suggestedDays: z.number().int().min(1).max(30).nullable().default(null)
-    .describe('根据路线徒步时长、路线之间交通和必要缓冲推算的建议总天数；无法可靠估算时为 null'),
+    .describe('根据往返大交通、进出山接驳、路线徒步时长和必要缓冲推算的建议全程天数；无法可靠估算时为 null'),
   durationBasis: z.string().max(800).default('')
     .describe('建议天数的计算依据，简述各路线耗时、中转耗时和缓冲；没有建议天数时留空'),
 });

@@ -3,11 +3,12 @@
   "specifiers": {
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
-    "npm:@openai/agents-core@0.16.1": "0.16.1_zod@4.1.12",
+    "npm:@openai/agents-core@0.16.1": "0.16.1_zod@4.1.12_ws@8.21.3",
     "npm:@openai/agents@0.16.1": "0.16.1_zod@4.1.12",
     "npm:@openspacelabs/react-native-zoomable-view@^2.4.2": "2.4.2_react@19.2.3_react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18",
     "npm:@quidone/react-native-wheel-picker@^1.7.0": "1.7.1_react@19.2.3_react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18",
     "npm:@react-native-async-storage/async-storage@2.2.0": "2.2.0_react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18_react@19.2.3",
+    "npm:@supabase/supabase-js@2": "2.108.1",
     "npm:@supabase/supabase-js@2.108.1": "2.108.1",
     "npm:@supabase/supabase-js@^2.108.1": "2.108.1",
     "npm:@types/react@~19.2.2": "19.2.18",
@@ -38,9 +39,11 @@
     "npm:expo@~56.0.21": "56.0.22_@expo+dom-webview@56.0.6_react@19.2.3_react-dom@19.2.3_react-native@0.85.3_react-native-web@0.21.2_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18_react-native-worklets@0.8.3_typescript@6.0.3",
     "npm:fflate@0.8.3": "0.8.3",
     "npm:fflate@~0.8.3": "0.8.3",
+    "npm:js-md5@0.8.3": "0.8.3",
     "npm:lodash@^4.18.1": "4.18.1",
     "npm:lucide-react-native@^1.25.0": "1.47.0_react@19.2.3_react-native@0.85.3_react-native-svg@15.15.4_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18",
     "npm:openai@7.4.0": "7.4.0_zod@4.1.12",
+    "npm:openai@7.5.0": "7.5.0_ws@8.21.3_zod@4.1.12",
     "npm:patch-package@^8.0.1": "8.0.1",
     "npm:react-dom@19.2.3": "19.2.3_react@19.2.3",
     "npm:react-native-gesture-handler@~2.31.1": "2.31.2_react@19.2.3_react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.87.1_@types+react@19.2.18",
@@ -1090,12 +1093,12 @@
         "zod@4.6.5"
       ]
     },
-    "@openai/agents-core@0.16.1_zod@4.1.12": {
+    "@openai/agents-core@0.16.1_zod@4.1.12_ws@8.21.3": {
       "integrity": "sha512-h6X7P95NP/uLwGvWTRg2gHYZ5peB4662s+yDn894gIyC1XUH+B9olJyZy6+pdTVJNq4V9Thi7A43PeYFe8S4LA==",
       "dependencies": [
         "@standard-schema/spec",
         "debug@4.4.3",
-        "openai",
+        "openai@7.5.0_ws@8.21.3_zod@4.1.12",
         "zod@4.1.12"
       ],
       "optionalDependencies": [
@@ -1110,7 +1113,7 @@
       "dependencies": [
         "@openai/agents-core",
         "debug@4.4.3",
-        "openai",
+        "openai@7.5.0_ws@8.21.3_zod@4.1.12",
         "zod@4.1.12"
       ]
     },
@@ -1131,7 +1134,7 @@
         "@openai/agents-openai",
         "@openai/agents-realtime",
         "debug@4.4.3",
-        "openai",
+        "openai@7.5.0_ws@8.21.3_zod@4.1.12",
         "zod@4.1.12"
       ]
     },
@@ -2728,6 +2731,9 @@
     "jose@6.2.9": {
       "integrity": "sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA=="
     },
+    "js-md5@0.8.3": {
+      "integrity": "sha512-qR0HB5uP6wCuRMrWPTrkMaev7MJZwJuuw4fnwAzRgP4J4/F8RwtodOKpGp4XpqsLBFzzgqIO42efFAyz2Et6KQ=="
+    },
     "js-tokens@4.0.0": {
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="
     },
@@ -3487,6 +3493,17 @@
     },
     "openai@7.4.0_zod@4.1.12": {
       "integrity": "sha512-+C9Muit5x8j9R8ej8ZzVgKcrVDtqFqTy9gxFdov0EItLgU68zrJtF9ZeT0cyqJQW9S3PCJkdFgADtRGquRBtew==",
+      "dependencies": [
+        "ws@8.21.3",
+        "zod@4.1.12"
+      ],
+      "optionalPeers": [
+        "ws@8.21.3",
+        "zod@4.1.12"
+      ]
+    },
+    "openai@7.5.0_ws@8.21.3_zod@4.1.12": {
+      "integrity": "sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==",
       "dependencies": [
         "ws@8.21.3",
         "zod@4.1.12"
@@ -4431,6 +4448,7 @@
         "npm:expo-font@~56.0.7",
         "npm:expo-gaode-map@^2.3.0",
         "npm:expo-haptics@~56.0.3",
+        "npm:expo-image-manipulator@~56.0.26",
         "npm:expo-image-picker@~56.0.25",
         "npm:expo-image@~56.0.12",
         "npm:expo-linear-gradient@~56.0.4",

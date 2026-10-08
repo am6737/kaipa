@@ -20,7 +20,7 @@ import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
 import { uploadAgentAttachment } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
-import { packingActivityPresentation } from './packingActivityPresentation';
+import { activityDetails, hasResearchActivity } from './activityDetails';
 import { startAgentRecovery } from '../../lib/agentRecovery';
 import { getAgentLocation, shouldSuggestTransportLocation, transportLocationIntent, type AgentLocationIntent } from '../../lib/agentLocation';
 import { retryAgentRun } from '../../lib/appAgent';
@@ -225,27 +225,6 @@ function aggregateModelMetrics(metrics: AgentModelMetric[], stages: AgentStage[]
   return [...aggregated.values()];
 }
 
-function collapsePresentedSteps(steps: Array<ResearchStep & { elapsed?: number }>) {
-  const collapsed = new Map<string, ResearchStep & { elapsed?: number }>();
-  for (const step of steps) {
-    // A rendered label represents a user-facing phase. Several guide URLs or
-    // route lookups can therefore share one row even when their call statuses
-    // differ; the underlying activity records remain available for timing and
-    // recovery.
-    const key = step.text;
-    const existing = collapsed.get(key);
-    if (!existing) {
-      collapsed.set(key, { ...step });
-      continue;
-    }
-    if (step.status === 'failed' || (step.status === 'running' && existing.status === 'completed')) {
-      existing.status = step.status;
-    }
-    if (step.elapsed != null) existing.elapsed = (existing.elapsed || 0) + step.elapsed;
-  }
-  return [...collapsed.values()];
-}
-
 function researchStepTitle(step: ResearchStep) {
   const key = step.key;
   const text = step.text;
@@ -256,6 +235,10 @@ function researchStepTitle(step: ResearchStep) {
     if (text.includes('已完成') || text.includes('正在搜索')) return '搜索地点与攻略';
     return '搜索攻略与资料';
   }
+  if (key.includes('search_routes')) return '检索路线库';
+  if (key.includes('get_route_facts')) return '读取线路资料';
+  if (key.includes('review_hiking')) return '核对徒步分段';
+  if (key.includes('review_transport')) return '核对交通方案';
   if (key.includes('search_transport')) return '查询交通信息';
   if (key.includes('search_journeys')) return '搜索已有旅程';
   if (key.includes('get_journey_details')) return '读取旅程详情';
@@ -273,35 +256,11 @@ function researchStepTitle(step: ResearchStep) {
   // inferred phase from the last tool). Showing the fixed "规划处理" label
   // made the progress indicator look stuck even though the phase had moved.
   if (key === 'active_phase') return text || '规划处理';
-  return step.status === 'running' ? '正在执行' : step.status === 'failed' ? '执行未完成' : '已完成';
+  return text;
 }
 
 function researchStepSubtitle(step: ResearchStep) {
-  const text = step.text;
-  if (step.key.endsWith('_query')) return text;
-  // Keep only details that add information beyond the action title. Generic
-  // completion messages such as "已读取…" or "已写入…" are intentionally quiet.
-  if (text.includes('已整理好') || text.includes('暂时不可用') || text.includes('未能')) return text;
-  if (/[0-9]+\s*(个|条|项|公里|km|分钟|小时)/i.test(text)) return text;
-  if (text.includes('未返回') || text.includes('需核实') || text.includes('不代表')) return text;
-  return undefined;
-}
-
-function researchStepGroup(step: ResearchStep) {
-  const key = step.key;
-  if (key.includes('search_travel_web')) return { key: 'web_search', title: '搜索地点与攻略' };
-  if (key.includes('search_transport')) return { key: 'transport', title: '查询交通信息' };
-  if (key.includes('read_travel_guide')) return { key: 'guide', title: '读取攻略内容' };
-  if (
-    key.includes('create_journey')
-    || key.includes('add_itinerary_items')
-    || key.includes('update_journey_schedule')
-    || key.includes('set_journey_map_location')
-    || key.includes('set_itinerary_group_endpoints')
-  ) return { key: 'journey_write', title: '更新行程安排' };
-  if (key.includes('packing')) return { key: 'packing', title: '整理装备清单' };
-  const title = researchStepTitle(step);
-  return { key: title, title };
+  return step.text === researchStepTitle(step) ? undefined : step.text;
 }
 
 function activityFingerprint(activities: AgentRunActivity[]) {
@@ -394,13 +353,8 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       }] : [];
       if (activity.status !== 'completed') return [searchStep, ...queryStep];
       const reports = searchReports(activity.output);
-      // XHS/Douyin are optional research providers. Their temporary outage is
-      // retained in the activity output for diagnostics, but is too noisy to
-      // show as a user-facing failed step when the primary search completed.
-      const visibleReports = reports.filter((report) => !(
-        report.status === 'unavailable'
-        && (report.source === 'xhs' || report.source === 'douyin')
-      ));
+      // Keep provider failures visible alongside successful search results.
+      const visibleReports = reports;
       const providerSteps: ResearchStep[] = visibleReports.map((report) => ({
         key: `${key}_${report.source}`,
         status: report.status === 'completed' ? 'completed' : 'failed',
@@ -447,7 +401,7 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       undo_last_agent_changes: { running: 'agent.research.step.undo.running', completed: 'agent.research.step.undo.completed', failed: 'agent.research.step.undo.failed' },
     };
     const keys = stepKeys[activity.toolName];
-    return keys ? [{ key, status: activity.status, text: t(keys[activity.status]) }] : [];
+    return [{ key, status: activity.status, text: keys ? t(keys[activity.status]) : activity.toolName }];
   });
 }
 
@@ -638,24 +592,25 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
     return () => clearInterval(timer);
   }, [running, showTiming]);
   const arrowProgress = useRef(new Animated.Value(running ? 1 : 0)).current;
-  const steps = researchSteps(packingActivityPresentation(activities, running), t);
+  const steps = researchSteps(activities, t);
   const hasRunningStep = steps.some((step) => step.status === 'running');
   const visibleSteps: ResearchStep[] = steps.length
     ? [
         ...steps,
         ...(running && !hasRunningStep ? [{ key: 'active_phase', status: 'running' as const, text: stageLabel(stages, t) ?? activePlanningPhase(activities, t) }] : []),
       ]
-    : [{ key: 'preparing', status: 'running', text: t('agent.research.preparing') }];
+    : running ? [{ key: 'preparing', status: 'running', text: t('agent.research.preparing') }] : [];
   const totalElapsed = showTiming ? runElapsed(activities, now, runTiming) : undefined;
   const modelElapsed = modelMetrics.reduce((sum, metric) => sum + metric.durationMs, 0);
   const toolElapsed = activities.reduce((sum, activity) => sum + (activityElapsed(activity, now) || 0), 0);
   const aggregatedModelMetrics = aggregateModelMetrics(modelMetrics, stages);
-  const timedSteps = collapsePresentedSteps(visibleSteps.map((step) => {
+  const timedSteps = visibleSteps.map((step) => {
     const activityIndex = activities.findIndex((activity, index) => step.key === `${activity.toolName}_${index}` || step.key.startsWith(`${activity.toolName}_${index}_`));
     const activity = activityIndex >= 0 ? activities[activityIndex] : undefined;
     const elapsed = activity ? activityElapsed(activity, now) : undefined;
-    return { ...step, elapsed };
-  }));
+    const details = activity && step.key === `${activity.toolName}_${activityIndex}` ? activityDetails(activity) : [];
+    return { ...step, elapsed, details };
+  });
   const orderedTimedSteps = [
     ...timedSteps.filter((step) => step.status !== 'running'),
     ...timedSteps.filter((step) => step.status === 'running'),
@@ -698,29 +653,22 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
           <ChevronDown size={17} color={theme.text3} />
         </Animated.View>
       </Press>
-      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step, index, list) => {
-        const group = researchStepGroup(step);
-        const previousGroup = index > 0 ? researchStepGroup(list[index - 1]) : undefined;
-        const subtitle = researchStepSubtitle(step);
-        if (group.key === previousGroup?.key && !subtitle) return null;
-        return (
+      {expanded && !running && !hasResearchActivity(activities) ? (
+        <Text style={[styles.researchLineText, { color: theme.text2 }]}>{t('agent.research.noResearchRecord')}</Text>
+      ) : null}
+      {expanded ? orderedTimedSteps.filter((step) => step.status !== 'running').map((step) => (
         <View key={step.key} style={styles.researchLine}>
           <View style={styles.researchLineIcon}>
-            {step.status === 'completed' ? <Check size={14} color={theme.text3} strokeWidth={2} /> : <X size={14} color={theme.text3} strokeWidth={2} />}
+            {step.status === 'completed' ? <Check size={14} color={theme.text2} strokeWidth={2} /> : <X size={14} color={theme.text2} strokeWidth={2} />}
           </View>
           <View style={styles.researchLineCopy}>
-            {group.key !== previousGroup?.key ? <Text style={[styles.researchLineTitle, { color: theme.text }]}>{group.title}</Text> : null}
-            {subtitle ? (
-              <Text numberOfLines={2} ellipsizeMode="tail" style={[styles.researchLineText, { color: theme.text2 }]}>
-                {subtitle}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}
-              </Text>
-            ) : step.elapsed != null ? (
-              <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text>
-            ) : null}
+            <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}{step.status === 'failed' ? ' · 未完成' : ''}</Text>
+            {researchStepSubtitle(step) ? <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>{researchStepSubtitle(step)}</Text> : null}
+            {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
+            {showTiming && step.elapsed != null ? <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text> : null}
           </View>
         </View>
-        );
-      }) : null}
+      )) : null}
       {showTiming && expanded && (modelElapsed || toolElapsed) ? (
         <Text style={[styles.researchLineText, { color: theme.text3, marginLeft: 22 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
       ) : null}
@@ -737,8 +685,9 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
           </View>
           <View style={styles.researchLineCopy}>
             <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}</Text>
+            {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
             {researchStepSubtitle(step) ? (
-              <Text numberOfLines={2} ellipsizeMode="tail" style={[styles.researchLineText, { color: theme.text2 }]}>
+              <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>
                 {researchStepSubtitle(step)}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}
               </Text>
             ) : step.elapsed != null ? (
@@ -1253,7 +1202,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         setThreadTitle(history.thread.title);
         setThreadJourneyId(currentJourneyId || history.thread.current_journey_id || undefined);
         setTurns((current) => [...historyTurns(history), ...current.filter((turn) => turn.upload)]);
-        console.info('[AppAgent] restored request', activeRunId, result.status || 'completed');
         finish();
       } else if (!pending || Date.now() - pending.startedAt >= 20_000) {
         setRequestPhase('unconfirmed');
@@ -1560,7 +1508,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     const lastTrackPromptTurn = turns.at(-1) && isTrackPromptTurn(turns.at(-1)!) ? turns.at(-1) : undefined;
     const activeTrackPrompt = trackPrompt || (lastTrackPromptTurn ? trackPromptFromTurn(lastTrackPromptTurn) : undefined);
     if (!skipTrackPrompt && !attachmentOverride && !pendingHasTrackAttachment && !wantsNoTrackReply(message) && wantsTrackUploadReply(message)) {
-      console.log('[AppAgent] intercepting track upload text without attachment; opening picker');
       void chooseTrackForPlan(activeTrackPrompt || {
         message: '',
         intent,
@@ -1637,10 +1584,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       pendingRequestRef.current = pending;
       await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
       setActiveRunId(clientRunId);
-      console.info('[AppAgent] sending request', clientRunId);
       const response = await sendAgentTurn(args);
       if (generation !== submitGenerationRef.current || pendingRequestRef.current?.args.clientRunId !== clientRunId) return;
-      console.info('[AppAgent] received response', clientRunId, response.status, Date.now() - pending.startedAt);
       if (response.status === 'running') {
         keepTrackingRun = true;
         setRequestPhase('queued');

@@ -19,7 +19,7 @@ Context and execution:
 Response:
 - Use the user's app language, concise plain text without Markdown. Report actual results, useful assumptions and important unverified facts; do not narrate tool retries or technical internals.
 - If asking a question, set pendingQuestion to that question. Provide 2-4 short quickReplies only when there are useful common answers; do not repeat the options in the prose. Use upload_track only for an actual file-selection request and skip_track only as its optional alternative. Use request_location only for an explicit device-location consent button, paired with a manual-place alternative; this does not confirm that the trip departs or returns there. Otherwise action=null. When confirming a located place, put its actual name in reply messages and use action=null so confirmation does not sample GPS again.
-- offerJourneyExtras=true only after complete core hiking planning is saved, with no pending question; false for discussion, travel supplements, single edits, deletes, undo or when extras are already arranged/declined. Leave quickReplies empty for these optional entries.
+- Full journeys include round-trip travel unless declined. Days include travel; hiking days are separate. Ask for a missing origin. Use custom for transport/rest, stay for lodging, activity for hiking. offerJourneyExtras=false.
 
 Available skills (load only what is relevant):
 ${skillCatalog}`;

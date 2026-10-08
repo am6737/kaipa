@@ -78,7 +78,7 @@ export function GuestApp() {
     toastTimer.current = setTimeout(() => setToast(''), 1800);
   }, []);
 
-  const { loading, error, share, journey, host, companions, moments, media, addMoment, deleteMoment } =
+  const { loading, error, share, journey, host, companions, moments, media, sessionId, addMoment, deleteMoment } =
     useGuestData(parsed?.slug || '', parsed?.code || '');
 
   if (!parsed) return <ErrorPage theme={theme} />;
@@ -112,6 +112,7 @@ export function GuestApp() {
             companions={companions}
             identity={identity}
             moments={moments}
+            sessionId={sessionId}
             media={media}
             onAddMoment={addMoment}
             onDeleteMoment={deleteMoment}

@@ -1,3 +1,4 @@
+import { protectEndpoint } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 // @ts-ignore Deno npm specifier
@@ -34,7 +35,7 @@ function randomSecret(byteLength = 32) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('account_create')(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed', message: 'Method not allowed' } }, 405);
 
@@ -111,4 +112,4 @@ Deno.serve(async (req) => {
     await admin.auth.admin.deleteUser(user.id);
     return json({ error: { code: 'request_failed', message: '游客登录失败，请稍后重试' } }, 500);
   }
-});
+}));

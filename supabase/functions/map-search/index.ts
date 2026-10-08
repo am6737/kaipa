@@ -1,8 +1,10 @@
+import { protectEndpoint } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 // @ts-ignore Deno npm specifier
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { gcj02ToWgs84, wgs84ToGcj02 } from './coordinates.ts';
+import { routeTrackAccess } from './track-access.ts';
 import { parseDirectionLegs, planAll } from './direction.ts';
 
 const corsHeaders = {
@@ -118,7 +120,7 @@ function validCoordinate(lng: unknown, lat: unknown): boolean {
     && typeof lat === 'number' && Number.isFinite(lat) && lat >= -90 && lat <= 90;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('map', 'map_requests')(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed' } }, 405);
 
@@ -185,7 +187,7 @@ Deno.serve(async (req) => {
       if (!legs.length) return json({ error: { code: 'invalid_legs' } }, 400);
       // Each uncached leg is a separate AMap request, so those are what the
       // per-user planning budget pays for.
-      return json({ legs: await planAll(legs, amap, () => withinRateLimit(`${user.id}:direction`)) });
+      return json({ legs: await planAll(legs, amap, () => withinRateLimit(`${user.id}:direction`), (from, to) => routeTrackAccess(from, to, Deno.env.get('TRACK_ACCESS_ROUTER_URL') || undefined)) });
     }
 
     return json({ error: { code: 'invalid_action' } }, 400);
@@ -193,4 +195,4 @@ Deno.serve(async (req) => {
     console.error('[map-search]', error);
     return json({ error: { code: 'map_search_failed' } }, 500);
   }
-});
+}));

@@ -7,6 +7,7 @@ import { useTheme } from './theme/AppearanceContext';
 import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
+import { MembershipProvider } from './membership/MembershipContext';
 import { supabase } from './lib/supabase';
 import { upgradeCurrentAnonymousSession } from './lib/auth';
 import { buildTrackDraft, parseTrackFile, TrackFileError } from './lib/trackImport';
@@ -503,9 +504,11 @@ export function AppRoot() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       {session === undefined ? null : session && userId ? (
         <DataProvider userId={userId}>
-          <OnboardingGate theme={theme}>
-            <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />
-          </OnboardingGate>
+          <MembershipProvider userId={userId}>
+            <OnboardingGate theme={theme}>
+              <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />
+            </OnboardingGate>
+          </MembershipProvider>
         </DataProvider>
       ) : (
         <AuthFlow theme={theme} onSuccess={() => {}} />

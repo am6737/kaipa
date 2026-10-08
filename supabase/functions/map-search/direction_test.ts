@@ -172,3 +172,14 @@ Deno.test('malformed input is dropped, oversized batches are capped', () => {
   assertEquals(legs.some((item) => item.id === 'no-from' || item.id === 'oob'), false);
   assertEquals(parseDirectionLegs('nope'), []);
 });
+
+Deno.test('actual provider endpoints expose a gap hidden by display normalization', async () => {
+  clearDirectionCacheForTests();
+  const { amap } = recorder(amapResponse(['116.4,39.9;116.41,39.91']));
+  const requested = leg();
+  const [planned] = await planAll([requested], amap);
+  assertEquals(planned.actualFrom, gcj02ToWgs84([116.4, 39.9]));
+  assertEquals(planned.actualTo, gcj02ToWgs84([116.41, 39.91]));
+  assertEquals(planned.coordinates!.at(-1), requested.to);
+  assertEquals(JSON.stringify(planned.actualTo) === JSON.stringify(requested.to), false);
+});

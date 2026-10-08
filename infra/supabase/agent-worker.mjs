@@ -26,7 +26,16 @@ let stopping = false;
 process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });
 console.log('Kaipa planning worker started');
+let nextMaintenance = 0;
 while (!stopping) {
+  if (Date.now() >= nextMaintenance) {
+    nextMaintenance = Date.now()+60_000;
+    try {
+      const response = await fetch(`${url}/functions/v1/resources`,{method:'POST',headers:{apikey:serviceKey,Authorization:`Bearer ${serviceKey}`,'Content-Type':'application/json'},body:JSON.stringify({action:'maintenance'}),signal:AbortSignal.timeout(15_000)});
+      await response.arrayBuffer();
+      if (!response.ok) console.warn(`Resource maintenance: HTTP ${response.status}`);
+    } catch { console.warn('Resource maintenance temporarily unavailable'); }
+  }
   try {
     const job = await rpc('claim_agent_job', {});
     if (!job) { await sleep(2000); continue; }

@@ -11,6 +11,8 @@ import type { Theme } from '../../theme/theme';
 import { Press } from '../Press';
 import { RouteGuideEquipment, RouteGuideItinerary, RouteGuideRow, RouteGuideTabs, RouteWeatherDetails } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
+import { getRouteConditionFixtures } from '../../data/routeConditions';
+import { RouteConditionCard } from './RouteConditionCard';
 
 type Page = { view: RouteGuideRequest['view']; planId?: string; guideId?: string };
 type ContentTab = 'itinerary' | 'equipment' | 'review';
@@ -19,6 +21,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   const nav = useNav(); const { resolved } = useI18n(); const c = routeGuideCopy[resolved];
   const insets = useSafeAreaInsets();
   const plans = useMemo(() => getRouteGuidePlans(request.route), [request.route.id, request.route.name]);
+  const reports = useMemo(() => getRouteConditionFixtures(request.route), [request.route.id, request.route.tone]);
   const guides = useMemo(() => getRouteDemoGuides(plans), [plans]);
   const [stack, setStack] = useState<Page[]>([{ view: request.view, planId: request.planId, guideId: request.guideId }]);
   const page = stack[stack.length - 1];
@@ -35,7 +38,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
     const preset = { ...request.route, planningTemplate: toRouteGuideTemplate(plan, resolved) };
     onClose(); nav.openNewJourney(preset);
   };
-  const title = page.view === 'guides' ? c.guides : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : c.referencePlan;
+  const title = page.view === 'guides' ? c.guides : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : page.view === 'conditions' ? c.conditions : c.referencePlan;
   const hasCreate = page.view === 'guide' || page.view === 'plan';
   return <Modal visible presentationStyle="fullScreen" animationType="slide" onRequestClose={goBack}>
     <View style={{ flex: 1, backgroundColor: theme.featureSurface }}>
@@ -49,6 +52,11 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
             <View style={{ marginTop: space.xxl }}><RouteGuideTabs theme={theme} value={sort} options={[{ id: 'recommended', label: c.recommended }, { id: 'helpful', label: c.helpfulSort }, { id: 'updated', label: c.updatedSort }]} onChange={setSort} /></View>
             <View style={styles.filters}>{([{ id: undefined, label: c.all }, { id: 'camp', label: c.camp }, { id: 'stay', label: c.stay }, { id: 'day', label: c.day }] as { id: GuideStay | undefined; label: string }[]).map((filter) => <Press key={filter.id ?? 'all'} accessibilityRole="button" accessibilityState={{ selected: stay === filter.id }} onPress={() => setStay(filter.id)} style={[styles.filter, { backgroundColor: stay === filter.id ? theme.progressTrack : theme.groupedBg }]}><Text style={{ color: stay === filter.id ? theme.text : theme.text2, fontSize: 12 }}>{filter.label}</Text></Press>)}</View>
             <View style={{ marginTop: space.xs }}>{sortRouteGuides(guides, sort, stay).map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} helpful={item.helpful + Number(helpful.has(item.id))} onPress={() => openGuide(item.id)} photoUri={request.route.photoUris?.[0]} /></View>)}{sortRouteGuides(guides, sort, stay).length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{resolved === 'zh' ? '这个走法还没有攻略' : 'No guides for this style yet.'}</Text> : null}</View>
+          </> : page.view === 'conditions' ? <>
+            <Text style={[type.pageTitle, { color: theme.text }]}>{c.conditions}</Text>
+            <Text style={[styles.caption, { color: theme.text2, marginTop: space.sm }]}>{request.route.name}</Text>
+            <Text style={[styles.body, { color: theme.text2, marginTop: space.xl }]}>{c.conditionsIntro}</Text>
+            <View style={{ marginTop: space.lg }}>{reports.map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} />)}</View>
           </> : page.view === 'weather' ? <>
             <Text style={[type.pageTitle, { color: theme.text, marginBottom: space.xl }]}>{c.weather}</Text><Text style={[styles.caption, { color: theme.text2, marginBottom: space.xl }]}>{request.route.name}</Text>
             {weather.loading ? <ActivityIndicator color={theme.accent} /> : weather.forecast ? <RouteWeatherDetails theme={theme} forecast={weather.forecast} /> : <View style={{ gap: space.lg }}><Text style={{ color: theme.text2 }}>{c.weatherUnavailable}</Text><Press onPress={weather.retry} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.accent }}>{c.retry}</Text></Press></View>}

@@ -1,4 +1,32 @@
-# Transport Planning V1
+# Transport Planning
+
+## Default full-journey scope (2026-10-08)
+
+Smart planning includes round-trip main transport, trail transfers, hiking,
+necessary accommodation and packing unless the user explicitly declines travel.
+The date range and generic day count cover departure through return, including
+time on the road. Separately requested hiking days remain a distinct constraint.
+`includeRoundTripTransport` defaults to true for legacy task decisions as well;
+the interpreter records explicit exclusions with user evidence.
+
+The full planner can query rail/flight and ground transport, then review the
+combined travel/hiking window. Missing origin triggers a concise question;
+missing return legs or travel outside the total trip window keep the plan
+incomplete. Service estimates remain unverified even when timing is consistent.
+GPX recording days are route references and cannot supply total trip duration.
+An unspecified total is estimated during complete journey planning and retained
+in `derivedDays`, separately from the user's `days`.
+
+Planner items use `custom` for transport/rest, `stay` for accommodation and
+`activity` for hiking. Endpoint completeness counts hiking activity groups and
+existing boundaries, excluding transport-only days. Full plans no longer offer
+transport as an optional follow-up. Existing transport-only follow-ups retain
+their limited write scope and preserve saved hiking arrangements.
+
+The checks cover deterministic planning/creation guards and endpoint completion;
+live provider/model behavior still needs a deployment smoke test.
+
+## Transport follow-ups
 
 The transport follow-up reuses confirmed journey travel facts, suggests a one-shot
 device location when useful, and plans a continuous outbound/return chain while

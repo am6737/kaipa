@@ -112,6 +112,24 @@ export function trackPointAtCoordinate(track: JourneyTrack, coordinate: Coordina
  * offering none — it is the answer to "which one?", which has no answer. So the
  * list is keyed by geometry and every id that means this track is kept on it.
  */
+export function journeyRouteIds(
+  journey: Poi | undefined,
+  rows: { routeId?: string }[],
+  routes: Poi[],
+): string[] {
+  const ids = rows.flatMap((row) => row.routeId ? [row.routeId] : []);
+  if (journey?.routeId) ids.push(journey.routeId);
+  // Older multi-route journeys persisted only their first route link. The
+  // overview already recovers the others from the saved journey title; keep
+  // the point picker and itinerary geometry on that same source of truth.
+  if (journey?.kind === 'journey') {
+    for (const route of routes) {
+      if (route.name.length >= 3 && journey.name.includes(route.name)) ids.push(route.id);
+    }
+  }
+  return [...new Set(ids)];
+}
+
 export function journeyTracks(
   journey: Poi | undefined,
   rows: { routeId?: string }[],
@@ -128,13 +146,9 @@ export function journeyTracks(
     if (same) mergeTrack(same, track, isOwnTrack);
     else tracks.push(track);
   };
-  const seen = new Set<string>();
-  for (const row of rows) {
-    if (!row.routeId || seen.has(row.routeId)) continue;
-    seen.add(row.routeId);
-    add(routes.find((route) => route.id === row.routeId), row.routeId);
+  for (const routeId of journeyRouteIds(journey, rows, routes)) {
+    add(routes.find((route) => route.id === routeId), routeId);
   }
-  if (journey?.routeId) add(routes.find((route) => route.id === journey.routeId), journey.routeId);
   // The journey's own track is a projection of `journeys.track_id`.
   if (journey) add(journey, journey.trackId || journey.id, true);
   return tracks;

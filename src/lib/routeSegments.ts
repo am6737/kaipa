@@ -131,13 +131,18 @@ export function trackSliceBetweenMeters(
  * valleys a ridge apart can sit metres apart on the map and hundreds of metres
  * apart on the ground, so projecting blind picks the wrong line.
  */
-export function projectOnTrack(measure: TrackMeasure, coordinate: Coordinate): TrackPosition | null {
+export function projectOnTrack(
+  measure: TrackMeasure,
+  coordinate: Coordinate,
+  automatic?: { maxOffsetMeters: number; ambiguityMeters: number },
+): TrackPosition | null {
   const points = measure.coordinates;
   if (points.length < 2) return null;
   // Local planar frame in metres: good enough over the few km a tap can span.
   const lngScale = 111320 * Math.cos(toRadians(coordinate[1]));
   const latScale = 110540;
   let best: { meters: number; index: number; fraction: number } | null = null;
+  const nearbyDistances: number[] = [];
   for (let index = 0; index + 1 < points.length; index += 1) {
     const ax = (points[index][0] - coordinate[0]) * lngScale;
     const ay = (points[index][1] - coordinate[1]) * latScale;
@@ -150,10 +155,20 @@ export function projectOnTrack(measure: TrackMeasure, coordinate: Coordinate): T
     const ox = ax + dx * t;
     const oy = ay + dy * t;
     const offset = Math.hypot(ox, oy);
+    if (automatic && offset <= automatic.maxOffsetMeters) {
+      nearbyDistances.push(measure.cumulativeMeters[index]
+        + (measure.cumulativeMeters[index + 1] - measure.cumulativeMeters[index]) * t);
+    }
     if (!best || offset < best.meters) best = { meters: offset, index, fraction: t };
   }
   if (!best) return null;
   const { index, fraction } = best;
+  if (automatic) {
+    const meters = measure.cumulativeMeters[index]
+      + (measure.cumulativeMeters[index + 1] - measure.cumulativeMeters[index]) * fraction;
+    if (distanceMeters(interpolate(points[index], points[index + 1], fraction), coordinate) > automatic.maxOffsetMeters
+      || nearbyDistances.some((candidate) => Math.abs(candidate - meters) > automatic.ambiguityMeters)) return null;
+  }
   return {
     coordinate: interpolate(points[index], points[index + 1], fraction),
     distanceMeters: measure.cumulativeMeters[index]

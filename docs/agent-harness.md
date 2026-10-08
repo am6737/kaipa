@@ -104,7 +104,13 @@ Two properties are load-bearing and must not be "simplified":
 Progress is pushed over Supabase Realtime (`agent_runs`, `agent_stages`,
 `agent_tool_calls`) and the client's existing poll stays the single writer of run
 state: realtime only triggers an early refresh, so a dropped socket degrades to
-the old cadence. Stage labels are `agent.stage.*`; the client-side phase
+the old cadence. Expanded progress preserves individual tool receipts, including
+failed attempts and provider outages. Query text, guide URLs, returned counts,
+write counts and cache reuse are shown from recorded arguments/results; write
+counts must never be inferred from requested items. Unknown tools remain visible
+by their recorded name. A run without route/guide/transport lookup records says
+that no such records are available, rather than implying verified research.
+Persisted older message payloads may lack the newer result summaries. Stage labels are `agent.stage.*`; the client-side phase
 inference remains as the fallback for the interactive path and older runs.
 
 Ceilings must stay ordered, outermost last: stage budgets (≈630s) < worker fetch

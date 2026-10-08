@@ -1,4 +1,4 @@
-declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
+import { boundedJson, rate, resourceFailure, ResourceError } from '../_shared/resource-guard.ts';
 
 // @ts-ignore Deno npm specifier
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
@@ -42,7 +42,7 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req, info) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed', message: 'Method not allowed' } }, 405);
 
@@ -52,9 +52,12 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const body = await req.json().catch(() => ({})) as { action?: string; id?: string; secret?: string };
+    const peer = 'hostname' in info.remoteAddr ? info.remoteAddr.hostname : 'gateway';
+    await rate(admin,'qr','peer:'+peer);
+    const body = await boundedJson(req,16*1024) as { action?: string; id?: string; secret?: string };
 
     if (body.action === 'create') {
+      await rate(admin,'qr_create','peer:'+peer);
       const secret = randomSecret();
       const expiresAt = new Date(Date.now() + REQUEST_TTL_MS).toISOString();
       const { data, error } = await admin
@@ -148,6 +151,7 @@ Deno.serve(async (req) => {
 
     return json({ error: { code: 'invalid_action', message: 'Unknown action' } }, 400);
   } catch (error) {
+    if (error instanceof ResourceError) return resourceFailure(error);
     console.error('[qr-login]', error);
     return json({ error: { code: 'server_error', message: '扫码登录服务暂时不可用' } }, 500);
   }

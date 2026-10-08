@@ -13,6 +13,8 @@ import { Press } from '../Press';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 import { RouteGuideRow, RouteGuideSectionHeader, RouteReferencePlanCard, RouteWeatherCard } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
+import { getRouteConditionFixtures } from '../../data/routeConditions';
+import { RouteConditionCard } from './RouteConditionCard';
 
 export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void }) {
   const nav = useNav();
@@ -22,6 +24,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
   const plans = useMemo(() => getRouteGuidePlans(route), [route.id, route.name]);
   const guides = useMemo(() => getRouteDemoGuides(plans), [plans]);
+  const reports = useMemo(() => getRouteConditionFixtures(route), [route.id, route.tone]);
   const [selectedPlanId, setSelectedPlanId] = useState('day-hike');
 
 
@@ -64,9 +67,12 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       ) : null}
 
       <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.conditions} />
+        <RouteGuideSectionHeader theme={theme} title={c.weatherDetail} />
         <RouteWeatherCard theme={theme} lng={route.lng} lat={route.lat} onPress={() => nav.openRouteGuide({ route, view: 'weather' })} />
-        <View style={{ marginTop: space.lg, gap: space.xxs }}><Text style={{ color: theme.text2, fontSize: 12, lineHeight: 22 }}>{c.noReports}</Text><Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 21 }}>{c.noReportsHint}</Text></View>
+      </View>
+      <View style={{ marginTop: space.xxxl }}>
+        <RouteGuideSectionHeader theme={theme} title={c.conditions} action={c.allConditions} onAction={() => nav.openRouteGuide({ route, view: 'conditions' })} />
+        {reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />)}
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.plans} />

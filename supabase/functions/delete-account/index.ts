@@ -9,7 +9,6 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const BUCKET = 'kaipa';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -45,12 +44,13 @@ Deno.serve(async (req) => {
     if (userError || !user) return json({ error: { code: 'unauthorized' } }, 401);
 
     const { data: objects, error: objectError } = await admin
-      .rpc('account_storage_paths', { account_id: user.id });
+      .rpc('resource_account_files', { p_user: user.id });
     if (objectError) throw objectError;
 
-    const allPaths = (objects || []).map((object: { path: string }) => object.path);
-    for (let index = 0; index < allPaths.length; index += 100) {
-      const { error } = await admin.storage.from(BUCKET).remove(allPaths.slice(index, index + 100));
+    const buckets = new Map<string,string[]>();
+    for (const file of objects || []) buckets.set(file.bucket,[...(buckets.get(file.bucket)||[]),file.path]);
+    for (const [bucket,paths] of buckets) for (let index=0;index<paths.length;index+=100) {
+      const {error} = await admin.storage.from(bucket).remove(paths.slice(index,index+100));
       if (error) throw error;
     }
 

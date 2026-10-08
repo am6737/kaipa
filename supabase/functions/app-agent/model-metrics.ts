@@ -1,3 +1,4 @@
+import { ResourceError, type ModelBudget } from '../_shared/resource-guard.ts';
 import type { Model, ModelProvider } from 'npm:@openai/agents@0.16.1';
 
 export type ModelMetric = { stage: string; model: string; duration_ms: number; success: boolean; aborted: boolean; usage: Record<string, number> | null };
@@ -24,14 +25,30 @@ function isAbort(error: unknown) {
   return typeof error === 'string' && ABORT_PATTERN.test(error);
 }
 
-export function measuredModel(provider: ModelProvider, model: string, stage: string, record?: (metric: ModelMetric) => Promise<void>): Model {
+export function estimateModelUnits(request: unknown): number {
+  const serialized = JSON.stringify(request);
+  if (new TextEncoder().encode(serialized).length > 24*1024*1024) throw new ResourceError('payload_too_large',413);
+  const images = (serialized.match(/"type":"(?:input_image|image_url)"/g) || []).length;
+  // Image base64 is transported as pixels, not tokenized as prose. Keep it out
+  // of the text estimate while reserving a conservative per-image allowance.
+  const text = JSON.stringify(request,(key,value)=>key==='image' && typeof value==='string' && value.startsWith('data:image/') ? '<image>' : value);
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > 512*1024) throw new ResourceError('payload_too_large',413);
+  return bytes + 8192 + images*65536;
+}
+
+export function measuredModel(provider: ModelProvider, model: string, stage: string, record?: (metric: ModelMetric) => Promise<void>, budget?: ModelBudget): Model {
   return {
     async getResponse(request) {
       const delegate = await provider.getModel(model);
       const started = Date.now();
       let metric: ModelMetric = { stage, model, duration_ms: 0, success: false, aborted: false, usage: null };
       try {
-        const response = await delegate.getResponse(request);
+        const reserved = estimateModelUnits(request);
+        const ticket = await budget?.reserve(reserved);
+        const response = await delegate.getResponse({ ...request, modelSettings: { ...request.modelSettings, maxTokens: 8192 } });
+        // Missing usage remains conservatively charged to its reservation.
+        if (ticket && response.usage?.totalTokens > 0) await budget!.settle(ticket, Math.min(reserved,response.usage.totalTokens));
         const tool = response.output.find(item => item.type === 'function_call');
         const name = tool && 'name' in tool ? tool.name : '';
         const phase = name === 'prepare_packing_draft' ? 'packing_generation' : name === 'repair_packing_draft' ? 'packing_repair' : name === 'commit_packing_draft' ? 'packing_commit_decision' : stage;
@@ -48,6 +65,10 @@ export function measuredModel(provider: ModelProvider, model: string, stage: str
         try { await record?.(metric); } catch { console.warn('[AppAgent] model metrics unavailable'); }
       }
     },
-    async *getStreamedResponse(request) { yield* (await provider.getModel(model)).getStreamedResponse(request); },
+    async *getStreamedResponse(request) {
+      await budget?.reserve(estimateModelUnits(request));
+      // Stream failure/early termination retains the conservative reservation.
+      yield* (await provider.getModel(model)).getStreamedResponse({ ...request, modelSettings: { ...request.modelSettings, maxTokens:8192 } });
+    },
   };
 }

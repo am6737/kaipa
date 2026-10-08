@@ -57,7 +57,7 @@ function ReorderHandle({ theme, disabled, onStart, onMove, onEnd, onStep }: {
       onAccessibilityAction={(event) => {
         if (!disabled) onStep(event.nativeEvent.actionName === 'increment' ? 1 : -1);
       }}
-      style={{ width: 44, flex: 1, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }}
+      style={{ width: 36, flex: 1, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }}
     >
       <Icon name="grip" size={20} color={theme.text3} />
     </View>

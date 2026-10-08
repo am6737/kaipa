@@ -3,7 +3,7 @@
 The route card retains its original title, information pills, month strip,
 photo carousel, description and action/feedback styling. The whitespace-oriented
 design in `docs/previews/route-guide-refined.html` applies only to the added
-weather/recent-condition, reference-plan and community-guide modules. Entry
+separate route-weather and recent-observation, reference-plan and community-guide modules. Entry
 remains the map's route card. Transport is part of the first/last itinerary days,
 with no standalone transport section. Earlier implementation screenshots predate
 this restoration of the original overview styling.
@@ -26,9 +26,11 @@ in this version; private journeys, participants and orders are not published.
 Production community data needs an explicit publication snapshot, scoped public
 read policies, durable votes and review/moderation before replacing examples.
 
-There are no recent condition reports yet. Cover/library photos are not relabeled
-as recent reports. No artificial recent photos, update claims or weather values
-are shown in the app. `useRouteWeather` reads a three-day Open-Meteo forecast for
+Recent observations now use four local fixtures per route for requested UI
+review, including user posts, an official post and a verification badge. Their
+fixed October 2026 timestamps, authors, text and verification are fabricated;
+scenery images come from the existing illustrative photo library. Fixtures are
+not written to the database. Weather values still come from the weather provider. `useRouteWeather` reads a three-day Open-Meteo forecast for
 the catalog route's coordinates, with a 15-minute memory cache, timeout, retry
 and unavailable state. It identifies the nearby-coordinate forecast and source;
 it does not claim to forecast the full trail or summit. Weather is not an access
@@ -85,3 +87,20 @@ plan and guide equipment tabs, sorting, lodging filter, helpful feedback,
 reflection and back navigation. The creation flow saved three days, nine
 itinerary items and fifteen unpacked personal gear items, confirmed by reading
 the database as that test user. The test account and its data were removed.
+
+## Recent observations: product design
+
+Route weather and recent observations have separate sections and detail entries.
+The observations entry currently shows local fixtures, with two entries on the
+route card and four in the list. Photo viewing reuses the existing carousel.
+Publishing and official verification are not implemented. Existing journey media uploads support images
+and videos but do not make journey content into public route observations.
+
+The intended publishing form records the route, visited/captured time, trail
+section or location, text and optional photos/videos. Text-only reports are valid.
+List entries show visited time separately from published time and sort primarily
+by visited time. Older posts belong in history rather than appearing current.
+Source (user or official) and verification (unverified or officially checked,
+with verifier/time) are separate fields. Users cannot grant verification badges
+themselves. Official verification should identify the checked observation and
+time, rather than implying that the entire route is currently passable.

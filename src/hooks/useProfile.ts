@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { uploadAvatar as uploadAvatarFile } from '../lib/storage';
+import { uploadAvatar as uploadAvatarFile, removeMedia } from '../lib/storage';
 import type { WeightUnit } from '../data/gear';
 
 export class AvatarUpdateError extends Error {
@@ -112,8 +112,8 @@ export function useProfile(userId: string | undefined) {
       throw new AvatarUpdateError('upload', error);
     }
 
-    const { error } = await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId);
-    if (error) throw new AvatarUpdateError('profile', error);
+    const { error } = await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId).select('id').single();
+    if (error) { if (/^[0-9A-Z]{5}$/.test(error.code)) await removeMedia([avatarUrl]).catch(()=>{}); throw new AvatarUpdateError('profile',error); }
     setProfile((current) => ({ ...current, avatarUrl }));
   }, [userId]);
 

@@ -77,8 +77,8 @@ Deno.test('the deterministic brief keeps evidence, gaps and a global caution', (
   assert(brief.routes[0].hikingDays === 4 && brief.routes[0].summary.includes('四天环线'), 'evidence lands in the entry');
   assert(brief.routes[0].sourceUrls[0] === 'https://example.com/gongga', 'source urls are kept');
   assert(brief.routes[1].unresolved.some(text => text.includes('预算不足')), 'budget gaps are disclosed per route');
-  assert(brief.suggestedDays === 7, 'days sum from catalog hiking days');
-  assert(brief.durationBasis.includes('GPX'), 'the basis states its provenance');
+  assert(brief.suggestedDays === null, 'recorded hiking days do not establish total round-trip duration');
+  assert(brief.durationBasis === '', 'no total duration basis is claimed from hiking-only evidence');
   assert(brief.unresolved.some(text => text.includes('未能完成全部核验')), 'a global caution accompanies incomplete research');
   assert(brief.facts.length === 1 && brief.facts[0].sourceUrl === 'https://example.com/gongga', 'facts carry sources');
 });

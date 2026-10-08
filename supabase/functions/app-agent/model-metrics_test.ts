@@ -1,4 +1,4 @@
-import { measuredModel, type ModelMetric } from './model-metrics.ts';
+import { estimateModelUnits, measuredModel, type ModelMetric } from './model-metrics.ts';
 import type { ModelProvider } from 'npm:@openai/agents@0.16.1';
 
 Deno.test('model metrics classify generation and count usage without recording content', async () => {
@@ -49,4 +49,25 @@ Deno.test('a provider failure is not mistaken for a budget ceiling', async () =>
   // into the abort bucket, or the re-ask loop stops being visible.
   const invalid = await classify(new Error('Invalid output type: final assistant output failed schema validation'));
   if (!invalid || invalid.aborted !== false) throw new Error('a schema validation failure is not a ceiling');
+});
+
+Deno.test('budget rejection prevents provider execution and successful calls settle measured tokens',async()=>{
+  let calls=0;let settled=0;let maxTokens=0;
+  const provider={getModel:async()=>({getResponse:async(req:any)=>{calls++;maxTokens=req.modelSettings.maxTokens;return {output:[],usage:{inputTokens:2,outputTokens:3,totalTokens:5}}}})} as unknown as ModelProvider;
+  let failed=false;
+  try {await measuredModel(provider,'test','execution',undefined,{reserve:()=>Promise.reject(new Error('service_budget_exceeded')),settle:async()=>{}}).getResponse({} as never);} catch {failed=true;}
+  if(!failed || calls!==0) throw new Error('Provider ran before budget admission');
+  await measuredModel(provider,'test','execution',undefined,{reserve:async()=> 'ticket',settle:async(id,n)=>{if(id!=='ticket') throw new Error('Wrong ticket');settled=n;}}).getResponse({} as never);
+  if(Number(calls)!==1 || settled!==5 || maxTokens!==8192) throw new Error('Budget settlement/output bound missing');
+});
+Deno.test('unknown provider failure retains cost reservation',async()=>{
+  let reserved=0;let settled=false;
+  const provider={getModel:async()=>({getResponse:async()=>{throw new Error('Network disconnected');}})} as unknown as ModelProvider;
+  try {await measuredModel(provider,'test','execution',undefined,{reserve:async n=>{reserved=n;return 'ticket';},settle:async()=>{settled=true;}}).getResponse({} as never);} catch {/* expected */}
+  if(reserved<=8192 || settled) throw new Error('Unknown provider cost refunded');
+});
+
+Deno.test('display sized images are budgeted by pixels instead of base64 text',()=>{
+  const units=estimateModelUnits({input:[{type:'input_image',image:'data:image/jpeg;base64,'+'A'.repeat(800000)}]});
+  if(units<65536 || units>100000) throw new Error('Image incorrectly tokenized as text');
 });

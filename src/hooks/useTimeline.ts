@@ -7,6 +7,7 @@ interface TLState {
   rows: TLRow[];
   knownGroups: string[];
   removedGroups: string[];
+  groupNotes: Record<string, string>;
   groupRoutes: Record<string, TimelineGroupRoute | undefined>;
 }
 
@@ -19,7 +20,7 @@ export async function refetchJourneyTimeline(journeyId: string) {
 }
 
 function getState(key: string): TLState {
-  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [], groupRoutes: {} });
+  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [], groupNotes: {}, groupRoutes: {} });
   return cache.get(key)!;
 }
 
@@ -56,8 +57,10 @@ function loadJourneyTimeline(journeyId: string) {
           ? groupRows.filter((group) => group.deleted).map((group) => group.name).filter(Boolean)
           : prev.removedGroups;
         const fromRows = mapped.map((r) => r.day).filter(Boolean);
+        const groupNotes: Record<string, string> = {};
         const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
         groupRows?.forEach((group) => {
+          if (!group.deleted && group.note) groupNotes[group.name] = group.note;
           if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
           groupRoutes[group.name] = {
             routeId: group.route_id ?? undefined,
@@ -70,7 +73,7 @@ function loadJourneyTimeline(journeyId: string) {
             locationName: group.route_location_name ?? undefined,
           };
         });
-        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
+        return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupNotes: groupRows ? groupNotes : prev.groupNotes, groupRoutes };
       });
     } finally {
       inFlight.delete(journeyId);
@@ -104,8 +107,10 @@ export function useTimeline(
     const rows = preview.rows.map(toTLRow);
     const activeGroups = preview.groups.filter((group: any) => !group.deleted).map((group: any) => group.name).filter(Boolean);
     const removedGroups = preview.groups.filter((group: any) => group.deleted).map((group: any) => group.name).filter(Boolean);
+    const groupNotes: Record<string, string> = {};
     const groupRoutes: Record<string, TimelineGroupRoute | undefined> = {};
     preview.groups.forEach((group: any) => {
+      if (!group.deleted && typeof group.note === 'string') groupNotes[group.name] = group.note;
       if (group.deleted || group.route_end_meters == null || group.route_end_lng == null || group.route_end_lat == null) return;
       groupRoutes[group.name] = {
         routeId: group.route_id ?? undefined,
@@ -119,7 +124,7 @@ export function useTimeline(
       };
     });
     const fromRows = rows.map((row) => row.day).filter(Boolean);
-    return { rows, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupRoutes };
+    return { rows, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupNotes, groupRoutes };
   }, [preview]);
 
   const fetchRows = useCallback(async () => {
@@ -161,6 +166,7 @@ export function useTimeline(
         user_id: userId,
         name: name.trim(),
         deleted,
+        note: null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'journey_id,name' });
     if (error) throw error;
@@ -273,6 +279,7 @@ export function useTimeline(
       rows: s.rows.filter(r => r.day !== day),
       knownGroups: s.knownGroups.filter(g => g !== day),
       removedGroups: s.removedGroups.includes(day) ? s.removedGroups : [...s.removedGroups, day],
+      groupNotes: Object.fromEntries(Object.entries(s.groupNotes).filter(([name]) => name !== day)),
       groupRoutes: Object.fromEntries(Object.entries(s.groupRoutes).filter(([name]) => name !== day)),
     }));
   };
@@ -307,6 +314,10 @@ export function useTimeline(
     const route = state.groupRoutes[from];
     setState(key, (s) => {
       const known = s.knownGroups.map((g) => (g === from ? next : g)).filter((g, i, arr) => g && arr.indexOf(g) === i);
+      const groupNotes = { ...s.groupNotes };
+      const sourceNote = groupNotes[from];
+      delete groupNotes[from];
+      if (sourceNote) groupNotes[next] = [groupNotes[next], sourceNote].filter(Boolean).join('\n\n');
       const groupRoutes = { ...s.groupRoutes };
       delete groupRoutes[from];
       if (route) groupRoutes[next] = route;
@@ -314,27 +325,21 @@ export function useTimeline(
         rows: s.rows.map(r => r.day === from ? { ...r, day: next } : r),
         knownGroups: known.includes(next) ? known : [...known, next],
         removedGroups: [...new Set([...s.removedGroups.filter((group) => group !== next), from])],
+        groupNotes,
         groupRoutes,
       };
     });
   };
 
-  const reorderGroups = async (orderedNames: string[]) => {
-    if (!journeyId || !userId) return;
-    const previous = state.knownGroups;
-    const next = [...orderedNames];
-    setState(key, (s) => ({ ...s, knownGroups: next }));
-    try {
-      const results = await Promise.all(next.map((name, sortOrder) =>
-        supabase.from('timeline_groups').update({ sort_order: sortOrder, updated_at: new Date().toISOString() })
-          .eq('journey_id', journeyId).eq('name', name),
-      ));
-      const failed = results.find((result) => result.error);
-      if (failed?.error) throw failed.error;
-    } catch (error) {
-      setState(key, (s) => ({ ...s, knownGroups: previous }));
-      throw error;
-    }
+  const saveGroupNote = async (day: string, note: string) => {
+    if (!journeyId || !userId || preview) throw new Error('Timeline is not editable');
+    const trimmed = note.trim();
+    if (trimmed.length > 1000) throw new Error('Group note is too long');
+    const { error } = await supabase.rpc('journey_save_timeline_group_note', {
+      p_journey_id: journeyId, p_day: day, p_note: trimmed,
+    });
+    if (error) throw error;
+    setState(key, (s) => ({ ...s, groupNotes: { ...s.groupNotes, [day]: trimmed } }));
   };
 
   const reorder = async (day: string, ids: string[]) => {
@@ -359,5 +364,5 @@ export function useTimeline(
     }
   };
 
-  return { rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder, reorderGroups };
+  return { groupNotes: state.groupNotes, saveGroupNote, rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder };
 }

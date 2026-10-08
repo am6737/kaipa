@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
-import { composeJourneyLegGeometry, type JourneyLeg } from '../lib/journeyStops';
+import { composeJourneyLegGeometry, trackAccessReachesEndpoints, type JourneyLeg } from '../lib/journeyStops';
 import type { Coordinate } from '../lib/routeSegments';
 
-// Keyed by the coordinate pair rather than the row ids: reordering or editing a
-// journey keeps the same pairs, and the server caches on the same identity.
+// Keyed by directed coordinate pairs rather than row ids: edits reuse unchanged
+// pairs and plan new neighbours. The server caches on the same identity.
 const plannedGeometries = new Map<string, Coordinate[]>();
-const failedLegs = new Set<string>();
 
 function legSignature(leg: JourneyLeg) {
   const point = ([lng, lat]: Coordinate) => `${lng.toFixed(5)},${lat.toFixed(5)}`;
-  return `${leg.mode}:${point(leg.directionFrom ?? leg.from)}:${point(leg.directionTo ?? leg.to)}`;
+  return `${leg.trackBridge ? "access-v3:" : ""}${leg.mode}:${point(leg.directionFrom ?? leg.from)}:${point(leg.directionTo ?? leg.to)}`;
 }
 
 // Without this a cold start re-planned every leg of every journey, because the
@@ -82,59 +81,75 @@ export function useJourneyLegGeometry(legs: JourneyLeg[], enabled: boolean): Rec
       cancelled = true;
     };
   }, [ready]);
+  // Describe the chain, not the cache misses. Publishing a completed batch
+  // must not abort the remaining batches or reset their retry budget.
   const requestKey = useMemo(() => {
-    // Asking before the stored plans are read back would re-buy what the device
-    // already paid for.
     if (!enabled || !ready) return '';
-    return legs
-      .filter((leg) => !leg.recordedGeometry && !plannedGeometries.has(legSignature(leg)) && !failedLegs.has(legSignature(leg)))
-      .map(legSignature)
-      .join('|');
-  }, [enabled, legs, ready, revision]);
+    return [...new Set(legs.filter((leg) => !leg.recordedGeometry && (!leg.pendingTrack || leg.trackBridge)).map(legSignature))].join('|');
+  }, [enabled, legs, ready]);
 
   useEffect(() => {
     if (!requestKey) return;
-    const signatures = requestKey.split('|');
-    const requested = legs.filter((leg) => signatures.includes(legSignature(leg)));
-    if (!requested.length) return;
+    const bridgeLegs = new Map(legs.filter((leg) => leg.trackBridge).map((leg) => [legSignature(leg), leg]));
+    const requested = new Map(legs
+      .filter((leg) => !leg.recordedGeometry && (!leg.pendingTrack || leg.trackBridge) && !plannedGeometries.has(legSignature(leg)))
+      .map((leg) => [legSignature(leg), {
+        id: legSignature(leg),
+        mode: leg.mode,
+        trackAccess: leg.trackBridge === true,
+        from: leg.directionFrom ?? leg.from,
+        to: leg.directionTo ?? leg.to,
+      }]));
+    if (!requested.size) return;
     const controller = new AbortController();
-    let changed = false;
-    // Each batch lands here as it arrives rather than being collected and
-    // returned at the end: a journey whose second batch is aborted (the user
-    // paged away, a row was edited) used to throw away the first batch it had
-    // already paid AMap for, and re-buy it on the next open.
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // The final delay lets the server's minute-long planning budget recover.
+    // Bound the retries so unavailable roads/services cannot cause a hot loop.
+    const retryDelays = [2_000, 10_000, 60_000];
     const applyLeg = (leg: PlannedLeg) => {
-      if (leg.coordinates?.length) {
+      const bridge = bridgeLegs.get(leg.id);
+      if (leg.coordinates && leg.coordinates.length >= 2
+        && (!bridge || trackAccessReachesEndpoints(bridge, leg.actualFrom, leg.actualTo))) {
         remember(leg.id, leg.coordinates);
-        changed = true;
-      } else if (leg.attempted !== false && !failedLegs.has(leg.id)) {
-        // Only a verdict that no road exists between these two places is worth
-        // remembering. A leg the function ran out of budget on, or one whose
-        // AMap call errored, has to stay askable: it is the tail of the chain
-        // that gets cut, which is exactly the last day group rendering as a
-        // straight line until the journey is rebuilt.
-        failedLegs.add(leg.id);
-        changed = true;
+        requested.delete(leg.id);
+        if (!controller.signal.aborted) setRevision((value) => value + 1);
+      } else if (leg.attempted === true || leg.coordinates) {
+        // A definite no-route answer stops this attempt, but is not a permanent
+        // device-wide ban. An edited/reopened chain can ask again. Legacy nulls
+        // without `attempted` are inconclusive, just like network/quota errors.
+        requested.delete(leg.id);
       }
     };
-    void planJourneyDirections(requested.map((leg) => ({
-      id: legSignature(leg),
-      mode: leg.mode,
-      from: leg.directionFrom ?? leg.from,
-      to: leg.directionTo ?? leg.to,
-    })), controller.signal, applyLeg)
-      .catch(() => {
-        // A journey that cannot be planned still shows its numbered stops.
-      })
-      .finally(() => {
-        if (changed) setRevision((value) => value + 1);
-      });
-    return () => controller.abort();
+    const plan = async (attempt: number) => {
+      if (controller.signal.aborted) return;
+      // A different mounted chain may have filled the shared cache meanwhile.
+      for (const signature of requested.keys()) {
+        if (plannedGeometries.has(signature)) requested.delete(signature);
+      }
+      try {
+        if (requested.size) {
+          await planJourneyDirections([...requested.values()], controller.signal, applyLeg);
+        }
+      } catch {
+        // Keep unanswered legs pending; successful earlier batches are cached.
+      }
+      if (controller.signal.aborted) return;
+      setRevision((value) => value + 1);
+      if (requested.size && attempt < retryDelays.length) {
+        retryTimer = setTimeout(() => { void plan(attempt + 1); }, retryDelays[attempt]);
+      }
+    };
+    void plan(0);
+    return () => {
+      controller.abort();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [requestKey]);
 
   return useMemo(() => {
     const geometryByLeg: Record<string, Coordinate[]> = {};
     legs.forEach((leg) => {
+      if (leg.pendingTrack && !leg.trackBridge) return;
       const planned = plannedGeometries.get(legSignature(leg));
       const coordinates = leg.recordedGeometry ?? (planned ? composeJourneyLegGeometry(leg, planned) : undefined);
       if (coordinates && coordinates.length >= 2) geometryByLeg[leg.id] = coordinates;

@@ -1,3 +1,4 @@
+import { protectEndpoint } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 const corsHeaders = {
@@ -32,7 +33,7 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('gear', 'gear_requests', 'gear_cutouts', 13_000_000)(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed', message: 'Method not allowed' } }, 405);
 
@@ -62,6 +63,7 @@ Deno.serve(async (req) => {
     }
 
     const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+      signal: AbortSignal.timeout(90_000),
       method: 'POST',
       headers: { 'X-Api-Key': apiKey },
       body: form,
@@ -85,7 +87,7 @@ Deno.serve(async (req) => {
     console.error('gear background removal failed', error);
     return json({ error: { code: 'request_failed', message: '抠图失败，请稍后重试' } }, 500);
   }
-});
+}));
 
 function extensionFor(contentType: string): string {
   if (contentType.includes('png')) return 'png';

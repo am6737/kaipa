@@ -1,3 +1,4 @@
+import { reachesAccess, type AccessRouter } from './track-access.ts';
 import { gcj02ToWgs84, wgs84ToGcj02, type Coordinate } from './coordinates.ts';
 
 export type DirectionMode = 'driving' | 'walking';
@@ -5,6 +6,7 @@ export type DirectionMode = 'driving' | 'walking';
 export interface DirectionRequest {
   id: string;
   mode: DirectionMode;
+  trackAccess?: boolean;
   from: Coordinate;
   to: Coordinate;
 }
@@ -18,6 +20,10 @@ export interface PlannedLeg {
    *  errored, so the null carries no information and the client may ask again
    *  on the next open. true + null is AMap's verdict: there is no route here. */
   attempted: boolean;
+  /** Actual provider endpoints before display normalization. */
+  source?: 'amap' | 'osm';
+  actualFrom?: [number, number];
+  actualTo?: [number, number];
   distanceMeters?: number;
   durationSeconds?: number;
 }
@@ -40,7 +46,7 @@ export const DIRECTION_MAX_POINTS = 220;
 
 export function directionKey(leg: DirectionRequest) {
   const point = ([lng, lat]: Coordinate) => `${lng.toFixed(5)},${lat.toFixed(5)}`;
-  return `${leg.mode}:${point(leg.from)}:${point(leg.to)}`;
+  return `${leg.trackAccess ? "access-v3:" : ""}${leg.mode}:${point(leg.from)}:${point(leg.to)}`;
 }
 
 export function parseAmapPolyline(value: unknown): Coordinate[] {
@@ -66,7 +72,25 @@ export function downsample(coordinates: Coordinate[], max: number): Coordinate[]
   return sampled;
 }
 
-export async function planDirection(leg: DirectionRequest, amap: AmapRequest): Promise<PlannedLeg> {
+export async function planDirection(leg: DirectionRequest, amap: AmapRequest, accessRouter?: AccessRouter): Promise<PlannedLeg> {
+  let planned: PlannedLeg;
+  try { planned = await planAmapDirection(leg, amap); }
+  catch (error) {
+    if (!leg.trackAccess || !accessRouter) throw error;
+    planned = { id: leg.id, mode: leg.mode, coordinates: null, attempted: false };
+  }
+  if (!leg.trackAccess) return planned;
+  if (planned.coordinates && reachesAccess(leg.from, leg.to, planned.actualFrom, planned.actualTo)) return planned;
+  if (accessRouter) {
+    const access = await accessRouter(leg.from, leg.to);
+    if (access && reachesAccess(leg.from, leg.to, access.actualFrom, access.actualTo)) {
+      return { ...access, id: leg.id, mode: leg.mode, attempted: true, source: 'osm' };
+    }
+  }
+  return { id: leg.id, mode: leg.mode, coordinates: null, attempted: planned.attempted };
+}
+
+async function planAmapDirection(leg: DirectionRequest, amap: AmapRequest): Promise<PlannedLeg> {
   const [originLng, originLat] = wgs84ToGcj02(leg.from);
   const [destLng, destLat] = wgs84ToGcj02(leg.to);
   const params = new URLSearchParams({
@@ -86,11 +110,13 @@ export async function planDirection(leg: DirectionRequest, amap: AmapRequest): P
   // joined to a recorded-track slice at a projected anchor; a few metres of
   // AMap endpoint drift otherwise look like a gap between the two polylines.
   const coordinates = downsample(gcjPoints, DIRECTION_MAX_POINTS).map(gcj02ToWgs84);
+  const actualFrom = coordinates[0];
+  const actualTo = coordinates[coordinates.length - 1];
   coordinates[0] = leg.from;
   coordinates[coordinates.length - 1] = leg.to;
   const distanceMeters = Number(path?.distance);
   const durationSeconds = Number(path?.duration);
-  return { id: leg.id, mode: leg.mode, coordinates, attempted: true,
+  return { id: leg.id, mode: leg.mode, coordinates, actualFrom, actualTo, source: 'amap', attempted: true,
     ...(Number.isFinite(distanceMeters) && distanceMeters >= 0 ? { distanceMeters } : {}),
     ...(Number.isFinite(durationSeconds) && durationSeconds >= 0 ? { durationSeconds } : {}),
   };
@@ -106,6 +132,7 @@ export function parseDirectionLegs(value: unknown): DirectionRequest[] {
     legs.push({
       id: typeof raw.id === 'string' ? raw.id.slice(0, 160) : `leg-${legs.length}`,
       mode: raw.mode === 'walking' ? 'walking' : 'driving',
+      trackAccess: raw.trackAccess === true && raw.mode === 'walking',
       from: [from[0], from[1]],
       to: [to[0], to[1]],
     });
@@ -128,6 +155,7 @@ export async function planAll(
   legs: DirectionRequest[],
   amap: AmapRequest,
   consumeBudget: () => boolean = () => true,
+  accessRouter?: AccessRouter,
 ): Promise<PlannedLeg[]> {
   const results = new Map<string, PlannedLeg>();
   const pending = legs.filter((leg) => {
@@ -145,7 +173,7 @@ export async function planAll(
     if (!wave.length) continue;
     const planned = await Promise.all(wave.map(async (leg) => {
       try {
-        return await planDirection(leg, amap);
+        return await planDirection(leg, amap, accessRouter);
       } catch (error) {
         console.warn('[map-search] direction failed', leg.mode, error);
         // A quota or network error is a question that was never answered, not a

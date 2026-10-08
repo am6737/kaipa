@@ -1,4 +1,7 @@
 import { File as FSFile } from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { Platform } from 'react-native';
+import { resourceRequest, resourceUsageChanged } from './resourceClient';
 import { supabase } from './supabase';
 
 const BUCKET = 'kaipa';
@@ -25,76 +28,91 @@ function dataUriBytes(uri: string): Uint8Array | null {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-export async function uploadMedia(
-  localUri: string,
-  userId: string,
-  journeyId: string,
-): Promise<string> {
-  const ext = extFromUri(localUri);
-  const contentType = MIME[ext] || 'application/octet-stream';
-  const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
-  const storagePath = `moments/${userId}/${journeyId}/${filename}`;
-
-  const inlineBytes = dataUriBytes(localUri);
-  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, buffer, { contentType, upsert: false });
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+async function fileBytes(uri: string): Promise<Uint8Array | ArrayBuffer> {
+  const inline = dataUriBytes(uri);
+  if (inline) return inline;
+  if (Platform.OS === 'web' || /^https?:/i.test(uri)) {
+    const response = await fetch(uri);
+    if (!response.ok) throw new Error('无法读取图片，请重新选择');
+    return response.arrayBuffer();
+  }
+  return new FSFile(uri).arrayBuffer();
 }
 
-// Track files live outside the journey that happens to use them: a track can
-// exist unattached, and several journeys may share one file.
-export async function uploadTrackFile(
-  localUri: string,
-  userId: string,
-  fileName?: string,
-): Promise<string> {
+async function ticketUpload(uri: string, purpose: string, scope: string, contentType?: string, expectedUserId?: string): Promise<string> {
+  const initial = await supabase.auth.getSession();
+  const accountId = expectedUserId || initial.data.session?.user.id;
+  const checkAccount = async () => {
+    const {data} = await supabase.auth.getSession();
+    if (!accountId || data.session?.user.id !== accountId) throw new Error('账号已切换，请重新操作');
+  };
+  await checkAccount();
+  const buffer = await fileBytes(uri);
+  const mime = contentType || MIME[extFromUri(uri)] || 'application/octet-stream';
+  await checkAccount();
+  const ticket = await resourceRequest<{id:string;bucket:string;path:string}>({action:'upload_prepare',purpose,scope,bytes:buffer.byteLength,mime});
+  try {
+    await checkAccount();
+    const {error} = await supabase.storage.from(ticket.bucket).upload(ticket.path,buffer,{contentType:mime,upsert:false});
+    if (error) throw error;
+  } catch (error) {
+    try { await resourceRequest({action:'upload_cancel',id:ticket.id}); } catch { /* server maintenance retries expiry */ }
+    throw error;
+  }
+  await checkAccount();
+  resourceUsageChanged();
+  if (ticket.bucket === PRIVATE_BUCKET) {
+    const {data,error} = await supabase.storage.from(ticket.bucket).createSignedUrl(ticket.path,60*60*24*7);
+    if (error || !data) throw error || new Error('附件链接生成失败');
+    return data.signedUrl;
+  }
+  return supabase.storage.from(ticket.bucket).getPublicUrl(ticket.path).data.publicUrl;
+}
+
+export async function uploadMedia(localUri: string, userId: string, journeyId: string): Promise<string> {
+  return ticketUpload(localUri,'media',journeyId,undefined,userId);
+}
+export async function uploadTrackFile(localUri: string, userId: string, fileName?: string): Promise<string> {
   const ext = (fileName?.match(/\.([a-z0-9]{1,10})$/i)?.[1] || extFromUri(localUri)).toLowerCase();
-  const contentType = MIME[ext] || 'application/octet-stream';
-  const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
-  const storagePath = `tracks/${userId}/${filename}`;
-
-  const inlineBytes = dataUriBytes(localUri);
-  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, buffer, { contentType, upsert: false });
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  return ticketUpload(localUri,'track',userId,MIME[ext] || 'application/octet-stream',userId);
+}
+export async function uploadAgentAttachment(localUri: string, userId: string, name: string, mimeType: string): Promise<string> {
+  return ticketUpload(localUri,'attachment',userId,mimeType || MIME[extFromUri(name)] || 'application/octet-stream',userId);
 }
 
-export async function uploadAgentAttachment(
-  localUri: string,
-  userId: string,
-  name: string,
-  mimeType: string,
-): Promise<string> {
-  const ext = (name.match(/\.([a-z0-9]{1,10})$/i)?.[1] || extFromUri(localUri) || 'bin').toLowerCase();
-  const filename = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}.${ext}`;
-  const storagePath = `assistant/${userId}/${filename}`;
-  const inlineBytes = dataUriBytes(localUri);
-  const buffer = inlineBytes ?? await new FSFile(localUri).arrayBuffer();
-
-  const { error } = await supabase.storage
-    .from(PRIVATE_BUCKET)
-    .upload(storagePath, buffer, { contentType: mimeType || MIME[ext] || 'application/octet-stream', upsert: false });
-  if (error) throw error;
-
-  const { data, error: signedUrlError } = await supabase.storage
-    .from(PRIVATE_BUCKET)
-    .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
-  if (signedUrlError || !data?.signedUrl) throw signedUrlError || new Error('Unable to create attachment URL');
-  return data.signedUrl;
+// Display-sized gear images; PNG keeps transparency, JPEG compresses photos.
+export async function compressGearImage(uri: string): Promise<string> {
+  const transparent = /(?:\.(?:png|webp)(?:\?|$)|^data:image\/(?:png|webp))/i.test(uri);
+  const format = transparent ? SaveFormat.PNG : SaveFormat.JPEG;
+  let image = await manipulateAsync(uri,[],{format,compress:0.8});
+  let edge = Math.min(1600,Math.max(image.width,image.height));
+  for (let attempt=0;attempt<5;attempt++) {
+    const scale = edge/Math.max(image.width,image.height);
+    image = await manipulateAsync(image.uri,[{resize:{width:Math.max(1,Math.round(image.width*scale)),height:Math.max(1,Math.round(image.height*scale))}}],{format,compress:Math.max(0.45,0.8-attempt*0.08)});
+    const size = (await fileBytes(image.uri)).byteLength;
+    if (size <= 500*1024 || (transparent && size<=2*1024*1024)) return image.uri;
+    edge = Math.round(edge*0.75);
+  }
+  if ((await fileBytes(image.uri)).byteLength > 2*1024*1024) throw new Error('装备图片过大，请选择尺寸较小的图片');
+  return image.uri;
 }
-
+export async function ensureCloudGearMedia(uris: string[] | undefined, userId: string, scope: string, existing: string[] = []): Promise<string[] | undefined> {
+  if (!uris) return undefined;
+  if (uris.length>5 && uris.length>existing.length) throw new Error('每件装备最多上传 5 张图片');
+  const uploaded: string[] = [];
+  try {
+    const output: string[] = [];
+    for (const uri of uris) {
+      if (existing.includes(uri)) { output.push(uri); continue; }
+      const cloud = await ticketUpload(await compressGearImage(uri),'gear',scope,undefined,userId);
+      uploaded.push(cloud); output.push(cloud);
+    }
+    return output;
+  } catch (error) {
+    await removeMedia(uploaded).catch(()=>{});
+    throw error;
+  }
+}
 
 export function isCloudUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri);
@@ -110,41 +128,15 @@ export async function ensureCloudMedia(
 }
 
 export async function uploadAvatar(localUri: string, userId: string): Promise<string> {
-  const storagePath = `avatars/${userId}/avatar.jpg`;
-  const buffer = await new FSFile(localUri).arrayBuffer();
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, buffer, { contentType: 'image/jpeg', upsert: true });
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return `${data.publicUrl}?t=${Date.now()}`;
+  return ticketUpload(await compressGearImage(localUri),'avatar',userId,undefined,userId);
 }
-
-export async function uploadCover(
-  localUri: string,
-  journeyId: string,
-): Promise<string> {
-  const ext = extFromUri(localUri);
-  const contentType = MIME[ext] || 'image/jpeg';
-  const storagePath = `covers/${journeyId}.jpg`;
-
-  const file = new FSFile(localUri);
-  const buffer = await file.arrayBuffer();
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, buffer, { contentType, upsert: true });
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl + `?t=${Date.now()}`;
+export async function uploadCover(localUri: string, journeyId: string): Promise<string> {
+  return ticketUpload(await compressGearImage(localUri),'cover',journeyId);
 }
 
 function storageLocationFromUrl(publicUrl: string): { bucket: string; path: string } | null {
   const match = publicUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?.*)?$/);
-  if (!match || ![BUCKET, PRIVATE_BUCKET].includes(decodeURIComponent(match[1]))) return null;
+  if (!match || ![BUCKET, PRIVATE_BUCKET, 'kaipa-gear'].includes(decodeURIComponent(match[1]))) return null;
   return { bucket: decodeURIComponent(match[1]), path: decodeURIComponent(match[2]) };
 }
 
@@ -157,5 +149,9 @@ export async function removeMedia(publicUrls: string[]): Promise<void> {
     paths.push(location.path);
     grouped.set(location.bucket, paths);
   }
-  await Promise.all([...grouped].map(([bucket, paths]) => supabase.storage.from(bucket).remove(paths)));
+  await Promise.all([...grouped].map(async ([bucket, paths]) => {
+    const {error} = await supabase.storage.from(bucket).remove(paths);
+    if (error) throw error;
+  }));
+  resourceUsageChanged();
 }

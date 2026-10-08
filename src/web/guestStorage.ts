@@ -1,31 +1,11 @@
 import { guestSupabase } from './supabaseGuest';
-
-export async function uploadGuestPhoto(
-  uri: string,
-  shareId: string,
-): Promise<string | null> {
-  try {
-    const res = await fetch(uri);
-    const blob = await res.blob();
-    const ext = blob.type === 'image/png' ? 'png' : 'jpg';
-    const path = `${shareId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-
-    const { error } = await guestSupabase.storage
-      .from('shared-moments')
-      .upload(path, blob, { contentType: blob.type, upsert: false });
-
-    if (error) {
-      console.warn('[guestStorage] upload error:', error.message);
-      return null;
-    }
-
-    const { data } = guestSupabase.storage
-      .from('shared-moments')
-      .getPublicUrl(path);
-
-    return data.publicUrl;
-  } catch (e) {
-    console.warn('[guestStorage] upload failed:', e);
-    return null;
-  }
+import { guestRequest } from './guestResources';
+export async function uploadGuestPhoto(uri: string, shareId: string, sessionToken: string): Promise<string> {
+  const response = await fetch(uri);
+  if (!response.ok) throw new Error('无法读取图片');
+  const blob = await response.blob();
+  const ticket = await guestRequest<{bucket:string;path:string;token:string}>({action:'guest_upload',bytes:blob.size,mime:blob.type},sessionToken);
+  const {error} = await guestSupabase.storage.from(ticket.bucket).uploadToSignedUrl(ticket.path,ticket.token,blob,{contentType:blob.type,upsert:false});
+  if (error) throw error;
+  return guestSupabase.storage.from(ticket.bucket).getPublicUrl(ticket.path).data.publicUrl;
 }

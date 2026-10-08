@@ -84,6 +84,7 @@ export function locationFromPoi(region: string, lng: number, lat: number, coord?
 export interface DirectionRequest {
   id: string;
   mode: 'driving' | 'walking';
+  trackAccess?: boolean;
   from: [number, number];
   to: [number, number];
 }
@@ -97,6 +98,9 @@ export interface PlannedLeg {
    *  errored, so the null says nothing about whether a road exists. Absent on
    *  a function older than this field, whose nulls were undifferentiated. */
   attempted?: boolean;
+  /** Actual provider endpoints before display normalization. */
+  actualFrom?: [number, number];
+  actualTo?: [number, number];
   distanceMeters?: number;
   durationSeconds?: number;
 }

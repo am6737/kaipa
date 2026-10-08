@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { resourceUsageChanged } from '../lib/resourceClient';
 import { supabase } from '../lib/supabase';
 import { toGearCat, toGearItem, toGearSet } from '../lib/mappers';
-import { ensureCloudMedia, removeMedia } from '../lib/storage';
+import { ensureCloudGearMedia, removeMedia } from '../lib/storage';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 
 export function useGear(userId: string | undefined) {
@@ -63,9 +64,10 @@ export function useGear(userId: string | undefined) {
   // ── Category CRUD ─────────────────────────────────────────────────────────
   const addCat = async (cat: Omit<GearCat, 'id' | 'builtin'>) => {
     if (!userId) return;
-    const { data } = await supabase.from('gear_categories')
+    const { data, error } = await supabase.from('gear_categories')
       .insert({ user_id: userId, name: cat.name, color: cat.color })
       .select().single();
+    if (error) throw error;
     if (data) setCats(prev => [...prev, toGearCat(data)]);
   };
 
@@ -74,13 +76,15 @@ export function useGear(userId: string | undefined) {
     if (patch.name !== undefined) row.name = patch.name;
     if (patch.color !== undefined) row.color = patch.color;
     if (Object.keys(row).length) {
-      await supabase.from('gear_categories').update(row).eq('id', id);
+      const {error} = await supabase.from('gear_categories').update(row).eq('id', id);
+      if (error) throw error;
       setCats(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
     }
   };
 
   const deleteCat = async (id: string) => {
-    await supabase.from('gear_categories').delete().eq('id', id);
+    const {error} = await supabase.from('gear_categories').delete().eq('id', id);
+    if (error) throw error;
     setCats(prev => prev.filter(c => c.id !== id));
     setItems(prev => prev.map(item => item.cat === id ? { ...item, cat: 'uncat' } : item));
   };
@@ -88,7 +92,7 @@ export function useGear(userId: string | undefined) {
   // ── Item CRUD ─────────────────────────────────────────────────────────────
   const addItem = async (item: Omit<GearItem, 'id'>) => {
     if (!userId) return;
-    const photos = await ensureCloudMedia(item.photos, userId, `gear-new-${Date.now()}`);
+    const photos = await ensureCloudGearMedia(item.photos, userId, `gear-new-${Date.now()}`);
     const { data, error } = await supabase.from('gear_items')
       .insert({
         user_id: userId,
@@ -103,10 +107,16 @@ export function useGear(userId: string | undefined) {
         status: item.status ?? 'packed',
       })
       .select().single();
-    if (error) throw error;
+    if (error) {
+      // Only a confirmed SQL rejection proves that no row was committed. A
+      // lost response is reconciled by reference-aware orphan maintenance.
+      if (/^[0-9A-Z]{5}$/.test(error.code)) await removeMedia((photos || []).filter(uri => !item.photos?.includes(uri))).catch(()=>{});
+      throw error;
+    }
     if (data) {
       const saved = toGearItem(data);
       setItems(prev => [...prev, saved]);
+      resourceUsageChanged();
       return saved;
     }
   };
@@ -115,7 +125,7 @@ export function useGear(userId: string | undefined) {
     if (!userId) return;
     const previous = items.find((item) => item.id === id);
     const cloudPhotos = patch.photos !== undefined
-      ? await ensureCloudMedia(patch.photos, userId, `gear-${id}`)
+      ? await ensureCloudGearMedia(patch.photos, userId, `gear-${id}`, previous?.photos)
       : undefined;
     const resolvedPatch = cloudPhotos !== undefined ? { ...patch, photos: cloudPhotos } : patch;
     const row: any = {};
@@ -129,54 +139,49 @@ export function useGear(userId: string | undefined) {
     if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
     if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;
     if (Object.keys(row).length) {
-      const { error } = await supabase.from('gear_items').update(row).eq('id', id);
-      if (error) throw error;
+      const { error } = await supabase.from('gear_items').update(row).eq('id', id).select('id').single();
+      if (error) { if (/^[0-9A-Z]{5}$/.test(error.code)) await removeMedia((cloudPhotos || []).filter(uri => !previous?.photos?.includes(uri))).catch(()=>{}); throw error; }
       const saved = previous ? { ...previous, ...resolvedPatch } : undefined;
       setItems(prev => prev.map(i => i.id === id ? { ...i, ...resolvedPatch } : i));
-      if (resolvedPatch.photos !== undefined && previous?.photos) {
-        const kept = new Set(resolvedPatch.photos ?? []);
-        const removed = previous.photos.filter((uri) => !kept.has(uri));
-        void removeMedia(removed);
-      }
+      // Let reference-aware maintenance collect detached pictures. A photo
+      // may still be used by another item, journey or historical snapshot.
+      resourceUsageChanged();
       return saved;
     }
   };
 
   const deleteItem = async (id: number) => {
-    await supabase.from('gear_items').delete().eq('id', id);
+    const {error} = await supabase.from('gear_items').delete().eq('id', id);
+    if (error) throw error;
     setItems(prev => prev.filter(i => i.id !== id));
+    resourceUsageChanged();
   };
 
   // ── Set CRUD ──────────────────────────────────────────────────────────────
   const addSet = async (name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}, description?: string) => {
     if (!userId) return;
-    const { data } = await supabase.from('gear_sets')
-      .insert({ user_id: userId, name, description: description ?? null })
-      .select().single();
-    if (!data) return;
-    if (itemIds.length) {
-      await supabase.from('gear_set_items')
-        .insert(itemIds.map(item_id => ({ set_id: data.id, item_id, qty: overrides[String(item_id)]?.qty ?? null, status: overrides[String(item_id)]?.status ?? null })));
-    }
+    const {data,error} = await supabase.rpc('save_resource_gear_set',{p_id:null,p_name:name,p_description:description ?? null,p_items:itemIds.map(id=>({id,qty:overrides[String(id)]?.qty ?? null,status:overrides[String(id)]?.status ?? null}))});
+    if (error) throw error;
+    if (!data) throw new Error('装备套装保存失败');
+    resourceUsageChanged();
     const itemMap = new Map(items.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(id => itemMap.get(id)).filter(Boolean) as string[];
     setSets(prev => [...prev, toGearSet(data, itemNames, overrides)]);
   };
 
   const updateSet = async (id: string, name: string, itemIds: number[], overrides: Record<string, GearSetOverride> = {}, description?: string) => {
-    await supabase.from('gear_sets').update({ name, description: description ?? null }).eq('id', id);
-    await supabase.from('gear_set_items').delete().eq('set_id', id);
-    if (itemIds.length) {
-      await supabase.from('gear_set_items')
-        .insert(itemIds.map(item_id => ({ set_id: id, item_id, qty: overrides[String(item_id)]?.qty ?? null, status: overrides[String(item_id)]?.status ?? null })));
-    }
+    const {error} = await supabase.rpc('save_resource_gear_set',{p_id:id,p_name:name,p_description:description ?? null,p_items:itemIds.map(itemId=>({id:itemId,qty:overrides[String(itemId)]?.qty ?? null,status:overrides[String(itemId)]?.status ?? null}))});
+    if (error) throw error;
+    resourceUsageChanged();
     const itemMap = new Map(items.map(i => [i.id!, i.name]));
     const itemNames = itemIds.map(iid => itemMap.get(iid)).filter(Boolean) as string[];
     setSets(prev => prev.map(s => s.id === id ? { ...s, name, description, items: itemNames, overrides } : s));
   };
 
   const deleteSet = async (id: string) => {
-    await supabase.from('gear_sets').delete().eq('id', id);
+    const {error} = await supabase.from('gear_sets').delete().eq('id', id);
+    if (error) throw error;
+    resourceUsageChanged();
     setSets(prev => prev.filter(s => s.id !== id));
   };
 

@@ -36,6 +36,7 @@
     "expo-gaode-map": "^2.3.0",
     "expo-haptics": "~56.0.3",
     "expo-image": "~56.0.12",
+    "expo-image-manipulator": "~56.0.26",
     "expo-image-picker": "~56.0.25",
     "expo-linear-gradient": "~56.0.4",
     "expo-live-photo": "~56.0.4",

@@ -88,11 +88,11 @@ export function Journeys() {
             查看、审核、软删除和恢复用户旅程。
           </p>
         </div>
-        {query.isError ? <p className='text-sm text-destructive'>读取失败：{query.error instanceof Error ? query.error.message : '未知错误'}</p> : <AdminDataTable data={query.data ?? []} columns={adminColumns} entityName='journey' searchPlaceholder='按名称、地区或用户筛选…' onBulkDelete={async (rows) => { if (window.confirm(`确认删除选中的 ${rows.length} 个旅程？`)) { await Promise.all(rows.map((journey) => adminMutation('journeys', { action: 'delete-journey', id: journey.id }))); await queryClient.invalidateQueries({ queryKey: ['admin-journeys'] }) } }} />}
+        {query.isError ? <p className='text-sm text-destructive'>读取失败：{query.error instanceof Error ? query.error?.message : '未知错误'}</p> : <AdminDataTable data={query.data ?? []} columns={adminColumns} entityName='journey' searchPlaceholder='按名称、地区或用户筛选…' onBulkDelete={async (rows) => { if (window.confirm(`确认删除选中的 ${rows.length} 个旅程？`)) { await Promise.all(rows.map((journey) => adminMutation('journeys', { action: 'delete-journey', id: journey.id }))); await queryClient.invalidateQueries({ queryKey: ['admin-journeys'] }) } }} />}
         {false && <Card className='gap-4 rounded-none border-0 bg-transparent py-0 shadow-none'>
           <CardHeader className='px-0'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
-              <CardTitle>旅程列表 {query.data ? `(${filteredJourneys.length}/${query.data.length})` : ''}</CardTitle>
+              <CardTitle>旅程列表 {query.data ? `(${filteredJourneys.length}/${query.data?.length ?? 0})` : ''}</CardTitle>
               <ListSearch value={search} onChange={setSearch} placeholder='搜索旅程、地区或用户…' />
             </div>
           </CardHeader>
@@ -101,7 +101,7 @@ export function Journeys() {
               <p className='text-sm text-destructive'>
                 读取失败：
                 {query.error instanceof Error
-                  ? query.error.message
+                  ? query.error?.message
                   : '请检查管理员权限。'}
               </p>
             ) : (

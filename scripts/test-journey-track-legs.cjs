@@ -107,10 +107,11 @@ test('two places on one track draw that track and never ask for a road', () => {
   assert.deepEqual(legs.recordedGeometry.at(-1), LINE[3]);
 });
 
-test('one end on the track still walks, but has no geometry to claim', () => {
+test('a map place on the same path follows the recorded track', () => {
   const { legs } = legOf({ ...TRACK_POINT }, {}, 3);
   assert.equal(legs.mode, 'walking');
-  assert.equal(legs.recordedGeometry, undefined);
+  assert.deepEqual(legs.recordedGeometry, LINE.slice(0, 4));
+  assert.equal(legs.pendingTrack, false);
 });
 
 test('a distance measured against a different file is not drawn', () => {
@@ -151,4 +152,92 @@ test('the chain across days stays unbroken by track places', () => {
   assert.equal(legs.length, 1);
   assert.equal(legs[0].day, 'Day 1');
   assert.ok(distanceMeters(legs[0].from, legs[0].to) < 2000);
+});
+
+
+test('mixed endpoints follow a bending track in either direction without a road bridge', () => {
+  const path = [[100, 30], [100.01, 30], [100.01, 30.01]];
+  const total = measureTrack(path).totalMeters;
+  const a = place('poi', 'Day 1', [100, 30.0001]);
+  const b = place('camp', 'Day 1', path[2], { trackId: 'bend', trackMeters: total, trackLengthMeters: total });
+  for (const rows of [[a, b], [b, a]]) {
+    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), () => path)[0];
+    assert.deepEqual(leg.recordedGeometry, rows[0] === a ? path : [...path].reverse());
+    assert.equal(leg.directionFrom, undefined);
+    assert.equal(leg.directionTo, undefined);
+    const days = stops.measureJourneyDays([leg], { [leg.id]: leg.recordedGeometry });
+    assert.ok(Math.abs(days[0].meters - total) < 1);
+  }
+});
+
+test('unverified or unavailable track connections remain unmeasured', () => {
+  for (const coords of [trackCoords, () => undefined]) {
+    const rows = [place('poi', 'Day 1', [100.02, 30]), place('camp', 'Day 1', LINE[3],
+      { ...TRACK_POINT, trackMeters: STEP * 3 })];
+    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), coords)[0];
+    assert.equal(leg.pendingTrack, true);
+    assert.equal(leg.recordedGeometry, undefined);
+    const days = stops.measureJourneyDays([leg], {});
+    assert.equal(days[0].pendingTrack, true);
+    assert.equal(days[0].meters, 0);
+  }
+});
+
+test('a POI beside an out-and-back track requires an explicit track position', () => {
+  const loop = [[100, 30], [100, 30.02], [100.0001, 30.02], [100.0001, 30]];
+  const total = measureTrack(loop).totalMeters;
+  const rows = [place('poi', 'Day 1', [100.00005, 30.01]),
+    place('camp', 'Day 1', loop[1], { trackId: 'loop', trackMeters: total / 2, trackLengthMeters: total })];
+  const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']), () => loop)[0];
+  assert.equal(leg.pendingTrack, true);
+});
+
+test('a distant POI approaching a track endpoint requests only the access road', () => {
+  const rows = [place('poi', 'Day 1', [100, 29.99]),
+    place('camp', 'Day 1', LINE[3], { ...TRACK_POINT, trackMeters: STEP * 3 })];
+  for (const ordered of [rows, [...rows].reverse()]) {
+    const leg = stops.buildJourneyLegs(stops.buildJourneyStops(ordered, ['Day 1']), trackCoords)[0];
+    assert.equal(leg.trackBridge, true);
+    assert.equal(leg.pendingTrack, true);
+    assert.deepEqual(leg.directionFrom, ordered[0] === rows[0] ? [100, 29.99] : LINE[0]);
+    assert.deepEqual(leg.directionTo, ordered[0] === rows[0] ? LINE[0] : [100, 29.99]);
+    assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, leg.directionTo), true);
+    assert.equal(stops.trackAccessReachesEndpoints(leg, leg.directionFrom, [100.02, 30]), false);
+    assert.equal(stops.trackAccessReachesEndpoints(leg), false);
+    const geometry = stops.composeJourneyLegGeometry(leg, [leg.directionFrom, leg.directionTo]);
+    assert.deepEqual(geometry[0], leg.from);
+    assert.deepEqual(geometry.at(-1), leg.to);
+    assert.ok(geometry.some(point => point[1] === 30.02));
+    const day = stops.measureJourneyDays([leg], { [leg.id]: geometry })[0];
+    assert.equal(day.pendingTrack, undefined);
+    assert.ok(day.meters > STEP * 3);
+  }
+});
+
+const access = load('src/lib/journeyAccess.ts');
+test('drawn access requires detail and is invalidated when the previous stop changes', () => {
+  const from = [100, 30], to = [100, 30.004];
+  assert.equal(access.drawnAccessPath(from, to, []), null);
+  assert.equal(access.drawnAccessPath(from, to, [[100, 30.0001]]), null);
+  const coords = access.drawnAccessPath(from, to, [[100, 30.002]]);
+  assert.ok(coords);
+  const rows = [place('a', 'Day 1', from), place('b', 'Day 1', to, {
+    incomingPath: { fromRowId: 'a', source: 'drawn', coordinates: coords },
+  })];
+  const leg = stops.buildJourneyLegs(stops.buildJourneyStops(rows, ['Day 1']))[0];
+  assert.equal(leg.userPath, 'drawn');
+  assert.deepEqual(leg.recordedGeometry, coords);
+  assert.equal(stops.measureJourneyDays([leg], { [leg.id]: coords })[0].userDrawn, true);
+  const replaced = [{ ...rows[0], id: 'other' }, rows[1]];
+  assert.equal(stops.buildJourneyLegs(stops.buildJourneyStops(replaced, ['Day 1']))[0].userPath, undefined);
+  const moved = [place('a', 'Day 1', [100.01, 30]), rows[1]];
+  assert.equal(stops.buildJourneyLegs(stops.buildJourneyStops(moved, ['Day 1']))[0].userPath, undefined);
+});
+test('imported access slices the real track in either direction and rejects uncovered endpoints', () => {
+  const path = [[100, 30], [100.01, 30], [100.01, 30.01]];
+  const forward = access.importedAccessPath(path[0], path[2], path);
+  const reverse = access.importedAccessPath(path[2], path[0], path);
+  assert.ok(forward);
+  assert.deepEqual(forward, [...reverse].reverse());
+  assert.equal(access.importedAccessPath([100, 29.9], path[2], path), null);
 });

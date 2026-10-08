@@ -10,6 +10,7 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { SidebarNav } from './components/sidebar-nav'
 
 const sidebarNavItems = [
+  { title: '会员与预算', href: '/settings/membership', icon: <Wrench size={18} /> },
   {
     title: 'Profile',
     href: '/settings',

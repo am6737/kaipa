@@ -34,7 +34,7 @@ interface OverlayCfg {
 
 export interface RouteGuideRequest {
   route: Poi;
-  view: 'plan' | 'guides' | 'guide' | 'weather';
+  view: 'plan' | 'guides' | 'guide' | 'weather' | 'conditions';
   planId?: string;
   guideId?: string;
 }

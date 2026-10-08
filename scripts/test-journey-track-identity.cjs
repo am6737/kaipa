@@ -88,6 +88,23 @@ test('genuinely different tracks stay separate', () => {
   assert.deepEqual(tracks.map((track) => track.id), ['track-1', 'route-2']);
 });
 
+test('legacy three-route journey offers all tracks recovered by the overview map', () => {
+  const second = { ...OTHER_ROUTE, name: '东岸线' };
+  const third = {
+    id: 'route-3', kind: 'route', name: '西岭线',
+    trackCoords: [[102, 32], [102.01, 32.01]],
+  };
+  const unrelated = {
+    id: 'route-4', kind: 'route', name: '无关路线',
+    trackCoords: [[103, 33], [103.01, 33.01]],
+  };
+  const journey = { ...JOURNEY, name: '哈天线 / 东岸线 / 西岭线', routeId: ROUTE.id };
+  const tracks = journeyTracks(journey, [{ routeId: ROUTE.id }], [ROUTE, second, third, unrelated]);
+  assert.deepEqual(tracks.map((track) => track.id), ['track-1', 'route-2', 'route-3']);
+  assert.deepEqual(tracks.map((track) => track.name), ['哈天线', '东岸线', '西岭线']);
+  assert.equal(trackForId(tracks, ROUTE.id), tracks[0], 'the copied first track remains deduplicated');
+});
+
 test('a re-imported track is not folded onto the route it no longer matches', () => {
   const rebound = { ...JOURNEY, trackCoords: OTHER_LINE, trackWaypoints: [] };
   const tracks = journeyTracks(rebound, [{ routeId: ROUTE.id }], [ROUTE]);

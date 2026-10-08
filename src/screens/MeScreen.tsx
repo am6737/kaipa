@@ -31,6 +31,7 @@ import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
 import { PlanningProfilePage } from '../components/me/PlanningProfilePage';
+import { MembershipPage } from '../components/me/MembershipPage';
 import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
 import { JourneyTrashPage } from '../components/journey/JourneyTrashPage';
 import { TracksPage } from '../components/tracks/TracksPage';
@@ -52,6 +53,7 @@ type MePage =
   | { type: 'trash' }
   | { type: 'account' }
   | { type: 'planningProfile' }
+  | { type: 'membership' }
   | { type: 'edit'; field: MeEditField }
   | { type: 'notif' }
   | { type: 'inbox' }
@@ -915,6 +917,8 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
   const renderPage = (pg: MePage) => {
     const theme = pg.type === 'settings' ? makeMeTheme(baseTheme) : baseTheme;
     switch (pg.type) {
+      case 'membership':
+        return <MembershipPage theme={theme} onBack={pop} />;
       case 'scanLogin':
         return (
           <QrLoginScannerPage
@@ -943,7 +947,8 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             >
               <AppSectionHeader theme={theme} text={t('me.account')} marginTop={space.lg} />
               <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} last />
+                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} />
+                <SettingsRow theme={theme} icon="gearSettings" label={t('membership.title')} onPress={() => push({ type: 'membership' })} last />
               </AppCard>
 
               <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />

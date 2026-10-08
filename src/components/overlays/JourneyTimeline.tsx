@@ -32,12 +32,15 @@ import WheelPicker from '@quidone/react-native-wheel-picker';
 import * as Haptics from 'expo-haptics';
 import { AppCard, motion, radius, space, type } from '../../design-system';
 import { ReorderableTimelineGroup } from '../journey/ReorderableTimelineGroup';
+import { JourneyGroupNote } from '../journey/JourneyGroupNote';
 import { JourneyGroupPicker } from '../journey/JourneyGroupPicker';
+import { useLastAddedGroup } from '../journey/useLastAddedGroup';
 import { buildJourneyGroupChoices } from '../../lib/journeyGroupChoices';
 import { journeyDayDisplayLabel, journeyDayOrdinal, nextJourneyDayKey } from '../../lib/journeyDays';
 import { groupJourneyRows, journeyGroupsForSelectedDay, sortRowsWithinDay } from '../../lib/journeyOrdering';
-import { carryPlaceFromPreviousDay } from '../../lib/journeyStops';
+import { buildJourneyStops, carryPlaceFromPreviousDay } from '../../lib/journeyStops';
 import { journeyTracks, trackForId, trackLengthMatches, type JourneyTrack } from '../../lib/journeyTracks';
+import { JourneyAccessPathSheet } from './JourneyAccessPathSheet';
 import { TrackPointPickerSheet } from './TrackPointPicker';
 import { searchJourneyLocations, type JourneyLocationValue } from '../../lib/amapGeocoding';
 
@@ -180,42 +183,6 @@ function DayCollapseToggle({ theme, collapsed, onPress, label }: {
     >
       <CollapseChevron theme={theme} collapsed={collapsed} />
     </Press>
-  );
-}
-
-function DragHandle({ theme, onDrop, label }: { theme: Theme; onDrop: (delta: number) => void; label: string }) {
-  const [dragging, setDragging] = useState(false);
-  const draggingRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const responder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gesture) => draggingRef.current || Math.abs(gesture.dy) > 8,
-    onPanResponderGrant: () => {
-      timerRef.current = setTimeout(() => {
-        draggingRef.current = true;
-        setDragging(true);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      }, 180);
-    },
-    onPanResponderMove: () => {},
-    onPanResponderRelease: (_, gesture) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      if (draggingRef.current) onDrop(Math.round(gesture.dy / 82));
-      draggingRef.current = false;
-      setDragging(false);
-    },
-    onPanResponderTerminate: () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      draggingRef.current = false;
-      setDragging(false);
-    },
-  })).current;
-  return (
-    <View {...responder.panHandlers} accessibilityRole="button" accessibilityLabel={label} style={{ width: 34, height: 42, alignItems: 'center', justifyContent: 'center', opacity: dragging ? 1 : 0.52 }}>
-      <Text style={{ color: dragging ? theme.accent : theme.text3, fontSize: 19, lineHeight: 20, letterSpacing: -3 }}>⋮⋮</Text>
-    </View>
   );
 }
 
@@ -497,33 +464,32 @@ function DayChips({ theme, items, active, onSelect, onAdd, editable, onDeleteIte
 }
 
 // ── A collapsible day group: bold label, chevron when collapsible ─────────────
-function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, headerAction, children }: {
+function DaySection({ theme, label, collapsible, collapsed, onToggle, onBodyHeight, note, hasNote, children }: {
   theme: Theme;
   label: string;
   collapsible?: boolean;
   collapsed?: boolean;
   onToggle?: () => void;
   onBodyHeight?: (height: number) => void;
-  headerAction?: React.ReactNode;
+  note?: React.ReactNode;
+  hasNote?: boolean;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <View style={{ marginBottom: space.xl }}>
-      <Pressable
-        onPress={collapsible ? onToggle : undefined}
-        hitSlop={8}
-        style={{ minHeight: 60, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center' }}
-      >
-        <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Press
+          onPress={collapsible ? onToggle : undefined}
+          style={{ flexShrink: 1, maxWidth: hasNote ? '45%' : undefined, minHeight: 60, paddingVertical: space.sm, justifyContent: 'center' }}
+        >
           <Text style={[type.pageTitle, { color: theme.text, fontSize: 23 }]} numberOfLines={1}>{label.toUpperCase()}</Text>
-        </View>
+        </Press>
+        {note}
         {collapsible ? (
-          <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-            <CollapseChevron theme={theme} collapsed={!!collapsed} />
-          </View>
+          <DayCollapseToggle theme={theme} collapsed={!!collapsed} onPress={() => onToggle?.()} label={t(collapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')} />
         ) : null}
-        {headerAction}
-      </Pressable>
+      </View>
       <DayBody open={!collapsed} onHeightChange={onBodyHeight}>{children}</DayBody>
     </View>
   );
@@ -1168,6 +1134,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   dayLayout?: boolean;
   reorderHandle?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const media = row.media || [];
   const selectionProgress = useRef(new Animated.Value(selected ? 1 : 0)).current;
 
@@ -1209,7 +1176,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   const placeNode = placeName ? (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: row.timeStart != null || hasTitle || media.length > 0 ? space.sm : 0 }}>
       <Icon name="pin" size={11} color={theme.text2} strokeWidth={1.8} />
-      <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{placeName}</Text>
+      <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{placeName}{row.location?.incomingPath ? ` · ${t(row.location.incomingPath.source === 'drawn' ? 'journey.timeline.accessDrawn' : 'journey.timeline.accessImported')}` : ''}</Text>
     </View>
   ) : null;
   const timeNode = row.timeStart != null ? <Text style={[type.eyebrow, { color: theme.text2 }]}>{fmtRange(row.timeStart, row.timeEnd ?? undefined)}</Text> : null;
@@ -1309,10 +1276,10 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
         // the whole tinted area is a tap target, not just the text lines.
         paddingVertical: dayLayout ? space.md : space.sm,
         paddingHorizontal: dayLayout ? space.md : 0,
-        paddingLeft: selectionMode ? (dayLayout ? space.md + 24 + space.md : 24 + space.md) : undefined,
-        // Reserve a compact right rail; the handle fills the card's existing
-        // height instead of adding a minimum height plus vertical padding.
-        paddingRight: reorderHandle ? 44 + space.xxs : undefined,
+        // Only visible editing controls need a rail; browsing uses the full
+        // content width inside the card's regular inset.
+        paddingLeft: selectionMode ? space.xxxl : undefined,
+        paddingRight: reorderHandle ? space.xxxl : undefined,
       }}
     >
       {selectionMode ? (
@@ -1320,10 +1287,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
           pointerEvents="none"
           style={{
             position: 'absolute',
-            // Center the selector inside the left rail reserved by the row's
-            // selection padding, while keeping it vertically centered in the
-            // full card.
-            left: dayLayout ? space.md + (space.md + 24 - 26) / 2 : (24 + space.md - 26) / 2,
+            left: space.xs,
             top: 0,
             bottom: 0,
             width: 26,
@@ -1333,8 +1297,8 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
         >
           <View
             style={{
-              width: 26,
-              height: 26,
+              width: 18,
+              height: 18,
               borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
@@ -1349,14 +1313,14 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
                 transform: [{ scale: selectionProgress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
               }}
             >
-              <Icon name="check" color="#FFFFFF" size={14} strokeWidth={3} />
+              <Icon name="check" color="#FFFFFF" size={10} strokeWidth={2.5} />
             </Animated.View>
           </View>
         </View>
       ) : null}
       {content}
       {reorderHandle ? (
-        <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 44 }}>
+        <View style={{ position: 'absolute', right: space.xxs, top: 0, bottom: 0, width: 36 }}>
           {reorderHandle}
         </View>
       ) : null}
@@ -1416,14 +1380,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
       t(isWriteBusy(error) ? 'journey.timeline.saveBusyTitle' : 'journey.timeline.reorderFailedTitle'),
       t(isWriteBusy(error) ? 'journey.timeline.saveBusyMessage' : 'journey.timeline.reorderFailedMessage'),
     );
-  };
-  const reorderGroup = (from: number, delta: number) => {
-    const to = Math.max(0, Math.min(groups.length - 1, from + delta));
-    if (to === from) return;
-    const ordered = groups.map((group) => group.key);
-    const [moved] = ordered.splice(from, 1);
-    ordered.splice(to, 0, moved);
-    void tl.reorderGroups(ordered).catch(reportReorderFailure);
   };
   const addNextDay = () => {
     const day = nextDayName();
@@ -1556,11 +1512,12 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
     return (
       <View key={g.key} onLayout={(event) => onGroupLayout?.(g.key, event.nativeEvent.layout.y)} style={{ paddingBottom: space.xl }}>
         <View style={{ minHeight: 30, marginBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
+          <Press onPress={rows.length ? () => toggleCollapse(g.key) : undefined} style={{ flexShrink: 1, maxWidth: tl.groupNotes[g.key] || (!readOnly && !preview && !selectionMode) ? '45%' : undefined, minWidth: 0, minHeight: 36, justifyContent: 'center' }}>
             <Text numberOfLines={1} style={[type.sectionTitle, { color: theme.text, lineHeight: 24 }]}>
               {dayLabel(g)}
             </Text>
-          </View>
+          </Press>
+          <JourneyGroupNote theme={theme} label={dayLabel(g)} note={tl.groupNotes[g.key]} onSave={!readOnly && !preview && !selectionMode ? (note) => tl.saveGroupNote(g.key, note) : undefined} />
           {rows.length ? (
             <DayCollapseToggle
               theme={theme}
@@ -1569,7 +1526,6 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               label={t(dayCollapsed ? 'journey.timeline.expandAllGroups' : 'journey.timeline.collapseGroups')}
             />
           ) : null}
-          {selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : null}
         </View>
 
         {rows.length ? (
@@ -1660,11 +1616,12 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
               key={g.key}
               theme={theme}
               label={dayLabel(g)}
+              hasNote={!!tl.groupNotes[g.key] || (!readOnly && !preview && !selectionMode)}
+              note={<JourneyGroupNote theme={theme} label={dayLabel(g)} note={tl.groupNotes[g.key]} onSave={!readOnly && !preview && !selectionMode ? (note) => tl.saveGroupNote(g.key, note) : undefined} />}
               collapsible={currentDay === ALL_DAYS}
               collapsed={currentDay === ALL_DAYS && collapsed.has(g.key)}
               onToggle={() => toggleCollapse(g.key)}
               onBodyHeight={(height) => { groupBodyHeights.current.set(g.key, height); }}
-              headerAction={selectionMode && !readOnly ? <DragHandle theme={theme} label={t('journey.timeline.reorderGroup')} onDrop={(delta) => reorderGroup(groups.findIndex((item) => item.key === g.key), delta)} /> : undefined}
             >
               {renderItems(g)}
             </DaySection>
@@ -1725,8 +1682,9 @@ async function assetToMedia(a: ImagePicker.ImagePickerAsset): Promise<TLMedia> {
 
 // ── Quick add — a lightweight bottom sheet. Most entries are just a line or two
 //    of text (maybe a time + a few photos), so we skip the full-screen editor. ──
-function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, knownGroups, tracks, editRow, zIndex = 80, onSubmit, onClose }: {
+function QuickAddSheet({ theme, groupStorageKey, initialDay, defaultDay, existingDays, rows, knownGroups, tracks, editRow, zIndex = 80, onSubmit, onClose }: {
   theme: Theme;
+  groupStorageKey: string;
   initialDay?: string;
   defaultDay: string;
   existingDays: string[];
@@ -1740,13 +1698,15 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
 }) {
   const insets = useSafeAreaInsets();
   const { t, resolved } = useI18n();
-  const initDay = editRow ? editRow.day.trim() : initialDay == null ? defaultDay : initialDay.trim();
   const [text, setText] = useState(editRow?.title ?? '');
   const [location, setLocation] = useState<TimelineLocation>(editRow?.location ?? { name: '' });
   const [placeOpen, setPlaceOpen] = useState(false);
   const [trackPickerOpen, setTrackPickerOpen] = useState(false);
+  const [accessPathOpen, setAccessPathOpen] = useState(false);
   const [media, setMedia] = useState<TLMedia[]>(editRow?.media ?? []);
-  const [day, setDay] = useState(initDay);
+  const { day, selectDay: setDay, remember: rememberDay } = useLastAddedGroup(
+    groupStorageKey, editRow ? editRow.day.trim() : initialDay?.trim(), defaultDay, existingDays, !!editRow,
+  );
   const [dayOpen, setDayOpen] = useState(false);
   const dayPickerProgress = useSharedValue(0);
   const dayPickerChevronStyle = useAnimatedStyle(() => ({
@@ -1963,6 +1923,12 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   const placedTrack = location.source === 'track' ? trackForId(tracks, location.trackId) : undefined;
   const trackPlaceStale = location.source === 'track'
     && (!placedTrack || !trackLengthMatches(placedTrack, location.trackLengthMeters));
+  const editorStops = editRow ? buildJourneyStops(rows.map((row) => row.id === editRow.id
+    ? { ...row, day, location } : row), knownGroups) : [];
+  const editorStopIndex = editorStops.findIndex((stop) => stop.rowId === editRow?.id);
+  const accessFrom = editorStopIndex > 0 && editorStops[editorStopIndex - 1].day === day
+    ? editorStops[editorStopIndex - 1] : undefined;
+  const accessTo = editorStops[editorStopIndex];
   // Where the previous day group ends, while this group has no place of its own
   // yet. A new day usually starts there, so the place search offers it instead
   // of making the user type it again.
@@ -1983,6 +1949,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
   }, [day, defaultDay, editRow?.id, knownGroups, rows]);
   const submit = async () => {
     if (!can) return;
+    rememberDay(day.trim());
     setSubmitting(true);
     const submission = Promise.resolve(onSubmit({
         title,
@@ -2150,6 +2117,19 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
               </View>
             )}
 
+            {accessFrom && accessTo ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8 }}>
+                <Press onPress={() => { Keyboard.dismiss(); setAccessPathOpen(true); }} accessibilityRole="button"
+                  style={{ padding: 10, borderRadius: 16, backgroundColor: theme.fieldSurface }}>
+                  <Text style={{ color: theme.text, fontWeight: '600' }}>{t('journey.timeline.accessEdit')}</Text>
+                </Press>
+                {location.incomingPath ? <Press onPress={() => setLocation(({ incomingPath: _removed, ...rest }) => rest)} accessibilityRole="button">
+                  <Text style={{ color: theme.text2 }}>{t('journey.timeline.accessRemove')}</Text>
+                </Press> : null}
+              </View>
+            ) : null}
+            {location.incomingPath ? <Text style={{ color: theme.text2, fontSize: 12, marginBottom: 6 }}>{t(location.incomingPath.source === 'drawn' ? 'journey.timeline.accessDrawn' : 'journey.timeline.accessImported')}</Text> : null}
+
             {/* photos */}
             {media.length ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8, paddingVertical: 4 }} style={{ marginTop: 4 }}>
@@ -2229,7 +2209,7 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
             <Pressable accessibilityLabel={t('common.close')} onPress={() => setDayOpen(false)} style={[StyleSheet.absoluteFill, { zIndex: 3 }]} />
             {/* A sibling overlay keeps the list tappable above the sheet bounds on Android. */}
             <Animated.View style={{ position: 'absolute', zIndex: 5, left: 18, bottom: dayPickerBottom, width: Math.min(300, windowWidth - 36), transform: [{ translateY: keyboardTranslateY }] }}>
-              <JourneyGroupPicker title={t('journey.timeline.addTo')} theme={theme} data={dayChoices} value={day} maxHeight={dayPickerMaxHeight} onChange={(value) => { setDay(value); setDayOpen(false); }} />
+              <JourneyGroupPicker theme={theme} data={dayChoices} value={day} maxHeight={dayPickerMaxHeight} onChange={(value) => { setDay(value); setDayOpen(false); }} />
             </Animated.View>
           </>
         ) : null}
@@ -2242,6 +2222,12 @@ function QuickAddSheet({ theme, initialDay, defaultDay, existingDays, rows, know
           onSelect={pickPlace}
           onClose={() => setPlaceOpen(false)}
         />
+      ) : null}
+      {accessPathOpen && accessFrom && accessTo ? (
+        <JourneyAccessPathSheet theme={theme} from={accessFrom} to={accessTo}
+          initial={location.incomingPath?.fromRowId === accessFrom.rowId ? location.incomingPath : undefined}
+          onClose={() => setAccessPathOpen(false)}
+          onSave={(incomingPath) => { setLocation((current) => ({ ...current, incomingPath })); setAccessPathOpen(false); }} />
       ) : null}
       {trackPickerOpen ? (
         <TrackPointPickerSheet
@@ -2276,6 +2262,7 @@ export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, e
   return (
     <QuickAddSheet
       theme={theme}
+      groupStorageKey={`kaipa:journey-add-group:${userId ?? 'guest'}:${info.id}`}
       initialDay={initialDay}
       defaultDay={defaultDay}
       existingDays={selectableGroups}

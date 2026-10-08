@@ -23,6 +23,7 @@ interface Props {
   companions: CompanionData[];
   identity: GuestIdentity;
   moments: GuestMoment[];
+  sessionId: string;
   media: InspoMedia[];
   onAddMoment: (m: {
     guest_name: string;
@@ -122,7 +123,7 @@ function MediaCard({ m, onPress, colW }: { m: InspoMedia; onPress: () => void; c
 }
 
 // ── Main wall ──
-export function GuestWall({ theme, journey, host, companions, identity, moments, media, onAddMoment, onDeleteMoment, onToast }: Props) {
+export function GuestWall({ theme, journey, host, companions, identity, moments, sessionId, media, onAddMoment, onDeleteMoment, onToast }: Props) {
   const { t } = useI18n();
   const { width: W } = useWindowDimensions();
   const days = journey.total_days || parseInt(journey.days || '3', 10) || 3;
@@ -158,10 +159,11 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
   const visible = filter ? moments.filter((m) => m.guest_name === filter) : moments;
 
 
-  const canDelete = useCallback((m: GuestMoment) => m.guest_name === identity.name, [identity]);
+  const canDelete = useCallback((m: GuestMoment) => !!sessionId && m.guest_session_id === sessionId, [sessionId]);
 
   const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number) => {
     setUploadOpen(false);
+    try {
     for (let i = 0; i < photos.length; i++) {
       await onAddMoment({
         guest_name: identity.name,
@@ -174,10 +176,12 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
       });
     }
     onToast(t('guest.wall.photoAdded', { count: String(photos.length) }));
+    } catch (error) { onToast(error instanceof Error?error.message:'上传失败'); }
   }, [identity, onAddMoment, onToast, t]);
 
   const handleAddText = useCallback(async (caption: string, day: number) => {
     setUploadOpen(false);
+    try {
     await onAddMoment({
       guest_name: identity.name,
       guest_ini: identity.ini,
@@ -188,12 +192,15 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
       is_text: true,
     });
     onToast(t('guest.wall.photoAdded', { count: '1' }));
+    } catch (error) { onToast(error instanceof Error?error.message:'保存失败'); }
   }, [identity, onAddMoment, onToast, t]);
 
   const handleDelete = useCallback(async (m: GuestMoment) => {
     setLightbox(null);
+    try {
     await onDeleteMoment(m.id);
     onToast(t('guest.wall.deleted'));
+    } catch (error) { onToast(error instanceof Error?error.message:'删除失败'); }
   }, [onDeleteMoment, onToast, t]);
 
   const displayMedia = useMemo(() =>

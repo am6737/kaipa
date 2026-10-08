@@ -45,12 +45,12 @@ import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController 
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
 import { buildJourneyLegs, buildJourneyStops, journeyDayOrder, measureJourneyDays, type JourneyLeg } from '../lib/journeyStops';
-import { journeyTracks } from '../lib/journeyTracks';
+import { journeyRouteIds, journeyTracks } from '../lib/journeyTracks';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
-import { JOURNEY_SEGMENT_COLORS } from '../lib/routeSegments';
+import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../lib/routeSegments';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
 import { isWriteBusy } from '../lib/writeErrors';
-import { MapStylePickerSheet, type MapDisplayOption, type MapPresentationStyle } from '../components/MapStylePickerSheet';
+import { MapStylePickerSheet, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { Maximize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
@@ -1205,14 +1205,7 @@ export function DiscoverScreen({
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
-    const timelineRouteIds = focusedTimeline.rows.map((row) => row.routeId).filter(Boolean);
-    // Older journeys only persisted the first timeline route id, while the
-    // journey title still contains every selected route name. Recover those
-    // route geometries for the overview map as well.
-    const titleRouteIds = point.kind === 'journey'
-      ? routes.filter((route) => route.name.length >= 3 && point.name.includes(route.name)).map((route) => route.id)
-      : [];
-    const routeTracks = [...new Set([...timelineRouteIds, ...titleRouteIds])]
+    const routeTracks = journeyRouteIds(point, focusedTimeline.rows, routes)
       .map((routeId) => routes.find((route) => route.id === routeId)?.trackCoords)
       .filter((coords): coords is [number, number][] => (coords?.length ?? 0) >= 2);
     // A timeline can still contain only the first route id. Prefer the
@@ -1228,7 +1221,7 @@ export function DiscoverScreen({
     if ((linkedRouteTrack?.length ?? 0) >= 2) return linkedRouteTrack!;
 
     return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
-  }, [nav.pointInfo, routes]);
+  }, [nav.pointInfo, focusedTimeline.rows, routes]);
   // Opening a journey from the Journey tab otherwise mounts the detail tree,
   // initializes the Android map, and measures the full track in one JS frame.
   // Let the sheet/press transition get on screen first, then add the expensive
@@ -1266,11 +1259,7 @@ export function DiscoverScreen({
   // below stays out of that path — it copies the whole track into segments.
   const journeySegmentGeometry = useMemo<JourneySegmentGeometry[]>(() => {
     if (nav.pointInfo?.kind !== 'journey') return [];
-    const timelineRouteIds = focusedTimeline.rows.map((row) => row.routeId).filter(Boolean) as string[];
-    const titleRouteIds = routes
-      .filter((route) => route.name.length >= 3 && nav.pointInfo?.name.includes(route.name))
-      .map((route) => route.id);
-    const routeIds = [...new Set([...timelineRouteIds, ...titleRouteIds])];
+    const routeIds = journeyRouteIds(nav.pointInfo, focusedTimeline.rows, routes);
     const routeSegments = routeIds.flatMap((routeId, index) => {
       const route = routes.find((item) => item.id === routeId);
       if (!route?.trackCoords || route.trackCoords.length < 2) return [];
@@ -1325,6 +1314,7 @@ export function DiscoverScreen({
       label: segment.label,
       color: segment.color,
       visible: !hiddenJourneyRouteIds.has(segment.id),
+      distance: `${((measureTrack(segment.coordinates)?.totalMeters ?? 0) / 1000).toFixed(1)} km`,
     }));
   }, [hiddenJourneyRouteIds, journeySegmentGeometry, nav.pointInfo?.kind]);
   useEffect(() => {
@@ -1423,7 +1413,7 @@ export function DiscoverScreen({
   ), [itineraryColor, itineraryStops, journeyStopsVisible, selectedJourneyDay]);
   const journeyLegs = useMemo<GlobeJourneyLeg[]>(() => (
     journeyTrackVisible
-      ? itineraryLegs.map((leg) => {
+      ? itineraryLegs.filter((leg) => !leg.pendingTrack || Boolean(legGeometry[leg.id])).map((leg) => {
         const planned = legGeometry[leg.id];
         return {
           id: leg.id,
@@ -1449,12 +1439,12 @@ export function DiscoverScreen({
         .map((measured) => ({
           day: measured.day,
           title: journeyDayDisplayLabel(measured.day, resolved),
-          distance: `${measured.meters < 10_000 ? (measured.meters / 1000).toFixed(1) : Math.round(measured.meters / 1000)}km`,
+          distance: measured.pendingTrack ? t('journey.map.trackAccessPending') : `${measured.meters < 10_000 ? (measured.meters / 1000).toFixed(1) : Math.round(measured.meters / 1000)}km${measured.userDrawn ? ` · ${t('journey.map.drawnDistance')}` : ''}`,
           coordinate: measured.coordinate,
           color: itineraryColor(measured.day),
         }))
       : []
-  ), [itineraryColor, itineraryLegs, journeyDistanceVisible, legGeometry, resolved, selectedJourneyDay]);
+  ), [itineraryColor, itineraryLegs, journeyDistanceVisible, legGeometry, resolved, selectedJourneyDay, t]);
   const journeyDayChainRef = React.useRef<[number, number][] | null>(null);
   // What the map frames when no day is open: every leg, every place, and the
   // recorded track. The track alone is not enough — a planned day can sit well
@@ -2119,6 +2109,30 @@ export function DiscoverScreen({
           onBackgroundPress={globeHandlers.onBackgroundPress}
         />
         ) : null}
+        {nav.pointInfo?.kind === 'journey' && journeyTrackVisible && itineraryLegs.some((leg) => leg.trackBridge && legGeometry[leg.id]) ? (
+          <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 68, left: 16, padding: 4, borderRadius: 6, backgroundColor: theme.surfaceTop }}>
+            <Text style={{ fontSize: 10, color: theme.text2 }}>{t('journey.map.walkingAttribution')}</Text>
+          </View>
+        ) : null}
+        {!nav.pointInfo && !mapImmersive && !isMemory && routesLoading && exploreBasePois.length === 0 ? (
+          <View
+            pointerEvents="none"
+            accessibilityLiveRegion="polite"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: chromeTheme.dark ? 'rgba(0,0,0,0.24)' : 'rgba(255,255,255,0.28)',
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <ActivityIndicator size="small" color={chromeTheme.text} />
+              <Text style={{ color: chromeTheme.text, fontSize: 14 }}>{t('discover.loadingRoutes')}</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* Discover keeps its original route / journey map modes. */}
@@ -2493,67 +2507,64 @@ export function DiscoverScreen({
             { id: 'satellite', label: t('journey.map.layerSatellite') },
           ] satisfies { id: MapPresentationStyle; label: string }[])}
           value={mapStyle}
-          routesTitle="路线"
+          routesTitle={t('journey.map.routeTracksTitle')}
+          routesDescription={t('journey.map.routeTracksHint')}
           routes={journeyRouteOptions.map((segment, index) => ({
             id: segment.id,
             label: segment.label || `路线 ${index + 1}`,
             color: segment.color,
             visible: segment.visible,
+            distance: segment.distance,
           }))}
           onRouteToggle={toggleJourneyRouteVisible}
           fixedHeight={Math.round(height * 0.88)}
-          detailsTitle={nav.pointInfo ? t('journey.map.displayTitle') : undefined}
-          details={nav.pointInfo ? (nav.pointInfo.kind === 'journey' ? [
+          detailSections={nav.pointInfo ? [
             {
-              id: 'journey-stops',
-              label: t('journey.map.journeyStops'),
-              value: journeyStopsVisible,
-              onChange: setJourneyStopsVisible,
+              id: 'track-distance',
+              title: journeyRouteOptions.length ? undefined : t('journey.map.routeTracksTitle'),
+              options: [{
+                id: 'distance-markers',
+                label: t('journey.map.trackDistanceMarkers'),
+                value: mapDistanceMarkersVisible,
+                onChange: setMapDistanceMarkersVisible,
+              }],
             },
-            {
-              id: 'journey-track',
-              label: t('journey.map.journeyTrack'),
-              value: journeyTrackVisible,
-              onChange: setJourneyTrackVisible,
-            },
-            {
-              id: 'journey-distance',
-              label: t('journey.map.journeyDayDistance'),
-              value: journeyDistanceVisible,
-              onChange: setJourneyDistanceVisible,
-            },
-            {
-              id: 'map-labels',
-              label: t('journey.map.showLabels'),
-              value: mapLabelsVisible,
-              onChange: setMapLabelsVisible,
-            },
-            {
-              id: 'distance-markers',
-              label: t('journey.map.distanceMarkers'),
-              value: mapDistanceMarkersVisible,
-              onChange: setMapDistanceMarkersVisible,
-            },
-          ] : [
-            {
-              id: 'map-labels',
-              label: t('journey.map.showLabels'),
-              value: mapLabelsVisible,
-              onChange: setMapLabelsVisible,
-            },
-            {
-              id: 'distance-markers',
-              label: t('journey.map.distanceMarkers'),
-              value: mapDistanceMarkersVisible,
-              onChange: setMapDistanceMarkersVisible,
-            },
-            {
-              id: 'swap-start-end',
-              label: t('journey.map.swapStartEnd'),
-              value: routeReversed,
-              onChange: () => toggleRouteDirection(),
-            },
-          ]) satisfies MapDisplayOption[] : undefined}
+            ...(nav.pointInfo.kind === 'journey' ? [{
+              id: 'journey-groups',
+              title: t('journey.map.journeyGroupsTitle'),
+              description: t('journey.map.journeyGroupsHint'),
+              options: [
+                {
+                  id: 'journey-stops',
+                  label: t('journey.map.journeyStops'),
+                  value: journeyStopsVisible,
+                  onChange: setJourneyStopsVisible,
+                },
+                {
+                  id: 'journey-track',
+                  label: t('journey.map.journeyNodeConnections'),
+                  value: journeyTrackVisible,
+                  onChange: setJourneyTrackVisible,
+                },
+                {
+                  id: 'journey-distance',
+                  label: t('journey.map.journeyDayDistance'),
+                  value: journeyDistanceVisible,
+                  onChange: setJourneyDistanceVisible,
+                },
+              ],
+            }] : []),
+            ...(nav.pointInfo.kind === 'route' ? [{
+              id: 'route-direction',
+              title: t('journey.map.routeDirectionTitle'),
+              options: [{
+                id: 'swap-start-end',
+                label: t('journey.map.swapStartEnd'),
+                value: routeReversed,
+                onChange: () => toggleRouteDirection(),
+              }],
+            }] : []),
+          ] : undefined}
           bottomInset={insets.bottom}
           onChange={setMapStyle}
           onClose={() => setMapStylePickerOpen(false)}

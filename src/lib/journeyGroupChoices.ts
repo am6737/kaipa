@@ -22,7 +22,7 @@ export function buildJourneyGroupChoices(rows: TLRow[], groups: string[], resolv
     return {
       value,
       label: value ? journeyDayDisplayLabel(value, resolved) : t('journey.timeline.pendingGroup'),
-      summary: summary || t(value ? 'journey.timeline.emptyTitle' : 'journey.timeline.pendingGroupHint'),
+      summary,
     };
   });
 }

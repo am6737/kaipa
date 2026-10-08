@@ -421,6 +421,21 @@ if [[ "$INIT_DB" == 1 ]]; then
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922210000_timeline_row_location.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922220000_route_fact_revisions.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20260922230000_agent_route_fact_stats.sql"
+  docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20261008130000_timeline_group_notes.sql"
+  # The foundation migration owns versioned policy seeds and a stock backfill;
+  # do not replay it when a runtime has already installed it.
+  membership_installed="$(docker exec kaipa-supabase-db psql -X -At -U postgres -d postgres -c "select to_regclass('public.membership_runtime') is not null")"
+  if [[ "$membership_installed" != "t" ]]; then
+    docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres < "$ROOT/supabase/migrations/20261008120000_membership_foundation.sql"
+  fi
+  for entry in 'resource_rate_rules:20261008130000_membership_runtime.sql' 'resource_upload_tickets:20261008140000_resource_uploads.sql'; do
+    table_name="${entry%%:*}"; migration_name="${entry#*:}"
+    membership_installed="$(docker exec kaipa-supabase-db psql -X -At -U postgres -d postgres -c "select to_regclass('public.$table_name') is not null")"
+    if [[ "$membership_installed" != "t" ]]; then
+      docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < "$ROOT/supabase/migrations/$migration_name"
+    fi
+  done
+  KAIPA_SUPABASE_RUNTIME_DIR="$RUNTIME_DIR" KAIPA_SUPABASE_DB_USER=supabase_admin "$ROOT/infra/supabase/apply-migration.sh" "$ROOT/supabase/migrations/20261008150000_resource_maintenance_fix.sql"
   docker exec -i kaipa-supabase-db psql -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,

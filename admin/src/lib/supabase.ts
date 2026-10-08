@@ -64,9 +64,20 @@ export async function uploadAdminTrack(file: File) {
   if (!session) throw new Error('后台登录会话已失效，请重新登录')
   const extension = file.name.split('.').pop()?.toLowerCase() || ''
   if (!['gpx', 'kml', 'kmz'].includes(extension)) throw new Error('只支持 GPX、KML、KMZ 文件')
-  const path = `tracks/${session.user.id}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  const ticket = await membershipApi<{path:string;bucket:string}>({action:'upload_prepare',purpose:'track',scope:session.user.id,bytes:file.size,mime:file.type || 'application/octet-stream'})
+  const path = ticket.path
   const { error } = await supabase.storage.from('kaipa').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false })
   if (error) throw error
   const { data } = supabase.storage.from('kaipa').getPublicUrl(path)
   return { url: data.publicUrl, path, name: file.name, format: extension, size: file.size }
+}
+
+export async function membershipApi<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('resources', { body })
+  if (error) {
+    let message = '会员配置请求失败'
+    try { const result = await (error.context as Response).json(); message = result.error?.message || message } catch { /* network failure */ }
+    throw new Error(message)
+  }
+  return data as T
 }

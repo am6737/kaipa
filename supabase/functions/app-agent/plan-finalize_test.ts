@@ -18,6 +18,7 @@ function throws(fn: () => unknown, message: string) {
 
 function decisionOf(patch: Partial<TaskDecision>): TaskDecision {
   return taskDecisionSchema.parse({
+    includeRoundTripTransport: false,
     objective: '任务', mode: 'execute', continuation: false, authorizationQuote: '帮我安排',
     operations: [], requiredOperations: [], fullHikingPlan: false, destination: null, plannedDate: null,
     dateUndecided: false, days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],
@@ -76,7 +77,7 @@ Deno.test('a research day estimate is annotated as an assumption exactly once', 
 Deno.test('endpoint gap disclosure follows the option and the full-hike gate', () => {
   const decision = decisionOf({ fullHikingPlan: true });
   const trackSnapshots = { 'j1:track': { data: { trackSummary: { waypoints: [] } } } };
-  const candidate = { journey: journeyStub(3), endpoints: [] };
+  const candidate = { journey: journeyStub(3), itineraryItems: [{ day: 'Day 2', title: '徒步', kind: 'activity' }, { day: 'Day 1', title: '去程', kind: 'custom' }], endpoints: [] };
   const disclosed = finalizePlan(candidate, pipelineOf(decision, trackSnapshots), null, null, 3);
   assert(disclosed.unverified.some(item => item.includes('徒步日终点')) === true, 'a full hike with a bound track must disclose the endpoint gap');
   const skipped = finalizePlan(candidate, pipelineOf(decision, trackSnapshots), null, null, 3, { endpointGap: false });
@@ -185,3 +186,51 @@ Deno.test('an untagged endpoint is never treated as unknown', () => {
   assert(endpointDaysWithUnknownRoute(untagged as never, null).length === 0, 'a journey with no route keeps its untagged endpoints');
 });
 
+function roundTripCandidate() {
+  return {
+    journey: { name: '党岭', region: '四川', days: 5 },
+    itineraryItems: [
+      { day: 'Day 1', title: '南宁至登山口', kind: 'custom' },
+      { day: 'Day 2', title: '徒步', kind: 'activity' },
+      { day: 'Day 3', title: '徒步', kind: 'activity' },
+      { day: 'Day 5', title: '返回南宁', kind: 'custom' },
+    ],
+    transport: {
+      origin: '南宁', returnDestination: '南宁', trailStart: '党岭村', trailFinish: '党岭村',
+      hikeStart: 480, hikeEnd: 2400, arrivalBuffer: 60, departureBuffer: 60,
+      outbound: [{ from: '南宁', to: '党岭村', mode: 'carpool', departure: -1440, arrival: -60, bufferBefore: 60, verified: false, sourceUrl: null, fallback: '包车' }],
+      inbound: [{ from: '党岭村', to: '南宁', mode: 'carpool', departure: 4320, arrival: 5400, bufferBefore: 60, verified: false, sourceUrl: null, fallback: '包车' }],
+    },
+  };
+}
+
+Deno.test('full journey requires travel unless explicitly excluded', () => {
+  const candidate = { journey: journeyStub(5), itineraryItems: [{ day: 'Day 2', title: '徒步' }] };
+  const full = decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true });
+  assert(finalizePlan(candidate, pipelineOf(full), null, null, 5).pendingQuestion?.includes('城市'), 'missing origin must be asked');
+  const excluded = { ...full, includeRoundTripTransport: false };
+  assert(!finalizePlan(candidate, pipelineOf(excluded), null, null, 5).pendingQuestion, 'explicit travel exclusion allows hike-only planning');
+});
+
+Deno.test('travel uses total trip days while review times use first hiking day', () => {
+  const task = decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true });
+  const candidate = roundTripCandidate();
+  const within = finalizePlan(candidate, pipelineOf(task), null, null, 5);
+  assert(!within.blocker && !within.pendingQuestion, 'five-day journey with two hiking days and travel fits');
+  candidate.transport.inbound[0].arrival = 6000;
+  const outside = finalizePlan(candidate, pipelineOf(task), null, null, 5);
+  assert(outside.blocker?.includes('全程日期范围'), 'return outside the total trip must be flagged');
+});
+
+Deno.test('a missing return leg cannot complete a full journey', () => {
+  const candidate = roundTripCandidate();
+  candidate.transport.inbound = [];
+  const plan = finalizePlan(candidate, pipelineOf(decisionOf({ fullHikingPlan: true, days: 5, includeRoundTripTransport: true })), null, null, 5);
+  assert(plan.blocker?.includes('往返交通链路'), 'outbound-only plan must stay incomplete');
+});
+
+Deno.test('total duration estimate includes travel and remains distinct from user days', () => {
+  const task = decisionOf({ fullHikingPlan: true, days: null, includeRoundTripTransport: true });
+  const plan = finalizePlan(roundTripCandidate(), pipelineOf(task), null, null, null);
+  assert(plan.journey?.days === 5 && task.days === null && task.derivedDays === 5, 'planner total estimate should pass the creation guard without becoming user-provided days');
+});

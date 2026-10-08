@@ -1,4 +1,5 @@
 import type { TimelineLocation, TLRow } from '../data/timeline';
+import { usableIncomingPath } from './journeyAccess';
 import { trackLengthMatches } from './journeyTracks';
 import { groupJourneyRows, orderedJourneyRows } from './journeyOrdering';
 import {
@@ -12,6 +13,7 @@ import {
 
 export interface JourneyStop {
   rowId: string;
+  incomingPath?: TimelineLocation['incomingPath'];
   /** 1-based position within its own day — the pin's number while that day is
    *  open on its own. The overview draws places, not numbered steps. */
   order: number;
@@ -32,6 +34,11 @@ export interface JourneyLeg {
    *  the day it leaves from. */
   day?: string;
   mode: 'driving' | 'walking';
+  /** Track routing could not be resolved; never send this leg to a road planner. */
+  pendingTrack?: boolean;
+  /** A road request limited to a validated track entrance/exit. */
+  trackBridge?: boolean;
+  userPath?: 'drawn' | 'imported';
   from: Coordinate;
   to: Coordinate;
   /** Road geometry already recorded on the transport row: nothing to plan. */
@@ -110,6 +117,7 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
     perDay.set(row.day, dayCount);
     stops.push({
       rowId: row.id,
+      incomingPath: found.location?.incomingPath,
       order: dayCount,
       day: row.day || undefined,
       name: found.name,
@@ -121,12 +129,6 @@ export function buildJourneyStops(rows: TLRow[], knownGroups: string[]): Journey
   }
   return stops;
 }
-
-/**
- * A "walk" leg beyond this is planned as a drive: AMap caps walking routes at
- * 100 km, and a hop that long was not walked anyway.
- */
-const MAX_WALKED_LEG_METERS = 5_000;
 
 /**
  * Legs join consecutive stops within one day group. A group is a route; the
@@ -152,11 +154,11 @@ export function buildJourneyLegs(
     const directMeters = distanceMeters(from.coordinate, to.coordinate);
     const trackGeometry = trackGeometryFor(from, to, trackCoords);
     const mixed = Boolean(from.trackId) !== Boolean(to.trackId);
-    const bridge = mixed ? buildTrackBridge(from, to, trackCoords) : null;
-    const fullRecordedGeometry = trackGeometry ?? undefined;
-    // Keep the existing walking semantics for any leg touching a recorded
-    // track; the new bridge only changes which endpoint AMap plans to, not the
-    // user's travel mode.
+    const mixedGeometry = mixed ? buildMixedTrackGeometry(from, to, trackCoords) : null;
+    const supplied = to.incomingPath;
+    const suppliedCoords = supplied?.coordinates;
+    const validSupplied = usableIncomingPath(supplied, from.rowId, from.coordinate, to.coordinate);
+    const fullRecordedGeometry = (validSupplied ? suppliedCoords : undefined) ?? trackGeometry ?? mixedGeometry ?? undefined;
     const onSomeTrack = Boolean(from.trackId || to.trackId);
     const mode = trackGeometry || onSomeTrack ? 'walking' : 'driving';
     const leg: JourneyLeg = {
@@ -166,29 +168,22 @@ export function buildJourneyLegs(
       from: from.coordinate,
       to: to.coordinate,
       recordedGeometry: fullRecordedGeometry,
+      userPath: validSupplied ? supplied?.source : undefined,
+      pendingTrack: onSomeTrack && !fullRecordedGeometry,
       directMeters,
     };
-    if (!fullRecordedGeometry && bridge) {
-      leg.directionFrom = bridge.directionFrom;
-      leg.directionTo = bridge.directionTo;
-      leg.recordedPrefix = bridge.recordedPrefix;
-      leg.recordedSuffix = bridge.recordedSuffix;
-      leg.fallbackGeometry = composeJourneyLegGeometry(leg, null);
+    if (mixed && !fullRecordedGeometry) {
+      const bridge = buildTrackAccess(from, to, trackCoords);
+      if (bridge) Object.assign(leg, bridge, { trackBridge: true });
     }
     legs.push(leg);
   }
   return legs;
 }
 
-const TRACK_BRIDGE_SNAP_METERS = 500;
+// Only associate a nearby map place; proximity does not establish an access trail.
+const TRACK_AUTO_SNAP_METERS = 50;
 const COORDINATE_EPSILON = 1e-9;
-
-interface TrackBridge {
-  directionFrom: Coordinate;
-  directionTo: Coordinate;
-  recordedPrefix?: Coordinate[];
-  recordedSuffix?: Coordinate[];
-}
 
 function appendCoordinates(target: Coordinate[], coordinates?: Coordinate[]) {
   coordinates?.forEach((coordinate) => {
@@ -217,21 +212,20 @@ function trackForStop(
   if (!trackCoords || !stop.trackId || stop.trackMeters == null) return null;
   const coordinates = trackCoords(stop.trackId);
   const measure = measureTrack(coordinates);
-  if (!measure || !trackLengthMatches(measure, stop.trackLengthMeters)) return null;
+  if (!measure || !Number.isFinite(stop.trackMeters) || stop.trackMeters < 0
+    || stop.trackMeters > measure.totalMeters || !trackLengthMatches(measure, stop.trackLengthMeters)) return null;
   return measure;
 }
 
-/**
- * Build the hybrid part of a mixed leg when the non-track place is close to the
- * recorded path. The short AMap bridge ends at the projected track point, and
- * the rest of the leg follows the original track instead of asking AMap to
- * invent a route through a hiking trail.
+/** Resolve a mixed pair directly on the recorded path, without a road bridge.
+ * Keep the original POI pin; the route starts at its associated track position.
+ * Distant or ambiguous positions require the user to choose a track point.
  */
-function buildTrackBridge(
+function buildMixedTrackGeometry(
   from: JourneyStop,
   to: JourneyStop,
   trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
-): TrackBridge | null {
+): Coordinate[] | null {
   const fromOnTrack = Boolean(from.trackId && from.trackMeters != null);
   const toOnTrack = Boolean(to.trackId && to.trackMeters != null);
   if (fromOnTrack === toOnTrack) return null;
@@ -239,17 +233,60 @@ function buildTrackBridge(
   const otherStop = fromOnTrack ? to : from;
   const measure = trackForStop(trackStop, trackCoords);
   if (!measure) return null;
-  const projected = projectOnTrack(measure, otherStop.coordinate);
-  if (!projected || distanceMeters(projected.coordinate, otherStop.coordinate) > TRACK_BRIDGE_SNAP_METERS) return null;
+  const projected = projectOnTrack(measure, otherStop.coordinate, {
+    maxOffsetMeters: TRACK_AUTO_SNAP_METERS,
+    ambiguityMeters: TRACK_AUTO_SNAP_METERS * 2,
+  });
+  if (!projected) return null;
+  const start = fromOnTrack ? from.trackMeters as number : projected.distanceMeters;
+  const finish = fromOnTrack ? projected.distanceMeters : to.trackMeters as number;
+  return trackSliceBetweenMeters(measure, start, finish)
+    ?? [positionAtDistance(measure, start).coordinate, positionAtDistance(measure, finish).coordinate];
+}
 
-  const recorded = fromOnTrack
-    ? trackSliceBetweenMeters(measure, from.trackMeters as number, projected.distanceMeters)
-    : trackSliceBetweenMeters(measure, projected.distanceMeters, to.trackMeters as number);
-
-  if (!recorded || recorded.length < 2) return null;
+/** Distant places connect through the nearest end of the recorded track.
+ * Never ask the road planner to route into the middle of a mountain trail.
+ * Only use an endpoint when the nearest projected position is near that end;
+ * interior/ambiguous access needs an explicit track-point selection.
+ */
+function buildTrackAccess(
+  from: JourneyStop,
+  to: JourneyStop,
+  trackCoords: ((trackId: string) => Coordinate[] | undefined) | undefined,
+): Partial<JourneyLeg> | null {
+  const fromOnTrack = Boolean(from.trackId && from.trackMeters != null);
+  const trackStop = fromOnTrack ? from : to;
+  const mapStop = fromOnTrack ? to : from;
+  const measure = trackForStop(trackStop, trackCoords);
+  if (!measure) return null;
+  const projected = projectOnTrack(measure, mapStop.coordinate);
+  if (!projected || distanceMeters(projected.coordinate, mapStop.coordinate) <= TRACK_AUTO_SNAP_METERS) return null;
+  const atStart = projected.distanceMeters <= 100;
+  const atEnd = measure.totalMeters - projected.distanceMeters <= 100;
+  if (!atStart && !atEnd) return null;
+  const start = measure.coordinates[0];
+  const end = measure.coordinates[measure.coordinates.length - 1];
+  if (measure.totalMeters > 200
+    && Math.abs(distanceMeters(start, mapStop.coordinate) - distanceMeters(end, mapStop.coordinate)) < 50) return null;
+  const entranceMeters = atStart ? 0 : measure.totalMeters;
+  const entrance = positionAtDistance(measure, entranceMeters).coordinate;
+  const recorded = trackSliceBetweenMeters(measure,
+    fromOnTrack ? trackStop.trackMeters as number : entranceMeters,
+    fromOnTrack ? entranceMeters : trackStop.trackMeters as number) ?? [entrance, entrance];
   return fromOnTrack
-    ? { directionFrom: projected.coordinate, directionTo: to.coordinate, recordedPrefix: recorded }
-    : { directionFrom: from.coordinate, directionTo: projected.coordinate, recordedSuffix: recorded };
+    ? { directionFrom: entrance, directionTo: mapStop.coordinate, recordedPrefix: recorded }
+    : { directionFrom: mapStop.coordinate, directionTo: entrance, recordedSuffix: recorded };
+}
+
+/** Validate provider endpoints before accepting any normalized/joined geometry. */
+export function trackAccessReachesEndpoints(
+  leg: JourneyLeg,
+  actualFrom?: Coordinate,
+  actualTo?: Coordinate,
+): boolean {
+  return Boolean(actualFrom && actualTo
+    && distanceMeters(actualFrom, leg.directionFrom ?? leg.from) <= 50
+    && distanceMeters(actualTo, leg.directionTo ?? leg.to) <= 50);
 }
 
 /** The track slice between two of its places, or nothing to fall back on. */
@@ -273,6 +310,8 @@ export interface JourneyDayDistance {
   day: string;
   /** Road length of everything that day travels, in metres. */
   meters: number;
+  pendingTrack?: boolean;
+  userDrawn?: boolean;
   /** Middle of the day's chain, which is where its label sits on the map. */
   coordinate: Coordinate;
 }
@@ -287,19 +326,31 @@ export function measureJourneyDays(
   geometryByLeg: Record<string, Coordinate[]>,
 ): JourneyDayDistance[] {
   const byDay = new Map<string, Coordinate[]>();
+  const pendingDays = new Set<string>();
   legs.forEach((leg) => {
     if (!leg.day) return;
+    if (leg.pendingTrack && (!leg.trackBridge || !geometryByLeg[leg.id])) {
+      pendingDays.add(leg.day);
+      if (!byDay.has(leg.day)) byDay.set(leg.day, []);
+      return;
+    }
     const coordinates = byDay.get(leg.day) ?? [];
     coordinates.push(...(geometryByLeg[leg.id] ?? leg.fallbackGeometry ?? [leg.from, leg.to]));
     byDay.set(leg.day, coordinates);
   });
   const measured: JourneyDayDistance[] = [];
   byDay.forEach((coordinates, day) => {
+    if (pendingDays.has(day)) {
+      const leg = legs.find((candidate) => candidate.day === day && candidate.pendingTrack)!;
+      measured.push({ day, meters: 0, pendingTrack: true, coordinate: leg.from });
+      return;
+    }
     const track = measureTrack(coordinates);
     if (!track) return;
     measured.push({
       day,
       meters: track.totalMeters,
+      userDrawn: legs.some((leg) => leg.day === day && leg.userPath === 'drawn'),
       coordinate: positionAtDistance(track, track.totalMeters / 2).coordinate,
     });
   });

@@ -1,3 +1,4 @@
+import { protectEndpoint } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 // Supabase Edge Functions resolve npm: imports at deploy time. The app's root
@@ -147,7 +148,7 @@ function timestamp() {
 
 function signMd5(secret: string, params: Record<string, string>) {
   const body = Object.keys(params).sort().map((key) => `${key}${params[key]}`).join('');
-  return (md5 as (value: string) => string)(`${secret}${body}${secret}`).toUpperCase();
+  return (md5 as unknown as (value: string) => string)(`${secret}${body}${secret}`).toUpperCase();
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 9000) {
@@ -786,7 +787,7 @@ async function resolvePreview(rawUrl: string, shareText = ''): Promise<Preview> 
   }
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('gear', 'gear_requests')(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed', message: 'Method not allowed' } }, 405);
   try {
@@ -798,4 +799,4 @@ Deno.serve(async (req) => {
     console.error('[gear-link-preview]', known.code, known.message);
     return json({ error: { code: known.code, message: known.message } }, known.status);
   }
-});
+}));

@@ -43,12 +43,17 @@ fi
 if [[ $# -gt 0 ]]; then
   functions=("$@")
 else
-  mapfile -t functions < <(find "$source_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+  mapfile -t functions < <(find "$source_dir" -mindepth 2 -maxdepth 2 -name index.ts -printf '%h\n' | xargs -r -n1 basename | sort)
 fi
 
 if [[ ${#functions[@]} -eq 0 ]]; then
   echo "No Edge Functions found." >&2
   exit 6
+fi
+
+if [[ -d "$source_dir/_shared" ]]; then
+  mkdir -p "$target_dir/_shared"
+  rsync -a --delete "$source_dir/_shared/" "$target_dir/_shared/"
 fi
 
 for function_name in "${functions[@]}"; do

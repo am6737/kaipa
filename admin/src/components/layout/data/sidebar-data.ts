@@ -25,6 +25,7 @@ export const sidebarData: SidebarData = {
         { title: '审计日志', url: '/audit', icon: FileClock },
         { title: '通知中心', url: '/notifications', icon: Bell },
         { title: '设置', icon: Settings, items: [
+        { title: '会员与预算', url: '/settings/membership' },
         { title: '账户', url: '/settings/account' },
         { title: '外观', url: '/settings/appearance' },
         { title: '通知', url: '/settings/notifications' },

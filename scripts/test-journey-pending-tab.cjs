@@ -57,9 +57,9 @@ test('add and move choices keep pending first and merge localized day aliases', 
   const choices = buildJourneyGroupChoices([], ['Day 1', '', '第一天', 'camp', 'Day 2', ''], 'zh', t);
   assert.deepEqual(choices.map(c => c.value), ['', 'Day 1', 'camp', 'Day 2']);
   assert.equal(choices[0].label, '待计划');
-  assert.equal(choices[0].summary, '尚未安排到具体日期');
+  assert.equal(choices[0].summary, '');
   assert.equal(choices[1].label, '第一天');
-  assert.equal(choices[1].summary, '还没有行程安排');
+  assert.equal(choices[1].summary, '');
 });
 
 test('group summaries follow itinerary time order and include title-less places', () => {

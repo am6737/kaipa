@@ -35,6 +35,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   rounded?: boolean;
   showLegend?: boolean;
   scrubPt?: [number, number];
+  scrubLabel?: string;
   accent: string;
   interactive?: boolean;
   waypoints?: TrackMapWaypoint[];
@@ -59,6 +60,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
   rounded = true,
   showLegend = true,
   scrubPt,
+  scrubLabel,
   accent,
   interactive = false,
   waypoints,
@@ -140,6 +142,23 @@ export const TrackMap = forwardRef<TrackMapHandle, {
         content: <View style={[styles.scrubMarker, numberWaypoints ? styles.pickedMarker : null, { backgroundColor: accent }]} />,
       });
     }
+    if (scrubPt && scrubLabel) {
+      values.push({
+        id: 'track-picked-label',
+        coordinate: scrubPt,
+        anchor: { x: 0.5, y: 1 },
+        centerOffset: { x: 0, y: -22 },
+        zIndex: 11,
+        onPress: () => { markerPressAt.current = Date.now(); },
+        content: (
+          <View style={{ paddingBottom: 14 }}>
+            <View style={[styles.pickedLabel, { backgroundColor: theme.surfaceTop, borderColor: theme.border }]}>
+              <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, fontWeight: '700', color: theme.text }}>{scrubLabel}</Text>
+            </View>
+          </View>
+        ),
+      });
+    }
     if (showWaypoints) {
       waypointGroups.forEach((group) => {
         const index = group.indices[0];
@@ -203,7 +222,7 @@ export const TrackMap = forwardRef<TrackMapHandle, {
       });
     }
     return values;
-  }, [accent, coords, numberWaypoints, onWaypointPress, scrubPt, selectedWaypoint, showWaypointCallout, showWaypoints, theme, waypoints, waypointGroups, routePadding]);
+  }, [accent, coords, numberWaypoints, onWaypointPress, scrubPt, scrubLabel, selectedWaypoint, showWaypointCallout, showWaypoints, theme, waypoints, waypointGroups, routePadding]);
 
   const polylines = useMemo<NativeMapPolyline[]>(() => coords.length >= 2 ? [
     { id: 'track-line', coordinates: coords, color: accent, width: 3.5 },
@@ -272,6 +291,7 @@ const styles = StyleSheet.create({
   startMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#34C759', borderWidth: 2.5, borderColor: '#FFFFFF' },
   endMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: '#FFFFFF' },
   scrubMarker: { width: 18, height: 18, borderRadius: 9, borderWidth: 2.5, borderColor: '#FFFFFF', opacity: 0.9 },
+  pickedLabel: { maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth },
   pickedMarker: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, opacity: 1 },
   numberedWaypoint: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   waypointMarker: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#FFFFFF', borderWidth: 3 },

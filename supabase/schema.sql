@@ -378,6 +378,7 @@ create policy "tl_all" on timeline_rows for all to authenticated
 
 -- ─── timeline_groups ─────────────────────────────────────────────────────────
 create table if not exists timeline_groups (
+  note       text,
   id         text primary key default 'tg_' || gen_random_uuid()::text,
   journey_id text not null references journeys(id) on delete cascade,
   user_id    uuid not null references profiles(id) on delete cascade,

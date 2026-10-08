@@ -3,8 +3,7 @@
 import React, { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import ImageCropPicker from 'react-native-image-crop-picker';
-import { ActivityIndicator, AppState, InteractionManager, View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -97,7 +96,9 @@ export function AccountPage({
     await waitForNativePhotoPickerDismissal();
 
     try {
-      const image = await ImageCropPicker.openCropper({
+      // Loading the native cropper eagerly crashes both the Web app and guest
+      // pages before they render. Web uses the selected image directly.
+      const image = Platform.OS === 'web' ? { path: asset.uri } : await (require('react-native-image-crop-picker') as typeof import('react-native-image-crop-picker')).default.openCropper({
         path: asset.uri,
         mediaType: 'photo',
         cropping: true,

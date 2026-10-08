@@ -1,3 +1,4 @@
+import { protectEndpoint, ResourceError, resourceFailure, modelBudget, serviceClient } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 type Category = { id: string; name: string };
@@ -66,7 +67,7 @@ function normalizeResult(value: unknown, categories: Category[]) {
   };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('gear', 'gear_requests', 'gear_recognition', 13_000_000)(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: { code: 'method_not_allowed', message: 'Method not allowed' } }, 405);
 
@@ -85,7 +86,11 @@ Deno.serve(async (req) => {
     const baseUrl = (env('GEAR_IMAGE_AI_BASE_URL') || env('KAIPA_AI_BASE_URL') || 'https://ai.dootask.com/v1').replace(/\/$/, '');
     const model = env('GEAR_IMAGE_AI_MODEL') || env('KAIPA_AI_MODEL') || 'gpt-5.6-sol';
 
+    const budget = modelBudget(serviceClient(),'gear-recognition:'+crypto.randomUUID());
+    const units = 65536 + new TextEncoder().encode(SYSTEM_PROMPT+JSON.stringify(categories)).length + 1200;
+    const ticket = await budget.reserve(units);
     const response = await fetch(`${baseUrl}/chat/completions`, {
+      signal: AbortSignal.timeout(90_000),
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -113,16 +118,18 @@ Deno.serve(async (req) => {
     }
 
     const data = await response.json();
+    if (data.usage?.total_tokens>0) await budget.settle(ticket,Math.min(units,data.usage.total_tokens));
     const content = data.choices?.[0]?.message?.content;
     const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((part: { text?: string }) => part.text || '').join('') : '';
     const item = normalizeResult(extractJson(text), categories);
     if (!item.name) return json({ error: { code: 'empty_result', message: '没有识别到装备，请换一张更清晰的图片' } }, 422);
     return json({ item, model });
   } catch (error) {
+    if (error instanceof ResourceError) return resourceFailure(error);
     console.error('gear image recognition failed', error);
     return json({ error: { code: 'request_failed', message: '图片识别失败，请稍后重试' } }, 500);
   }
-});
+}));
 
 function imageContentType(value: unknown): string {
   const type = typeof value === 'string' ? value.toLowerCase().trim() : '';

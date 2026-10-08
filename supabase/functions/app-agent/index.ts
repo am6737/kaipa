@@ -1,3 +1,4 @@
+import { boundedJson, modelBudget, rate, ResourceError, resourceFailure, rpc as resourceRpc, serviceClient } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 // @ts-ignore Deno npm specifier
@@ -282,6 +283,10 @@ function metricRow(metric: any): AgentModelMetric {
 // can contain private or very large journey records.
 function activityOutput(call: any): unknown {
   if (call.tool_name === 'search_travel_web') return call.output;
+  if (Array.isArray(call.output)) return { resultCount: call.output.length };
+  if (typeof call.output?.added === 'number' || typeof call.output?.deleted === 'number') {
+    return { added: call.output.added, deleted: call.output.deleted, skippedDuplicates: call.output.skippedDuplicates };
+  }
   if (call.tool_name === 'set_itinerary_group_endpoints') {
     return { coverage: {
       groupCount: typeof call.output?.coverage?.groupCount === 'number' ? call.output.coverage.groupCount : 0,
@@ -290,7 +295,7 @@ function activityOutput(call: any): unknown {
     } };
   }
   if (call.tool_name === 'read_travel_guide' || call.tool_name === 'read_travel_guide_images') {
-    return { available: call.output?.available, status: call.output?.status };
+    return { available: call.output?.available, status: call.output?.status, cached: call.output?.cached, reused: call.output?.reused };
   }
   if (call.tool_name === 'search_transport') {
     return { status: call.output?.status, available: call.output?.available, provider: call.output?.provider, count: call.output?.offers?.length || 0 };
@@ -375,14 +380,8 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   const changedJourneyId = previewJourneyId(calls.data || [], currentJourneyId);
   const planPreview = typeof changedJourneyId === "string" ? await loadSavedPlanPreview(client, changedJourneyId) : undefined;
 
-  // A deterministic save repair may retry one operation with safer arguments
-  // (for example, dropping an unverified guide quote). Do not present the
-  // superseded failed attempt as a final failure when a later call of the same
-  // tool completed in this run.
-  const rawCalls = calls.data || [];
-  const activities: AgentRunActivity[] = rawCalls
-    .filter((call: any, index: number) => !(call.status === 'failed'
-      && rawCalls.slice(index + 1).some((later: any) => later.tool_name === call.tool_name && later.status === 'completed')))
+  // Preserve every receipt, including failed attempts, for execution transparency.
+  const activities: AgentRunActivity[] = (calls.data || [])
     .map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
   const modelMetrics: AgentModelMetric[] = (metricsResult.data || []).map(metricRow);
 
@@ -431,7 +430,7 @@ Deno.serve(async (req) => {
     if (userError || !user) return json({ error: { code: 'unauthorized', message: '登录状态已失效' } }, 401);
     activeUserId = user.id;
 
-    let body = await req.json().catch(() => ({})) as {
+    let body = await boundedJson(req) as {
       action?: 'turn' | 'history' | 'threads' | 'journey_thread' | 'run_activity' | 'delete_thread' | 'undo' | 'execute_job' | 'retry_run' | 'cancel_run';
       leaseToken?: string;
       threadId?: string;
@@ -450,6 +449,8 @@ Deno.serve(async (req) => {
       clientTimeZone?: string;
       clientTimestamp?: string;
     };
+
+    if (!body.action || body.action === 'turn' || body.action === 'retry_run') await rate(serviceClient(),'ai',user.id);
 
     if (body.action === 'retry_run') {
       const retried = await client.rpc('retry_agent_job', { p_run_id: body.runId });
@@ -735,7 +736,11 @@ Deno.serve(async (req) => {
           locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
           clientTimeZone: body.clientTimeZone, clientTimestamp: body.clientTimestamp },
       });
-      if (queued.error) throw queued.error;
+      if (queued.error) {
+        const code = ['quota_exceeded','concurrency_exceeded'].find(code=>queued.error.message.includes(code));
+        if (code) throw new ResourceError(code);
+        throw queued.error;
+      }
       return json(queued.data, 202);
     }
     activeRunId = runId;
@@ -750,13 +755,18 @@ Deno.serve(async (req) => {
       const result = await jobAdmin.from('agent_model_metrics').insert({ ...metric, attempt: Math.max(1, jobAttempt), run_id: runId, user_id: user.id });
       if (result.error) throw result.error;
     };
+    const budget = modelBudget(jobAdmin,'run:'+runId);
     const task = await prepareTask(client, jobAdmin, {
       runId, threadId, userId: user.id, journeyId: resolvedCurrentJourneyId || null,
       message: effectiveMessage, intent: body.intent, temporalContext,
       attachments: attachments.map(({ name, kind }) => ({ name, kind })),
-    }, createAgentRuntime(config, false, undefined, recordMetric).interpret);
+    }, createAgentRuntime(config, false, undefined, recordMetric, budget).interpret);
+    if (task.decision.mode === 'execute' && (task.decision.fullHikingPlan || task.decision.packingMode === 'full' || task.decision.domain === 'transport')) {
+      const reservation = await resourceRpc(jobAdmin,'reserve_resource',{p_user:user.id,p_resource:'ai_plans',p_request_key:'run:'+runId,p_amount:1,p_ttl_seconds:3600});
+      if (reservation.state === 'released') await resourceRpc(jobAdmin,'reopen_resource_reservation',{p_id:reservation.id});
+    }
     attachments = attachments.filter(attachment => !isTrackAttachment(attachment) || attachment.name === task.decision.trackAttachmentName);
-    const runtime = createAgentRuntime(config, Boolean(resolvedCurrentJourneyId), task, recordMetric);
+    const runtime = createAgentRuntime(config, Boolean(resolvedCurrentJourneyId), task, recordMetric, budget);
     const context: AgentContext = {
       userId: user.id,
       threadId,
@@ -911,13 +921,17 @@ Deno.serve(async (req) => {
     return completedResponse(done);
   } catch (error) {
     console.error('app-agent failed', error);
+    if (activeUserId && error instanceof ResourceError) {
+      try {await resourceRpc(serviceClient(),'record_resource_admission',{p_user:activeUserId,p_scope:'ai',p_result:error.code});} catch { /* retain denial */ }
+    }
     if (jobLease && jobAdmin && activeRunId) {
       const errorText = error instanceof Error ? error.message : String(error);
       const invalidTrack = error instanceof InvalidTrackError;
       // A stage budget abort is deterministic for the same input. Retrying the
       // research stage repeats the same expensive searches and leaves the UI
       // looking stuck for three lease attempts, without adding evidence.
-      const retryable = !invalidTrack
+      const retryable = !invalidTrack && !(error instanceof ResourceError)
+        && !/quota_exceeded|service_budget_exceeded|concurrency_exceeded/.test(errorText)
         && !/Request was aborted|AbortError|signal is aborted/i.test(errorText)
         && !/\b(400|401|403|404|422)\b/.test(errorText);
       const ui = activeClient ? await messageUiForRun(activeClient, activeRunId, []).catch(() => ({} as AgentMessageUi)) : {};
@@ -948,6 +962,7 @@ Deno.serve(async (req) => {
         activeClient.from('agent_threads').update({ updated_at: failedAt }).eq('id', activeThreadId),
       ]);
     }
+    if (error instanceof ResourceError) return resourceFailure(error);
     return json({ error: { code: 'agent_failed', message: 'AI 助手暂时不可用，请稍后重试' } }, 500);
   } finally {
     if (activeRunId) { releaseRunClient(activeRunId); releasePackingDraftStore(activeRunId); }

@@ -21,6 +21,7 @@ export interface MapDisplayOption {
 export interface MapRouteOption {
   id: string;
   label: string;
+  distance?: string;
   color: string;
   visible: boolean;
 }
@@ -32,10 +33,12 @@ export function MapStylePickerSheet({
   options,
   value,
   routesTitle,
+  routesDescription,
   routes,
   onRouteToggle,
   detailsTitle,
   details = [],
+  detailSections = [],
   bottomInset,
   fixedHeight,
   onChange,
@@ -47,12 +50,14 @@ export function MapStylePickerSheet({
   options: { id: MapPresentationStyle; label: string }[];
   value: MapPresentationStyle;
   routesTitle?: string;
+  routesDescription?: string;
   /** Each recorded track is its own show/hide switch; the section appears as
    *  soon as there is one track, so a single-track journey can still be hidden. */
   routes?: MapRouteOption[];
   onRouteToggle?: (id: string, visible: boolean) => void;
   detailsTitle?: string;
   details?: MapDisplayOption[];
+  detailSections?: { id: string; title?: string; description?: string; options: MapDisplayOption[] }[];
   bottomInset: number;
   /** When set, the panel is this exact height and its body scrolls, so the card
    *  keeps a stable size regardless of how many routes/toggles it holds instead
@@ -141,6 +146,7 @@ export function MapStylePickerSheet({
       {routes && routes.length > 0 ? (
         <View style={{ marginTop: space.xxl }}>
           {routesTitle ? <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.sm }]}>{routesTitle}</Text> : null}
+          {routesDescription ? <Text style={[type.caption, { color: theme.text2, marginBottom: space.sm }]}>{routesDescription}</Text> : null}
           <View>
             {routes.map((route) => (
               <View
@@ -161,9 +167,10 @@ export function MapStylePickerSheet({
                     backgroundColor: route.color,
                   }}
                 />
-                <Text numberOfLines={1} style={[type.cardTitle, { flex: 1, lineHeight: 20, color: theme.text }]}>
-                  {route.label}
-                </Text>
+                <View style={{ flex: 1, minWidth: 0, paddingVertical: space.xs }}>
+                  <Text numberOfLines={1} style={[type.cardTitle, { lineHeight: 20, color: theme.text }]}>{route.label}</Text>
+                  {route.distance ? <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>{route.distance}</Text> : null}
+                </View>
                 <View
                   style={{
                     width: 52,
@@ -173,6 +180,7 @@ export function MapStylePickerSheet({
                   }}
                 >
                   <Switch
+                    accessibilityLabel={route.label}
                     value={route.visible}
                     onValueChange={(next) => onRouteToggle?.(route.id, next)}
                     trackColor={{
@@ -190,11 +198,12 @@ export function MapStylePickerSheet({
         </View>
       ) : null}
 
-      {details.length > 0 ? (
-        <View style={{ marginTop: space.xxl }}>
-          {detailsTitle ? <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.sm }]}>{detailsTitle}</Text> : null}
+      {[...(details.length ? [{ id: 'details', title: detailsTitle, description: undefined, options: details }] : []), ...detailSections].filter((section) => section.options.length > 0).map((section) => (
+        <View key={section.id} style={{ marginTop: space.xxl }}>
+          {section.title ? <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.sm }]}>{section.title}</Text> : null}
+          {section.description ? <Text style={[type.caption, { color: theme.text2, marginBottom: space.sm }]}>{section.description}</Text> : null}
           <View>
-            {details.map((detail, index) => (
+            {section.options.map((detail) => (
               <View
                 key={detail.id}
                 style={{
@@ -216,6 +225,7 @@ export function MapStylePickerSheet({
                   }}
                 >
                   <Switch
+                    accessibilityLabel={detail.label}
                     value={detail.value}
                     disabled={detail.disabled}
                     onValueChange={detail.onChange}
@@ -232,7 +242,7 @@ export function MapStylePickerSheet({
             ))}
           </View>
         </View>
-      ) : null}
+      ))}
     </>
   );
   return (

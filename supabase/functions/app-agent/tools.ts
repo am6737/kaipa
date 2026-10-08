@@ -1307,7 +1307,7 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
     const [journeyResult, groupsResult, rowsResult] = await Promise.all([
       client.from('journeys').select('id,dist,route_id,tracks ( coords, waypoints )').eq('id', args.journeyId).single(),
       client.from('timeline_groups').select('name,sort_order,route_id,route_end_meters,route_end_lng,route_end_lat,route_end_track_index,route_end_track_fraction,route_end_source,route_location_name,deleted').eq('journey_id', args.journeyId).order('sort_order'),
-      client.from('timeline_rows').select('day,sort_order').eq('journey_id', args.journeyId).order('sort_order'),
+      client.from('timeline_rows').select('day,sort_order,item_kind,route_id').eq('journey_id', args.journeyId).order('sort_order'),
     ]);
     if (journeyResult.error) throw journeyResult.error;
     if (groupsResult.error) throw groupsResult.error;
@@ -1425,7 +1425,11 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       updated: normalized.length,
       coverage: {
         groupCount: effectiveMeters.size,
-        requiredGroupCount: existingNames.length,
+        requiredGroupCount: new Set([
+          ...(rowsResult.data || []).filter((row: { item_kind?: string | null; route_id?: string | null }) => row.route_id || row.item_kind === 'activity')
+            .map((row: { day: string }) => resolveJourneyDay(row.day, existingNames)),
+          ...effectiveMeters.keys(),
+        ]).size,
         // Reaching the end means reaching the end of that day's own route, not
         // of whichever track the journey happens to bind.
         reachesTrackEnd: [...effectiveMeters.entries()].some(([name, meters]) => {

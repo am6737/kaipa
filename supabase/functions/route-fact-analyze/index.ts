@@ -1,3 +1,4 @@
+import { protectEndpoint, ResourceError, resourceFailure, modelBudget } from '../_shared/resource-guard.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
@@ -30,7 +31,7 @@ async function readSource(url: string, text: string): Promise<{ content: string;
   return { content: content.slice(0, 120_000), sourceUrl: parsed.toString() };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(protectEndpoint('ai',undefined,undefined,9_000_000)(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   try {
@@ -69,6 +70,9 @@ Deno.serve(async (req) => {
       { type: 'text', text: prompt },
       { type: 'image_url', image_url: { url: `data:${fileType};base64,${fileBase64}`, detail: 'high' } },
     ] : prompt;
+    const budget = modelBudget(service,'route-fact:'+crypto.randomUUID());
+    const units = new TextEncoder().encode(prompt).length + 4000 + (hasImage ? 65536 : 0);
+    const ticket = await budget.reserve(units);
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, temperature: 0.1, max_tokens: 4000, response_format: { type: 'json_object' }, messages: [
@@ -79,11 +83,13 @@ Deno.serve(async (req) => {
     });
     if (!response.ok) { console.error('route fact analyzer failed', response.status, (await response.text()).slice(0, 500)); return json({ error: 'provider_failed' }, 502); }
     const data = await response.json();
+    if (data.usage?.total_tokens > 0) await budget.settle(ticket,Math.min(units,data.usage.total_tokens));
     const content = data.choices?.[0]?.message?.content;
     const drafts = normalizeDrafts(parseModelJson(typeof content === 'string' ? content : ''), categories, routes);
     return json({ items: drafts, source_url: source.sourceUrl, model, route_catalog_size: routes.length });
   } catch (error) {
+    if (error instanceof ResourceError) return resourceFailure(error);
     console.error('route fact analyzer error', error);
     return json({ error: error instanceof Error ? error.message : 'analyze_failed' }, 400);
   }
-});
+}));

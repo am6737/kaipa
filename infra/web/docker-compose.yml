@@ -1,0 +1,18 @@
+services:
+  frontends:
+    image: nginx:1.28-alpine
+    container_name: kaipa-frontends
+    restart: unless-stopped
+    ports:
+      - "${KAIPA_ADMIN_PORT:-4173}:80"
+      - "${KAIPA_WEB_PORT:-7072}:81"
+    volumes:
+      - ${KAIPA_FRONTEND_RELEASE:?Release directory required}/admin:/srv/admin:ro
+      - ${KAIPA_FRONTEND_RELEASE:?Release directory required}/web:/srv/web:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - backend
+networks:
+  backend:
+    external: true
+    name: ${KAIPA_BACKEND_NETWORK:?Supabase network required}
