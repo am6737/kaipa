@@ -1,20 +1,43 @@
 diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMap.h b/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
+index 17c1755..da36be0 100644
 --- a/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
 +++ b/node_modules/react-native-maps/ios/AirMaps/AIRMap.h
-@@ -66,0 +67,2 @@
+@@ -63,6 +63,8 @@ extern const NSInteger AIRMapMaxZoomLevel;
+ @property (nonatomic, copy) RCTDirectEventBlock onRegionChangeStart;
+ @property (nonatomic, copy) RCTDirectEventBlock onRegionChange;
+ @property (nonatomic, copy) RCTDirectEventBlock onRegionChangeComplete;
 +@property (nonatomic, copy) RCTDirectEventBlock onPoiClick;
 +@property (nonatomic, strong) MKMapItemRequest *poiMapItemRequest API_AVAILABLE(ios(16.0));
+ @property (nonatomic, copy) RCTBubblingEventBlock onPress;
+ @property (nonatomic, copy) RCTBubblingEventBlock onLongPress;
+ @property (nonatomic, copy) RCTDirectEventBlock onPanDrag;
 diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
+index d034034..a719dd4 100644
 --- a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
 +++ b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
-@@ -51,0 +52,4 @@
+@@ -48,6 +48,10 @@ @implementation AIRMapManager{
+ - (UIView *)view
+ {
+     AIRMap *map = [AIRMap new];
 +    // MapKit POI annotations are selectable starting with iOS 16.
 +    if (@available(iOS 16.0, *)) {
 +        map.selectableMapFeatures = MKMapFeatureOptionPointsOfInterest;
 +    }
-@@ -120,0 +125 @@
+     map.delegate = self;
+ 
+     map.isAccessibilityElement = NO;
+@@ -117,6 +121,7 @@ - (UIView *)view
+ RCT_EXPORT_VIEW_PROPERTY(onRegionChange, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onRegionChangeComplete, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onPanDrag, RCTDirectEventBlock)
 +RCT_EXPORT_VIEW_PROPERTY(onPoiClick, RCTDirectEventBlock)
-@@ -783,0 +789,34 @@
+ RCT_EXPORT_VIEW_PROPERTY(onPress, RCTBubblingEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onLongPress, RCTBubblingEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onDoublePress, RCTDirectEventBlock)
+@@ -781,6 +786,40 @@ - (void)mapView:(AIRMap *)mapView didAddAnnotationViews:(NSArray<MKAnnotationVie
+ 
+ - (void)mapView:(AIRMap *)mapView didSelectAnnotationView:(MKAnnotationView *)view
+ {
 +    if (@available(iOS 16.0, *)) {
 +        if ([view.annotation isKindOfClass:[MKMapFeatureAnnotation class]]) {
 +            MKMapFeatureAnnotation *feature = (MKMapFeatureAnnotation *)view.annotation;
@@ -49,17 +72,30 @@ diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m b/node_m
 +            return;
 +        }
 +    }
-@@ -792,0 +832,6 @@
+     if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {
+         [(AIRMapMarker *)view.annotation showCalloutView];
+     } else if ([view.annotation isKindOfClass:[MKUserLocation class]] && mapView.userLocationAnnotationTitle != nil && view.annotation.title != mapView.userLocationAnnotationTitle) {
+@@ -790,6 +829,12 @@ - (void)mapView:(AIRMap *)mapView didSelectAnnotationView:(MKAnnotationView *)vi
+ }
+ 
+ - (void)mapView:(AIRMap *)mapView didDeselectAnnotationView:(MKAnnotationView *)view {
 +    if (@available(iOS 16.0, *)) {
 +        if ([view.annotation isKindOfClass:[MKMapFeatureAnnotation class]]) {
 +            [mapView.poiMapItemRequest cancel];
 +            mapView.poiMapItemRequest = nil;
 +        }
 +    }
+     if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {
+         [(AIRMapMarker *)view.annotation hideCalloutView];
+     }
 diff --git a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm b/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
+index 447520d..909b260 100644
 --- a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
 +++ b/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
-@@ -191,0 +192,29 @@
+@@ -188,6 +188,35 @@ - (void) prepareMapView
+         }
+     };
+ 
 +    _view.onPoiClick =  [self](NSDictionary* dictionary) {
 +        if (_eventEmitter) {
 +
@@ -89,3 +125,6 @@ diff --git a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm b/node_
 +        }
 +    };
 +
+ 
+     _view.onMapReady = [self](NSDictionary* dictionary) {
+         if (_eventEmitter) {

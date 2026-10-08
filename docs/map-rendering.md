@@ -195,3 +195,17 @@ left of the visible journey map. It is rendered inside `MapGlobe`, anchored to t
 viewport (`mapBottomInset` excludes the covering detail card), and respects the
 safe-area bottom in fullscreen. Cover images omit the map and its credit. Tapping opens
 source details for OpenStreetMap/BRouter and a link to the data license.
+
+## iOS POI patch compilation
+
+`patches/react-native-maps+1.27.2.patch` adds MapKit POI selection and
+name resolution. Keep these additions inside the `didSelectAnnotationView`
+and `didDeselectAnnotationView` method bodies. The original zero-context
+patch inserted the selection guard before the opening brace and the
+deselection guard outside its method, causing `expected ':'`,
+`expected method body`, and `expected identifier or '('` in AIRMapManager.m.
+Regenerate patches with source context rather than line-only insertion hunks.
+Do not include CocoaPods-generated changes to `RNMapsDefines.h` when
+regenerating this patch. Check with
+`node --test scripts/test-map-poi-selection.cjs` after applying patches;
+these tests also check the installed native handler structure.
