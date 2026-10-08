@@ -188,3 +188,17 @@ a temporary staging tree contained the existing map-search entrypoint plus only
 the access-router integration, and used `infra/supabase/deploy-functions.sh
 map-search`. The checkout's unrelated resource-guard edits were preserved. A
 later full-checkout deployment must install those guard RPCs first.
+
+## iOS POI patch compilation
+
+`patches/react-native-maps+1.27.2.patch` adds MapKit POI selection and
+name resolution. Keep these additions inside the `didSelectAnnotationView`
+and `didDeselectAnnotationView` method bodies. The original zero-context
+patch inserted the selection guard before the opening brace and the
+deselection guard outside its method, causing `expected ':'`,
+`expected method body`, and `expected identifier or '('` in AIRMapManager.m.
+Regenerate patches with source context rather than line-only insertion hunks.
+Do not include CocoaPods-generated changes to `RNMapsDefines.h` when
+regenerating this patch. Check with
+`node --test scripts/test-map-poi-selection.cjs` after applying patches;
+these tests also check the installed native handler structure.

@@ -80,3 +80,19 @@ for (const platform of ['ios', 'android']) {
     assert.equal(called, false);
   });
 }
+
+test('iOS: patched POI handlers remain inside their Objective-C method bodies', () => {
+  const source = fs.readFileSync('node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m', 'utf8');
+  const selection = source.match(/- \(void\)mapView:\(AIRMap \*\)mapView didSelectAnnotationView:\(MKAnnotationView \*\)view\s*\{([\s\S]*?)\n\}\s*- \(void\)mapView:\(AIRMap \*\)mapView didDeselectAnnotationView:/);
+  assert.ok(selection, 'selection handler must open its body before the POI availability guard');
+  assert.match(selection[1], /MKMapFeatureAnnotation/);
+  assert.match(selection[1], /emitPoi\(feature\.title\)/);
+  assert.match(selection[1], /showCalloutView/);
+  const deselection = source.match(/didDeselectAnnotationView:\(MKAnnotationView \*\)view\s*\{([\s\S]*?)\n\}/);
+  assert.ok(deselection);
+  assert.match(deselection[1], /MKMapFeatureAnnotation/);
+  assert.match(deselection[1], /\[mapView\.poiMapItemRequest cancel\]/);
+  assert.match(deselection[1], /hideCalloutView/);
+  const patch = fs.readFileSync('patches/react-native-maps+1.27.2.patch', 'utf8');
+  assert.doesNotMatch(patch, /^@@ -\d+,0 /m, 'native patch hunks need source context, not line-only insertion');
+});
