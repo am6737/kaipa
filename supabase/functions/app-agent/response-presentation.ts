@@ -1,6 +1,6 @@
 import type { PlanDraft, TaskOutcome } from './task.ts';
 
-export function renderTaskResponse(output: { text: string; draft: PlanDraft | null; blocker?: string | null }, outcome: TaskOutcome, locale?: 'zh' | 'en', savedJourneyTitle?: string): string {
+export function renderTaskResponse(output: { text: string; draft: PlanDraft | null; blocker?: string | null; followUpSuggestion?: string | null }, outcome: TaskOutcome, locale?: 'zh' | 'en', savedJourneyTitle?: string): string {
   const english = locale === 'en';
   if (outcome.status === 'partial') {
     const summary = english
@@ -10,7 +10,7 @@ export function renderTaskResponse(output: { text: string; draft: PlanDraft | nu
       ? `Journey "${savedJourneyTitle}" is saved. You can open it using the journey card; the itinerary is not yet complete.`
       : `旅程「${savedJourneyTitle}」已保存，可通过下方「查看旅程」进入；日程仍有待完善部分。`) : null;
     const draft = output.draft ? renderTaskResponse(output, { ...outcome, status: 'draft' }, locale) : null;
-    return [journey || summary, output.blocker?.trim(), draft, outcome.pendingQuestion].filter(Boolean).join('\n\n');
+    return [journey || summary, output.blocker?.trim(), draft, outcome.pendingQuestion, output.followUpSuggestion].filter(Boolean).join('\n\n');
   }
   if (outcome.status === 'draft' && output.draft) {
     const { title, body, assumptions, unverified } = output.draft;

@@ -19,6 +19,7 @@ export const researchBriefSchema = z.object({
   routes: z.array(z.object({
     name: z.string().min(1).max(120),
     routeId: z.string().max(100).nullable().default(null),
+    guideComplete: z.boolean().optional().describe('系统填充的指南覆盖标记'),
     hikingDays: z.number().int().min(1).max(30).nullable().default(null),
     distanceKm: z.number().positive().max(10000).nullable().default(null),
     summary: z.string().max(800).default(''),
@@ -62,6 +63,16 @@ export const researchBriefSchema = z.object({
   // told to leave it empty and nothing it invents can reach the caller. Kept in
   // the schema rather than bolted onto the parsed object so that artifacts
   // written before this field existed still parse on the reuse path.
+  guideFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional().describe('系统填充，模型留空'),
+  guideEvidence: z.array(z.object({
+    routeName: z.string(), routeId: z.string().nullable(), markdown: z.string(), asOf: z.string().nullable(),
+    missingSections: z.array(z.string()),
+    sources: z.array(z.object({
+      id: z.string(), platform: z.enum(['xiaohongshu', 'douyin', 'web', 'official', 'firsthand', 'social']),
+      title: z.string(), url: z.string().nullable(), author: z.string().nullable(),
+      observedOn: z.string().nullable(), retrievedAt: z.string(),
+    })),
+  })).default([]).describe('系统填充的可信指南原文与引用，模型输出空数组'),
   routeFactsFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional().describe('系统填充的线路资料缓存指纹，模型留空'),
   routeFacts: z.array(z.object({
     entryId: z.string().min(1).max(64),
@@ -73,9 +84,7 @@ export const researchBriefSchema = z.object({
     reviewDueAt: z.string().max(40).nullable().default(null),
     stale: z.boolean().default(false),
   })).max(24).default([]).describe('系统填充，模型必须输出空数组'),
-  // Drafts for the maintained route-facts library ("线路资料"). Only from guide
-  // text this run actually read; a human confirms or discards them in admin,
-  // so the model is never trusted to write 'confirmed' facts itself.
+  // Legacy artifacts still parse; runtime always clears suggestions.
   factSuggestions: z.array(z.object({
     routeId: z.string().min(1).max(100),
     category: z.enum(['access_transport', 'shuttle_cost', 'lodging', 'campsite', 'itinerary', 'season_safety']),
@@ -93,7 +102,7 @@ export const researchBriefSchema = z.object({
     // the suggestion is then a proposed edit to that entry rather than a new
     // one, and the admin reviews it as a diff.
     targetEntryId: z.string().max(64).nullable().default(null),
-  })).max(12).default([]).describe('仅当攻略正文给出具体、可复核、且线路资料里没有的地面信息（价格、营地、班次、住宿）时提交草稿；fields 的 key 用该类目的字段名，值一律写成字符串；若攻略更新了某条已注入的线路资料，把那条的 id 写进 targetEntryId 且只给出发生变化的字段'),
+  })).max(12).default([]).describe('兼容旧资料，模型必须输出空数组，禁止提交建议'),
   waterAndResupply: z.array(z.string().max(500)).max(12).default([]),
   transportOptions: z.array(z.object({
     direction: z.enum(['outbound', 'return']),
@@ -189,6 +198,18 @@ export const planDocumentSchema = z.object({
   unverified: z.array(z.string().max(300)).max(30).default([]),
   blocker: z.string().max(1000).nullable().default(null),
   pendingQuestion: z.string().max(1000).nullable().default(null),
+  followUpSuggestion: z.string().max(1000).nullable().default(null),
+  // Server-only measurement; archived documents predate this check.
+  feasibility: z.object({
+    issues: z.array(z.object({
+      code: z.string(),
+      severity: z.enum(['blocker', 'warning']),
+      day: z.string().nullable(),
+      message: z.string(),
+      detail: z.record(z.string(), z.unknown()).optional(),
+    })),
+    checkedAt: z.string().datetime(),
+  }).nullable().default(null).optional(),
 });
 export type PlanDocument = z.infer<typeof planDocumentSchema>;
 
@@ -196,7 +217,7 @@ export type PlanDocument = z.infer<typeof planDocumentSchema>;
 // undecided, and models commonly represent that as journey.days=null. Accept
 // it long enough for the pipeline to turn the proposed journey into a draft or
 // pending question; the persisted PlanDocument remains strict.
-export const planDocumentModelSchema = planDocumentSchema.extend({
+export const planDocumentModelSchema = planDocumentSchema.omit({ feasibility: true, followUpSuggestion: true }).extend({
   journey: z.object({
     name: z.string().min(1).max(120),
     region: z.string().max(120).default(''),
@@ -287,7 +308,7 @@ export function planDraftFrom(plan: PlanDocument): PlanDraft {
     if (plan.transport.outbound.length) lines.push(`去程：${chain(plan.transport.outbound)}`);
     if (plan.transport.inbound.length) lines.push(`返程：${chain(plan.transport.inbound)}`);
     if (plan.transport.vehicleRetrieval) lines.push(`取车安排：${plan.transport.vehicleRetrieval}`);
-    for (const issue of plan.transport.reviewIssues || []) lines.push(`待解决：${issue}`);
+    if (plan.transport.reviewIssues?.length) lines.push('待核对：往返交通与徒步窗口的衔接。');
   }
   for (const assumption of plan.assumptions) lines.push(`假设：${assumption}`);
   for (const item of plan.unverified) lines.push(`待核实：${item}`);

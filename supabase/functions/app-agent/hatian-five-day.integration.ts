@@ -79,8 +79,8 @@ try {
     // Controlled evidence tests persistence only; it does not certify this as an outdoor itinerary.
     const sourceUrl = 'https://guides.example.com/controlled-fixture';
     const campQuote = 'Fixture: overnight stay at the named Chenjiawozi camp.';
-    await checked(client.from('agent_tool_calls').insert({ run_id: runId, thread_id: thread.id, user_id: userId, tool_name: 'read_travel_guide',
-      arguments: { url: sourceUrl }, arguments_hash: crypto.randomUUID(), status: 'completed', output: { url: sourceUrl, available: true, text: campQuote } }));
+    await checked(client.from('agent_tool_calls').insert({ run_id: runId, thread_id: thread.id, user_id: userId, tool_name: 'read_route_guide',
+      arguments: { name: '哈天线' }, arguments_hash: crypto.randomUUID(), status: 'completed', output: { sources: [{ url: sourceUrl }], available: true, markdown: campQuote } }));
     await readJourneySections(client, context, journeyId, ['journey', 'track', 'itinerary']);
     const camp = waypoints.find(point => point.name.includes('陈家窝子'))!;
     const firstCamp = waypoints.find(point => point.name === '第一天营地')!;
@@ -123,7 +123,7 @@ try {
   const boundaries = groups.filter(group => group.route_end_meters != null);
   const report = { elapsedSeconds: Math.round((Date.now() - started) / 1000), model: config.model, decision, outcome, output, journey, rows, groups,
     calls: calls.map(call => ({ tool: call.tool_name, status: call.status, error: call.error,
-      args: ['set_itinerary_group_endpoints', 'read_travel_guide'].includes(call.tool_name) ? call.arguments : undefined,
+      args: ['set_itinerary_group_endpoints', 'read_route_guide'].includes(call.tool_name) ? call.arguments : undefined,
       available: call.output?.available, textLength: call.output?.text?.length })) };
   await Deno.writeTextFile('/tmp/kaipa-hatian-five-day-local.json', JSON.stringify(report, null, 2), { mode: 0o600 });
   assert(journey.total_days === 5 && journey.planned_date === '2026-10-10', 'User duration/date was changed');

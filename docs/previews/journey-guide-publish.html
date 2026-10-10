@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kaipa · 发布为路线攻略预览</title>
+  <style>
+    :root { --bg:#f4f4f5; --card:#fff; --ink:#17171a; --muted:#77777e; --line:#e7e7eb; --soft:#f7f7f8; --accent:#1d6b55; --blue:#3977d7; }
+    * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:1040px; margin:38px auto; padding:0 24px; display:flex; gap:56px; align-items:flex-start; }
+    aside { width:300px; padding-top:56px; } .eyebrow { color:#9b9ba2; font-size:11px; letter-spacing:.12em; margin-bottom:20px; }
+    h1 { font-size:29px; line-height:1.45; letter-spacing:-.04em; margin:0 0 16px; } aside p { color:var(--muted); font-size:13px; line-height:1.9; margin:0 0 22px; }
+    .notes { border-top:1px solid var(--line); padding-top:16px; color:#929299; font-size:11px; line-height:1.8; }
+    .viewer { width:390px; max-width:100%; } .tabs { display:flex; gap:8px; margin-bottom:14px; overflow:auto; }
+    button { border:0; cursor:pointer; font:inherit; } .tab { background:#e8e8ed; color:#77777e; border-radius:999px; padding:9px 13px; font-size:11px; white-space:nowrap; } .tab.active { background:#17171a; color:#fff; }
+    .phone { background:#fff; border:1px solid #e2e2e6; border-radius:28px; box-shadow:0 18px 50px #00000012; overflow:hidden; min-height:760px; }
+    .status { height:28px; padding:9px 19px 0; font-size:10px; color:#98989e; display:flex; justify-content:space-between; } .topbar { height:58px; border-bottom:1px solid var(--line); padding:0 18px; display:flex; align-items:center; justify-content:space-between; }
+    .back { color:var(--muted); font-size:20px; } .top-title { font-size:15px; font-weight:700; } .more { color:var(--muted); font-size:20px; }
+    .body { padding:20px 18px 30px; } .hero { height:170px; border-radius:18px; background:linear-gradient(135deg,#496c61,#b9c9ba 58%,#e8d9b7); padding:17px; color:#fff; display:flex; flex-direction:column; justify-content:space-between; }
+    .hero small { opacity:.82; font-size:11px; } .hero h2 { font-size:24px; line-height:1.25; margin:0; letter-spacing:-.03em; } .hero .route { font-size:11px; opacity:.9; }
+    .meta { display:flex; gap:7px; margin:13px 0 20px; flex-wrap:wrap; } .pill { background:var(--soft); color:var(--muted); padding:7px 10px; border-radius:999px; font-size:11px; }
+    .section-label { color:#97979d; font-size:11px; margin:18px 0 9px; } .card { border:1px solid var(--line); border-radius:16px; background:var(--card); padding:15px; margin-bottom:10px; }
+    .card-row { display:flex; align-items:center; gap:12px; } .icon { width:34px; height:34px; border-radius:11px; background:#edf4ef; color:var(--accent); display:grid; place-items:center; font-size:17px; } .card strong { display:block; font-size:14px; } .card span { display:block; color:var(--muted); font-size:11px; line-height:1.6; margin-top:3px; }
+    .chev { margin-left:auto; color:#a2a2a8; font-size:18px; } .toggle { width:38px; height:22px; border-radius:20px; background:var(--accent); padding:3px; } .toggle i { display:block; width:16px; height:16px; border-radius:50%; background:#fff; margin-left:16px; }
+    .field-label { color:#626269; font-size:11px; margin:16px 0 7px; } .input { width:100%; border:1px solid var(--line); border-radius:11px; background:#fafafa; padding:12px; font-size:13px; color:var(--ink); } textarea.input { min-height:76px; resize:none; line-height:1.7; }
+    .check { border:1px solid var(--line); border-radius:12px; padding:12px; display:flex; align-items:center; gap:10px; margin:8px 0; } .box { width:18px; height:18px; border-radius:5px; background:var(--accent); color:#fff; text-align:center; line-height:18px; font-size:12px; } .check b { font-size:12px; } .check small { display:block; color:var(--muted); font-size:10px; margin-top:3px; }
+    .photo-row { display:flex; gap:8px; } .photo { height:58px; flex:1; border-radius:10px; background:linear-gradient(135deg,#78957e,#dfc79f); position:relative; } .photo:nth-child(2){background:linear-gradient(135deg,#6d8590,#d6b996)} .photo:nth-child(3){background:linear-gradient(135deg,#8d9f76,#dbc9a8)} .photo em { position:absolute; right:5px; top:5px; font-style:normal; background:#ffffffcc; color:#555; font-size:10px; border-radius:50%; width:17px; height:17px; text-align:center; line-height:17px; }
+    .notice { background:#f4f7f5; color:#5f7167; border-radius:12px; padding:11px 12px; font-size:11px; line-height:1.7; margin-top:15px; } .bottom { position:sticky; bottom:0; background:#fff; border-top:1px solid var(--line); padding:12px 18px 18px; } .primary { width:100%; background:var(--ink); color:#fff; border-radius:13px; padding:13px; font-size:13px; font-weight:700; } .secondary { width:100%; background:#f0f0f2; color:var(--ink); border-radius:13px; padding:12px; font-size:12px; margin-top:8px; }
+    .preview-head { display:flex; align-items:center; gap:9px; margin-bottom:17px; } .avatar { width:32px; height:32px; border-radius:50%; background:#d6bfa4; } .preview-head b { font-size:13px; } .preview-head span { display:block; color:var(--muted); font-size:10px; margin-top:3px; } .guide-title { font-size:23px; line-height:1.35; margin:0 0 10px; } .intro { color:var(--muted); font-size:12px; line-height:1.8; }
+    .day { border-left:2px solid #d9e6dc; padding-left:13px; margin:16px 0; } .day b { font-size:12px; } .day p { color:var(--muted); font-size:11px; line-height:1.7; margin:6px 0 0; } .tagline { display:flex; gap:6px; flex-wrap:wrap; margin:15px 0; } .tag { background:#edf4ef; color:var(--accent); border-radius:999px; padding:6px 9px; font-size:10px; }
+    @media(max-width:760px){ main{display:block;margin:16px auto;padding:0 16px} aside{width:auto;padding:0 0 18px} aside .notes{display:none} h1{font-size:21px;margin-bottom:8px} aside p{font-size:11px;margin-bottom:0}.viewer{margin:auto}.phone{min-height:720px;border-radius:22px} }
+  </style>
+</head>
+<body>
+  <main>
+    <aside>
+      <div class="eyebrow">KAIPA / PRODUCT PREVIEW</div>
+      <h1>从一次旅程，<br>整理成一篇攻略。</h1>
+      <p>这是“旅程详情 → 发布为路线攻略”的第一版页面预览。可以切换入口、编辑页和公开前预览。</p>
+      <div class="notes">入口放在旅程详情的“探索与公开”区，与公开轨迹并列。发布使用内容快照，审核通过后才进入路线攻略。</div>
+    </aside>
+    <section class="viewer">
+      <nav class="tabs" aria-label="页面预览">
+        <button class="tab active" data-screen="entry">详情入口</button>
+        <button class="tab" data-screen="edit">编辑攻略</button>
+        <button class="tab" data-screen="review">发布预览</button>
+      </nav>
+      <div class="phone" id="phone"></div>
+    </section>
+  </main>
+  <script>
+    const screens = {
+      entry: `<div class="status"><span>9:41</span><span>●　▮▮▮　▮</span></div><div class="topbar"><span class="back">‹</span><span class="top-title">旅程详情</span><span class="more">···</span></div><div class="body"><div class="hero"><small>2026.10.02 — 2026.10.04 · 3天</small><h2>贡嘎西坡转山</h2><div class="route">四川 · 甘孜　·　38.4 km　·　中高</div></div><div class="meta"><span class="pill">已完成</span><span class="pill">3天2夜</span><span class="pill">露营</span></div><div class="section-label">探索与公开</div><div class="card"><div class="card-row"><div class="icon">↗</div><div><strong>发布为路线攻略</strong><span>整理行程、装备与复盘，提交审核后展示给其他人</span></div><div class="chev">›</div></div></div><div class="card"><div class="card-row"><div class="icon">⌁</div><div><strong>公开轨迹到探索</strong><span>让其他人看到这条旅程的实际轨迹</span></div><div class="toggle"><i></i></div></div></div><div class="card"><div class="card-row"><div class="icon">▣</div><div><strong>展示照片与行程</strong><span>控制公开路线卡上展示的内容</span></div><div class="chev">›</div></div></div><div class="notice">攻略发布后，旅程后续修改不会自动改变公开内容。你可以随时更新攻略并重新提交审核。</div></div>` ,
+      edit: `<div class="status"><span>9:41</span><span>●　▮▮▮　▮</span></div><div class="topbar"><span class="back">‹</span><span class="top-title">发布路线攻略</span><span class="more">?</span></div><div class="body"><div class="field-label">发布到路线</div><div class="input">贡嘎西坡转山　›</div><div class="field-label">攻略标题</div><div class="input">三天两夜：贡嘎西坡露营实走记录</div><div class="field-label">一句话介绍</div><textarea class="input">按实际天气调整节奏，补给和营地需要提前确认。</textarea><div class="field-label">公开内容</div><div class="check"><div class="box">✓</div><div><b>每日行程</b><small>3天 · 9个行程项 · 含路段备注</small></div><div class="chev">›</div></div><div class="check"><div class="box">✓</div><div><b>装备清单</b><small>15件装备 · 不包含同行者信息</small></div><div class="chev">›</div></div><div class="check"><div class="box">✓</div><div><b>旅程照片</b><small>选择 3 张公开照片</small></div><div class="chev">›</div></div><div class="photo-row"><div class="photo"><em>✓</em></div><div class="photo"><em>✓</em></div><div class="photo"><em>✓</em></div></div><div class="field-label">这次走完后的建议</div><textarea class="input">出发前确认营地开放和水源情况，第二天预留更多休息时间。</textarea><div class="notice">发布后会进入审核。审核通过后，其他用户可以在这条路线的“大家的攻略”中看到它。</div></div><div class="bottom"><button class="primary" data-next="review">预览并提交审核</button></div>`,
+      review: `<div class="status"><span>9:41</span><span>●　▮▮▮　▮</span></div><div class="topbar"><span class="back">‹</span><span class="top-title">攻略预览</span><span class="more">分享</span></div><div class="body"><div class="preview-head"><div class="avatar"></div><div><b>我的攻略</b><span>出行于 2026.10.02　·　贡嘎西坡转山</span></div></div><h2 class="guide-title">三天两夜：贡嘎西坡露营实走记录</h2><p class="intro">按实际天气调整节奏，补给和营地需要提前确认。</p><div class="tagline"><span class="tag">3天2夜</span><span class="tag">露营</span><span class="tag">含装备清单</span></div><div class="section-label">每日行程</div><div class="day"><b>第 1 天 · 起点 → 第一晚营地</b><p>确认接驳 → 森林路段 → 扎营与晚间休息</p></div><div class="day"><b>第 2 天 · 沿线行进</b><p>沿线徒步与休息 → 核实补给与下撤选择</p></div><div class="day"><b>第 3 天 · 营地 → 路线终点</b><p>撤营并带走垃圾 → 下撤至终点 → 确认返程接驳</p></div><div class="section-label">如果再走一次</div><p class="intro">出发前确认营地开放和水源情况，第二天预留更多休息时间。</p><div class="section-label">装备清单</div><div class="card"><div class="card-row"><div class="icon">✓</div><div><strong>15 件装备</strong><span>按露营行程整理，未包含同行者信息</span></div><div class="chev">›</div></div></div></div><div class="bottom"><button class="primary">提交审核</button><button class="secondary" data-next="edit">返回修改</button></div>`
+    };
+    const phone = document.getElementById('phone');
+    function select(name){ phone.innerHTML = screens[name]; document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.screen === name)); phone.querySelectorAll('[data-next]').forEach(b => b.onclick=()=>select(b.dataset.next)); }
+    document.querySelectorAll('.tab').forEach(b => b.onclick=()=>select(b.dataset.screen)); select('entry');
+  </script>
+</body>
+</html>

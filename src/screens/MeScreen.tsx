@@ -30,8 +30,10 @@ import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettings
 import { NotifInboxPage } from '../components/me/NotifInboxPage';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 import { AboutPage } from '../components/me/AboutPage';
+import { LegalDocumentPage } from '../components/me/LegalDocumentPage';
 import { PlanningProfilePage } from '../components/me/PlanningProfilePage';
 import { MembershipPage } from '../components/me/MembershipPage';
+import { MembershipEntryCard } from '../components/me/MembershipEntryCard';
 import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
 import { JourneyTrashPage } from '../components/journey/JourneyTrashPage';
 import { TracksPage } from '../components/tracks/TracksPage';
@@ -42,6 +44,7 @@ import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from '../lib/journeyInvite';
 import type { Poi } from '../data/pois';
 import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
+import { DeleteAccountReasonsPage } from '../components/me/DeleteAccountReasonsPage';
 
 type MePage =
   | { type: 'scanLogin' }
@@ -51,14 +54,17 @@ type MePage =
   | { type: 'tracks' }
   | { type: 'trackDetail'; trackId: string }
   | { type: 'trash' }
-  | { type: 'account' }
+  | { type: 'profile' }
+  | { type: 'accountSecurity' }
+  | { type: 'deleteAccountReasons' }
   | { type: 'planningProfile' }
-  | { type: 'membership' }
+  | { type: 'membership'; view?: 'usage' }
   | { type: 'edit'; field: MeEditField }
   | { type: 'notif' }
   | { type: 'inbox' }
   | { type: 'feedback' }
-  | { type: 'about' };
+  | { type: 'about' }
+  | { type: 'legalDocument'; document: 'agreement' | 'privacy' };
 
 type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
 type PopupAnchor = { x: number; y: number; width: number; height: number };
@@ -913,10 +919,10 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
   });
 
   const renderPage = (pg: MePage) => {
-    const theme = pg.type === 'settings' ? makeMeTheme(baseTheme) : baseTheme;
+    const theme = pg.type === 'settings' || pg.type === 'membership' ? makeMeTheme(baseTheme) : baseTheme;
     switch (pg.type) {
       case 'membership':
-        return <MembershipPage theme={theme} onBack={pop} />;
+        return <MembershipPage theme={theme} onBack={pop} view={pg.view} />;
       case 'scanLogin':
         return (
           <QrLoginScannerPage
@@ -943,10 +949,12 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + space.xs + layout.topBarHeight, paddingBottom: insets.bottom + space.xxl }}
             >
-              <AppSectionHeader theme={theme} text={t('me.account')} marginTop={space.lg} />
+              <View style={{ marginTop: space.lg }}>
+                <MembershipEntryCard theme={theme} onPress={() => push({ type: 'membership' })} onUsage={() => push({ type: 'membership', view: 'usage' })} />
+              </View>
+              <AppSectionHeader theme={theme} text={t('account.security.pageTitle')} marginTop={layout.sectionGap} />
               <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="user" label={t('me.account')} detail={profile.nick || t('me.unnamed')} onPress={() => push({ type: 'account' })} />
-                <SettingsRow theme={theme} icon="gearSettings" label={t('membership.title')} onPress={() => push({ type: 'membership' })} last />
+                <SettingsRow theme={theme} icon="user" label={t('account.security.pageTitle')} detail={profile.email || t('account.security.notBound')} onPress={() => push({ type: 'accountSecurity' })} last />
               </AppCard>
 
               <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
@@ -1042,16 +1050,32 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
       }
       case 'trash':
         return <JourneyTrashPage theme={theme} onBack={pop} />;
-      case 'account':
+      case 'profile':
         return (
           <AccountPage
             theme={theme}
             profile={profile}
+            section="profile"
             onBack={pop}
             onEdit={(f) => push({ type: 'edit', field: f })}
+            onDeleteAccount={() => push({ type: 'deleteAccountReasons' })}
             showToast={showToast}
           />
         );
+      case 'accountSecurity':
+        return (
+          <AccountPage
+            theme={theme}
+            profile={profile}
+            section="security"
+            onBack={pop}
+            onEdit={(f) => push({ type: 'edit', field: f })}
+            onDeleteAccount={() => push({ type: 'deleteAccountReasons' })}
+            showToast={showToast}
+          />
+        );
+      case 'deleteAccountReasons':
+        return <DeleteAccountReasonsPage theme={theme} onBack={pop} />;
       case 'planningProfile':
         return <PlanningProfilePage theme={theme} onBack={pop} />;
       case 'edit':
@@ -1072,7 +1096,9 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
           />
         );
       case 'about':
-        return <AboutPage theme={theme} onBack={pop} showToast={showToast} />;
+        return <AboutPage theme={theme} onBack={pop} onOpenDocument={(document) => push({ type: 'legalDocument', document })} showToast={showToast} />;
+      case 'legalDocument':
+        return <LegalDocumentPage theme={theme} document={pg.document} onBack={pop} />;
     }
   };
   const popupWidth = Math.min(260, windowWidth - space.xl * 2);
@@ -1119,7 +1145,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
         </View>
 
         <ProfileIdentity theme={theme} avatarUri={data.profile.avatarUrl} nick={profile.nick || t('me.unnamed')}
-          username={profile.username} bio={profile.bio} label={t('me.account')} onPress={() => push({ type: 'account' })} />
+          username={profile.username} bio={profile.bio} label={t('account.profile.pageTitle')} onPress={() => push({ type: 'profile' })} />
 
         <View style={{ paddingHorizontal: layout.pagePadding, gap: space.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>

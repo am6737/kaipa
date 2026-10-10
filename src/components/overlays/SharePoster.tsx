@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -248,6 +248,7 @@ function ChecklistSection({
 
 function JourneyDocument({
   poi,
+  author,
   timelineGroups,
   timelineLoading,
   packingViews,
@@ -260,6 +261,7 @@ function JourneyDocument({
   t,
 }: {
   poi: Poi;
+  author: string;
   timelineGroups: { key: string; label: string; rows: TLRow[] }[];
   timelineLoading: boolean;
   packingViews: JourneyPackingListView[];
@@ -274,8 +276,6 @@ function JourneyDocument({
   const elevations = poi.trackElevation?.map((point) => point.ele).filter(Number.isFinite) ?? [];
   const highestElevation = elevations.length ? `${Math.round(Math.max(...elevations))} m` : '—';
   const journeyDate = poi.plannedDate || poi.date;
-  const journeyDuration = poi.days
-    || (poi.totalDays ? t('journeyEdit.meta.days', { count: poi.totalDays }) : '—');
 
   return (
     <View
@@ -294,13 +294,10 @@ function JourneyDocument({
       </View>
 
       <View style={styles.metricsBlock}>
-        <OverviewMetric
-          label={t(journeyDate ? 'journey.stat.date' : 'journey.stat.days')}
-          value={journeyDate || journeyDuration}
-        />
         <OverviewMetric label={t('journey.stat.distance')} value={poi.dist || '—'} />
         <OverviewMetric label={t('journey.stat.highest')} value={highestElevation} />
       </View>
+      <Text style={styles.documentMeta}>{author}    {journeyDate || '—'}</Text>
       {poi.desc ? <Text style={styles.summaryText}>{poi.desc}</Text> : null}
 
       <ItinerarySection groups={timelineGroups} loading={timelineLoading} t={t} />
@@ -356,6 +353,28 @@ export function SharePoster({
     [packing.currentCompanionId, packing.views],
   );
   const contentLoading = timeline.loading || packing.loading;
+  const author = profile.nick.trim() || '我';
+  const [busyAction, setBusyAction] = useState<'share' | 'save' | null>(null);
+  const busy = busyAction !== null;
+  const [savedNotice, setSavedNotice] = useState(false);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+  const showSavedNotice = useCallback(() => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setSavedNotice(true);
+    noticeTimer.current = setTimeout(() => setSavedNotice(false), 1900);
+  }, []);
+  const runExport = async (name: 'share' | 'save', action: () => Promise<void>) => {
+    if (busy) return;
+    setBusyAction(name);
+    try {
+      await action();
+    } finally {
+      setBusyAction(null);
+    }
+  };
   const [documentWidth, setDocumentWidth] = useState(0);
   const [exportReady, setExportReady] = useState(false);
   const exportWidth = Math.ceil(screenDimensions.width);
@@ -378,7 +397,6 @@ export function SharePoster({
         link.href = uri;
         link.download = `${poi.name || 'kaipa'}.png`;
         link.click();
-        onToast(t('poster.saved'));
       } else if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: poi.name });
       } else {
@@ -408,12 +426,12 @@ export function SharePoster({
         }
         await createMediaLibraryAsset(uri);
       }
-      onToast(t('poster.saved'));
+      showSavedNotice();
     } catch (error) {
       console.warn('[SharePoster] save error:', error);
       onToast(t('poster.exportFailed'));
     }
-  }, [captureDocument, onToast, poi.name, t]);
+  }, [captureDocument, onToast, poi.name, showSavedNotice, t]);
 
   return (
     <View style={[StyleSheet.absoluteFill, styles.page, { backgroundColor: theme.groupedBg }]}>
@@ -426,6 +444,7 @@ export function SharePoster({
           >
             <JourneyDocument
               poi={poi}
+              author={author}
               timelineGroups={timelineGroups}
               timelineLoading={false}
               packingViews={visiblePackingViews}
@@ -476,6 +495,7 @@ export function SharePoster({
           >
             <JourneyDocument
               poi={poi}
+              author={author}
               timelineGroups={timelineGroups}
               timelineLoading={false}
               packingViews={visiblePackingViews}
@@ -492,25 +512,30 @@ export function SharePoster({
         <View pointerEvents="box-none" style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
           <View style={styles.actionGroup}>
             <Press
-              onPress={() => void doShare()}
+              disabled={busy}
+              onPress={() => void runExport('share', doShare)}
               accessibilityRole="button"
               accessibilityLabel={t('poster.share')}
+              accessibilityState={{ disabled: busy, busy: busyAction === 'share' }}
               style={styles.shareButton}
             >
-              <Text style={styles.shareButtonText}>{t('poster.share')}</Text>
+              {busyAction === 'share' ? <ActivityIndicator color="#fff" /> : <Text style={styles.shareButtonText}>{t('poster.share')}</Text>}
             </Press>
             <Press
-              onPress={() => void doSave()}
+              disabled={busy}
+              onPress={() => void runExport('save', doSave)}
               accessibilityRole="button"
               accessibilityLabel={t('poster.saveToAlbum')}
+              accessibilityState={{ disabled: busy, busy: busyAction === 'save' }}
               style={styles.saveButton}
             >
-              <Text style={styles.saveButtonText}>{t('poster.saveToAlbum')}</Text>
+              {busyAction === 'save' ? <ActivityIndicator color="#000" /> : <Text style={styles.saveButtonText}>{t('poster.saveToAlbum')}</Text>}
             </Press>
           </View>
         </View>
       ) : null}
       </View>
+      {savedNotice ? <View pointerEvents="none" style={styles.savedNotice}><Text style={styles.savedNoticeText}>✓  {t('poster.saved')}</Text></View> : null}
     </View>
   );
 }
@@ -618,6 +643,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  savedNotice: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 120,
+    alignItems: 'center',
+    zIndex: 200,
+  },
+  savedNoticeText: {
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(20,20,22,0.92)',
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
 
   document: {
     width: '100%',
@@ -640,9 +682,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   documentHeader: {
-    paddingHorizontal: 48,
+    paddingHorizontal: 0,
     paddingBottom: 2,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   documentTitle: {
     color: '#111111',
@@ -650,20 +692,27 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     fontWeight: '700',
     letterSpacing: -0.4,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   metricsBlock: {
     flexDirection: 'row',
+    gap: space.xl,
     paddingTop: 10,
   },
+  documentMeta: {
+    color: '#555555',
+    fontSize: 10.5,
+    lineHeight: 16,
+    marginTop: 12,
+  },
   metricItem: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     paddingHorizontal: 3,
     color: '#111111',
     fontSize: 10.5,
     lineHeight: 16,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   metricValue: {
     color: '#555555',

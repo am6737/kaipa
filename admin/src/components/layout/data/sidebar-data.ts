@@ -14,6 +14,8 @@ export const sidebarData: SidebarData = {
         { title: '装备库', url: '/gear', icon: Backpack },
         { title: '路线目录', url: '/routes', icon: Route },
         { title: '线路资料', url: '/route-facts', icon: BookMarked },
+        { title: '路线近期实况', url: '/route-observations', icon: Waypoints },
+        { title: '路线攻略审核', url: '/route-guides', icon: BookMarked },
         { title: '轨迹库', url: '/tracks', icon: Waypoints },
         { title: '内容审核', url: '/content', icon: Image },
       ],
@@ -22,10 +24,12 @@ export const sidebarData: SidebarData = {
       title: '系统',
       items: [
         { title: 'AI 运行监控', url: '/agent-runs', icon: Bot },
+        { title: '功能与运营', url: '/operations/features', icon: Settings },
+        { title: '资源与配额', url: '/operations/resources', icon: Settings },
         { title: '审计日志', url: '/audit', icon: FileClock },
         { title: '通知中心', url: '/notifications', icon: Bell },
         { title: '设置', icon: Settings, items: [
-        { title: '会员与预算', url: '/settings/membership' },
+        { title: '会员与权益', url: '/settings/membership' },
         { title: '账户', url: '/settings/account' },
         { title: '外观', url: '/settings/appearance' },
         { title: '通知', url: '/settings/notifications' },

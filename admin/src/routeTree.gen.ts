@@ -22,6 +22,8 @@ import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedRouteGuidesRouteImport } from './routes/_authenticated/route-guides'
+import { Route as AuthenticatedRouteObservationsRouteImport } from './routes/_authenticated/route-observations'
 import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authenticated/settings/route'
 import { Route as ClerkauthRouteRouteImport } from './routes/clerk/(auth)/route'
 import { Route as ClerkAuthenticatedRouteRouteImport } from './routes/clerk/_authenticated/route'
@@ -35,6 +37,8 @@ import { Route as AuthenticatedGearIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedHelpCenterIndexRouteImport } from './routes/_authenticated/help-center/index'
 import { Route as AuthenticatedJourneysIndexRouteImport } from './routes/_authenticated/journeys/index'
 import { Route as AuthenticatedNotificationsIndexRouteImport } from './routes/_authenticated/notifications/index'
+import { Route as AuthenticatedOperationsFeaturesRouteImport } from './routes/_authenticated/operations/features'
+import { Route as AuthenticatedOperationsResourcesRouteImport } from './routes/_authenticated/operations/resources'
 import { Route as AuthenticatedRouteFactsIndexRouteImport } from './routes/_authenticated/route-facts/index'
 import { Route as AuthenticatedRoutesIndexRouteImport } from './routes/_authenticated/routes/index'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
@@ -114,6 +118,18 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRouteGuidesRoute =
+  AuthenticatedRouteGuidesRouteImport.update({
+    id: '/route-guides',
+    path: '/route-guides',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRouteObservationsRoute =
+  AuthenticatedRouteObservationsRouteImport.update({
+    id: '/route-observations',
+    path: '/route-observations',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSettingsRouteRoute =
   AuthenticatedSettingsRouteRouteImport.update({
     id: '/settings',
@@ -182,6 +198,18 @@ const AuthenticatedNotificationsIndexRoute =
   AuthenticatedNotificationsIndexRouteImport.update({
     id: '/notifications/',
     path: '/notifications/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOperationsFeaturesRoute =
+  AuthenticatedOperationsFeaturesRouteImport.update({
+    id: '/operations/features',
+    path: '/operations/features',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedOperationsResourcesRoute =
+  AuthenticatedOperationsResourcesRouteImport.update({
+    id: '/operations/resources',
+    path: '/operations/resources',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedRouteFactsIndexRoute =
@@ -279,7 +307,11 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/route-guides': typeof AuthenticatedRouteGuidesRoute
+  '/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/operations/features': typeof AuthenticatedOperationsFeaturesRoute
+  '/operations/resources': typeof AuthenticatedOperationsResourcesRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -316,8 +348,12 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/route-guides': typeof AuthenticatedRouteGuidesRoute
+  '/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/': typeof AuthenticatedIndexRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/operations/features': typeof AuthenticatedOperationsFeaturesRoute
+  '/operations/resources': typeof AuthenticatedOperationsResourcesRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -359,8 +395,12 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/route-guides': typeof AuthenticatedRouteGuidesRoute
+  '/_authenticated/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/_authenticated/operations/features': typeof AuthenticatedOperationsFeaturesRoute
+  '/_authenticated/operations/resources': typeof AuthenticatedOperationsResourcesRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/_authenticated/settings/display': typeof AuthenticatedSettingsDisplayRoute
@@ -401,7 +441,11 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/route-guides'
+    | '/route-observations'
     | '/errors/$error'
+    | '/operations/features'
+    | '/operations/resources'
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/display'
@@ -438,8 +482,12 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/route-guides'
+    | '/route-observations'
     | '/'
     | '/errors/$error'
+    | '/operations/features'
+    | '/operations/resources'
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/display'
@@ -480,8 +528,12 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/route-guides'
+    | '/_authenticated/route-observations'
     | '/_authenticated/'
     | '/_authenticated/errors/$error'
+    | '/_authenticated/operations/features'
+    | '/_authenticated/operations/resources'
     | '/_authenticated/settings/account'
     | '/_authenticated/settings/appearance'
     | '/_authenticated/settings/display'
@@ -615,6 +667,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/route-guides': {
+      id: '/_authenticated/route-guides'
+      path: '/route-guides'
+      fullPath: '/route-guides'
+      preLoaderRoute: typeof AuthenticatedRouteGuidesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/route-observations': {
+      id: '/_authenticated/route-observations'
+      path: '/route-observations'
+      fullPath: '/route-observations'
+      preLoaderRoute: typeof AuthenticatedRouteObservationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -704,6 +770,20 @@ declare module '@tanstack/react-router' {
       path: '/notifications'
       fullPath: '/notifications/'
       preLoaderRoute: typeof AuthenticatedNotificationsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/operations/features': {
+      id: '/_authenticated/operations/features'
+      path: '/operations/features'
+      fullPath: '/operations/features'
+      preLoaderRoute: typeof AuthenticatedOperationsFeaturesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/operations/resources': {
+      id: '/_authenticated/operations/resources'
+      path: '/operations/resources'
+      fullPath: '/operations/resources'
+      preLoaderRoute: typeof AuthenticatedOperationsResourcesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/route-facts/': {
@@ -834,8 +914,12 @@ const AuthenticatedSettingsRouteRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
+  AuthenticatedRouteGuidesRoute: typeof AuthenticatedRouteGuidesRoute
+  AuthenticatedRouteObservationsRoute: typeof AuthenticatedRouteObservationsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
+  AuthenticatedOperationsFeaturesRoute: typeof AuthenticatedOperationsFeaturesRoute
+  AuthenticatedOperationsResourcesRoute: typeof AuthenticatedOperationsResourcesRoute
   AuthenticatedAgentRunsIndexRoute: typeof AuthenticatedAgentRunsIndexRoute
   AuthenticatedAppsIndexRoute: typeof AuthenticatedAppsIndexRoute
   AuthenticatedAuditIndexRoute: typeof AuthenticatedAuditIndexRoute
@@ -854,8 +938,12 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
+  AuthenticatedRouteGuidesRoute: AuthenticatedRouteGuidesRoute,
+  AuthenticatedRouteObservationsRoute: AuthenticatedRouteObservationsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
+  AuthenticatedOperationsFeaturesRoute: AuthenticatedOperationsFeaturesRoute,
+  AuthenticatedOperationsResourcesRoute: AuthenticatedOperationsResourcesRoute,
   AuthenticatedAgentRunsIndexRoute: AuthenticatedAgentRunsIndexRoute,
   AuthenticatedAppsIndexRoute: AuthenticatedAppsIndexRoute,
   AuthenticatedAuditIndexRoute: AuthenticatedAuditIndexRoute,

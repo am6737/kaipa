@@ -1,6 +1,8 @@
 import { itineraryItem } from './tools.ts';
-import { presentItinerary } from './itinerary-presentation.ts';
+import { presentItinerary, removeOutOfRangeArrivals } from './itinerary-presentation.ts';
 import { planChunkSchema, planDocumentSchema, saveOperations } from './plan-document.ts';
+import { validateItineraryItems } from './itinerary-validation.ts';
+import { carryDailyStarts } from './itinerary-locations.ts';
 
 function assert(value: unknown): asserts value { if (!value) throw new Error('Assertion failed'); }
 
@@ -81,4 +83,28 @@ Deno.test('standalone query explanations are removed while known route constrain
     [{ day: 'Day 2', note: '徒步至营地。垭口道路封闭，需绕行。' }]);
   assert(constrained.groupNotes[0].note.includes('道路封闭'));
   assert(JSON.stringify(presentItinerary(result.items, result.groupNotes)) === JSON.stringify(result));
+});
+
+Deno.test('overnight service keeps a validator marker through repeated presentation', () => {
+  const departure = itineraryItem.parse({ day: 'Day 12', kind: 'custom', title: '航班 CZ3242 天府机场→吴圩机场 · 次日2026-10-27 00:30到达 · 查询',
+    timeStart: '23:20', timeEnd: '00:30', location: { name: '天府机场' } });
+  const first = presentItinerary([departure]);
+  assert(first.items[0].title === '天府机场 · CZ3242（次日到达）');
+  assert(validateItineraryItems(first.items, 12).length === 0);
+  const second = presentItinerary(first.items, first.groupNotes);
+  const third = presentItinerary(second.items, second.groupNotes);
+  assert(JSON.stringify(second) === JSON.stringify(first) && JSON.stringify(third) === JSON.stringify(first));
+  const inferred = presentItinerary([itineraryItem.parse({ ...departure, title: '航班 CZ3242 天府机场→吴圩机场 · 查询' })]);
+  assert(inferred.items[0].title.includes('次日') && validateItineraryItems(inferred.items, 12).length === 0);
+});
+
+Deno.test('arrival beyond the final day is removed before daily starts are carried', () => {
+  const departure = itineraryItem.parse({ day: 'Day 12', kind: 'custom', title: '航班 CZ3242 天府机场→吴圩机场 · 次日到达',
+    timeStart: '23:20', timeEnd: '00:30', location: { name: '天府机场' } });
+  const arrival = itineraryItem.parse({ day: 'Day 13', kind: 'custom', title: '抵达吴圩机场 · CZ3242',
+    timeStart: '00:30', location: { name: '吴圩机场', incomingMode: 'flight' } });
+  const filtered = removeOutOfRangeArrivals([departure, arrival], 12);
+  assert(filtered.length === 1 && carryDailyStarts(filtered).every(item => item.day === 'Day 12'));
+  assert(presentItinerary([departure, arrival], [], 12).items.length === 1);
+  assert(removeOutOfRangeArrivals([departure, arrival], 13).length === 2 && presentItinerary([departure, arrival], [], 13).items.length === 2);
 });

@@ -1,6 +1,8 @@
 import { bindCatalogFacts, catalogCoversPlanning, deterministicBrief, isResolvedRoute, normalizedDestination, sampleCatalogWaypoints, type CatalogRoute, type RouteEvidence } from './pipeline.ts';
 import { researchBriefSchema, type ResearchBrief } from './plan-document.ts';
 import type { PipelineDeps } from './pipeline.ts';
+import { fixtureGuide } from './guide-fixtures.ts';
+import { guideEvidence } from './trusted-guides.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -24,8 +26,7 @@ function routeEntry(patch: Partial<ResearchBrief['routes'][number]> = {}): Resea
 
 function evidenceOf(patch: Partial<RouteEvidence>): RouteEvidence {
   return {
-    name: '贡嘎', catalog: null, carried: null, results: [], guideBody: null,
-    imageText: null, facts: [], collected: [], error: null, ...patch,
+    name: '贡嘎', catalog: null, carried: null, guide: guideEvidence('贡嘎', null), facts: [], collected: [], error: null, ...patch,
   };
 }
 
@@ -43,6 +44,7 @@ Deno.test('destination normalization is separator- and order-insensitive', () =>
 Deno.test('a route is resolved only with a summary, a length anchor and no gaps', () => {
   assert(isResolvedRoute(routeEntry({ summary: '四天环线', hikingDays: 4 })), 'summary plus days resolves');
   assert(isResolvedRoute(routeEntry({ summary: '四天环线', distanceKm: 42 })), 'summary plus distance resolves');
+  assert(isResolvedRoute(routeEntry({ summary: '可信指南', guideComplete: true })), 'a complete guide resolves without invented geometry');
   assert(!isResolvedRoute(routeEntry({ summary: '四天环线' })), 'no length anchor stays unresolved');
   assert(!isResolvedRoute(routeEntry({ hikingDays: 4 })), 'no summary stays unresolved');
   assert(!isResolvedRoute(routeEntry({ summary: '四天环线', hikingDays: 4, unresolved: ['营地未核实'] })), 'open gaps stay unresolved');
@@ -64,24 +66,24 @@ Deno.test('catalog facts always win over model-written route fields', () => {
   assert(untouched.routes[0].routeId === null, 'routes without a catalog row stay untouched');
 });
 
-Deno.test('the deterministic brief keeps evidence, gaps and a global caution', () => {
+Deno.test('the deterministic brief keeps trusted guide evidence, citations and missing coverage', () => {
+  const guide = fixtureGuide('route-贡嘎');
   const brief = deterministicBrief(pipelineStub('贡嘎、四姑娘山'), [
-    evidenceOf({
-      name: '贡嘎', catalog: catalogRoute('贡嘎', 4), guideBody: '正文',
-      collected: ['检索到 1 条结果'],
-      results: [{ title: '贡嘎徒步攻略', snippet: '四天环线，营地有水源', url: 'https://example.com/gongga' }],
-    }),
-    evidenceOf({ name: '四姑娘山', catalog: catalogRoute('四姑娘山', 3), collected: ['研究阶段预算不足，未检索'] }),
+    evidenceOf({ name: '贡嘎', catalog: catalogRoute('贡嘎', 4), guide: guideEvidence('贡嘎', guide.routeId, () => guide) }),
+    evidenceOf({ name: '四姑娘山', catalog: catalogRoute('四姑娘山', 3), guide: guideEvidence('四姑娘山', 'missing', () => null) }),
   ]);
   assert(brief.routes.length === 2, 'one entry per requested route');
-  assert(brief.routes[0].hikingDays === 4 && brief.routes[0].summary.includes('四天环线'), 'evidence lands in the entry');
-  assert(brief.routes[0].sourceUrls[0] === 'https://example.com/gongga', 'source urls are kept');
-  assert(brief.routes[1].unresolved.some(text => text.includes('预算不足')), 'budget gaps are disclosed per route');
-  assert(brief.suggestedDays === null, 'recorded hiking days do not establish total round-trip duration');
-  assert(brief.durationBasis === '', 'no total duration basis is claimed from hiking-only evidence');
-  assert(brief.unresolved.some(text => text.includes('未能完成全部核验')), 'a global caution accompanies incomplete research');
-  assert(brief.facts.length === 1 && brief.facts[0].sourceUrl === 'https://example.com/gongga', 'facts carry sources');
+  assert(brief.routes[0].hikingDays === 4 && brief.routes[0].summary.includes('经人工维护'), 'guide content and GPX facts survive');
+  assert(brief.routes[0].sourceUrls[0] === guide.sources[0].url, 'guide source urls survive');
+  assert(brief.routes[0].unresolved.length === 0 && isResolvedRoute(brief.routes[0]), 'complete guides resolve routes');
+  assert(brief.guideEvidence[0].markdown.includes(guide.markdown), 'full markdown survives beyond the short route summary');
+  assert(brief.guideEvidence[0].markdown.includes('章节引用') && brief.guideEvidence[0].asOf === guide.asOf, 'section citations and asOf survive');
+  assert(brief.guideEvidence[0].sources[1].url === null, 'unlinked citations survive');
+  assert(brief.routes[1].unresolved.some(text => text.includes('尚未覆盖')), 'missing guide disclosed per route');
+  assert(brief.suggestedDays === null && brief.durationBasis === '', 'no invented trip estimates');
+  assert(brief.unresolved.some(text => text.includes('四姑娘山')), 'global disclosure names the uncovered route');
 });
+
 Deno.test('the deterministic brief carries the catalog waypoints the planner needs', () => {
   // Synthesis aborts on most runs, so this fallback is the brief the planner
   // usually sees: a missing waypoint list here means a plan with no overnight
@@ -105,14 +107,19 @@ Deno.test('carried routes survive a deterministic degradation untouched', () => 
   assert(brief.routes[1].hikingDays === null, 'no catalog row means no invented days');
   assert(brief.suggestedDays === null, 'days are only suggested when every route has them');
   assert(brief.durationBasis === '', 'no basis without a full days sum');
-  assert(brief.routes[1].unresolved.some(text => text.includes('攻略正文未读取')), 'missing body is disclosed');
+  assert(brief.routes[1].unresolved.some(text => text.includes('尚未覆盖')), 'missing body is disclosed');
 });
 
-Deno.test('deterministic facts stop at the schema cap', () => {
-  const results = Array.from({ length: 31 }, (_, index) => ({ title: `t${index}`, snippet: 's', url: `https://example.com/${index}` }));
-  const brief = deterministicBrief(pipelineStub('贡嘎'), [evidenceOf({ name: '贡嘎', catalog: catalogRoute('贡嘎', 2), results })]);
+Deno.test('deterministic maintained facts and route source URLs stop at schema caps without losing guide citations', () => {
+  const guide = fixtureGuide('route-贡嘎');
+  guide.sources = Array.from({ length: 31 }, (_, index) => ({ ...guide.sources[0], id: `s${index}`, url: `https://example.com/${index}` }));
+  const facts = Array.from({ length: 31 }, (_, index) => ({ id: `f${index}`, route_id: guide.routeId, route_name: '贡嘎',
+    category: { slug: 'campsite', name: '营地' }, title: `营地${index}`, fields: {}, source_url: null,
+    confirmed_at: null, reviewed_at: null, review_due_at: null }));
+  const brief = deterministicBrief(pipelineStub('贡嘎'), [evidenceOf({ name: '贡嘎', catalog: catalogRoute('贡嘎', 2), facts, guide: guideEvidence('贡嘎', guide.routeId, () => guide) })]);
   assert(brief.facts.length === 30, 'facts respect the schema maximum');
-  assert(brief.routes[0].sourceUrls.length === 8, 'source urls respect the schema maximum');
+  assert(brief.routes[0].sourceUrls.length === 8, 'legacy route URL list respects the schema maximum');
+  assert(brief.guideEvidence[0].sources.length === 31, 'guide citations must not be truncated to the legacy URL list');
 });
 
 Deno.test('the brief carries the named points of a catalog track, sampled across the whole route', () => {

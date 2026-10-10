@@ -1,3 +1,5 @@
+> Runtime guide search and reading are retired and moved to offline collection. Planning now reads curated trusted route guides. See [route guide collection](route-guide-collection.md). The notes below preserve the previous implementation history.
+
 # Guide Body and Image Reading
 
 ## Workflow

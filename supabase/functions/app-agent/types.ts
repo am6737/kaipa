@@ -7,6 +7,7 @@ export type AgentContext = {
   locale?: string;
   currentLocation?: import('./location.ts').AgentLocation;
   task?: import('./task.ts').TaskState;
+  satisfiedOperations?: import('./task.ts').WriteOperation[];
   originalUserMessage?: string;
   attachments?: AgentAttachment[];
   dataContext?: import('./context.ts').ContextState;
@@ -32,7 +33,9 @@ export type AgentSource = {
   // 'fact' marks an entry from the maintained 线路资料 library, shown with a
   // verified badge and the date a human last confirmed or reviewed it.
   // undefined means a plain web result.
-  kind?: 'fact';
+  kind?: 'fact' | 'guide';
+  platform?: string;
+  observedOn?: string;
   factId?: string;
   verifiedAt?: string;
   stale?: boolean;

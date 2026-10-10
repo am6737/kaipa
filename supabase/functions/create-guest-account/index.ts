@@ -63,6 +63,19 @@ Deno.serve(protectEndpoint('account_create')(async (req) => {
     return json({ error: { code: 'invalid_identity', message: '游客身份信息无效' } }, 400);
   }
 
+  // Registration policy is enforced transactionally in Postgres so retries and
+  // multiple Edge instances share one daily counter.
+  const { error: admissionError } = await admin.rpc('registration_admit');
+  if (admissionError) {
+    const code = admissionError.message.includes('registration_disabled')
+      ? 'registration_disabled'
+      : admissionError.message.includes('registration_limit_reached')
+        ? 'registration_limit_reached'
+        : 'create_failed';
+    const status = code === 'create_failed' ? 503 : 429;
+    return json({ error: { code, message: code === 'registration_disabled' ? '当前暂时无法注册，请稍后再试' : code === 'registration_limit_reached' ? '今日注册名额已用完，请明天再试' : '游客账号创建失败' } }, status);
+  }
+
   const password = randomSecret();
   try {
     const { error: updateError } = await admin.auth.admin.updateUserById(user.id, {

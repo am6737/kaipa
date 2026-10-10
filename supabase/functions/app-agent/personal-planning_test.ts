@@ -1,4 +1,4 @@
-import { dietaryConflictError, estimatePersonalPackingNeeds, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
+import { dietaryConflictError, estimatePersonalPackingNeeds, isPlanningFoodItem, normalizePlanningProfile, nutritionPlanError } from './personal-planning.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -72,4 +72,19 @@ Deno.test('dietary restrictions reject obvious conflicting foods', () => {
   const error = dietaryConflictError('花生过敏，不吃牛肉', items);
   assert(error?.includes('花生能量棒') && error.includes('牛肉干'), 'both conflicts should be reported');
   assert(!dietaryConflictError('乳糖不耐', [{ name: '混合坚果', categoryName: '食物', quantity: 2 }]), 'unrelated foods should pass');
+});
+
+Deno.test('food classification recognizes meal words without treating face gear or cookware as food', () => {
+  for (const name of ['面条', '方便面', '挂面', '拉面', '米饭', '自热饭', '饭团', '能量棒', '混合坚果', '面包']) {
+    assert(isPlanningFoodItem({ name, quantity: 1 }), `missed food: ${name}`);
+  }
+  for (const name of ['防晒面罩', '面巾', '面膜', '头面防护', '饭盒']) {
+    assert(!isPlanningFoodItem({ name, quantity: 1 }), `false food: ${name}`);
+  }
+  const error = nutritionPlanError([
+    { name: '能量棒', quantity: 5, weightKg: 0.05, estimatedEnergyKcalPerUnit: 210 },
+    { name: '防晒面罩', quantity: 1, weightKg: 0.03 },
+    { name: '饭盒', quantity: 1, weightKg: 0.1 },
+  ], { min: 1000, max: 1500 });
+  assert(!error, `gear must not require calories: ${error}`);
 });

@@ -146,7 +146,7 @@ export function factPromptBlock(rows: RouteFactRow[], now = Date.now()): string[
     blocks.push(`已核实线路资料（人工维护，优先于攻略正文；冲突以此为准，来源日期见每条 confirmed_at）：${JSON.stringify(fresh.map(asPromptFact))}`);
   }
   if (stale.length) {
-    blocks.push(`已过期待复核的线路资料（仅供参考，不作为冲突依据；若攻略更新了其中某条，用它的 id 提交 targetEntryId 修订建议）：${JSON.stringify(stale.map(asPromptFact))}`);
+    blocks.push(`已过期待复核的线路资料（仅供参考，不作为冲突依据；不得估算或生成修订建议）：${JSON.stringify(stale.map(asPromptFact))}`);
   }
   return blocks;
 }
@@ -199,7 +199,9 @@ export function routeFactSourcesFromArtifact(value: unknown): RouteFactSource[] 
 }
 
 /**
- * Cites for one run: the verified facts first, then the web.
+ * Citations for one run: maintained facts, trusted guide sources, then
+ * operational references. Guide sources keep their provenance even when a
+ * maintained fact uses the same link, and are not subject to the web cap.
  *
  * Facts are given the first slots rather than sharing one pool with eight web
  * links, because a fact is the only source here a human confirmed. A fact's
@@ -237,12 +239,30 @@ export function factSourceChips(
   }
   let webCount = 0;
   for (const item of web) {
-    if (webCount >= webLimit) break;
+    if (item.kind !== 'guide' && webCount >= webLimit) continue;
     const url = typeof item.url === 'string' ? item.url : '';
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    webCount += 1;
+    const key = item.kind === 'guide' ? `guide:${item.source}:${url}:${item.title}:${item.observedOn ?? ''}` : url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (item.kind !== 'guide') webCount += 1;
     chips.push(item);
   }
   return chips;
+}
+
+/** Converts persisted guide snapshots and read_route_guide receipts to the
+ * existing citation chip path. A null URL is a valid unlinked citation. */
+export function guideSourceChips(value: unknown): AgentSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(source => {
+    if (!source || typeof source !== 'object' || typeof source.title !== 'string' || typeof source.platform !== 'string') return [];
+    const observedOn = typeof source.observedOn === 'string' ? source.observedOn : undefined;
+    const platforms: Record<string, string> = { xiaohongshu: '小红书', douyin: '抖音', web: '网页', official: '官方', firsthand: '实地记录', social: '社交平台' };
+    // The existing renderer shows title and an optional link. Include source
+    // provenance in that visible label as well as in structured metadata.
+    const title = `${source.title} · ${platforms[source.platform] ?? source.platform}${observedOn ? ` · ${observedOn}` : ''}`;
+    return [{ title, ...(typeof source.url === 'string' && source.url ? { url: source.url } : {}),
+      source: source.platform, platform: source.platform, kind: 'guide' as const,
+      ...(observedOn ? { observedOn, publishedAt: observedOn } : {}) }];
+  });
 }

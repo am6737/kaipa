@@ -1,4 +1,4 @@
-import { presentItinerary } from './itinerary-presentation.ts';
+import { presentItinerary, removeOutOfRangeArrivals } from './itinerary-presentation.ts';
 import { addTrackDayLocations, type ItineraryTrack } from './itinerary-track-locations.ts';
 import { carryDailyStarts } from './itinerary-locations.ts';
 // Staged pipeline for the tasks that used to blow a single model-loop budget.
@@ -18,16 +18,17 @@ import { planChunkSchema, planDocumentModelSchema, planDocumentSchema, planDraft
 import { boundJourneyId, runSaveStage, type SaveArtifact } from './save-stage.ts';
 import { contextPrompt, readJourneySections } from './context.ts';
 import { packingPatchModelSchema, packingProposalModelSchema, runPackingStage, type PackingArtifact } from './packing-stage.ts';
-import { allowGuideQueries, allowGuideReads, clearGuideQueries, getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, runReadTravelGuide, runReadTravelGuideImages, runSearchTravelWeb, searchRoutes, searchTransport, searchTravelWeb, bindStageDeadline, releaseStageDeadline, runSearchTransport, runSearchGroundTransport } from './tools.ts';
-import { GUIDE_LIMITS } from './search/guide-reader.ts';
+import { getAppContext, getJourneyDetails, listGear, parseJsonString, readConversationHistory, searchRoutes, searchTransport, bindStageDeadline, releaseStageDeadline, runSearchTransport, runSearchGroundTransport } from './tools.ts';
+import { getRouteGuide, guideEvidence, guideDisclosure, guidesFingerprint, recordGuideGaps, type GuideLookup, type GuideEvidence } from './trusted-guides.ts';
 import { journeyDayOrdinal } from './journey-days.ts';
 import { reviewTransportPlan } from './transport-review.ts';
 import { reviewTransport } from './transport-tool.ts';
 import { overnightReviewSchema } from './hiking-boundaries.ts';
+import { validatePlanFeasibility } from './plan-feasibility.ts';
 import type { TaskDecision, TaskState } from './task.ts';
 import type { AgentContext } from './types.ts';
 import {
-  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factsForRoute, isStaleReview, loadRouteFacts, routeFactSourcesFromArtifact, transportLegNote,
+  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factPromptBlock, factsForRoute, isStaleReview, loadRouteFacts, routeFactSourcesFromArtifact, transportLegNote,
   type RouteFactRow, type RouteFactSource, type RouteFactStats,
 } from './route-fact-sources.ts';
 
@@ -88,6 +89,7 @@ export type AgentInvoker = (agent: unknown, input: unknown, options: { maxTurns:
 
 export type PipelineDeps = {
   admin: any;
+  guideLookup?: GuideLookup;
   client: any;
   context: AgentContext;
   task: TaskState;
@@ -193,6 +195,8 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   if (needsMainTravel && plan.artifact && transportPlan.artifact?.mainTravel) {
     const main = transportPlan.artifact.mainTravel;
     plan.artifact.itineraryItems = mergeMainTransportItems(plan.artifact.itineraryItems, main);
+    reconcileCandidateDays(plan.artifact, pipeline);
+    plan.artifact.itineraryItems = removeOutOfRangeArrivals(plan.artifact.itineraryItems, plan.artifact.journey?.days);
     plan.artifact.unverified = [...main.unresolved, ...plan.artifact.unverified].slice(0, 30);
     const missing = main.unresolved.find(value => value.includes('尚无可保存'));
     if (missing) plan.artifact.blocker ||= missing;
@@ -204,7 +208,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   }
 
   if (plan.artifact) {
-    const presentation = presentItinerary(plan.artifact.itineraryItems, plan.artifact.groupNotes);
+    const presentation = presentItinerary(plan.artifact.itineraryItems, plan.artifact.groupNotes, plan.artifact.journey?.days);
     plan.artifact.itineraryItems = presentation.items;
     plan.artifact.groupNotes = presentation.groupNotes;
   }
@@ -214,6 +218,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
     execute: signal => runSave(pipeline, signal, plan.artifact as PlanDocument, research.artifact, transportPlan.artifact?.mainTravel),
   });
   if (save.aborted) return aborted();
+  pipeline.context.satisfiedOperations = save.artifact?.satisfied || [];
 
   let packing: PackingArtifact | null = null;
   if (pipeline.task.decision.packingMode === 'full') {
@@ -244,6 +249,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
     name: 'respond', state, pipeline,
     execute: signal => runRespond(pipeline, signal, {
       plan: plan.artifact as PlanDocument,
+      research: research.artifact,
       save: save.artifact,
       packing,
     }),
@@ -251,6 +257,23 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   if (respond.aborted) return aborted();
 
   return { finalOutput: withDeterministicDraft(respond.artifact, plan.artifact, save.artifact), aborted: false };
+}
+
+// The model cannot move a queried return service. Keep an undecided-day
+// candidate long enough for every saved departure, while a next-day arrival
+// marker belongs to the departure row when it crosses the final day.
+export function reconcileCandidateDays(plan: PlanDocument, pipeline: PipelineDeps, canExtend = true) {
+  if (!pipeline.task.decision.fullHikingPlan || pipeline.task.decision.days != null || !plan.journey) return;
+  const lastDay = Math.max(plan.journey.days, ...plan.itineraryItems
+    .filter(item => !(item.location?.incomingMode && /^(?:抵达|到达)/.test(item.title)))
+    .map(item => journeyDayOrdinal(item.day) ?? 0));
+  if (canExtend && lastDay <= 30 && lastDay > plan.journey.days) {
+    plan.journey.days = lastDay;
+    if (plan.schedule) plan.schedule.totalDays = lastDay;
+  }
+  pipeline.task.decision.derivedDays = plan.journey.days;
+  const estimate = `全程建议 ${plan.journey.days} 天，含往返交通；这是候选方案的规划估算，并非用户已指定的天数。`;
+  plan.assumptions = [estimate, ...plan.assumptions.filter(item => !/^全程建议 \d+ 天，含往返交通；这是候选方案的规划估算/.test(item))].slice(0, 12);
 }
 
 // The reply never has to reproduce the plan text: when nothing was saved the
@@ -291,14 +314,14 @@ function rejectionHint(error: unknown): string {
   return `${reason}校验信息：${message.slice(0, 300)}`;
 }
 
-async function stageCall<T>(pipeline: PipelineDeps, agent: unknown, input: AgentInput, options: { maxTurns: number; signal: AbortSignal; reask?: { maxTurns: number; allowTools: boolean; note?: string } }, parse: (value: unknown) => T): Promise<T> {
+async function stageCall<T>(pipeline: PipelineDeps, agent: unknown, input: AgentInput, options: { maxTurns: number; signal: AbortSignal; reask?: { maxTurns: number; allowTools: boolean; note?: string; deadline?: number } }, parse: (value: unknown, reasked: boolean) => T): Promise<T> {
   // One shared session per call: the model's tool calls and results stay in
   // memory, so the single retry below asks only for the missing JSON instead
   // of paying for the searches and reads again.
   const session = new StageSession();
-  const invoke = (text: AgentInput, maxTurns: number) => pipeline.invoke(agent, text, { ...options, maxTurns, session });
+  const invoke = (text: AgentInput, maxTurns: number, signal = options.signal) => pipeline.invoke(agent, text, { ...options, maxTurns, signal, session });
   try {
-    return parse(parseJsonString(await invoke(input, options.maxTurns)));
+    return parse(parseJsonString(await invoke(input, options.maxTurns)), false);
   } catch (error) {
     if (options.signal.aborted) throw error;
     const message = error instanceof Error ? error.message : String(error);
@@ -309,12 +332,14 @@ async function stageCall<T>(pipeline: PipelineDeps, agent: unknown, input: Agent
     // re-read data on its re-ask: without tools a rejected plan would
     // otherwise "give up" into a blocker instead of fixing the fields.
     const reask = options.reask ?? { maxTurns: 1, allowTools: false };
+    if (reask.deadline != null && Date.now() >= reask.deadline) throw error;
     const guidance = reask.allowTools
       ? '请直接输出一份修正后的完整 JSON；如确有必要，最多再调用一次只读工具核实数据，之后必须输出完整 JSON，不要解释。'
       : '请直接输出一份修正后的完整 JSON，不要解释，也不要调用任何工具。';
     const note = reask.note ? `\n${reask.note}` : '';
     try {
-      return parse(parseJsonString(await invoke(`${rejectionHint(error)}${guidance}${note}`, reask.maxTurns)));
+      const signal = reask.deadline == null ? options.signal : withBudget(options.signal, Math.max(1, reask.deadline - Date.now()));
+      return parse(parseJsonString(await invoke(`${rejectionHint(error)}${guidance}${note}`, reask.maxTurns, signal)), true);
     } catch (retryError) {
       // Preserve the actionable first rejection when the repair call is
       // interrupted by the runtime. Otherwise stage persistence only records
@@ -339,29 +364,9 @@ function isMultiRouteRequest(destination: string | null) {
 
 // ---- Deterministic research stage ----
 //
-// The model no longer drives the search loop: it rephrased queries, merged
-// route queries into one search and kept opening sources until the stage
-// budget aborted the run. The pipeline now fires one fixed discovery search
-// per route and reads the top guides (plus selected images) itself, so route
-// coverage is decided by code. Guide reads hit the persistent article cache
-// first, so extra sources mostly cost a DB roundtrip, and the collection
-// deadline still bounds fresh extractions. The model only synthesizes the
-// collected evidence into a ResearchBrief, and a deterministic fallback
-// builds the brief without any model call when synthesis fails.
-const RESEARCH_COLLECT_BUDGET_MS = 45_000;
+// Guides are curated offline and loaded locally. Research never contacts guide
+// providers; full markdown and citations survive even model-free fallback.
 const RESEARCH_REUSE_MAX_AGE_MS = 14 * 86_400_000;
-const GUIDE_RESULTS_PER_ROUTE = 6;
-// Interactive guidance already suggests 1-3 guides per topic; the collector
-// follows the same bound per route, registered as planned reads so the
-// interactive page budget does not truncate multi-route collection.
-const GUIDES_TO_READ_PER_ROUTE = 3;
-const GUIDE_BODY_SYNTHESIS_CHARS = 6_000;
-// Reading several guides made collection cheap (the article cache answers most
-// of it) but the synthesis call pays for every character: three uncapped
-// bodies pushed a p50 6s call past 75s. The digest is what reaches planning,
-// so the evidence is capped in total rather than per guide.
-const GUIDE_EVIDENCE_TOTAL_CHARS = 15_000;
-const GUIDE_BODY_IMAGE_THRESHOLD_CHARS = 2_500;
 
 export type CatalogRouteWaypoint = { index: number; name: string; distanceKm: number; elevationMeters: number | null };
 
@@ -385,9 +390,7 @@ export type RouteEvidence = {
   catalog: CatalogRoute | null;
   /** Entry carried over from a recent prior run; skips collection. */
   carried: ResearchBrief['routes'][number] | null;
-  results: Array<Record<string, unknown>>;
-  guideBody: string | null;
-  imageText: string | null;
+  guide: GuideEvidence;
   /** Human-maintained route facts ("线路资料"), confirmed status only. */
   facts: RouteFactRow[];
   collected: string[];
@@ -423,39 +426,6 @@ async function writeRouteFacts(
   }
 }
 
-// Drafts the research synthesis found in guide text but the library lacks.
-// Best-effort: a write failure (e.g. RPC not deployed yet) must not fail the
-// research stage, the human confirmation loop happens in admin later.
-async function recordRouteFactSuggestions(pipeline: PipelineDeps, brief: ResearchBrief, rows: RouteFactRow[], stats: RouteFactStats): Promise<void> {
-  const knownIds = new Set(rows.map(row => row.id));
-  for (const suggestion of brief.factSuggestions || []) {
-    // A target the model invented, or that belongs to a route this run did not
-    // load, would be rejected by the RPC and take the whole suggestion with it.
-    // Drop it to a plain draft instead, and count it: a non-zero count means the
-    // prompt is offering ids the model cannot legitimately reference.
-    let targetEntryId = suggestion.targetEntryId ?? null;
-    if (targetEntryId && !knownIds.has(targetEntryId)) {
-      stats.unknown_targets += 1;
-      console.warn('[AppAgent] route fact suggestion named an entry that was not injected', targetEntryId);
-      targetEntryId = null;
-    }
-    try {
-      const { error } = await pipeline.admin.rpc('record_route_fact_suggestion', {
-        p_route_id: suggestion.routeId,
-        p_category_slug: suggestion.category,
-        p_title: suggestion.title,
-        p_fields: factFieldsRecord(suggestion.fields),
-        p_source_url: suggestion.sourceUrl,
-        p_target_entry_id: targetEntryId,
-      });
-      if (error) console.warn('[AppAgent] route fact suggestion rejected', suggestion.routeId, suggestion.category, (error.message || '').slice(0, 200));
-      else stats.suggestions_written += 1;
-    } catch (error) {
-      console.warn('[AppAgent] route fact suggestion failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
-    }
-  }
-}
-
 function destinationNames(destination: string | null): string[] {
   return (destination || '').split(/[、，,;/；|]/).map(name => name.trim()).filter(Boolean);
 }
@@ -467,14 +437,44 @@ export function normalizedDestination(destination: string | null): string {
 export function isResolvedRoute(route: ResearchBrief['routes'][number] | null | undefined): boolean {
   if (!route) return false;
   return route.unresolved.length === 0 && route.summary.trim().length > 0
-    && (route.hikingDays != null || route.distanceKm != null);
+    && (route.guideComplete === true || route.hikingDays != null || route.distanceKm != null);
+}
+
+const RESEARCH_CACHE_VERSION = 4;
+
+export function hasDuplicatedRouteEvidence(brief: ResearchBrief): boolean {
+  const sources = new Set<string>();
+  const summaries = new Set<string>();
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ');
+  for (const route of brief.routes) {
+    const urls = [...new Set(route.sourceUrls.map(normalize).filter(Boolean))].sort();
+    const key = JSON.stringify(urls);
+    if (urls.length && sources.has(key)) return true;
+    if (urls.length) sources.add(key);
+    const summary = normalize(route.summary);
+    if (urls.length && summary && summaries.has(summary)) return true;
+    if (urls.length && summary) summaries.add(summary);
+  }
+  const facts = new Map<string, Set<string>>();
+  for (const fact of brief.facts) {
+    if (!fact.sourceUrl || /^\[线路资料/.test(fact.fact)) continue;
+    const text = normalize(fact.fact);
+    if (!text) continue;
+    const owners = facts.get(text) || new Set<string>();
+    for (const route of brief.routes) {
+      if (route.sourceUrls.includes(fact.sourceUrl)) owners.add(route.name);
+    }
+    if (owners.size > 1) return true;
+    facts.set(text, owners);
+  }
+  return false;
 }
 
 // A recent completed brief for the same destination set is reused instead of
-// re-searching: route facts (GPX-derived days/distance) do not change between
+// re-reading: route facts (GPX-derived days/distance) do not change between
 // a first plan and its replan. Only resolved route entries carry over; a
 // partial match becomes evidence the synthesis model may reuse per route.
-async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise<{ brief: ResearchBrief; routeFacts: RouteFactSource[] } | null> {
+export async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise<{ brief: ResearchBrief; routeFacts: RouteFactSource[] } | null> {
   if (!names.length) return null;
   const rows = await pipeline.admin.from('agent_stages')
     .select('artifact,updated_at,route_facts').eq('stage', 'research').eq('status', 'completed').eq('user_id', pipeline.userId)
@@ -482,8 +482,13 @@ async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise
   if (rows.error) throw rows.error;
   const wanted = normalizedDestination(pipeline.task.decision.destination);
   for (const row of (rows.data || []) as Array<{ artifact: unknown; updated_at: string; route_facts: unknown }>) {
+    // Old search keys could bind one route's guides to every route in a trip.
+    // Fail closed before allowing either whole-brief or per-route reuse.
+    if (!row.artifact || (row.artifact as { researchCacheVersion?: number }).researchCacheVersion !== RESEARCH_CACHE_VERSION) continue;
     const parsed = researchBriefSchema.safeParse(row.artifact);
     if (!parsed.success || !parsed.data.routes.length) continue;
+    // Curated guides may legitimately cite the same post for multiple routes.
+    if (!parsed.data.guideFingerprint && hasDuplicatedRouteEvidence(parsed.data)) continue;
     if (normalizedDestination(parsed.data.destination) !== wanted) continue;
     if (Date.parse(row.updated_at) < Date.now() - RESEARCH_REUSE_MAX_AGE_MS) continue;
     // The facts travel with the brief they were recorded for, so a replanned
@@ -495,9 +500,10 @@ async function findRecentBrief(pipeline: PipelineDeps, names: string[]): Promise
 
 // Catalog facts are deterministic (GPX-recorded duration and track
 // coordinates) and must always win over anything a model writes.
-export function bindCatalogFacts(brief: ResearchBrief, catalogFacts: CatalogRoute[]): ResearchBrief {
+export function bindCatalogFacts(brief: ResearchBrief, catalogFacts: CatalogRoute[]): ResearchBrief & { researchCacheVersion: number } {
   return {
     ...brief,
+    researchCacheVersion: RESEARCH_CACHE_VERSION,
     routes: brief.routes.map((route) => {
       const catalogRoute = catalogFacts.find((item) => item.matchedName === route.name);
       return catalogRoute ? {
@@ -520,9 +526,8 @@ export function bindCatalogFacts(brief: ResearchBrief, catalogFacts: CatalogRout
 const CATALOG_WAYPOINTS_PER_ROUTE = 40;
 
 // True when the catalog already answers what the plan stage needs for every
-// requested route, so guide reading and the synthesis call would only add
-// prose. Skipping them is what removes the research stage's two-minute tail;
-// the deterministic brief still reports the guides as unread.
+// requested route, so the synthesis call would only add prose. Skipping them is what removes the research stage's two-minute tail;
+// the deterministic brief retains the trusted guide evidence.
 export function catalogCoversPlanning(names: string[], catalogFacts: CatalogRoute[]): boolean {
   if (!names.length) return false;
   return names.every((name) => {
@@ -582,105 +587,20 @@ async function loadCatalogFacts(pipeline: PipelineDeps, names: string[]): Promis
   });
 }
 
-async function collectRouteEvidence(pipeline: PipelineDeps, signal: AbortSignal, names: string[], catalogFacts: CatalogRoute[], previous: ResearchBrief | null, factRows: RouteFactRow[]): Promise<RouteEvidence[]> {
-  const evidence: RouteEvidence[] = [];
-  const deadline = Date.now() + RESEARCH_COLLECT_BUDGET_MS;
-  const runContext = { context: pipeline.context };
-  // The fixed per-route queries bypass the interactive one-discovery guard;
-  // journal receipts still dedupe them across retries of this run.
-  allowGuideQueries(pipeline.runId, names.map(name => `${name} 徒步 攻略`));
-  try {
-    for (const name of names) {
-      const catalog = catalogFacts.find(route => route.matchedName === name) || null;
-      const facts = factsForRoute(factRows, name, catalog?.routeId);
-      const carried = previous?.routes.find(route => route.name === name) || null;
-      if (isResolvedRoute(carried)) {
-        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, facts, collected: ['上一轮已核验，本轮复用'], error: null });
-        continue;
-      }
-      if (signal.aborted || Date.now() > deadline) {
-        evidence.push({ name, catalog, carried, results: [], guideBody: null, imageText: null, facts, collected: ['研究阶段预算不足，未检索'], error: null });
-        continue;
-      }
-      await collectOneRoute(pipeline, signal, runContext, deadline, name, catalog, facts, evidence);
-    }
-    return evidence;
-  } finally {
-    clearGuideQueries(pipeline.runId);
-  }
+export async function collectRouteEvidence(pipeline: PipelineDeps, _signal: AbortSignal, names: string[], catalogFacts: CatalogRoute[], previous: ResearchBrief | null, factRows: RouteFactRow[], guides = catalogFactsForGuides(pipeline, names, catalogFacts)): Promise<RouteEvidence[]> {
+  const evidence = names.map(name => {
+    const catalog = catalogFacts.find(route => route.matchedName === name) || null;
+    const guide = guides.find(item => item.routeName === name)!;
+    return { name, catalog, guide, facts: factsForRoute(factRows, name, catalog?.routeId),
+      carried: previous?.routes.find(route => route.name === name && isResolvedRoute(route)) ?? null,
+      collected: [guide.markdown ? `已读取团队可信指南，资料截至 ${guide.asOf}` : '团队可信指南尚未覆盖'], error: null };
+  });
+  await Promise.all(evidence.map(item => recordGuideGaps(pipeline.admin, pipeline.runId, pipeline.userId, pipeline.context.threadId, item.guide)));
+  return evidence;
 }
 
-async function collectOneRoute(pipeline: PipelineDeps, signal: AbortSignal, runContext: { context: AgentContext }, deadline: number, name: string, catalog: CatalogRoute | null, facts: RouteFactRow[], evidence: RouteEvidence[]): Promise<void> {
-  void pipeline;
-  const collected: string[] = [];
-  if (facts.length) collected.push(`已加载线路资料 ${facts.length} 条（人工核实）`);
-  const results: Array<Record<string, unknown>> = [];
-  let guideBody: string | null = null;
-  let imageText: string | null = null;
-  try {
-    const search = await runSearchTravelWeb({ query: `${name} 徒步 攻略`, purpose: 'guide' }, runContext);
-    const searchObject = typeof search === 'string' ? null : (search as Record<string, unknown> | null);
-    if (searchObject === null && typeof search === 'string') collected.push(`检索工具报错：${search.slice(0, 200)}`);
-    const found = Array.isArray(searchObject?.results) ? searchObject.results.slice(0, GUIDE_RESULTS_PER_ROUTE).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')) : [];
-    results.push(...found);
-    if (typeof search !== 'string') collected.push(found.length ? `检索到 ${found.length} 条结果` : '检索无结果');
-    const candidates = found.filter(item => typeof item.url === 'string' && (item.url as string).length <= 2048);
-    if (candidates.length && Date.now() <= deadline && !signal.aborted) {
-      // Registered before reading so the interactive page budget cannot
-      // truncate the deterministic collection; the collector's own deadline
-      // and the cache-first read path keep the cost bounded.
-      allowGuideReads(runContext.context.runId, candidates.slice(0, GUIDES_TO_READ_PER_ROUTE).map(item => item.url as string));
-      const bodies: string[] = [];
-      for (const [index, item] of candidates.slice(0, GUIDES_TO_READ_PER_ROUTE).entries()) {
-        if (Date.now() > deadline || signal.aborted) {
-          collected.push('研究阶段预算不足，未读取剩余攻略');
-          break;
-        }
-        const guideUrl = item.url as string;
-        const page = await runReadTravelGuide({ url: guideUrl }, runContext);
-        const pageObject = typeof page === 'string' ? null : (page as Record<string, unknown> | null);
-        if (typeof page === 'string') collected.push(`攻略读取报错：${page.slice(0, 200)}`);
-        const pageAvailable = pageObject?.available === true && typeof pageObject.text === 'string' && Boolean(pageObject.text);
-        if (!pageAvailable) {
-          collected.push('攻略正文不可用，仅保留检索摘要');
-          continue;
-        }
-        const pageText = String(pageObject!.text);
-        const title = typeof item.title === 'string' && item.title ? ` ${item.title}` : '';
-        bodies.push(`【攻略 ${index + 1}${title}】\n${pageText.slice(0, GUIDE_BODY_SYNTHESIS_CHARS)}`);
-        collected.push(`已读取攻略正文 ${pageText.slice(0, GUIDE_BODY_SYNTHESIS_CHARS).length} 字`);
-        // Vision stays a first-guide-only fallback: images are the expensive
-        // step, and later guides usually repeat the same trail photos. Short
-        // bodies often leave the day/camp tables inside images.
-        if (index === 0 && pageText.length < GUIDE_BODY_IMAGE_THRESHOLD_CHARS && Array.isArray(pageObject!.images) && pageObject!.images.length > 0 && Date.now() <= deadline && !signal.aborted) {
-          const ids = (pageObject!.images as Array<{ id: number }>).slice(0, GUIDE_LIMITS.batch).map(image => image.id);
-          if (ids.length) {
-            const observed = await runReadTravelGuideImages({ url: guideUrl, imageIds: ids }, runContext);
-            const observedObject = typeof observed === 'string' ? null : (observed as Record<string, unknown> | null);
-            if (typeof observed === 'string') collected.push(`图片读取报错：${observed.slice(0, 200)}`);
-            if (observedObject?.available === true && Array.isArray(observedObject.images)) {
-              imageText = (observedObject.images as Array<Record<string, unknown>>).map(image => {
-                const kind = typeof image.kind === 'string' ? `[${image.kind}]` : '';
-                const text = typeof image.visibleText === 'string' ? image.visibleText : '';
-                const notes = Array.isArray(image.observations) ? (image.observations as string[]).join('；') : '';
-                return [kind, text, notes].filter(Boolean).join(' ').slice(0, 1000);
-              }).join('\n').slice(0, 4000);
-              collected.push('已读取攻略图片中的行程/提示信息');
-            }
-          }
-        }
-      }
-      guideBody = bodies.join('\n\n').slice(0, GUIDE_EVIDENCE_TOTAL_CHARS);
-      if (bodies.join('\n\n').length > GUIDE_EVIDENCE_TOTAL_CHARS) collected.push('攻略正文总量已按综合阶段预算截断');
-    }
-    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected, error: null });
-  } catch (error) {
-    if (signal.aborted) {
-      evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected: collected.concat('研究阶段预算用尽'), error: null });
-      return;
-    }
-    evidence.push({ name, catalog, carried: null, results, guideBody, imageText, facts, collected, error: error instanceof Error ? error.message : String(error) });
-  }
+function catalogFactsForGuides(pipeline: PipelineDeps, names: string[], catalogFacts: CatalogRoute[]): GuideEvidence[] {
+  return names.map(name => guideEvidence(name, catalogFacts.find(route => route.matchedName === name)?.routeId ?? null, pipeline.guideLookup ?? getRouteGuide));
 }
 
 function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFacts: CatalogRoute[], evidence: RouteEvidence[], previous: ResearchBrief | null): string {
@@ -697,22 +617,15 @@ function composeResearchText(pipeline: PipelineDeps, names: string[], catalogFac
     }
     parts.push(`采集情况：${item.collected.join('；') || '未采集'}`);
     if (item.error) parts.push(`采集错误：${item.error}`);
-    // The entry id has to be visible to the model: it is what a revision
-    // suggestion targets. Freshness decides which block a fact lands in.
     for (const block of factPromptBlock(item.facts)) parts.push(block);
-    for (const result of item.results) {
-      const title = typeof result.title === 'string' ? result.title : '';
-      const snippet = typeof result.snippet === 'string' ? result.snippet.slice(0, 450) : '';
-      const url = typeof result.url === 'string' ? `（${result.url}）` : '';
-      if (title || snippet) parts.push(`- ${[title, snippet].filter(Boolean).join('：')}${url}`);
-    }
-    if (item.guideBody) parts.push(`攻略正文：\n${item.guideBody}`);
-    if (item.imageText) parts.push(`攻略图片观察：\n${item.imageText}`);
+    const disclosure = guideDisclosure(item.name, item.guide.missingSections);
+    if (disclosure) parts.push(disclosure);
+    if (item.guide.markdown) parts.push(`团队可信路线指南（资料截至 ${item.guide.asOf}，可直接使用；费用、交通、封闭情况必须说明此日期）：\n${item.guide.markdown}`);
     return parts.join('\n');
   });
-  lines.push(`系统检索证据（按路线整理；未列出的字段没有证据，写入 unresolved，不要编造）：\n${evidenceLines.join('\n\n')}`);
+  lines.push(`团队可信指南证据（按路线整理；未覆盖的信息写入 unresolved，不估算、不编造）：\n${evidenceLines.join('\n\n')}`);
   lines.push('');
-  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief。每个用户路线必须单独对应 routes 条目；已有路线目录事实优先保留，缺少道路接驳信息时写入 unresolved。routeFacts 由系统填充，必须输出空数组。若攻略正文给出了“已核实线路资料”中没有的具体价格、营地、住宿或班次，按 factSuggestions 提交草稿；不得把线路资料已有内容重复提交。若攻略与某条已注入的线路资料冲突或更新了它，把该条的 id 填进该条 factSuggestions 的 targetEntryId，并且只给出发生变化的字段，不要重复未变化的字段。');
+  lines.push('本轮只做资料综合，不保存任何数据，也不向用户提问。请输出 ResearchBrief，每个路线单独对应 routes 条目。routeFacts、guideEvidence 和 factSuggestions 均由系统处理，必须输出空数组。引用指南来源，包括没有链接的来源；费用、交通、封闭情况说明资料截至日期；指南未覆盖就直说，不得估算或编造。');
   return lines.join('\n');
 }
 
@@ -734,7 +647,7 @@ async function synthesizeResearchBrief(pipeline: PipelineDeps, signal: AbortSign
 }
 
 // Model-free degradation: the collected evidence already carries the catalog
-// facts and everything the search/read tools returned, so a failed synthesis
+// facts and the full trusted guide snapshot, so a failed synthesis
 // never loses the run.
 export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEvidence[]): ResearchBrief {
   const facts: Array<{ fact: string; sourceUrl: string | null }> = [];
@@ -749,27 +662,17 @@ export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEviden
       const marker = isStaleReview(fact.review_due_at) ? '[线路资料·已过期]' : '[线路资料·已核实]';
       facts.push({ fact: `${marker} ${item.name} ${fact.category.name}·${fact.title} ${JSON.stringify(fact.fields)}`.slice(0, 500), sourceUrl: fact.source_url });
     }
-    for (const result of item.results) {
-      const title = typeof result.title === 'string' ? result.title : '';
-      const snippet = typeof result.snippet === 'string' ? result.snippet.slice(0, 450) : '';
-      const fact = [title, snippet].filter(Boolean).join('：').slice(0, 500);
-      if (!fact) continue;
-      if (snippet) summaries.push(snippet);
-      if (facts.length < 30) facts.push({ fact, sourceUrl: typeof result.url === 'string' ? result.url : null });
-    }
-    const budgetGap = item.collected.includes('研究阶段预算不足，未检索') || item.collected.includes('研究阶段预算用尽');
-    const unresolved = [
-      item.error ? `检索出错：${item.error}` : null,
-      budgetGap ? '研究阶段预算不足，该路线未完成检索' : null,
-      !item.guideBody && !item.error && !budgetGap ? '攻略正文未读取，营地与补水信息未核验' : null,
-    ].filter((text): text is string => Boolean(text)).slice(0, 8);
+    if (item.guide.markdown) summaries.push(`资料截至 ${item.guide.asOf}：${item.guide.markdown}`);
+    const disclosure = guideDisclosure(item.name, item.guide.missingSections);
+    const unresolved = disclosure ? [disclosure] : [];
     return {
       name: item.name,
       routeId: catalog?.routeId ?? null,
       distanceKm: catalog?.distanceKm ?? null,
       hikingDays: catalog?.hikingDays ?? null,
       summary: summaries.join('；').slice(0, 800),
-      sourceUrls: item.results.flatMap(result => typeof result.url === 'string' ? [result.url] : []).slice(0, 8),
+      sourceUrls: item.guide.sources.flatMap(source => source.url ? [source.url] : []).slice(0, 8),
+      guideComplete: item.guide.missingSections.length === 0,
       unresolved,
       start: catalog?.start ? { name: `${item.name} 起点`, ...catalog.start } : null,
       end: catalog?.end ? { name: `${item.name} 终点`, ...catalog.end } : null,
@@ -785,15 +688,18 @@ export function deterministicBrief(pipeline: PipelineDeps, evidence: RouteEviden
     destination: pipeline.task.decision.destination || '',
     routes,
     facts,
-    unresolved: incomplete ? ['资料搜集阶段未能完成全部核验，以下规划不得把缺失信息当作已确认事实。'] : [],
+    guideEvidence: evidence.map(item => item.guide),
+    unresolved: incomplete ? routes.flatMap(route => route.unresolved).slice(0, 12) : [],
     suggestedDays: null,
     durationBasis: '',
   });
 }
 
-async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transport: boolean): Promise<ResearchBrief> {
+export async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transport: boolean): Promise<ResearchBrief> {
   const names = destinationNames(pipeline.task.decision.destination);
   const catalogFacts = await loadCatalogFacts(pipeline, names);
+  const guides = catalogFactsForGuides(pipeline, names, catalogFacts);
+  const guideFingerprint = await guidesFingerprint(guides);
   const stats = emptyRouteFactStats();
   // Facts are read before the reuse decision rather than after it: a fact that
   // was confirmed since the previous run has to be able to reach this one. Left
@@ -804,7 +710,8 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   const previous = await findRecentBrief(pipeline, names);
   const fingerprint = loaded.error === null ? await routeFactsFingerprint(loaded.rows) : null;
   const factsUnchanged = fingerprint !== null
-    && canReuseRouteFacts(previous?.brief.routeFactsFingerprint, fingerprint, loaded.error);
+    && canReuseRouteFacts(previous?.brief.routeFactsFingerprint, fingerprint, loaded.error)
+    && previous?.brief.guideFingerprint === guideFingerprint;
   // Discard all prior synthesized evidence on a library change, not just its
   // source chips: stale facts can also be embedded in route prose and estimates.
   const reusableBrief = factsUnchanged ? previous?.brief ?? null : null;
@@ -816,7 +723,7 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
     stats.loaded = loaded.rows.length;
     stats.injected = previous.routeFacts.length;
     await writeRouteFacts(pipeline, { sources: previous.routeFacts, stats, error: loaded.error });
-    return { ...bindCatalogFacts(previous.brief, catalogFacts), routeFacts: previous.routeFacts };
+    return { ...bindCatalogFacts(previous.brief, catalogFacts), routeFacts: previous.routeFacts, guideEvidence: guides, guideFingerprint, factSuggestions: [] };
   }
   // When every requested route already has a recorded track with named points,
   // the deterministic brief carries everything planning uses: route ids, GPX
@@ -826,27 +733,27 @@ async function runResearch(pipeline: PipelineDeps, signal: AbortSignal, transpor
   // skipped. A route without recorded geometry still takes the full path: there
   // the guide text is the only overnight evidence available.
   const covered = catalogCoversPlanning(names, catalogFacts);
-  // Guide reading stays: its bodies are what keeps a route entry "resolved" for
-  // cross-run reuse, and they are cache-backed. Only the synthesis call is
-  // skipped, because it rewrites evidence the plan already has.
-  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, reusableBrief, loaded.rows);
+  // Local guide evidence is always retained, even when GPX coverage skips synthesis.
+  const evidence = await collectRouteEvidence(pipeline, signal, names, catalogFacts, reusableBrief, loaded.rows, guides);
   const deterministic = bindCatalogFacts(deterministicBrief(pipeline, evidence), catalogFacts);
   // Recorded before the synthesis call so a synthesis failure or a budget cut
   // still leaves this run's fact usage on the record.
-  const recorded = { ...bindRouteFacts(deterministic, loaded.rows, stats), routeFactsFingerprint: fingerprint };
+  const recorded = { ...bindRouteFacts(deterministic, loaded.rows, stats), routeFactsFingerprint: fingerprint, guideFingerprint, guideEvidence: guides, factSuggestions: [] };
   await writeRouteFacts(pipeline, { sources: recorded.routeFacts, stats, error: loaded.error });
   if (covered) return recorded;
   try {
     const brief = bindCatalogFacts(await synthesizeResearchBrief(pipeline, signal, transport, composeResearchText(pipeline, names, catalogFacts, evidence, reusableBrief)), catalogFacts);
-    const bound = { ...bindRouteFacts(brief, loaded.rows, stats), routeFactsFingerprint: fingerprint };
-    await recordRouteFactSuggestions(pipeline, bound, loaded.rows, stats);
-    // Written twice on purpose: the first write survives a synthesis failure or
-    // a budget cut, this one carries the counters that only exist afterwards.
-    await writeRouteFacts(pipeline, { sources: bound.routeFacts, stats, error: loaded.error });
+    brief.routes = deterministic.routes.map(route => {
+      const synthesized = brief.routes.find(item => item.name === route.name);
+      return { ...route, ...synthesized, guideComplete: route.guideComplete,
+        unresolved: [...new Set([...route.unresolved, ...(synthesized?.unresolved ?? [])])].slice(0, 8) };
+    });
+    brief.unresolved = [...new Set([...deterministic.unresolved, ...brief.unresolved])].slice(0, 12);
+    const bound = { ...bindRouteFacts(brief, loaded.rows, stats), routeFactsFingerprint: fingerprint, guideFingerprint, guideEvidence: guides, factSuggestions: [] };
+
     return bound;
   } catch (error) {
-    // Search providers and guide readers are external dependencies, and the
-    // synthesis call may miss the stage budget. The deterministic brief below
+    // The synthesis call may fail or miss the stage budget. The deterministic brief below
     // keeps the collected evidence as an explicitly incomplete handoff, so
     // transport and planning can still explain the gaps instead of retrying
     // the whole stage for minutes.
@@ -921,7 +828,7 @@ async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, res
   });
 }
 
-async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, transport: boolean, transportPlan: TransportPlan | null): Promise<PlanDocument> {
+export async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, transport: boolean, transportPlan: TransportPlan | null): Promise<PlanDocument> {
   const domain = pipeline.task.decision.domain ?? 'general';
   const skill = domain === 'transport' ? planningSkills.travel
     : domain === 'packing' ? planningSkills.packing
@@ -930,7 +837,7 @@ async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: Re
   const agent = pipeline.stageAgent({
     name: 'Kaipa Planner',
     instructions: [planInstructions, skill.body, pipeline.task.decision.fullHikingPlan ? planningSkills.travel.body : ''].join('\n\n'),
-    tools: transport ? [...planTools, searchTransport, searchTravelWeb, reviewTransport] : planTools,
+    tools: transport ? [...planTools, searchTransport, reviewTransport] : planTools,
     outputType: planDocumentModelSchema,
     // The research handoff and server snapshot already contain the expensive
     // evidence. Keep the long-form planner on the bounded model so a slow main
@@ -940,16 +847,26 @@ async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: Re
     temperature: 0.25,
   });
   const effectiveDays = pipeline.task.decision.days ?? pipeline.task.decision.derivedDays;
-  const text = `${planStageText(pipeline, research, transportPlan, effectiveDays)}\n\n本轮只输出一份 PlanDocument，不保存任何数据。只使用上面的检索结果与已核验上下文；没有证据的内容写入 unverified，不要编造。`;
+  const text = `${planStageText(pipeline, research, transportPlan, effectiveDays)}\n\n本轮只输出一份 PlanDocument，不保存任何数据。只使用上面的可信指南与已核验上下文；没有证据的内容写入 unverified，不要编造。`;
   // The initial plan has the verified journey snapshot and research handoff.
   // A rejected structured output must be repaired from that evidence in one
   // short no-tool turn; allowing another read loop can exceed the Edge
   // Runtime wall-clock limit and leave the whole run unfinished.
   const startedAt = Date.now();
+  const deadline = startedAt + STAGE_BUDGETS.plan - PLAN_CHUNK_RESERVE_MS;
+  let rejectedPlan: PlanDocument | null = null;
   try {
     // Three turns leave room for one exploration call plus the document; at two
     // a planner that reads before writing ran out of turns and lost the run.
-    const plan = await stageCall(pipeline, agent, text, { maxTurns: pipeline.task.decision.fullHikingPlan ? 6 : 3, signal, reask: { maxTurns: 1, allowTools: false, note: '只根据上一轮已有证据修正字段并立即输出完整 PlanDocument，不要调用工具。' } }, value => finalizePlan(value, pipeline, research, transportPlan, effectiveDays));
+    const plan = await stageCall(pipeline, agent, text, { maxTurns: pipeline.task.decision.fullHikingPlan ? 6 : 3, signal, reask: { maxTurns: 1, allowTools: false, deadline, note: '只根据上一轮已有证据修正字段并立即输出完整 PlanDocument，不要调用工具。' } }, (value, reasked) => {
+      const checked = checkPlanFeasibility(finalizePlan(value, pipeline, research, transportPlan, effectiveDays), pipeline, research, transportPlan);
+      const blockers = checked.feasibility!.issues.filter(issue => issue.severity === 'blocker');
+      if (blockers.length && !reasked && !signal.aborted && Date.now() < deadline) {
+        rejectedPlan = checked;
+        throw { issues: blockers.map(issue => ({ path: [issue.day ?? 'plan', issue.code], message: issue.message })) };
+      }
+      return checked;
+    });
     // A document that parses but carries no day content would save an empty
     // plan. Refine day by day while the stage budget still has room; the
     // transport domain relies on the reviewTransport tool loop that chunks
@@ -960,18 +877,50 @@ async function runPlan(pipeline: PipelineDeps, signal: AbortSignal, research: Re
     }
     return plan;
   } catch (error) {
+    // A failed repair must retain the checked plan and its concrete disclosure.
+    if (rejectedPlan) return rejectedPlan;
     if (signal.aborted || transport) {
       console.warn('[AppAgent] plan generation unavailable, keeping a resumable partial result', error instanceof Error ? error.message : error);
-      return fallbackPlan(pipeline, research, effectiveDays);
+      return checkPlanFeasibility(fallbackPlan(pipeline, research, effectiveDays), pipeline, research, transportPlan);
     }
     console.warn('[AppAgent] single-shot plan rejected, retrying as chunked refinement', error instanceof Error ? error.message : error);
     return chunkedPlan(pipeline, signal, research, transportPlan, effectiveDays, null, startedAt);
   }
 }
 
+function checkPlanFeasibility(plan: PlanDocument, pipeline: PipelineDeps, research: ResearchBrief | null, transportPlan: TransportPlan | null): PlanDocument {
+  const now = Date.now();
+  const journeyId = boundJourneyId(pipeline.context);
+  const journey = pipeline.context.dataContext?.snapshots[`${journeyId}:journey`]?.data.journey as { planned_date?: string | null } | undefined;
+  // Validate the same provider/local view that save will see, without changing
+  // the plan's items or the transport receipt.
+  const view = transportPlan?.mainTravel
+    ? { ...plan, itineraryItems: mergeMainTransportItems(plan.itineraryItems, transportPlan.mainTravel) }
+    : plan;
+  const { issues } = validatePlanFeasibility(view, {
+    now,
+    plannedDate: pipeline.task.decision.plannedDate ?? plan.schedule?.plannedDate ?? plan.journey?.plannedDate ?? journey?.planned_date ?? null,
+    research,
+    transportPlan,
+  });
+  plan.feasibility = { issues, checkedAt: new Date(now).toISOString() };
+  if (issues.some(issue => issue.severity === 'blocker')) plan.blocker ||= '行程存在可行性冲突，需调整后才能完成规划。';
+  plan.unverified = [...new Set([...plan.unverified, ...issues.map(issue => issue.message.slice(0, 300))])].slice(0, 30);
+  return plan;
+}
+
+function normalizePlanDisclosures(candidate: unknown) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return;
+  const record = candidate as Record<string, unknown>;
+  for (const key of ['pendingQuestion', 'blocker']) {
+    if (typeof record[key] === 'string' && /^(?:无[。.]?|暂无[。.]?|none|null|n\/a)?$/i.test(record[key].trim())) record[key] = null;
+  }
+}
+
 function normalizeOptionalPlanFields(candidate: unknown): string[] {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
   const record = candidate as Record<string, unknown>;
+  normalizePlanDisclosures(record);
   if (Array.isArray(record.itineraryItems)) {
     record.itineraryItems = record.itineraryItems.map(item => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
@@ -1016,7 +965,7 @@ function planStageText(pipeline: PipelineDeps, research: ResearchBrief | null, t
   const facts = pipeline.task.decision;
   return [
     pipeline.userInput,
-    research ? `\n上一阶段检索结果（ResearchBrief，事实来源）：${JSON.stringify(research)}` : '',
+    research ? `\n上一阶段可信指南资料（ResearchBrief，事实来源）：${JSON.stringify(research)}` : '',
     transportPlan ? `\n独立交通查询结果（TransportPlan，mainTravel 是实际往返大交通查询快照，segments 是路线间接驳）：${JSON.stringify(transportPlan)}` : '',
     `\n任务状态已确认的事实（需求解释阶段已核对，journey 字段直接采用）：目的地=${facts.destination ?? '无'}；出发日期=${facts.plannedDate ?? (facts.dateUndecided ? '未定' : '无')}；用户指定全程天数（含往返交通）=${facts.days ?? '无'}；系统根据路线与中转推算天数=${facts.derivedDays ?? '无'}；本次编排采用天数=${effectiveDays ?? '无'}；默认往返交通=${facts.includeRoundTripTransport !== false ? '包含' : '用户明确不需要'}；轨迹文件名=${facts.trackAttachmentName ?? '无'}。`,
   ].join('\n');
@@ -1027,11 +976,12 @@ function planStageText(pipeline: PipelineDeps, research: ResearchBrief | null, t
 // and endpoint-gap disclosure. strictJourney turns a null journey into a
 // concrete issue so the repair re-ask fills it; the chunked merge passes
 // false because its structure was already validated there.
-export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, research: ResearchBrief | null, transportPlan: TransportPlan | null, effectiveDays: number | null, options: { strictJourney?: boolean; endpointGap?: boolean } = {}): PlanDocument {
+export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, research: ResearchBrief | null, transportPlan: TransportPlan | null, effectiveDays: number | null, options: { strictJourney?: boolean; endpointGap?: boolean; skeleton?: boolean } = {}): PlanDocument {
   const strictJourney = options.strictJourney ?? true;
   const value = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
     ? { ...(candidate as Record<string, unknown>) }
     : candidate;
+  normalizePlanDisclosures(value);
   const candidateJourney = value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>).journey
     : null;
@@ -1059,13 +1009,20 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
   // convention — an absent key, not a null one — so the stripping has to run
   // after parsing, or parsing simply puts the keys back.
   const plan = planDocumentSchema.parse(value);
+  const modelBlocker = plan.itineraryItems.length ? plan.blocker : null;
+  if (modelBlocker) plan.blocker = null;
+  const modelQuestion = pipeline.task.decision.fullHikingPlan && plan.itineraryItems.length ? plan.pendingQuestion : null;
+  if (modelQuestion) plan.pendingQuestion = null;
   // Validate summary size during the model's repairable stage, but retain
   // transport wording until provider/local-transfer merging has completed.
   presentItinerary(plan.itineraryItems, plan.groupNotes);
-  if (pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && !plan.pendingQuestion) {
-    if (!plan.transport?.origin) {
-      plan.pendingQuestion = '这次旅程从哪个城市出发？默认也返回这里；如果返回地不同，请一起告诉我。';
-    } else if (!plan.transport.outbound.length || !plan.transport.inbound.length) {
+  const missingOrigin = pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && !plan.transport?.origin;
+  if (missingOrigin) {
+    plan.pendingQuestion = '这次旅程从哪个城市出发？默认也返回这里；如果返回地不同，请一起告诉我。';
+    plan.journey = null;
+  }
+  if (pipeline.task.decision.fullHikingPlan && pipeline.task.decision.includeRoundTripTransport !== false && plan.transport && !plan.pendingQuestion) {
+    if (!plan.transport.outbound.length || !plan.transport.inbound.length) {
       plan.blocker ||= '往返交通链路尚未完整，不能将仅徒步的日程视为完整旅程。';
     } else {
       const review = reviewTransportPlan(plan.transport);
@@ -1074,14 +1031,14 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
       if (review.unverified.length) {
         plan.unverified = [...plan.unverified, '部分交通段的班次、耗时或可用性尚未核实，当前仅为规划估算，出行前需确认。'].slice(0, 30);
       }
-      if (!review.consistent) plan.blocker ||= '往返交通与徒步窗口存在衔接冲突，需调整后才能完成全程规划。';
+      if (!review.consistent) plan.unverified = [...plan.unverified, '往返交通与徒步窗口的衔接尚需核对，出发前请确认班次与接驳时间。'].slice(0, 30);
       const hikingOrdinals = plan.itineraryItems.filter(item => item.kind === 'activity')
         .map(item => journeyDayOrdinal(item.day)).filter((day): day is number => day != null);
       const firstHikingDay = hikingOrdinals.length ? Math.min(...hikingOrdinals) : null;
       const totalDays = effectiveDays ?? plan.journey?.days;
       // Transport review minutes are relative to the FIRST HIKING day,
       // while journey Day 1 is the departure day.
-      if (firstHikingDay != null && totalDays != null) {
+      if (firstHikingDay != null && totalDays != null && pipeline.task.decision.days != null) {
         const offset = (firstHikingDay - 1) * 1440;
         if ([...plan.transport.outbound, ...plan.transport.inbound].some(leg => leg.departure + offset < 0 || leg.arrival + offset >= totalDays * 1440)) {
           plan.blocker ||= '往返交通超出用户的全程日期范围，请调整交通、徒步安排或总天数。';
@@ -1090,15 +1047,20 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
     }
   }
   if (pipeline.task.decision.fullHikingPlan && pipeline.task.decision.days == null && plan.journey) {
-    // Record the planner's total-trip estimate for the existing creation guard.
-    // A pending origin question cannot authorize an invented duration.
-    if (!plan.pendingQuestion && !plan.blocker) {
+    // Caveats disclose an incomplete candidate, not a missing prerequisite.
+    // The outline keeps its structure until the day chunks have been filled.
+    if (plan.itineraryItems.length) {
       pipeline.task.decision.derivedDays = plan.journey.days;
-      plan.assumptions = [...plan.assumptions, `全程建议 ${plan.journey.days} 天，含往返交通；这是规划估算，并非用户已指定的天数。`].slice(0, 12);
-    } else {
+      const estimate = `全程建议 ${plan.journey.days} 天，含往返交通；这是候选方案的规划估算，并非用户已指定的天数。`;
+      plan.assumptions = [estimate, ...plan.assumptions.filter(item => item !== estimate)].slice(0, 12);
+    } else if (!options.skeleton && (plan.blocker || plan.pendingQuestion)) {
       plan.journey = null;
     }
   }
+  const guideGaps = (research?.guideEvidence ?? []).flatMap(guide => guideDisclosure(guide.routeName, guide.missingSections) ?? []);
+  if (modelQuestion && !plan.blocker && !plan.pendingQuestion) plan.followUpSuggestion = modelQuestion;
+  plan.unverified = [...new Set([...(modelBlocker ? [modelBlocker.slice(0, 300)] : []), ...guideGaps, ...plan.unverified,
+    ...(modelQuestion && !plan.followUpSuggestion ? [modelQuestion.slice(0, 300)] : [])])].slice(0, 30);
   const unlocatableEndpoints = normalizeOptionalPlanFields(plan);
   // One journey binds one track. A day on any other route has no position on
   // it, and sending that day's index anyway produced a decreasing sequence
@@ -1175,7 +1137,7 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
         temperature: 0.25,
       });
       const outline = await stageCall(pipeline, skeletonAgent, `${factsText}\n\n先输出不含 itineraryItems 与 endpoints 的 PlanSkeleton 骨架，dayNames 必须与 journey.days 一致；不要调用工具。`, { maxTurns: 1, signal, reask: { maxTurns: 1, allowTools: false, note: '只修正骨架字段并立即输出 PlanSkeleton JSON，不要调用工具。' } }, value => {
-        const doc = finalizePlan(value, pipeline, research, transportPlan, effectiveDays, { endpointGap: false });
+        const doc = finalizePlan(value, pipeline, research, transportPlan, effectiveDays, { endpointGap: false, skeleton: true });
         const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>).dayNames : undefined;
         return { doc, dayNames: Array.isArray(raw) ? raw.filter((name): name is string => typeof name === 'string' && name.length >= 1 && name.length <= 40).slice(0, 40) : [] };
       });
@@ -1183,13 +1145,13 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
       dayNames = outline.dayNames;
     } catch (error) {
       console.warn('[AppAgent] plan skeleton unavailable, keeping the degraded plan', error instanceof Error ? error.message : error);
-      return fallbackPlan(pipeline, research, effectiveDays);
+      return checkPlanFeasibility(fallbackPlan(pipeline, research, effectiveDays), pipeline, research, transportPlan);
     }
   }
   if (!dayNames.length && structure.journey?.days) {
     dayNames = Array.from({ length: structure.journey.days }, (_, index) => `Day ${index + 1}`);
   }
-  if (!dayNames.length) return structure;
+  if (!dayNames.length) return checkPlanFeasibility(structure, pipeline, research, transportPlan);
   const chunkAgent = pipeline.stageAgent({
     name: 'Kaipa Planner Day Chunk',
     instructions: [planInstructions, planChunkInstructions].join('\n\n'),
@@ -1235,7 +1197,7 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
   if (gapDays.length) {
     merged.unverified = [...merged.unverified, `${gapDays.join('、')} 的行程细节未能在本轮生成，其余天数已保留；请补充信息或继续规划。`].slice(0, 30);
   }
-  return merged;
+  return checkPlanFeasibility(merged, pipeline, research, transportPlan);
 }
 
 // Every day of a multi-route trip is measured on its own route's track, so an
@@ -1309,7 +1271,7 @@ async function hydrateTrackDayLocations(pipeline: PipelineDeps, plan: PlanDocume
   addTrackDayLocations(plan, tracks);
 }
 
-async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDocument, research: ResearchBrief | null, mainTravel?: MainTransport | null): Promise<SaveArtifact> {
+export async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDocument, research: ResearchBrief | null, mainTravel?: MainTransport | null): Promise<SaveArtifact> {
   const artifact = await runSaveStage(pipeline.client, pipeline.context, plan);
   if (!artifact.failed.length) return artifact;
   if (artifact.skipped.some(entry => entry.reason === 'journey_create_failed')) return artifact;
@@ -1320,12 +1282,14 @@ async function runSave(pipeline: PipelineDeps, signal: AbortSignal, plan: PlanDo
   const merged = mergeSavedOperations(plan, patched, artifact);
   if (mainTravel && !artifact.saved.some(entry => entry.tool === 'add_itinerary_items')) {
     merged.itineraryItems = mergeMainTransportItems(merged.itineraryItems, mainTravel);
+    reconcileCandidateDays(merged, pipeline, !artifact.saved.some(entry => entry.tool === 'create_journey'));
+    merged.itineraryItems = removeOutOfRangeArrivals(merged.itineraryItems, merged.journey?.days);
   }
   if (pipeline.task.decision.fullHikingPlan && !artifact.saved.some(entry => entry.tool === 'add_itinerary_items')) {
     await hydrateTrackDayLocations(pipeline, merged);
     merged.itineraryItems = carryDailyStarts(merged.itineraryItems);
   }
-  const presentation = presentItinerary(merged.itineraryItems, merged.groupNotes);
+  const presentation = presentItinerary(merged.itineraryItems, merged.groupNotes, merged.journey?.days);
   merged.itineraryItems = presentation.items;
   merged.groupNotes = presentation.groupNotes;
   const retried = await runSaveStage(pipeline.client, pipeline.context, merged);
@@ -1345,13 +1309,15 @@ async function repairPlan(pipeline: PipelineDeps, signal: AbortSignal, plan: Pla
     });
     const text = [
       pipeline.userInput,
-      research ? `\n检索结果（ResearchBrief）：${JSON.stringify(research)}` : '',
+      research ? `\n可信指南资料（ResearchBrief）：${JSON.stringify(research)}` : '',
       `\n上一版 PlanDocument：${JSON.stringify(plan)}`,
       `\n保存结果：已成功 ${JSON.stringify(artifact.saved.map(entry => entry.tool))}；失败 ${JSON.stringify(artifact.failed)}。`,
       '',
       '只修正失败的操作，输出完整的修补后 PlanDocument。已成功的操作必须原样保留，不要改动它们的参数。',
     ].join('\n');
-    return stageCall(pipeline, agent, text, { maxTurns: 6, signal }, value => {
+    // Await inside the try so rejected model calls retain the save receipts
+    // and let later stages report a partial result instead of failing the run.
+    return await stageCall(pipeline, agent, text, { maxTurns: 6, signal }, value => {
       const candidate = value && typeof value === 'object' && !Array.isArray(value)
         ? { ...(value as Record<string, unknown>) }
         : value;
@@ -1363,7 +1329,18 @@ async function repairPlan(pipeline: PipelineDeps, signal: AbortSignal, plan: Pla
         (candidate as Record<string, unknown>).journey = plan.journey;
       }
       normalizeOptionalPlanFields(candidate);
-      return planDocumentSchema.parse(candidate);
+      const repaired = planDocumentSchema.parse(candidate);
+      if (repaired.itineraryItems.length) {
+        if (repaired.blocker) {
+          repaired.unverified = [...new Set([repaired.blocker.slice(0, 300), ...repaired.unverified])].slice(0, 30);
+          repaired.blocker = null;
+        }
+        if (pipeline.task.decision.fullHikingPlan && repaired.pendingQuestion) {
+          repaired.followUpSuggestion = repaired.pendingQuestion;
+          repaired.pendingQuestion = null;
+        }
+      }
+      return repaired;
     });
   } catch (error) {
     console.warn('[AppAgent] plan repair unavailable', error instanceof Error ? error.message : error);
@@ -1373,7 +1350,7 @@ async function repairPlan(pipeline: PipelineDeps, signal: AbortSignal, plan: Pla
 
 // Pins every already-saved section back to the original document.
 function mergeSavedOperations(original: PlanDocument, patched: PlanDocument, artifact: SaveArtifact): PlanDocument {
-  const saved = new Set(artifact.saved.map(entry => entry.tool));
+  const saved = new Set([...artifact.saved.map(entry => entry.tool), ...(artifact.satisfied || [])]);
   return {
     ...patched,
     journey: saved.has('create_journey') ? original.journey : patched.journey,
@@ -1382,11 +1359,15 @@ function mergeSavedOperations(original: PlanDocument, patched: PlanDocument, art
     groupNotes: saved.has('add_itinerary_items') ? original.groupNotes : patched.groupNotes,
     endpoints: saved.has('set_itinerary_group_endpoints') ? original.endpoints : patched.endpoints,
     mapLocation: saved.has('set_journey_map_location') ? original.mapLocation : patched.mapLocation,
+    blocker: original.blocker || patched.blocker,
+    pendingQuestion: original.pendingQuestion || patched.pendingQuestion,
+    followUpSuggestion: original.followUpSuggestion || patched.followUpSuggestion,
   };
 }
 
-async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: {
+export async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: {
   plan: PlanDocument;
+  research?: ResearchBrief | null;
   save: SaveArtifact | null;
   packing: PackingArtifact | null;
 }): Promise<unknown> {
@@ -1396,7 +1377,7 @@ async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: 
   const failed = results.save?.failed || [];
   const packingFailed = results.packing && !['committed', 'skipped'].includes(results.packing.status);
   const requiredSaved = pipeline.task.decision.requiredOperations.every(tool =>
-    tool === 'add_packing_items' ? results.packing?.status === 'committed' : saved.includes(tool));
+    tool === 'add_packing_items' ? results.packing?.status === 'committed' : saved.includes(tool) || results.save?.satisfied?.includes(tool));
   const boundaryReceipt = results.save?.saved.find(entry => entry.tool === 'set_itinerary_group_endpoints')?.output as
     { coverage?: { groupCount?: number; requiredGroupCount?: number; reachesTrackEnd?: boolean } } | undefined;
   const boundariesComplete = !pipeline.task.decision.requiredOperations.includes('set_itinerary_group_endpoints')
@@ -1404,31 +1385,40 @@ async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, results: 
       && (boundaryReceipt.coverage.groupCount ?? 0) >= (boundaryReceipt.coverage.requiredGroupCount ?? Infinity));
   const complete = saved.length > 0 && requiredSaved && boundariesComplete && failed.length === 0 && !results.plan.blocker && !results.plan.pendingQuestion && !packingFailed;
   const packingPartial = results.packing?.status === 'committed' && results.packing.issues.length > 0;
-  const text = packingPartial
-    ? '行程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
-    : complete ? '行程规划已完成并保存。' : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。';
-  return assistantOutput.parse({
-    text: [text, ...results.plan.assumptions.slice(0, 6), ...results.plan.unverified.slice(0, 5)].join('\n'),
+  const text = complete ? (results.plan.unverified.length || packingPartial || (pipeline.task.decision.days == null && results.plan.journey)
+      ? '候选行程已保存，以下事项出发前仍需确认。' : '行程规划已完成并保存。')
+    : packingPartial ? '行程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
+    : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。';
+  const packingNote = packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null;
+  const guideDates = (results.research?.guideEvidence ?? []).flatMap(guide => guide.asOf ? [`${guide.routeName}（${guide.asOf}）`] : []);
+  const lines = [...new Set([text, ...(results.research?.guideEvidence ?? []).flatMap(guide => guideDisclosure(guide.routeName, guide.missingSections) ?? []),
+    ...(guideDates.length ? [`指南资料截至：${guideDates.join('；')}`] : []),
+    ...results.plan.assumptions.slice(0, 6), ...results.plan.unverified.slice(0, 5), ...(packingNote ? [packingNote] : [])])]
+    .filter(line => line !== results.plan.followUpSuggestion);
+  if (results.plan.followUpSuggestion) lines.push(results.plan.followUpSuggestion);
+  return { ...assistantOutput.parse({
+    text: lines.join('\n'),
     pendingQuestion: results.plan.pendingQuestion,
-    blocker: results.plan.blocker || (failed.length ? '部分规划内容保存失败。' : packingFailed ? '装备清单尚未完整生成。' : packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null),
+    blocker: results.plan.blocker || (failed.length ? '部分规划内容保存失败。' : packingFailed ? '装备清单尚未完整生成。' : !complete && packingPartial ? packingNote : null),
     offerJourneyExtras: false,
     travelContext: pipeline.context.confirmedTravel ? { ...pipeline.context.confirmedTravel, journeyId: pipeline.context.currentJourneyId || null } : null,
-  });
+  }), followUpSuggestion: results.plan.followUpSuggestion };
 }
 
-const researchInstructions = `你是 Kaipa 的资料综合阶段：系统已完成确定性检索，你只负责把检索证据整理成 ResearchBrief。没有搜索工具，不要尝试搜索，也不要向用户提问。
-每个用户选择的路线都必须有一条独立研究条目：优先保留路线目录确定事实（routeId、距离、徒步天数、起终点），再根据系统检索证据填写 summary、sourceUrls 与 unresolved。证据不足时保留条目并填写 unresolved，不要为了凑齐资料编造内容。
-overnightCandidates 只能来自检索证据中真实出现的过夜/营地描述（攻略正文或图片观察），并记录 guideSourceUrl 与 guideQuote；没有证据就不要填写。区分攻略与轨迹标注点提供的候选过夜位置，不要凭距离或时长平均分配。
+const researchInstructions = `你是 Kaipa 的资料综合阶段：系统已读取团队可信路线指南，你只负责把指南整理成 ResearchBrief。没有搜索工具，不要尝试搜索，也不要向用户提问。
+每个用户选择的路线都必须有一条独立研究条目：优先保留路线目录确定事实（routeId、距离、徒步天数、起终点），再根据团队可信指南证据填写 summary、sourceUrls 与 unresolved。证据不足时保留条目并填写 unresolved，不要为了凑齐资料编造内容。
+overnightCandidates 只能来自团队可信指南中出现的过夜/营地描述，并记录 guideSourceUrl 与 guideQuote；没有证据就不要填写。区分攻略与轨迹标注点提供的候选过夜位置，不要凭距离或时长平均分配。
 routes[].waypoints 由系统从路线 GPX 标注点填充，你必须输出空数组，不要编造任何标注点；编排阶段会拿到系统填充后的完整列表。
 facts 逐条记录事实与其来源链接；无法核实的写入 unresolved。
-当用户没有提供总天数时，必须包含出发地往返大交通、进出山接驳、徒步、必要住宿和缓冲，输出 suggestedDays（1-30 的整数）以及 durationBasis；只能基于检索证据估算；证据不足时两者留空，并把缺口写入 unresolved。
-输出只包含 ResearchBrief 结构化结果。`;
+当用户没有提供总天数时，必须包含出发地往返大交通、进出山接驳、徒步、必要住宿和缓冲，输出 suggestedDays（1-30 的整数）以及 durationBasis；只能基于指南覆盖的证据估算；证据不足时两者留空，并把缺口写入 unresolved。
+指南可信，可直接使用，必须引用来源（无链接也保留）；费用、交通、封闭情况说明 asOf 日期。指南未覆盖时如实说明，禁止估算或编造。factSuggestions 必须为空数组。\n输出只包含 ResearchBrief 结构化结果。`;
 
 const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查询并输出方案，不保存任何数据，也不向用户提问。
 工具调用轮次有限，最后一轮必须直接输出 PlanDocument JSON，不允许用文字代替。
 上面的 ResearchBrief 与已确认事实就是本轮的主要依据，直接据此编排即可。只有确实需要当前旅程或轨迹数据时才调用只读工具，且最多调用一次；未绑定旅程、轨迹已在 ResearchBrief 里时不要调用工具，更不要用工具结果缺失当作没有证据的理由。
 硬性约束：
 - journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名）。用户未填写日期时可保持 plannedDate=null；用户未填写总天数时，结合交通查询与路线资料给出有依据的全程建议天数，在 assumptions 中说明交通和徒步分配；缺少出发地或无法可靠估算时用 pendingQuestion 询问，不要用轨迹徒步天数冒充全程天数。
+- 用户未指定总天数且 mainTravel.suggestedDays 有值时，journey.days 必须等于该值，已查询返程安排在最后一天；若认为需要更多天，保持该值并把原因写入 unverified。
 - 默认安排出发地→交通枢纽→徒步起点、徒步终点→返程枢纽→返回地的完整往返链路及必要住宿，用户明确不用时尊重该约束。复用已确认出发地，缺少时用 pendingQuestion 简短询问，不能猜测或声称完整规划已完成。
 - days 是从出发到返回的全程天数，包含路上时间；交通日也占 Day 序号。先评估交通耗时与缓冲，再分配徒步日，不得把全部天数用于徒步后把交通追加到日期范围之外。时间装不下时说明冲突并询问调整选择，不得静默改天数或压缩成不合理徒步。
 - 交通和休整 item 的 kind 必须为 custom，具体住宿为 stay，徒步为 activity；交通即使与徒步同一天也不绑定 routeId，不设置徒步终点。全程天数与徒步天数分别写入 assumptions。
@@ -1447,7 +1437,7 @@ const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查�
 - 每个移动安排都要给出具体 startLocation（出发站/机场/住宿/轨迹点）与 location（到达地点），系统拆成独立地点项。地点 name 只能是一个真实地点，禁止写 A→B 或只写出发城市；有证据才填坐标。每天必须有起点和终点，次日从前一天实际落脚点开始；进出山与返程车站的链路不得漏掉。用户没有指定酒店时，以已知车站/机场等具体地点作为该城市当天终点与次日起点，不虚构住宿地点或到酒店的接驳。未知班次和耗时标为待核实，不得虚构。
 - 交通接驳段作为普通 itineraryItems 记录，不要创建独立交通类型，也不要为交通单独设置徒步日终点；把到达地点写入普通 location（有坐标才填写坐标），交通方式简写在 title，摘要仅保留必要的安排信息。不要编造路线。
 - 没有证据的内容写入 unverified，不要编造时间、价格、水源或营地。
-- 无法完成的部分用 blocker 说明具体原因，需要用户决定时用 pendingQuestion，并把已经能确定的部分照常输出。
+- blocker 仅用于缺少必要前提、无法产出任何可用方案的情况；未核实的接驳、班次、许可、季节或关闭状态、营地和水源写入 unverified，仍须完整产出候选方案。需要用户决定时用 pendingQuestion，保留已编排的方案。
 输出只包含 PlanDocument 结构化结果。`;
 
 const planRepairInstructions = `这是同一次任务的修复轮。上一轮保存时部分操作校验失败，请只修正失败的部分。

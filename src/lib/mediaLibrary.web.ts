@@ -1,4 +1,4 @@
-export async function requestMediaLibraryPermissions(_writeOnly = false) {
+export async function requestMediaLibraryPermissions(_writeOnly = false, _granularPermissions?: string[]) {
   return { status: 'denied' as const };
 }
 

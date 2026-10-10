@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Copy, CornerDownLeft, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
+import { Check, Copy, CornerDownLeft, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -17,7 +17,8 @@ import { JourneyPlanCard, journeyStartDate, journeyStatus, type JourneyStatus } 
 import { usePinnedJourneys } from '../components/journey/usePinnedJourneys';
 import { AppActionDialog, layout, radius, space, type } from '../design-system';
 
-type JourneyFilter = 'all' | 'planned' | 'active' | 'completed';
+type JourneyDateFilter = 'all' | 'dated' | 'undated';
+type JourneySort = 'recent' | 'date';
 const JOURNEY_SWIPE_SPRING = { mass: 0.7, damping: 22, stiffness: 240, overshootClamping: true } as const;
 
 function accentTint(theme: Theme, strength: number) {
@@ -81,11 +82,17 @@ function JourneySwipeActions({
 export function JourneyScreen({ theme }: { theme: Theme }) {
   countRender('Journey');
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { t } = useI18n();
   const nav = useNav();
   const data = useData();
   const journeys = data.journeys;
-  const [filter, setFilter] = useState<JourneyFilter>('all');
+  const [dateFilter, setDateFilter] = useState<JourneyDateFilter>('all');
+  const [sortMode, setSortMode] = useState<JourneySort>('recent');
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const pageRef = useRef<View>(null);
+  const filterAnchorRef = useRef<View>(null);
+  const [filterPosition, setFilterPosition] = useState({ top: 0, right: 18 });
   const [deleteCandidate, setDeleteCandidate] = useState<Poi | null>(null);
   const [deletingId, setDeletingId] = useState<string>();
   const [duplicatingId, setDuplicatingId] = useState<string>();
@@ -97,7 +104,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
   const swipeableMethodsRef = useRef<Map<string, SwipeableMethods>>(new Map());
   const openSwipeableRef = useRef<{ id: string; methods: SwipeableMethods } | null>(null);
   const { pinnedIds, setPinned } = usePinnedJourneys();
-
+  const homeContent = data.journeyHomeContent;
   useEffect(() => () => {
     pressResetTimersRef.current.forEach(clearTimeout);
     pressResetTimersRef.current.clear();
@@ -110,15 +117,22 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
     const rank: Record<JourneyStatus, number> = { active: 0, planned: 1, unscheduled: 2, completed: 3 };
     const pinnedDelta = Number(pinnedIds.has(b.id)) - Number(pinnedIds.has(a.id));
     if (pinnedDelta) return pinnedDelta;
+    if (sortMode === 'recent') {
+      const aUpdated = Date.parse(a.updatedAt ?? '') || 0;
+      const bUpdated = Date.parse(b.updatedAt ?? '') || 0;
+      return bUpdated - aUpdated;
+    }
     const delta = rank[journeyStatus(a, now)] - rank[journeyStatus(b, now)];
     if (delta) return delta;
     const aStart = journeyStartDate(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const bStart = journeyStartDate(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
     return aStart - bStart;
-  }), [journeys, pinnedIds]);
-  const visibleJourneys = filter === 'all'
-    ? orderedJourneys
-    : orderedJourneys.filter((journey) => journeyStatus(journey) === filter);
+  }), [journeys, pinnedIds, sortMode]);
+  const homeVisibleJourneys = orderedJourneys.filter((journey) => {
+      const hasDate = Boolean(journeyStartDate(journey));
+      return dateFilter === 'all' || (dateFilter === 'dated' ? hasDate : !hasDate);
+    });
+
   const nextJourney = orderedJourneys.find((journey) => ['active', 'planned'].includes(journeyStatus(journey)));
   const heroContents = nextJourney
     ? [
@@ -180,13 +194,19 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
     }
   };
 
-  const openFilters = () => nav.openActionSheet({
-    title: t('journeyHome.filterTitle'),
-    items: (['all', 'planned', 'active', 'completed'] as JourneyFilter[]).map((value) => ({
-      label: t(`journeyHome.filter.${value}`),
-      onPress: () => setFilter(value),
-    })),
-  });
+  const openFilters = () => {
+    // Both measurements use window coordinates; subtract the page origin so
+    // the popover follows the trigger even inside the tab pager or after scrolling.
+    pageRef.current?.measureInWindow((pageX, pageY, pageWidth, pageHeight) => {
+      filterAnchorRef.current?.measureInWindow((x, y, width) => {
+        setFilterPosition({
+          top: Math.max(0, Math.min(y - pageY - 12, pageHeight - 140)),
+          right: Math.max(0, pageWidth - (x - pageX + width)),
+        });
+        setFilterSheetOpen(true);
+      });
+    });
+  };
 
   const duplicateJourney = async (journey: Poi) => {
     if (duplicatingId) return;
@@ -208,7 +228,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
   };
 
   return (
-    <View style={[styles.page, { backgroundColor: theme.featureSurface }]}>
+    <View ref={pageRef} collapsable={false} style={[styles.page, { backgroundColor: theme.featureSurface }]}>
       <LinearGradient
         colors={[accentTint(theme, 0.12), accentTint(theme, 0.045), theme.featureSurface]}
         locations={[0, 0.32, 0.46]}
@@ -245,6 +265,20 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
           <Text numberOfLines={2} style={[styles.heroTitle, { color: theme.text }]}>
             {heroContent.title}
           </Text>
+          {homeContent.cards.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featureCards}>
+              {homeContent.cards.map((card) => (
+                <Press key={card.id} accessibilityRole="button" accessibilityLabel={card.title} onPress={() => {
+                  if (card.routeId) { const route = data.routes.find((item) => item.id === card.routeId); if (route) { nav.openPoint(route); return; } }
+                  if (card.prompt) nav.openAssistant(card.prompt);
+                }} style={[styles.featureCard, { backgroundColor: theme.controlSurface }]}>
+                  {card.imageUrl ? <Image source={{ uri: card.imageUrl }} style={styles.featureImage} /> : null}
+                  <View style={styles.featureCopy}><Text numberOfLines={2} style={[styles.featureTitle, { color: theme.text }]}>{card.title}</Text>{card.subtitle ? <Text numberOfLines={2} style={[styles.featureSubtitle, { color: theme.text2 }]}>{card.subtitle}</Text> : null}</View>
+                </Press>
+              ))}
+            </ScrollView>
+          ) : null}
+
           <View style={styles.quickActions}>
             {heroContent.suggestions.map(({ label, prompt }) => (
               <Press
@@ -267,15 +301,17 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
 
         <View style={[styles.listSection, { paddingBottom: insets.bottom + 116 }]}>
           <View style={styles.listHeader}>
-            <Text style={[styles.listTitle, { color: theme.text }]}>{t('me.myJourneys')}</Text>
-            <Press accessibilityRole="button" onPress={openFilters} style={styles.filterButton}>
-              <SlidersHorizontal color={theme.text} size={18} strokeWidth={2.2} />
-              <Text style={[styles.filterLabel, { color: theme.text }]}>{t(`journeyHome.filter.${filter}`)}</Text>
-            </Press>
+            <Text style={[styles.listTitle, { color: theme.text }]}>{homeContent.title}</Text>
+            <View ref={filterAnchorRef} collapsable={false}>
+              <Press accessibilityRole="button" accessibilityState={{ expanded: filterSheetOpen }} onPress={openFilters} style={styles.filterButton}>
+                <SlidersHorizontal color={theme.text} size={18} strokeWidth={2.2} />
+              <Text style={[styles.filterLabel, { color: theme.text }]}>{dateFilter === 'all' ? '全部' : dateFilter === 'dated' ? '有日期' : '无日期'}</Text>
+              </Press>
+            </View>
           </View>
 
           <View style={styles.cards}>
-            {nav.mainTab !== 'journey' ? null : visibleJourneys.length ? visibleJourneys.map((journey) => (
+            {nav.mainTab !== 'journey' ? null : homeVisibleJourneys.length ? homeVisibleJourneys.map((journey) => (
               <ReanimatedSwipeable
                 key={journey.id}
                 ref={(methods) => {
@@ -352,6 +388,32 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
           </View>
         </View>
       </ScrollView>
+      {filterSheetOpen ? (
+        <View style={styles.filterBackdrop}>
+          <Press accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setFilterSheetOpen(false)} style={styles.filterDismiss}>{null}</Press>
+          <View style={[styles.filterSheet, filterPosition, { width: Math.min(374, windowWidth * 0.48), backgroundColor: theme.featureSurface }]}>
+            <View style={styles.filterSegmented}>
+              {([
+                ['all', '全部'],
+                ['dated', '有日期'],
+                ['undated', '无日期'],
+              ] as const).map(([value, label]) => (
+                <Press key={value} accessibilityRole="tab" accessibilityState={{ selected: dateFilter === value }} onPress={() => setDateFilter(value)} style={[styles.filterSegment, dateFilter === value && styles.filterSegmentSelected]}>
+                  <Text style={[styles.filterSegmentText, { color: dateFilter === value ? theme.text : theme.text2 }]}>{label}</Text>
+                </Press>
+              ))}
+            </View>
+            <Press accessibilityRole="radio" accessibilityState={{ selected: sortMode === 'recent' }} onPress={() => { setSortMode('recent'); setFilterSheetOpen(false); }} style={styles.filterOption}>
+              <Text style={[styles.filterOptionText, { color: theme.text }]}>按最近编辑排序</Text>
+              <View style={[styles.radio, { borderColor: sortMode === 'recent' ? theme.text : '#D9D9D9', backgroundColor: sortMode === 'recent' ? theme.text : 'transparent' }]}>{sortMode === 'recent' ? <Check size={11} color={theme.featureSurface} strokeWidth={3} /> : null}</View>
+            </Press>
+            <Press accessibilityRole="radio" accessibilityState={{ selected: sortMode === 'date' }} onPress={() => { setSortMode('date'); setFilterSheetOpen(false); }} style={styles.filterOption}>
+              <Text style={[styles.filterOptionText, { color: theme.text }]}>按计划日期排序</Text>
+              <View style={[styles.radio, { borderColor: sortMode === 'date' ? theme.text : '#D9D9D9', backgroundColor: sortMode === 'date' ? theme.text : 'transparent' }]}>{sortMode === 'date' ? <Check size={11} color={theme.featureSurface} strokeWidth={3} /> : null}</View>
+            </Press>
+          </View>
+        </View>
+      ) : null}
       <AppActionDialog
         theme={theme}
         visible={Boolean(deleteCandidate)}
@@ -398,6 +460,12 @@ const styles = StyleSheet.create({
   headerButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
   hero: { paddingHorizontal: layout.pagePadding, paddingTop: space.xxl, paddingBottom: space.xxl },
   heroTitle: { maxWidth: '92%', fontSize: 21, lineHeight: 29, fontWeight: '800', letterSpacing: 0 },
+  featureCards: { gap: 12, paddingRight: layout.pagePadding },
+  featureCard: { width: 230, minHeight: 142, borderRadius: 22, overflow: 'hidden' },
+  featureImage: { width: '100%', height: 82 },
+  featureCopy: { paddingHorizontal: 13, paddingVertical: 10 },
+  featureTitle: { fontSize: 16, lineHeight: 21, fontWeight: '800' },
+  featureSubtitle: { marginTop: 3, fontSize: 12.5, lineHeight: 17 },
   quickActions: { marginTop: space.lg, alignItems: 'flex-start', gap: space.sm },
   quickAction: { minHeight: 48, maxWidth: '94%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   quickActionText: { flexShrink: 1, fontSize: 14.5, lineHeight: 20, fontWeight: '500', letterSpacing: 0 },
@@ -406,6 +474,16 @@ const styles = StyleSheet.create({
   listTitle: { fontSize: 21, lineHeight: 28, fontWeight: '800', letterSpacing: 0 },
   filterButton: { minHeight: layout.iconButton, paddingLeft: space.md, flexDirection: 'row', alignItems: 'center', gap: 5 },
   filterLabel: { fontSize: 14.5, fontWeight: '600', letterSpacing: 0 },
+  filterBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, backgroundColor: 'rgba(0, 0, 0, 0.12)' },
+  filterDismiss: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  filterSheet: { position: 'absolute', maxWidth: '88%', borderRadius: 23, paddingHorizontal: 11, paddingTop: 12, paddingBottom: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 12 },
+  filterSegmented: { flexDirection: 'row', borderRadius: 17, padding: 2, marginBottom: 9, minHeight: 34, backgroundColor: '#F0F0F0' },
+  filterSegment: { flex: 1, minHeight: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  filterSegmentSelected: { backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  filterSegmentText: { fontSize: 13, fontWeight: '600' },
+  filterOption: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 },
+  filterOptionText: { fontSize: 14, fontWeight: '600' },
+  radio: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   cards: { paddingHorizontal: 17, gap: 11 },
   swipeContainer: { height: 166, borderRadius: 26, overflow: 'hidden' },
   swipeActions: { width: 192, height: 166, flexDirection: 'row', alignItems: 'center' },

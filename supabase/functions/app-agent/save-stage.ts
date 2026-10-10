@@ -3,13 +3,15 @@
 // receipt replay, version-checked transactions and undo payloads all keep
 // working unchanged. No model is involved here.
 import {
-  addItineraryParams, createJourneyParams, runAddItinerary, runCreateJourney, runSetItineraryGroupEndpoints,
+  addItineraryParams, createJourneyParams, errorText, runAddItinerary, runCreateJourney, runSetItineraryGroupEndpoints,
   runSetJourneyMapLocation, runUpdateJourneySchedule, setItineraryGroupEndpointsParams, setJourneyMapLocationParams,
   updateJourneyScheduleParams,
 } from './tools.ts';
 import { readJourneySections } from './context.ts';
 import { saveOperations, type PlanDocument, type SaveToolName } from './plan-document.ts';
 import type { AgentContext } from './types.ts';
+import { journeyDayOrdinal } from './journey-days.ts';
+import type { WriteOperation } from './task.ts';
 
 type Client = any;
 type RunContext = { context: AgentContext };
@@ -39,6 +41,8 @@ export type SaveArtifact = {
   saved: Array<{ tool: string; output?: unknown }>;
   skipped: Array<{ tool: string; reason: string }>;
   failed: Array<{ tool: string; error: string }>;
+  /** Requested deliverables already present, with no write needed. */
+  satisfied?: WriteOperation[];
   /** True when a second, repaired pass produced this result. */
   repaired?: boolean;
 };
@@ -84,7 +88,13 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
 
   const journeyId = boundJourneyId(context);
   const pending = operations.filter(operation => operation.tool !== 'create_journey');
-  if (!pending.length) return artifact;
+  const created = artifact.saved.some(entry => entry.tool === 'create_journey');
+  const checkSchedule = authorized.includes('update_journey_schedule')
+    && context.task?.decision.requiredOperations.includes('update_journey_schedule');
+  // New plans already name their intended days. Save the groups before a
+  // schedule operation, which must address the groups that actually exist.
+  if (created) pending.sort((a, b) => Number(b.tool === 'add_itinerary_items') - Number(a.tool === 'add_itinerary_items'));
+  if (!pending.length && !checkSchedule) return artifact;
   if (!journeyId) {
     for (const operation of pending) artifact.skipped.push({ tool: operation.tool, reason: 'no_journey' });
     return artifact;
@@ -96,10 +106,18 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
   try {
     currentSections = await readJourneySections(client, context, journeyId, [...WRITE_SECTIONS]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     for (const operation of pending) artifact.skipped.push({ tool: operation.tool, reason: `context_unavailable: ${message}` });
     return artifact;
   }
+
+  // The app can bind an empty journey before asking the planner. It needs
+  // the same group-first layout as a journey created by this run; existing
+  // groups still require schedule moves before adding the new items.
+  const initialLayout = created || (scheduleDayNames(currentSections).length === 0
+    && pending.some(operation => operation.tool === 'add_itinerary_items')
+    && authorized.includes('add_itinerary_items'));
+  if (initialLayout) pending.sort((a, b) => Number(b.tool === 'add_itinerary_items') - Number(a.tool === 'add_itinerary_items'));
 
   let itineraryFailed = false;
   for (const operation of pending) {
@@ -112,8 +130,27 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
       artifact.skipped.push({ tool: operation.tool, reason: 'itinerary_failed' });
       continue;
     }
-    const args = { journeyId, ...operation.args };
+    const args: Record<string, unknown> = { journeyId, ...operation.args };
     if (operation.tool === 'update_journey_schedule') {
+      if (initialLayout) {
+        if (itineraryFailed) {
+          artifact.skipped.push({ tool: operation.tool, reason: 'itinerary_failed' });
+          continue;
+        }
+        try {
+          currentSections = await readJourneySections(client, context, journeyId, [...WRITE_SECTIONS]);
+        } catch (error) {
+          artifact.failed.push({ tool: operation.tool, error: errorText(error) });
+          continue;
+        }
+        // Creation and item writes already apply the candidate's day layout;
+        // the model's assignments refer to a pre-save outline, not old groups.
+        args.dayAssignments = scheduleDayNames(currentSections).map(from => ({ from, toDay: journeyDayOrdinal(from) }));
+        if (scheduleMatchesJourney(plan.schedule!, currentSections)) {
+          (artifact.satisfied ??= []).push('update_journey_schedule');
+          continue;
+        }
+      }
       normalizeScheduleAssignments(args, currentSections);
     }
     let outcome = await execute(operation.tool, args, runContext);
@@ -147,7 +184,34 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
       artifact.saved.push({ tool: operation.tool, output: outcome.output });
     }
   }
+  if (!plan.schedule && checkSchedule && !itineraryFailed) {
+    try {
+      currentSections = await readJourneySections(client, context, journeyId, [...WRITE_SECTIONS]);
+      const days = context.task!.decision.days ?? context.task!.decision.derivedDays;
+      if (days != null && scheduleMatchesJourney({ totalDays: days, plannedDate: context.task!.decision.plannedDate }, currentSections)) {
+        (artifact.satisfied ??= []).push('update_journey_schedule');
+      }
+    } catch (error) {
+      artifact.skipped.push({ tool: 'update_journey_schedule', reason: `context_unavailable: ${errorText(error)}` });
+    }
+  }
   return artifact;
+}
+
+function scheduleDayNames(sections: Record<string, unknown>): string[] {
+  const groups = Array.isArray(sections.itineraryGroups) ? sections.itineraryGroups as Array<{ name: string }> : [];
+  const rows = Array.isArray(sections.itinerary) ? sections.itinerary as Array<{ day: string }> : [];
+  return [...new Set([...groups.map(group => group.name), ...rows.map(row => row.day)])];
+}
+
+function scheduleMatchesJourney(schedule: { totalDays: number; plannedDate: string | null }, sections: Record<string, unknown>) {
+  const journey = sections.journey as { total_days?: number; planned_date?: string | null } | undefined;
+  return journey?.total_days === schedule.totalDays
+    && (schedule.plannedDate == null || journey.planned_date === schedule.plannedDate)
+    && scheduleDayNames(sections).every(name => {
+      const day = journeyDayOrdinal(name);
+      return day != null && day >= 1 && day <= schedule.totalDays;
+    });
 }
 
 // Models sometimes return calendar dates in `from`, although the schedule RPC
@@ -178,6 +242,6 @@ async function execute(tool: SaveToolName, args: Record<string, unknown>, runCon
     const output = await target.run(parsed as never, runContext);
     return { output };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    return { error: errorText(error) };
   }
 }

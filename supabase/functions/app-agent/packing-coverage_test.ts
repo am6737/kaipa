@@ -64,3 +64,13 @@ Deno.test('full packing intent detection leaves incremental requests alone', () 
   assert(requiresFullPackingPlan('prepare a complete packing list'), 'expected full English request');
   assert(!requiresFullPackingPlan('再加一根充电线'), 'incremental request must remain incremental');
 });
+
+Deno.test('face gear and cookware cannot replace actual food in packing coverage', () => {
+  const withoutFood = baseline.filter(item => item.name !== '能量棒');
+  for (const name of ['防晒面罩', '面巾', '面膜', '饭盒']) {
+    assert(missingPackingCoverage([...withoutFood, { name, quantity: 1 }], dayTrip).some(gap => gap.key === 'food'), `${name} must not satisfy food coverage`);
+  }
+  for (const name of ['方便面', '自热饭', '饭团']) {
+    assert(!missingPackingCoverage([...withoutFood, { name, quantity: 1, attributes: [{ name: '单份净重', value: '100g/袋' }] }], dayTrip).some(gap => gap.key === 'food'), `${name} must count as food`);
+  }
+});

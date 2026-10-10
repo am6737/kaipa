@@ -1,7 +1,7 @@
 // FeedbackPage.tsx — 帮助与反馈: category chips + free-text + 提交 in the nav bar.
 // Mirrors the prototype FeedbackPage.
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { useI18n, TKey } from '../../i18n';
 import { MePushPage } from './MePushPage';
@@ -35,7 +35,6 @@ export function FeedbackPage({
   return (
     <MePushPage theme={theme} title={t('account.feedback.pageTitle')} onBack={onBack}>
       <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
-        <Text style={[type.eyebrow, { color: theme.text3, marginBottom: space.sm }]}>{t('account.feedback.pageTitle')}</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginBottom: space.md }}>
           {CAT_KEYS.map((ck, i) => {
             const on = cat === i;
@@ -46,17 +45,15 @@ export function FeedbackPage({
                 scaleTo={1}
                 opacityTo={1}
                 style={{
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   paddingHorizontal: space.md,
                   height: 38,
                   borderRadius: radius.pill,
-                  backgroundColor: on ? theme.accent : '#FFFFFF',
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: on ? theme.accent : theme.fieldBorder,
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  backgroundColor: on ? theme.featureSurface : theme.fieldSurface,
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? '#FFFFFF' : theme.text2 }}>{t(ck)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: on ? '700' : '500', color: on ? theme.text : theme.text2 }}>{t(ck)}</Text>
               </Press>
             );
           })}

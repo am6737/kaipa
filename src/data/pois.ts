@@ -64,6 +64,8 @@ export interface Poi {
   participantPermissions?: JourneyParticipantPermissions;
   fav?: boolean;
   plannedDate?: string;
+  /** Last server-side edit time, used for journey list sorting. */
+  updatedAt?: string;
   countdown?: number;
   dayIndex?: number;
   totalDays?: number;

@@ -8,7 +8,11 @@ Deno.test('recovery refreshes mutable state instead of replaying pre-write snaps
 });
 
 Deno.test('successful writes and research remain replayable within the same run', () => {
-  for (const name of ['create_journey', 'add_itinerary_items', 'add_packing_items', 'search_travel_web', 'search_routes']) {
+  for (const name of ['create_journey', 'add_itinerary_items', 'add_packing_items', 'search_routes']) {
     assert.equal(canReplayToolResult(name), true, name);
   }
+});
+
+Deno.test('trusted guide reads refresh instead of replaying obsolete guide receipts', () => {
+  assert(!canReplayToolResult('read_route_guide'));
 });

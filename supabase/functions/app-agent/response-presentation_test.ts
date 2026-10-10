@@ -54,3 +54,11 @@ Deno.test('an incomplete response retains the actionable conflict reason', () =>
     throw new Error('Conflict explanation was lost');
   }
 });
+
+Deno.test('a saved partial candidate keeps its follow-up suggestion last', () => {
+  const suggestion = '请确认是否接受候选安排。';
+  const message = renderTaskResponse({ text: '已保留本轮能够确认的规划结果。', draft: null, followUpSuggestion: suggestion }, {
+    status: 'partial', draft: null, pendingQuestion: null, missingOperations: ['set_itinerary_group_endpoints'],
+  }, 'zh', '党岭');
+  if (!message.startsWith('旅程「党岭」已保存') || !message.endsWith(suggestion)) throw new Error('Follow-up suggestion was lost');
+});

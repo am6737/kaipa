@@ -63,6 +63,11 @@ function record(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 }
 
+function departureTime(value: unknown) {
+  const text = String(value || '');
+  return Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}+08:00`);
+}
+
 function availableSeats(seats: any[]) {
   return seats.filter(seat => seat.availability === '有' || /^[1-9]\d*$/.test(String(seat.availability)))
     .sort((a, b) => (typeof a.pricePerAdult === 'number' ? a.pricePerAdult : Infinity) - (typeof b.pricePerAdult === 'number' ? b.pricePerAdult : Infinity));
@@ -80,6 +85,18 @@ export function mergeMainTransportItems(items: MainTransport['itineraryItems'], 
   const local = items.filter(item => {
     if (item.kind === 'stay' || (item.kind === 'activity' && item.routeId)) return true;
     if (item.location?.incomingMode) return false;
+    // Models sometimes restate a queried departure using a generic title.
+    // Keep the provider row even when the copy contains no service number.
+    // Match the full interval and place, so real airport transfers survive.
+    if (item.timeStart && item.timeEnd && item.location?.name
+      && main.itineraryItems.some(service => service.day === item.day
+        && service.timeStart === item.timeStart && service.timeEnd === item.timeEnd
+        && service.location?.name === item.location?.name)) return false;
+    if (/^(?:抵达|到达)/.test(item.title) && item.timeStart && item.timeEnd
+      && main.itineraryItems.some((service, index) => service.day === item.day
+        && service.timeStart === item.timeStart && service.timeEnd === item.timeEnd
+        && service.location?.name === item.startLocation?.name
+        && main.itineraryItems[index + 1]?.location?.name === item.location?.name)) return false;
     if (/接驳|出租|网约车|公交|地铁|步行|拼车|班车|\btransfer\b|\btaxi\b/i.test(item.title)) return true;
     if (services.some(service => item.title.includes(service))) return false;
     return !(/高铁|动车|火车|航班|飞机|自驾|\btrain\b|\bflight\b|\bself.drive\b/i.test(item.title));
@@ -113,7 +130,7 @@ export function mergeMainTransportItems(items: MainTransport['itineraryItems'], 
 }
 
 /** Every concrete service/time below comes from a provider response, not a model. */
-export function providerItinerary(query: MainTransportQuery, result: unknown, firstDate: string | null): MainTransport['itineraryItems'] {
+export function providerItinerary(query: MainTransportQuery, result: unknown, firstDate: string | null, now = Date.now()): MainTransport['itineraryItems'] {
   const data = record(result);
   if (!data.available || data.status !== 'results') return [];
   if (query.mode === 'self_drive') {
@@ -125,11 +142,15 @@ export function providerItinerary(query: MainTransportQuery, result: unknown, fi
       location: { name: query.destination, source: 'custom' } })];
   }
   if (!query.departureDate || !firstDate || !Array.isArray(data.offers)) return [];
-  const offer = data.offers.find((offer: any) => query.mode === 'rail'
-    ? (!offer.connection || offer.connection.usableForPlanning === true)
-      && Array.isArray(offer.seats ?? offer.segments?.[0]?.seats)
-      && (offer.segments || [offer]).every((segment: any) => Array.isArray(segment.seats) && availableSeats(segment.seats).length > 0)
-    : Array.isArray(offer.itineraries) && offer.itineraries.length > 0);
+  const offer = data.offers.find((offer: any) => {
+    const segments = query.mode === 'rail' ? offer.segments || [offer] : offer.itineraries?.[0]?.segments;
+    if (!Array.isArray(segments) || !segments.length
+      || !(departureTime(segments[0].departure) >= now + 60 * 60000)) return false;
+    return query.mode === 'rail'
+      ? (!offer.connection || offer.connection.usableForPlanning === true)
+        && segments.every((segment: any) => Array.isArray(segment.seats) && availableSeats(segment.seats).length > 0)
+      : true;
+  });
   if (!offer) return [];
   const segments = query.mode === 'rail' ? offer.segments || [offer] : offer.itineraries[0].segments;
   return segments.flatMap((segment: any) => {
@@ -162,6 +183,7 @@ export function providerItinerary(query: MainTransportQuery, result: unknown, fi
 export async function collectMainTransport(args: {
   request: TravelRequest; endpoints: z.infer<typeof transportEndpointsSchema>; plannedDate: string | null; days: number | null;
   query: (query: MainTransportQuery) => Promise<unknown>;
+  now?: number;
 }): Promise<MainTransport> {
   const suggestedDays = args.days == null && args.endpoints.durationBasis.trim() ? args.endpoints.suggestedDays : null;
   const queries = mainTransportQueries(args.request, args.endpoints, args.plannedDate, args.days ?? suggestedDays);
@@ -194,7 +216,7 @@ export async function collectMainTransport(args: {
     let selected = false;
     for (const entry of results.filter(query => query.direction === direction)) {
       const data = record(entry.result);
-      const items = providerItinerary(entry, entry.result, args.plannedDate);
+      const items = providerItinerary(entry, entry.result, args.plannedDate, args.now);
       if (!selected && items.length) { itineraryItems.push(...items); selected = true; }
       if (data.status !== 'results') unresolved.push(`${direction === 'outbound' ? '去程' : '返程'} ${entry.mode} 查询：${data.status || 'provider_error'}；不能据此推断无班次或已售罄。`);
     }

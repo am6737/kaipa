@@ -13,6 +13,7 @@ import type { Poi } from './pois';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
 import type { Track } from './tracks';
+import { useJourneyHomeContent, type JourneyHomeContent } from '../hooks/useJourneyHomeContent';
 
 export interface DataValue {
   userId: string;
@@ -38,6 +39,9 @@ export interface DataValue {
   leaveJourney: (id: string) => Promise<void>;
   toggleFav: (id: string, current: boolean) => Promise<void>;
   refetchJourneys: () => Promise<Poi[]>;
+  journeyHomeContent: JourneyHomeContent;
+  journeyHomeContentLoading: boolean;
+  refetchJourneyHomeContent: () => Promise<void>;
   refetchRoutes: () => Promise<void>;
   tracks: Track[];
   tracksLoading: boolean;
@@ -80,6 +84,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
     refetch: refetchJourneys,
   } = useJourneys(userId);
+  const { content: journeyHomeContent, loading: journeyHomeContentLoading, refetch: refetchJourneyHomeContent } = useJourneyHomeContent();
   const {
     cats, items, sets, loading: gearLoading,
     addCat, updateCat, deleteCat,
@@ -118,7 +123,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
     tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,
-    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes,
+    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes, journeyHomeContent, journeyHomeContentLoading, refetchJourneyHomeContent,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,

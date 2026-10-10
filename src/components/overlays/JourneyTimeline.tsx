@@ -2067,10 +2067,11 @@ function QuickAddSheet({ theme, groupStorageKey, initialDay, defaultDay, existin
 
             {/* place attachment — a text button until picked, then a removable chip */}
             {location.name ? (
-              <Press
-                onPress={() => setPlaceOpen(true)}
-                style={{ alignSelf: 'flex-start', maxWidth: '100%', marginTop: 6, marginBottom: 4, minHeight: 34, borderRadius: 17, paddingLeft: 12, paddingRight: 6, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.fieldSurface }}
-              >
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6, marginBottom: 2 }}>
+                <Press
+                  onPress={() => setPlaceOpen(true)}
+                  style={{ alignSelf: 'flex-start', maxWidth: '100%', minHeight: 34, borderRadius: 17, paddingLeft: 12, paddingRight: 6, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.fieldSurface }}
+                >
                 <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '600', color: theme.text, flexShrink: 1 }}>{location.name}</Text>
                 {location.source === 'track' && location.trackMeters != null ? (
                   // Where on the path it is, so the reader knows this place is not
@@ -2090,7 +2091,19 @@ function QuickAddSheet({ theme, groupStorageKey, initialDay, defaultDay, existin
                 >
                   <Icon name="close" size={11} color={theme.text2} strokeWidth={2.2} />
                 </Press>
-              </Press>
+                </Press>
+                {accessFrom && accessTo ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Press onPress={() => { Keyboard.dismiss(); setAccessPathOpen(true); }} accessibilityRole="button"
+                      style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 16, backgroundColor: theme.fieldSurface }}>
+                      <Text numberOfLines={1} style={{ color: theme.text, fontWeight: '600' }}>{t('journey.timeline.accessEditShort')}</Text>
+                    </Press>
+                    {location.incomingPath ? <Press onPress={() => setLocation(({ incomingPath: _removed, ...rest }) => rest)} accessibilityRole="button">
+                      <Text style={{ color: theme.text2 }}>{t('journey.timeline.accessRemove')}</Text>
+                    </Press> : null}
+                  </View>
+                ) : null}
+              </View>
             ) : (
               // Two kinds of place, two capsules. They used to sit on one line as
               // identically styled text, which read as a single sentence — and
@@ -2117,17 +2130,6 @@ function QuickAddSheet({ theme, groupStorageKey, initialDay, defaultDay, existin
               </View>
             )}
 
-            {accessFrom && accessTo ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8 }}>
-                <Press onPress={() => { Keyboard.dismiss(); setAccessPathOpen(true); }} accessibilityRole="button"
-                  style={{ padding: 10, borderRadius: 16, backgroundColor: theme.fieldSurface }}>
-                  <Text style={{ color: theme.text, fontWeight: '600' }}>{t('journey.timeline.accessEdit')}</Text>
-                </Press>
-                {location.incomingPath ? <Press onPress={() => setLocation(({ incomingPath: _removed, ...rest }) => rest)} accessibilityRole="button">
-                  <Text style={{ color: theme.text2 }}>{t('journey.timeline.accessRemove')}</Text>
-                </Press> : null}
-              </View>
-            ) : null}
             {location.incomingPath ? <Text style={{ color: theme.text2, fontSize: 12, marginBottom: 6 }}>{t(location.incomingPath.source === 'drawn' ? 'journey.timeline.accessDrawn' : 'journey.timeline.accessImported')}</Text> : null}
 
             {/* photos */}

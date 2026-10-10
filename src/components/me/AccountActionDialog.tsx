@@ -16,6 +16,7 @@ type Props = {
   confirming?: boolean;
   /** When set, the confirm button stays locked until the user types this text. */
   confirmPhrase?: string;
+  confirmPlaceholder?: string;
 };
 
 export function AccountActionDialog({
@@ -29,6 +30,7 @@ export function AccountActionDialog({
   onCancel,
   confirming = false,
   confirmPhrase,
+  confirmPlaceholder,
 }: Props) {
   const { width } = useWindowDimensions();
   const [mounted, setMounted] = React.useState(visible);
@@ -122,7 +124,7 @@ export function AccountActionDialog({
               autoCorrect={false}
               spellCheck={false}
               accessibilityLabel={confirmPhrase}
-              placeholder={confirmPhrase}
+              placeholder={confirmPlaceholder ?? confirmPhrase}
               placeholderTextColor={theme.text3}
               style={{
                 marginTop: space.lg,

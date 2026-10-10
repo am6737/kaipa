@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { Dimensions, Share, StyleSheet, Text, View } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
-import { getRouteDemoGuides, getRouteGuidePlans } from '../../data/routeGuides';
+import { useRouteGuides } from '../../hooks/useRouteGuides';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
@@ -11,21 +11,19 @@ import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
-import { RouteGuideRow, RouteGuideSectionHeader, RouteReferencePlanCard, RouteWeatherCard } from './RouteGuideContent';
+import { RouteGuideRow, RouteGuideSectionHeader, RouteWeatherCard } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
-import { getRouteConditionFixtures } from '../../data/routeConditions';
 import { RouteConditionCard } from './RouteConditionCard';
+import { useRouteConditions } from '../../hooks/useRouteConditions';
 
-export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void }) {
+export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const c = routeGuideCopy[resolved];
   const route = nav.merged(poi);
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
-  const plans = useMemo(() => getRouteGuidePlans(route), [route.id, route.name]);
-  const guides = useMemo(() => getRouteDemoGuides(plans), [plans]);
-  const reports = useMemo(() => getRouteConditionFixtures(route), [route.id, route.tone]);
-  const [selectedPlanId, setSelectedPlanId] = useState('day-hike');
+  const { guides, loading: guidesLoading } = useRouteGuides(route.id);
+  const { reports, loading: reportsLoading } = useRouteConditions(route.id);
 
 
   return (
@@ -43,7 +41,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         {difficultyLabel ? <InfoPill theme={theme} text={difficultyLabel} /> : null}
         <InfoPill theme={theme} icon="distance" text={route.dist} mono />
         <InfoPill theme={theme} icon="arrowUp" text={route.asc.replace('+', '')} mono />
-        <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} onPress={onNavigate ? () => onNavigate(route) : undefined} />
+        <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
       </View>
 
       {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}
@@ -71,24 +69,20 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         <RouteWeatherCard theme={theme} lng={route.lng} lat={route.lat} onPress={() => nav.openRouteGuide({ route, view: 'weather' })} />
       </View>
       <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.conditions} action={c.allConditions} onAction={() => nav.openRouteGuide({ route, view: 'conditions' })} />
-        {reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />)}
+        <RouteGuideSectionHeader theme={theme} title={c.conditions} tight action={c.allConditions} onAction={() => nav.openRouteGuide({ route, view: 'conditions' })} />
+        {reportsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : reports.length ? reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text, textAlign: 'center' }}>{c.noReports}</Text></View>}
       </View>
       <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.plans} />
-        <RouteReferencePlanCard theme={theme} plans={plans} selectedId={selectedPlanId} onSelect={setSelectedPlanId} onOpen={(plan) => nav.openRouteGuide({ route, view: 'plan', planId: plan.id })} />
+        <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
+        {guidesLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guides.length ? guides.slice(0, 2).map((guide, index) => <RouteGuideRow key={guide.id} theme={theme} guide={guide} compact photoUri={route.photoUris?.[index] ?? route.photoUris?.[0]} onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
       </View>
-      <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.guides} action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
-        {guides.slice(0, 2).map((guide, index) => <View key={guide.id} style={{ borderBottomWidth: index === 0 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={guide} photoUri={route.photoUris?.[index] ?? route.photoUris?.[0]} onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} /></View>)}
-      </View>
-      {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} /> : null}
+      {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} onNavigate={onNavigate} navigationActive={navigationActive} /> : null}
       {onFeedback ? (
         <Press
           onPress={onFeedback}
           accessibilityRole="button"
           accessibilityLabel={t('discover.routeFeedback')}
-          style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: space.md, paddingVertical: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+          style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: space.xl, paddingVertical: space.xxs }}
         >
           <View style={{ width: 23, height: 23, borderRadius: 12, borderWidth: 1.5, borderColor: theme.text2, alignItems: 'center', justifyContent: 'center', marginRight: space.sm }}>
             <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 17, fontWeight: '400' }}>?</Text>
@@ -101,7 +95,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   );
 }
 
-export function RoutePreviewActions({ theme, poi, style, onPlanRoute }: { theme: Theme; poi: Poi; style?: object; onPlanRoute?: (route: Poi) => void }) {
+export function RoutePreviewActions({ theme, poi, style, onPlanRoute, onNavigate, navigationActive }: { theme: Theme; poi: Poi; style?: object; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean }) {
   const nav = useNav();
   const { t } = useI18n();
   const route = nav.merged(poi);
@@ -120,9 +114,11 @@ export function RoutePreviewActions({ theme, poi, style, onPlanRoute }: { theme:
         icon={route.fav ? 'heartFill' : 'heart'}
         label={t('journey.more.favorite')}
         active={!!route.fav}
+        activeColor={theme.danger}
         preserveStyle
         onPress={() => nav.toggleFav()}
       />
+      {onNavigate ? <ActionPill theme={theme} icon="locate" label={t('discover.routeNavigate')} active={navigationActive} activeColor={theme.accent} preserveStyle onPress={() => onNavigate(route)} /> : null}
       <ActionPill theme={theme} icon="share" label={t('common.share')} onPress={() => void shareRoute()} />
       <Press
         hitSlop={3}
@@ -186,12 +182,13 @@ function InfoPill({ theme, icon, text, accent, mono, onPress }: { theme: Theme; 
   return onPress ? <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={text}>{content}</Press> : content;
 }
 
-function ActionPill({ theme, icon, label, active, preserveStyle = false, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; preserveStyle?: boolean; onPress: () => void }) {
+function ActionPill({ theme, icon, label, active, activeColor, preserveStyle = false, onPress }: { theme: Theme; icon: IconName; label: string; active?: boolean; activeColor?: string; preserveStyle?: boolean; onPress: () => void }) {
   const containerActive = active && !preserveStyle;
+  const foregroundColor = active ? (activeColor ?? theme.accent) : theme.text;
   return (
     <Press hitSlop={3} onPress={onPress} accessibilityRole="button" style={{ flexShrink: 1, minWidth: 0, height: 38, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: containerActive ? theme.accentSoft : theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: containerActive ? theme.accent : theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}>
-      <Icon name={icon} color={active ? theme.accent : theme.text} size={16} />
-      <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: active ? theme.accent : theme.text }}>{label}</Text>
+      <Icon name={icon} color={foregroundColor} size={16} />
+      <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: foregroundColor }}>{label}</Text>
     </Press>
   );
 }

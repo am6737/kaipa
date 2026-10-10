@@ -71,6 +71,7 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
     date: j.date,
     days: j.days,
     plannedDate: j.planned_date,
+    updatedAt: j.updated_at ?? undefined,
     countdown: j.countdown,
     dayIndex: j.day_index,
     totalDays: j.total_days,

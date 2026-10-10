@@ -32,7 +32,7 @@ const { chromium } = require('playwright');
     await button('返回通知中心').click();
     await view('我的待办');
     assert.equal(await page.locator('.inbox-item').count(), 5);
-    assert.equal(await item('审核山野照片分享').count(), 0);
+    assert.equal(await item('审核照片分享').count(), 0);
     await item('审核重装徒步装备分享').getByRole('button', { name: '去处理' }).click();
     await button('通过审核').click();
     await button('确认通过审核').click();

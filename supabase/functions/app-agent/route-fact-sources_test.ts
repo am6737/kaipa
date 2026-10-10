@@ -1,11 +1,11 @@
 import {
-  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, factSourceChips, factsForRoute, isStaleReview,
+  canReuseRouteFacts, routeFactsFingerprint, bindRouteFacts, emptyRouteFactStats, factFieldsRecord, factPromptBlock, guideSourceChips, factSourceChips, factsForRoute, isStaleReview,
   routeFactSourcesFromArtifact, transportLegNote, ROUTE_FACT_SOURCE_LIMIT, type RouteFactRow,
 } from './route-fact-sources.ts';
 import { TRANSPORT_NOTE_MAX, transportPlanSchema, type ResearchBrief } from './plan-document.ts';
 import type { AgentSource } from './types.ts';
 
-function assert(condition: unknown, message: string): asserts condition {
+function assert(condition: unknown, message = "Assertion failed"): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -63,7 +63,7 @@ Deno.test('the prompt block separates verified facts from expired ones', () => {
   assert(blocks[0].includes('已核实线路资料') && blocks[0].includes('优先于攻略正文') && blocks[0].includes('"id":"fresh"'), 'fresh facts keep their authority and expose their id');
   assert(!blocks[0].includes('"id":"stale"'), 'an expired fact must not sit in the authoritative block');
   assert(blocks[1].includes('已过期待复核') && blocks[1].includes('"id":"stale"'), 'expired facts move to the reference-only block');
-  assert(blocks[1].includes('targetEntryId'), 'the expired block tells the model how to propose an update');
+  assert(!blocks[1].includes('targetEntryId') && blocks[1].includes('不得估算或生成修订建议'), 'expired facts must not invite agent write-back');
 });
 
 Deno.test('no facts means no prompt block', () => {
@@ -191,4 +191,18 @@ Deno.test('legacy briefs and failed library reads cannot resurrect stale researc
   assert(!canReuseRouteFacts(null, current, null), 'unverified snapshots cannot reuse');
   assert(!canReuseRouteFacts(current, current, 'RPC unavailable'), 'read failure cannot certify unchanged facts');
   assert(canReuseRouteFacts(current, current, null), 'a confirmed empty library can reuse');
+});
+
+Deno.test('guide citation chips retain platforms, dates, null URLs and all sources beyond the web cap', () => {
+  const sources = [
+    { title: '帖子', platform: 'xiaohongshu', url: 'https://example.com/post', observedOn: '2026-09-01' },
+    { title: '队员观察', platform: 'firsthand', url: null, observedOn: '2026-09-03' },
+  ];
+  const guides = guideSourceChips(sources);
+  const chips = factSourceChips([], [...guides, ...guides, ...Array.from({ length: 10 }, (_, index) => webSource(index))], { webLimit: 1 });
+  assert(chips.length === 3);
+  assert(chips[0].title.includes('帖子') && chips[0].title.includes('小红书') && chips[0].title.includes('2026-09-01') && chips[0].source === 'xiaohongshu' && chips[0].platform === 'xiaohongshu');
+  assert(chips[0].observedOn === '2026-09-01' && chips[0].publishedAt === '2026-09-01');
+  assert(chips[1].title.includes('队员观察') && chips[1].title.includes('实地记录') && chips[1].title.includes('2026-09-03') && !chips[1].url && chips[1].observedOn === '2026-09-03');
+  assert(guideSourceChips([null, {}, { title: 'missing platform' }]).length === 0);
 });

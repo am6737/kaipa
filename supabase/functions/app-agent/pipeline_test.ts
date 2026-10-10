@@ -1,4 +1,5 @@
-import { STAGE_BUDGETS, useStagedPipeline } from './pipeline.ts';
+import { researchBriefSchema } from './plan-document.ts';
+import { bindCatalogFacts, findRecentBrief, hasDuplicatedRouteEvidence, STAGE_BUDGETS, useStagedPipeline, type PipelineDeps } from './pipeline.ts';
 import { constrainTaskDecision, taskDecisionSchema, type TaskDecision } from './task.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -135,4 +136,39 @@ Deno.test('one search cannot consume the stage that awaits it', async () => {
   } finally {
     releaseStageDeadline(runId);
   }
+});
+
+Deno.test('research reuse rejects pre-v4 briefs and legacy duplicated evidence, then accepts current independent routes', async () => {
+  const brief = researchBriefSchema.parse({ destination: '党岭、雅拉', routes: [
+    { name: '党岭', summary: '党岭湖泊路线', hikingDays: 2, sourceUrls: ['https://example.com/dangling'] },
+    { name: '雅拉', summary: '雅拉温泉路线', hikingDays: 2, sourceUrls: ['https://example.com/yala'] },
+  ] });
+  const current = bindCatalogFacts(brief, []);
+  assert(current.researchCacheVersion === 4, 'the current research binder must stamp artifacts');
+  let artifact: unknown = brief;
+  const chain = { select: () => chain, eq: () => chain, order: () => chain,
+    limit: async () => ({ data: [{ artifact, updated_at: new Date().toISOString(), route_facts: [] }], error: null }) };
+  const pipeline = { admin: { from: () => chain }, task: { decision: { destination: '雅拉、党岭' } } } as unknown as PipelineDeps;
+  assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) === null, 'old briefs lacking the marker must rebuild');
+  artifact = { ...current, researchCacheVersion: 2 };
+  assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) === null, 'older marker versions must rebuild');
+  artifact = { ...current, routes: current.routes.map(route => ({ ...route, sourceUrls: ['https://example.com/a', 'https://example.com/b'] })) };
+  assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) === null, 'identical non-empty URL sets must rebuild');
+  const reversed = { ...current, routes: [
+    { ...current.routes[0], sourceUrls: ['https://example.com/a', 'https://example.com/b', 'https://example.com/a'] },
+    { ...current.routes[1], sourceUrls: ['https://example.com/b', 'https://example.com/a'] },
+  ] };
+  assert(hasDuplicatedRouteEvidence(reversed), 'source comparison must ignore order and repetition');
+  artifact = { ...current, facts: [
+    { fact: '同一段错误的攻略事实', sourceUrl: 'https://example.com/dangling' },
+    { fact: '同一段错误的攻略事实', sourceUrl: 'https://example.com/yala' },
+  ] };
+  assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) === null, 'duplicated web facts must rebuild even with distinct URLs');
+  assert(hasDuplicatedRouteEvidence({ ...current, routes: current.routes.map(route => ({ ...route, summary: '同一段错误的摘要' })) }), 'duplicated route prose must rebuild');
+  artifact = current;
+  const reused = await findRecentBrief(pipeline, ['党岭', '雅拉']);
+  assert(reused?.brief.routes.length === 2, 'current independent evidence remains reusable');
+  assert(!hasDuplicatedRouteEvidence({ ...current, routes: current.routes.map(route => ({ ...route, sourceUrls: [] })) }), 'empty source sets alone must not count as contamination');
+  artifact = { ...current, guideFingerprint: 'a'.repeat(64), routes: current.routes.map(route => ({ ...route, sourceUrls: ['https://example.com/shared-guide-source'] })) };
+  assert(await findRecentBrief(pipeline, ['党岭', '雅拉']) !== null, 'trusted guides can legitimately cite the same post across routes');
 });

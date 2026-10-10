@@ -14,6 +14,8 @@ export interface RouteGuideGear {
   category: GuideText;
   note: GuideText;
   quantity: number;
+  weightKg?: number;
+  carryStatus?: 'packed' | 'worn' | 'consumable' | 'optional';
 }
 export interface RouteGuidePlan {
   id: string;
@@ -31,13 +33,15 @@ export interface RouteCommunityGuide {
   id: string;
   title: GuideText;
   author: GuideText;
+  authorAvatarUrl?: string | null;
+  description?: GuideText;
   season: 'autumn' | 'spring';
   travelDate: string;
+  publishedDate: string;
   updatedDate: string;
   helpful: number;
   plan: RouteGuidePlan;
   review: GuideText;
-  demo: true;
 }
 /** Ephemeral creation payload; it is not stored in the route catalog. */
 export interface RouteGuideJourneyTemplate {
@@ -91,15 +95,6 @@ export function getRouteGuidePlans(route: Pick<Poi, 'id' | 'name'>): RouteGuideP
   ];
 }
 
-export function getRouteDemoGuides(plans: RouteGuidePlan[]): RouteCommunityGuide[] {
-  const review = text('提前确认补给和住宿，给每天留一些余量。下次会按实际天气调整保暖装备，不把别人的节奏直接当成自己的计划。', 'verify supplies and lodging and allow spare time each day. Adapt layers and pace to actual conditions.');
-  return [
-    { id: 'demo-camp-autumn', title: text('三天两夜：行程与露营装备一起准备', 'Three days: itinerary and camping gear'), author: text('小满', 'Xiaoman'), season: 'autumn', travelDate: '2026-09-28', updatedDate: '2026-10-05', helpful: 128, plan: plans[2], review, demo: true },
-    { id: 'demo-stay-autumn', title: text('两天住宿版：轻装行程与装备清单', 'Two days with lodging: plan and packing list'), author: text('阿川', 'Achuan'), season: 'autumn', travelDate: '2026-10-02', updatedDate: '2026-10-06', helpful: 86, plan: plans[1], review, demo: true },
-    { id: 'demo-camp-spring', title: text('春季露营：每日安排与装备取舍', 'Spring camping: daily plan and gear choices'), author: text('北北', 'Beibei'), season: 'spring', travelDate: '2026-04-18', updatedDate: '2026-04-25', helpful: 203, plan: plans[2], review, demo: true },
-  ];
-}
-
 export type RouteGuideSort = 'recommended' | 'helpful' | 'updated';
 export function sortRouteGuides(guides: RouteCommunityGuide[], sort: RouteGuideSort, stay?: GuideStay): RouteCommunityGuide[] {
   return guides.filter((guide) => !stay || guide.plan.stay === stay).sort((a, b) => {
@@ -113,6 +108,6 @@ export function toRouteGuideTemplate(plan: RouteGuidePlan, lang: 'zh' | 'en'): R
   return {
     id: plan.id, routeId: plan.routeId, title: guideText(plan.title, lang),
     days: plan.days.map((day) => ({ title: guideText(day.title, lang), items: day.items.map((item) => guideText(item, lang)) })),
-    gear: plan.gear.map((item) => ({ sourceType: 'recommendedTemplate', name: guideText(item.name, lang), categoryName: guideText(item.category, lang), note: guideText(item.note, lang), quantity: item.quantity })),
+    gear: plan.gear.map((item) => ({ sourceType: 'recommendedTemplate', name: guideText(item.name, lang), categoryName: guideText(item.category, lang), note: guideText(item.note, lang), quantity: item.quantity, weightKg: item.weightKg })),
   };
 }

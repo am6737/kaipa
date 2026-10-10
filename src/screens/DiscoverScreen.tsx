@@ -544,19 +544,31 @@ export function DiscoverScreen({
   const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [routeNavigation, setRouteNavigation] = useState<PlannedLeg | null>(null);
+  // Keep the selected route active while its navigation request is being
+  // resolved, so the navigation button gives immediate feedback and can cancel.
+  const [routeNavigationRouteId, setRouteNavigationRouteId] = useState<string | null>(null);
   const routeNavigationRequestRef = React.useRef<AbortController | null>(null);
   useEffect(() => {
     routeNavigationRequestRef.current?.abort();
     routeNavigationRequestRef.current = null;
     setRouteNavigation(null);
+    setRouteNavigationRouteId(null);
     return () => routeNavigationRequestRef.current?.abort();
   }, [nav.pointInfo?.id]);
 
   const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
+    if (routeNavigationRouteId === route.id) {
+      routeNavigationRequestRef.current?.abort();
+      routeNavigationRequestRef.current = null;
+      setRouteNavigation(null);
+      setRouteNavigationRouteId(null);
+      return;
+    }
     routeNavigationRequestRef.current?.abort();
     const controller = new AbortController();
     routeNavigationRequestRef.current = controller;
     setRouteNavigation(null);
+    setRouteNavigationRouteId(route.id);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       let permission = await Location.getForegroundPermissionsAsync();
@@ -584,6 +596,8 @@ export function DiscoverScreen({
       if (routeNavigationRequestRef.current !== controller) return;
       const message = error instanceof Error && error.message === 'permission'
         ? t('discover.locationPermissionDenied') : t('discover.routeNavigateUnavailable');
+      setRouteNavigation(null);
+      setRouteNavigationRouteId(null);
       Alert.alert(t('discover.routeNavigate'), message);
     } finally {
       clearTimeout(timer);
@@ -1205,6 +1219,12 @@ export function DiscoverScreen({
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
+    // Route-card state changes (for example, toggling favorite) replace the
+    // point object but must not be treated as a new map focus target.
+    if (point.kind === 'route') {
+      if ((point.trackCoords?.length ?? 0) >= 2) return point.trackCoords ?? null;
+      return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
+    }
     const routeTracks = journeyRouteIds(point, focusedTimeline.rows, routes)
       .map((routeId) => routes.find((route) => route.id === routeId)?.trackCoords)
       .filter((coords): coords is [number, number][] => (coords?.length ?? 0) >= 2);
@@ -1221,7 +1241,7 @@ export function DiscoverScreen({
     if ((linkedRouteTrack?.length ?? 0) >= 2) return linkedRouteTrack!;
 
     return Number.isFinite(point.lng) && Number.isFinite(point.lat) ? [[point.lng, point.lat]] : null;
-  }, [nav.pointInfo, focusedTimeline.rows, routes]);
+  }, [nav.pointInfo?.id, nav.pointInfo?.kind, nav.pointInfo?.trackCoords, nav.pointInfo?.routeId, nav.pointInfo?.lng, nav.pointInfo?.lat, focusedTimeline.rows, routes]);
   // Opening a journey from the Journey tab otherwise mounts the detail tree,
   // initializes the Android map, and measures the full track in one JS frame.
   // Let the sheet/press transition get on screen first, then add the expensive
@@ -2315,7 +2335,7 @@ export function DiscoverScreen({
               accessibilityState={{ selected: mapAtRouteFrame }}
               style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
             >
-              <Icon name="locate" color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} />
+              <RotateCcw color={theme.text2} size={18} strokeWidth={2} />
             </Press>
           </Animated.View>
         </>
@@ -2385,6 +2405,7 @@ export function DiscoverScreen({
             {nav.pointInfo.kind === 'route' ? (
               <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
                 onNavigate={navigateToRoute}
+                navigationActive={routeNavigationRouteId === nav.pointInfo.id}
               />
             ) : !detailReady ? (
               <View style={{ minHeight: focusPanel, alignItems: 'center', justifyContent: 'center' }}>
@@ -2960,7 +2981,7 @@ export function DiscoverScreen({
           </Press>
         </View>
       ) : null}
-      {nav.pointInfo?.kind === 'route' && !nav.newJourneyOpen && !mapImmersive && routeSheetIndex > 0 ? (
+      {nav.pointInfo?.kind === 'route' && !nav.routeGuide && !nav.newJourneyOpen && !mapImmersive && routeSheetIndex > 0 ? (
         <View
           pointerEvents="box-none"
           style={{
@@ -2971,7 +2992,7 @@ export function DiscoverScreen({
             zIndex: 180,
           }}
         >
-          <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} />
+          <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} onNavigate={navigateToRoute} navigationActive={routeNavigationRouteId === nav.pointInfo.id} />
         </View>
       ) : null}
       {selectMode ? (

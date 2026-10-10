@@ -10,7 +10,7 @@ const review: OvernightReview = { sourceUrl, campQuote, waterStatus: 'reported',
   waterPlan: 'Historical report only; carry reserve water from the confirmed trailhead and verify before departure.',
   effortAssessment: 'First day is 12 km; guide reports steep ascent. Allow eight hours including breaks; current crossing conditions remain unknown.' };
 const waypoints = [{ name: 'Lake Camp', km: 12 }, { name: 'Pass', km: 14.4 }];
-const receipts = [{ tool_name: 'read_travel_guide', status: 'completed', output: { available: true, url: sourceUrl, text: `${campQuote}\n${waterQuote}` } }];
+const receipts = [{ tool_name: 'read_route_guide', status: 'completed', output: { available: true, sources: [{ url: sourceUrl }], markdown: `${campQuote}\n${waterQuote}` } }];
 const endpoint = { endDistanceKm: 12, locationName: 'Lake Camp', overnightReview: review };
 
 Deno.test('waypoint selectors resolve exact stored names and distances without model transcription', () => {
@@ -77,14 +77,14 @@ Deno.test('a dry overnight camp is allowed with carried water, without a positiv
   const dry = { ...review, waterStatus: 'unavailable' as const, waterQuote: dryQuote,
     waterPlan: 'Carry an estimated 5 L in 6 L capacity from the trailhead for drinking, dinner, breakfast and the next morning, including reserve. Verify trailhead supply; retreat if dry.',
   };
-  const reads = [{ ...receipts[0], output: { ...receipts[0].output, text: `${campQuote}\n${dryQuote}` } }];
+  const reads = [{ ...receipts[0], output: { ...receipts[0].output, markdown: `${campQuote}\n${dryQuote}` } }];
   assert(validateHikingBoundary({ ...endpoint, overnightReview: dry }, 72000, waypoints, reads).source === 'waypoint');
 });
 
-Deno.test('selected image text can ground a camp but image URLs and model observations alone cannot', () => {
-  const image = { tool_name: 'read_travel_guide_images', status: 'completed', output: { available: true, sourceUrl, images: [{ visibleText: `${campQuote} ${waterQuote}` }] } };
-  assert(validateHikingBoundary(endpoint, 72000, waypoints, [image]).source === 'waypoint');
-  rejects(() => validateHikingBoundary(endpoint, 72000, waypoints, [{ ...image, output: { ...image.output, images: [{ visibleText: '', observations: [campQuote, waterQuote] }] } }]));
+Deno.test('trusted guide citations require matching links and body quotes', () => {
+  assert(validateHikingBoundary(endpoint, 72000, waypoints, receipts).source === 'waypoint');
+  rejects(() => validateHikingBoundary(endpoint, 72000, waypoints, [{ ...receipts[0], output: { ...receipts[0].output, sources: [] } }]));
+  rejects(() => validateHikingBoundary(endpoint, 72000, waypoints, [{ ...receipts[0], output: { ...receipts[0].output, markdown: '' } }]));
 });
 
 Deno.test('trail finish needs no overnight review; explicit user distances stay unverified', () => {

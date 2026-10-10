@@ -1,8 +1,21 @@
 # Kaipa app-agent
 
-The app agent reads the signed-in user's Kaipa data and searches configured
-travel sources through one normalized tool. All credentials stay in the Edge
-Function environment.
+The app agent reads Kaipa data and the team's trusted route guides. Runtime
+external guide search/extraction is retired; the provider notes below are
+historical. Collection now runs offline (see
+[route guide collection](../../../docs/route-guide-collection.md)). Live rail,
+weather and maps queries remain operational.
+
+## Unit validation
+
+From this directory (Deno is also available through `npx --yes deno`):
+
+```bash
+deno check index.ts
+deno test --allow-env --allow-read .
+```
+
+Deno's default discovery runs `*_test.ts`, excluding `*.integration.ts`.
 
 The current task lifecycle, execution boundaries, skills and self-hosted rollout
 are documented in [Planning Harness](../../../docs/agent-harness.md).

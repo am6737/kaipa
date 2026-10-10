@@ -24,6 +24,11 @@ const localizedName = (name) => ({
 
 module.exports = ({ config }) => ({
   ...config,
+  extra: {
+    ...config.extra,
+    // Set EXPO_UPDATE_MODE per release: silent, prompt, or next_launch.
+    updateMode: process.env.EXPO_UPDATE_MODE || 'prompt',
+  },
   name: variantName(config.name),
   // Launcher names follow the OS language; in-app names follow useI18n().
   locales: {

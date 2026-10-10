@@ -107,6 +107,8 @@ export async function runPackingStage(deps: PackingRunners & {
       // only item-level invalid rows and deliberately ignores coverage and
       // nutrition gates; those are reported as warnings to the response.
       try {
+        await readJourneySections(client, context, journeyId, ['journey', 'track', 'itinerary', 'packing']);
+        await readAgentGear(client, context);
         const partial = await runCommitPackingDraftBestEffort({ revision: feedback.revision }, runContext) as { added?: number; skippedInvalid?: number };
         if ((partial.added ?? 0) > 0) {
           return { status: 'committed', revision: feedback.revision, itemCount: partial.added ?? 0, issues: feedback.issues };

@@ -30,7 +30,7 @@ Recent observations now use four local fixtures per route for requested UI
 review, including user posts, an official post and a verification badge. Their
 fixed October 2026 timestamps, authors, text and verification are fabricated;
 scenery images come from the existing illustrative photo library. Fixtures are
-not written to the database. Weather values still come from the weather provider. `useRouteWeather` reads a three-day Open-Meteo forecast for
+not written to the database. Weather values still come from the weather provider. `useRouteWeather` reads a seven-day Open-Meteo forecast for
 the catalog route's coordinates, with a 15-minute memory cache, timeout, retry
 and unavailable state. It identifies the nearby-coordinate forecast and source;
 it does not claim to forecast the full trail or summit. Weather is not an access
@@ -81,6 +81,14 @@ a temporary exported bundle with **only that unused native module stubbed**;
 repository code is not patched for that unrelated issue. Browser screenshots
 verify actual React Native Web route/guide components, not the HTML mockup.
 Native device rendering still needs a device or simulator pass.
+
+Route-card previews for recent observations and community guides use quiet
+text rows with 64px thumbnails and separators only between entries. Observation
+previews keep a two-line excerpt, visit date/section and author (with official
+source where applicable); verification details and full photo carousels stay in
+the observations page. Guide previews keep title, duration/style/season and
+author; packing-list labels, trip dates and helpful counts stay in the guide
+list/detail views. Both sections retain their two-entry previews and navigation.
 
 A disposable signed-in browser session verified route selection, draft switching,
 plan and guide equipment tabs, sorting, lodging filter, helpful feedback,

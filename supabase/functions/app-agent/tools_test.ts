@@ -1,4 +1,5 @@
-import { bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTravelWeb, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
+import { newPackingDraft } from './packing-draft.ts';
+import { railCacheTtl, runCommitPackingDraftBestEffort, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -78,7 +79,7 @@ function planningHarness(message: string, currentJourneyId?: string) {
     },
   };
   bindRunClient(context.runId, client);
-  return { context, updates, reads, dispose: () => releaseRunClient(context.runId) };
+  return { client, context, updates, reads, dispose: () => releaseRunClient(context.runId) };
 }
 
 Deno.test('exploration never requires a creation date, duration or track', async () => {
@@ -86,7 +87,7 @@ Deno.test('exploration never requires a creation date, duration or track', async
   // Exercise the real search tool without contacting external providers.
   Deno.env.set('TRAVEL_SEARCH_SOURCES', 'none');
   try {
-    for (const search of [searchRoutes, searchTravelWeb]) {
+    for (const search of [searchRoutes]) {
       for (const [message, journeyId, allowed] of [
         ['请重新规划行程和装备清单。', 'existing-journey', true],
         ['帮我规划行程', 'existing-journey', true],
@@ -125,21 +126,6 @@ Deno.test('create_journey still rejects missing basics and duplicate creation in
       assert(h.updates.some((update) => String(update.error).includes(expected)), 'creation guard must remain active');
       assert(!h.updates.some((update) => update.status === 'completed'), 'must not create a journey');
     } finally { h.dispose(); }
-  }
-});
-
-Deno.test('different transport reference queries in one run execute independently', async () => {
-  const sources = Deno.env.get('TRAVEL_SEARCH_SOURCES');
-  Deno.env.set('TRAVEL_SEARCH_SOURCES', 'none');
-  const h = planningHarness('Compare route and closures');
-  try {
-    await searchTravelWeb.invoke({ context: h.context } as never, JSON.stringify({ query: 'shuttle operator', purpose: 'transport' }));
-    await searchTravelWeb.invoke({ context: h.context } as never, JSON.stringify({ query: 'airport transfer', purpose: 'transport' }));
-    const results = h.updates.filter(update => update.status === 'completed').map(update => (update.output as { query: string }).query);
-    assert(results.join() === 'shuttle operator,airport transfer', 'second query reused unrelated transport results');
-  } finally {
-    h.dispose();
-    if (sources === undefined) Deno.env.delete('TRAVEL_SEARCH_SOURCES'); else Deno.env.set('TRAVEL_SEARCH_SOURCES', sources);
   }
 });
 
@@ -188,4 +174,94 @@ Deno.test('a multi-route query is searched term by term, not as one substring', 
   // be filtered by the minimum-length rule before the cap ever applies.
   assert(terms('党岭三湖 雅拉温泉 桑措玉琼 四姑娘山 格聂 狼塔 夏特 慕士')
     === '["党岭三湖","雅拉温泉","桑措玉琼","四姑娘山","格聂","狼塔"]', 'term count is capped to bound the fan-out');
+});
+
+Deno.test('near-departure rail TTL is capped at 15 minutes and honors lower overrides', () => {
+  const saved = Deno.env.get('RAIL_CACHE_TTL_SECONDS');
+  const now = Date.parse('2026-10-08T20:00:00+08:00');
+  try {
+    Deno.env.delete('RAIL_CACHE_TTL_SECONDS');
+    assert(railCacheTtl('2026-10-09', now) === 900, 'default must be 15 minutes');
+    Deno.env.set('RAIL_CACHE_TTL_SECONDS', '86400');
+    assert(railCacheTtl('2026-10-10', now) === 900, 'near departures must cap a long override');
+    assert(railCacheTtl('2026-10-12', now) === 86400, 'later departures retain the override');
+    Deno.env.set('RAIL_CACHE_TTL_SECONDS', '60');
+    assert(railCacheTtl('2026-10-09', now) === 60, 'a shorter override remains an upper bound');
+  } finally {
+    if (saved === undefined) Deno.env.delete('RAIL_CACHE_TTL_SECONDS'); else Deno.env.set('RAIL_CACHE_TTL_SECONDS', saved);
+  }
+});
+
+Deno.test('a full packing task commits only valid rows of its own draft and still denies incremental adds', async () => {
+  const h = planningHarness('Save packing', 'journey');
+  h.context.task = { runId: h.context.runId, journeyId: 'journey', outcome: null, decision: {
+    objective: 'Packing', mode: 'execute', domain: 'packing', domainQuote: null, authorizationUnconfirmed: false,
+    fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'Save packing',
+    operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], destination: null,
+    days: 1, derivedDays: null, plannedDate: null, dateUndecided: true, trackAttachmentName: null, packingMode: 'full', constraints: [],
+  } };
+  const versions = { journey: 'v1', track: 'v1', itinerary: 'v1', packing: 'v1', gear: 'v1' };
+  h.context.dataContext = { versions: {}, observed: { journey: versions }, snapshots: { gear: { revision: 'v1', data: {} } } };
+  const item = { name: 'USB-C 充电线', quantity: 1, weightKg: 0.03, weightEstimated: true, carryStatus: 'packed' as const, attributes: null, categoryName: null, estimatedEnergyKcalPerUnit: null };
+  const draft = newPackingDraft('journey', { accommodation: 'day_trip', waterRefill: 'none', mealPreparation: 'no_cook', conditions: null }, [item, { ...item, name: '饮用水' }]);
+  const committed: Array<Record<string, any>> = [];
+  const client = { from(table: string) {
+    if (table === 'agent_tool_calls') return h.client.from(table);
+    const data = table === 'agent_packing_drafts' ? { state: draft, last_edit: null }
+      : table === 'journeys' ? { id: 'journey', user_id: 'user' }
+      : table === 'journey_packing_lists' ? { id: 'list' }
+      : table === 'companions' ? [{ id: 1, user_id: 'user' }] : [];
+    const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain,
+      single: async () => ({ data, error: null }), maybeSingle: async () => ({ data, error: null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve) };
+    return chain;
+  }, rpc: async (_name: string, args: Record<string, any>) => {
+    committed.push(args.p_change);
+    return { data: { output: args.p_output, versions }, error: null };
+  } };
+  bindRunClient(h.context.runId, client);
+  try {
+    const denied = await addPackingItems.invoke({ context: h.context } as never, JSON.stringify({ journeyId: 'journey', mode: 'incremental', items: [item] }));
+    assert(String(denied).includes('task_scope_denied') && committed.length === 0, 'arbitrary incremental writes must remain denied');
+    const partial = await runCommitPackingDraftBestEffort({ revision: 1 }, { context: h.context }) as { added: number; skippedInvalid: number };
+    assert(partial.added === 1 && partial.skippedInvalid === 1, 'valid draft subset must save');
+    assert(Number(committed.length) === 1 && committed[0].items[0].name === 'USB-C 充电线', 'invalid rows must not reach the writer');
+    h.context.task.journeyId = 'other';
+    let rejected = false;
+    try { await runCommitPackingDraftBestEffort({ revision: 1 }, { context: h.context }); } catch { rejected = true; }
+    assert(rejected && Number(committed.length) === 1, 'a draft cannot write outside its task journey');
+  } finally { h.dispose(); }
+});
+
+Deno.test('rail cache reads reject older long-lived snapshots and write the shorter TTL', async () => {
+  const names = ['RAIL_QUERY_URL', 'RAIL_CACHE_TTL_SECONDS'];
+  const saved = names.map(name => Deno.env.get(name));
+  const originalFetch = globalThis.fetch;
+  const departureDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  try {
+    Deno.env.set('RAIL_QUERY_URL', 'http://rail-query:8787');
+    Deno.env.set('RAIL_CACHE_TTL_SECONDS', '86400');
+    for (const age of [60000, 16 * 60000, null]) {
+      const h = planningHarness('Query rail');
+      let requests = 0;
+      const writes: number[] = [];
+      globalThis.fetch = async () => {
+        requests++;
+        return Response.json({ provider: '12306-mcp', available: true, status: 'empty', offers: [], retrievedAt: new Date().toISOString(), limitation: 'Snapshot' });
+      };
+      bindRunClient(h.context.runId, h.client, { rpc: async (name: string, args: Record<string, any>) => {
+        if (name === 'write_agent_external_cache') { writes.push(args.p_ttl_seconds); return { data: null, error: null }; }
+        return { data: { available: true, status: 'results', offers: [{ trainNumber: 'STALE' }],
+          cacheMeta: age == null ? {} : { observedAt: new Date(Date.now() - age).toISOString() } }, error: null };
+      } });
+      try {
+        await searchTransport.invoke({ context: h.context } as never, JSON.stringify({ mode: 'rail', origin: '杭州东', destination: '成都东', departureDate, adults: 1 }));
+        assert(requests === (age === 60000 ? 0 : 1), 'only a fresh rail snapshot can avoid the provider');
+        if (age !== 60000) assert(writes.length === 1 && writes[0] === 900, 'refreshed rail snapshots must use the capped TTL');
+      } finally { h.dispose(); }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    names.forEach((name, i) => saved[i] === undefined ? Deno.env.delete(name) : Deno.env.set(name, saved[i]!));
+  }
 });

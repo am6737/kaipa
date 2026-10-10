@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { Camera, Dices } from 'lucide-react-native';
+import { Camera, ChevronRight, Dices } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,9 +18,11 @@ import { layout, radius, space, type } from '../design-system';
 import { useI18n } from '../i18n';
 import { MePushPage } from '../components/me/MePushPage';
 import type { Theme } from '../theme/theme';
+import { PlanningMetricPage } from '../components/me/PlanningMetricPage';
+import { PlanningWeightPage } from '../components/me/PlanningWeightPage';
 
 const STORAGE_PREFIX = 'kaipa_onboarding_v1:';
-const ZH_ADJECTIVES = ['山野', '清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
+const ZH_ADJECTIVES = ['清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
 const ZH_NOUNS = ['旅人', '行者', '向导', '背包客', '探路者'];
 const EN_ADJECTIVES = ['Wild', 'Alpine', 'Quiet', 'Summit', 'Forest', 'Dawn', 'Cloud', 'River'];
 const EN_NOUNS = ['Hiker', 'Walker', 'Guide', 'Trekker', 'Explorer'];
@@ -43,6 +45,7 @@ function OptionalField({
   error,
   decimal,
   onChange,
+  onOpen,
 }: {
   theme: Theme;
   label: string;
@@ -51,7 +54,18 @@ function OptionalField({
   error?: string;
   decimal?: boolean;
   onChange: (value: string) => void;
+  onOpen?: () => void;
 }) {
+  if (onOpen) return (
+    <Press accessibilityRole="button" accessibilityLabel={`${label} ${value || '--'} ${unit}`} onPress={onOpen} style={[styles.onboardingField, { backgroundColor: theme.surfaceTop, borderColor: error ? theme.danger : theme.border }]}>
+      <Text style={[styles.onboardingFieldLabel, { color: theme.text }]}>{label}</Text>
+      <View style={styles.onboardingFieldValue}>
+        <Text style={[styles.onboardingFieldNumber, { color: value ? theme.text : theme.text3 }]}>{value || '--'}</Text>
+        <Text style={[styles.onboardingFieldUnit, { color: theme.text2 }]}>{unit}</Text>
+        <ChevronRight size={18} color={theme.text3} />
+      </View>
+    </Press>
+  );
   return (
     <View style={{ gap: space.xs }}>
       <Text style={[type.eyebrow, { color: theme.text2 }]}>{label}</Text>
@@ -125,6 +139,7 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [editingMetric, setEditingMetric] = useState<NumericKey | null>(null);
   const trimmedNick = nick.trim();
   const hasPlanningValues = useMemo(() => Object.values(draft).some((value) => value.trim()), [draft]);
 
@@ -266,9 +281,9 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
           </>
         ) : (
           <View style={styles.outdoorFields}>
-            <OptionalField theme={theme} label={t('planningProfile.height')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => updateNumeric('heightCm', value)} />
-            <OptionalField theme={theme} label={t('planningProfile.weight')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => updateNumeric('weightKg', value)} />
-            <OptionalField theme={theme} label={t('planningProfile.age')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => updateNumeric('ageYears', value)} />
+            <OptionalField theme={theme} label={t('planningProfile.height')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => updateNumeric('heightCm', value)} onOpen={() => setEditingMetric('heightCm')} />
+            <OptionalField theme={theme} label={t('planningProfile.weight')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => updateNumeric('weightKg', value)} onOpen={() => setEditingMetric('weightKg')} />
+            <OptionalField theme={theme} label={t('planningProfile.age')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => updateNumeric('ageYears', value)} onOpen={() => setEditingMetric('ageYears')} />
             <View style={styles.dietarySection}>
               <Text style={[type.eyebrow, { color: theme.text2 }]}>{t('onboarding.dietaryLabel')}</Text>
               <View style={styles.dietaryOptions}>
@@ -303,6 +318,7 @@ function OnboardingFlow({ theme, onFinish }: { theme: Theme; onFinish: () => Pro
         {message ? <Text accessibilityRole="alert" style={[type.caption, styles.message, { color: theme.danger }]}>{message}</Text> : null}
         </View>
       </MePushPage>
+      {editingMetric === 'weightKg' ? <PlanningWeightPage theme={theme} value={draft.weightKg} onBack={(value) => { updateNumeric('weightKg', value); setEditingMetric(null); }} /> : editingMetric ? <PlanningMetricPage theme={theme} metric={editingMetric} value={draft[editingMetric]} onBack={(value) => { updateNumeric(editingMetric, value); setEditingMetric(null); }} /> : null}
     </KeyboardAvoidingView>
   );
 }
@@ -326,6 +342,11 @@ const styles = StyleSheet.create({
   randomButton: { width: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   field: { minHeight: 58, paddingHorizontal: space.md, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center' },
   fieldInput: { flex: 1, minWidth: 0, minHeight: 56, paddingVertical: 0, fontSize: 17 },
+  onboardingField: { minHeight: 72, paddingHorizontal: space.lg, borderRadius: radius.showcase, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  onboardingFieldLabel: { fontSize: 17, fontWeight: '600' },
+  onboardingFieldValue: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  onboardingFieldNumber: { fontSize: 21, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  onboardingFieldUnit: { fontSize: 16, fontWeight: '600' },
   message: { textAlign: 'center', lineHeight: 18 },
   footerSkip: { minHeight: 44, minWidth: 92, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   footerAction: { minWidth: 104, minHeight: 44, paddingHorizontal: space.lg, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },

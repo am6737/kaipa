@@ -78,8 +78,27 @@ Deno.serve(async (req, info) => {
     }
     const caller = createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:`Bearer ${auth.token}`}},auth:{persistSession:false,autoRefreshToken:false}});
     if (action === 'status') return json(await rpc(caller,'get_membership_status'));
-    if (action === 'admin_snapshot') return json(await rpc(caller,'membership_admin_snapshot'));
+    if (action === 'admin_snapshot') {
+      const [membership, runtime] = await Promise.all([
+        rpc(caller,'membership_admin_snapshot'),
+        rpc(caller,'runtime_controls_snapshot'),
+      ]);
+      return json({ ...membership, runtimeControls: runtime });
+    }
     if (action === 'admin_configure') return json(await rpc(caller,'configure_membership',{p_action:body.operation,p_data:body.configuration,p_reason:body.reason}));
+    if (action === 'runtime_configure') {
+      await rpc(caller,'configure_runtime_control',{
+        p_key:body.key,
+        p_state:body.state,
+        p_data:body.configuration || {},
+        p_reason:body.reason,
+      });
+      const [membership, runtime] = await Promise.all([
+        rpc(caller,'membership_admin_snapshot'),
+        rpc(caller,'runtime_controls_snapshot'),
+      ]);
+      return json({ ...membership, runtimeControls: runtime });
+    }
     if (action === 'purchase') throw new ResourceError('purchase_disabled',409);
     throw new ResourceError('invalid_request',400);
   } catch (error) {

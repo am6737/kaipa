@@ -1,19 +1,17 @@
+import { ruralLocationProvince } from './itinerary-geocoding.ts';
 import { presentItinerary } from './itinerary-presentation.ts';
 import { expandItineraryLocations } from './itinerary-locations.ts';
 // @ts-ignore Deno npm specifier
 import { tool } from 'npm:@openai/agents@0.16.1';
 // @ts-ignore Deno npm specifier
 import { z } from 'npm:zod@4.1.12';
+import { getRouteGuide, guideEvidence, guideDisclosure, recordGuideGaps, type GuideLookup } from './trusted-guides.ts';
 import type { AgentContext } from './types.ts';
 import { assertCreationFacts, assertTaskPackingMode, assertTaskWrite } from './task.ts';
 import { packingItem, packingPlanProfile, type PackingItem, type PackingProfile } from './packing-schema.ts';
 import { draftFeedback, draftPatchSchema, newPackingDraft, patchPackingDraft, type PackingDraft, type DraftIssue } from './packing-draft.ts';
 import { readPackingDraft, savePackingDraft } from './packing-draft-store.ts';
 import { validateDeletionTargets } from './deletion.ts';
-import { aggregateTravelSearch } from './search/aggregate.ts';
-import { createTravelSearchProviders, travelSearchNumberSetting } from './search/registry.ts';
-import { searchPurpose } from './search/routing.ts';
-import { analyzeGuideImages, readGuide, publicGuideUrl, GUIDE_LIMITS, type GuideContent, type GuideObservation } from './search/guide-reader.ts';
 import { queryGroundTransport } from './search/ground-transport.ts';
 import { queryTransport } from './search/transport.ts';
 import { journeyDayOrdinal, resolveJourneyDay } from './journey-days.ts';
@@ -57,8 +55,6 @@ type UploadedTrackData = {
 
 const requestClients = new Map<string, Client>();
 const cacheClients = new Map<string, Client>();
-const travelSearches = new Map<string, Map<string, Promise<unknown>>>();
-const guideReads = new Map<string, Promise<unknown>>();
 const journeyWrites = new Map<string, Promise<unknown>>();
 
 // The stage currently executing for a run, and when its budget expires.
@@ -105,8 +101,6 @@ export function bindRunClient(runId: string, client: Client, cacheClient?: Clien
 export function releaseRunClient(runId: string) {
   requestClients.delete(runId);
   cacheClients.delete(runId);
-  travelSearches.delete(runId);
-  guideReads.delete(runId);
   journeyWrites.delete(runId);
   stageDeadlines.delete(runId);
 }
@@ -122,12 +116,6 @@ function contextFor(runContext?: RunContext): AgentContext {
   if (!runContext?.context) throw new Error('Agent context is unavailable');
   return runContext.context;
 }
-
-function needsSourceVerification(output: any): boolean {
-  return Array.isArray(output?.sources) && output.sources.some((source: { errorCode?: string }) => source.errorCode === 'verification_required');
-}
-
-
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -167,68 +155,21 @@ function cacheTtl(name: string, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
 }
 
-function errorText(error: unknown) {
+export function errorText(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   try { return JSON.stringify(error); } catch { return String(error); }
 }
 
-function knowledgeCacheTtl(topic?: string) {
-  const base = cacheTtl('TRAVEL_KNOWLEDGE_CACHE_TTL_SECONDS', 15552000, 86400, 63072000);
-  // Most route knowledge changes slowly. Keep operational and safety-sensitive
-  // topics fresher without making evergreen route guidance miss the cache often.
-  if (topic === 'safety' || topic === 'access') return Math.min(base, 604800);
-  if (topic === 'season') return Math.min(base, 2592000);
-  return base;
+export function railCacheTtl(departureDate: string, now = Date.now()) {
+  const base = cacheTtl('RAIL_CACHE_TTL_SECONDS', 900, 1, 604800);
+  const departure = Date.parse(`${departureDate}T00:00:00+08:00`);
+  return departure <= now + 48 * 3600000 ? Math.min(base, 900) : base;
 }
 
-function knowledgeTopic(query: string, purpose: 'guide' | 'transport') {
-  if (purpose === 'transport') return 'access';
-  const value = query.toLocaleLowerCase();
-  if (/营地|露营|住宿|扎营|客栈/.test(value)) return 'camp';
-  if (/水源|补水|取水|饮水/.test(value)) return 'water';
-  if (/交通|班车|接驳|进山|出山|自驾|包车|拼车/.test(value)) return 'access';
-  if (/季节|月份|天气|雨季|雪季|开放/.test(value)) return 'season';
-  if (/安全|风险|封闭|高反|危险|救援/.test(value)) return 'safety';
-  if (/装备|穿着|物资|清单/.test(value)) return 'equipment';
-  return 'route';
-}
 
-async function knowledgeCacheIdentity(client: Client, context: AgentContext, query: string, purpose: 'guide' | 'transport') {
-  const normalizedQuery = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-  const locale = /[\u3400-\u9fff]/.test(query) ? 'zh' : 'en';
-  const topic = knowledgeTopic(query, purpose);
-  if (!context.currentJourneyId) return { routeKey: `query:${normalizedQuery}`, topic, locale, knowledgeVersion: 'global' };
-  const journey = await client.from('journeys').select('route_id,track_id,name,region')
-    .eq('id', context.currentJourneyId).is('deleted_at', null).maybeSingle();
-  if (journey.error) throw journey.error;
-  const row = journey.data;
-  const revisions = await client.from('agent_journey_revisions').select('journey,track')
-    .eq('journey_id', context.currentJourneyId).maybeSingle();
-  if (revisions.error) throw revisions.error;
-  const routeKey = row?.route_id ? `route:${row.route_id}`
-    : row?.track_id ? `track:${row.track_id}`
-    : `journey:${String(row?.name || row?.region || normalizedQuery).trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`;
-  // Route facts can be shared, but a changed route/track must get a new key.
-  // Itinerary and packing revisions are intentionally excluded: they are user
-  // state, not changes to the underlying route knowledge.
-  const knowledgeVersion = revisions.data
-    ? `journey-${revisions.data.journey}:track-${revisions.data.track}`
-    : 'unknown';
-  return { routeKey, topic, locale, knowledgeVersion };
-}
 
-function cacheMetadata(identity: { routeKey: string; topic: string; locale: string; knowledgeVersion: string }, cacheHit: boolean) {
-  return {
-    layer: 'route_knowledge',
-    routeKey: identity.routeKey,
-    topic: identity.topic,
-    locale: identity.locale,
-    knowledgeVersion: identity.knowledgeVersion,
-    observedAt: new Date().toISOString(),
-    cacheHit,
-  };
-}
+
 
 function isUndoableResult<T>(value: T | UndoableResult<T>): value is UndoableResult<T> {
   return Boolean(value && typeof value === 'object' && '__undoable' in value && value.__undoable === true);
@@ -277,7 +218,7 @@ function gcj02ToWgs84(lng: number, lat: number): [number, number] {
   return estimate;
 }
 
-async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Promise<JourneyMapLocation> {
+async function geocodeJourneyMapLocation(query: string, language = 'zh,en', province?: string): Promise<JourneyMapLocation> {
   const key = amapWebKey();
   if (!key) throw new Error('地图定位服务暂不可用');
   const params = new URLSearchParams({
@@ -286,13 +227,17 @@ async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Pro
     offset: '1',
     page: '1',
     extensions: 'base',
-    citylimit: 'false',
+    citylimit: province ? 'true' : 'false',
+    ...(province ? { city: province } : {}),
     language: language.startsWith('en') ? 'en' : 'zh_cn',
   });
   const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`, { signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error('地图定位服务暂不可用');
   const json = await response.json() as { status?: string; pois?: any[] };
-  const poi = json.status === '1' ? json.pois?.[0] : null;
+  const candidate = json.status === '1' ? json.pois?.[0] : null;
+  // Providers can ignore the city filter. Reject a rural namesake outside
+  // the journey province instead of routing the itinerary across the country.
+  const poi = candidate && (!province || candidate.pname === province) ? candidate : null;
   const [gcjLng, gcjLat] = String(poi?.location || '').split(',').map(Number);
   if (!Number.isFinite(gcjLng) || !Number.isFinite(gcjLat)) throw new Error(`没有找到「${query}」的地图坐标`);
   const [lng, lat] = gcj02ToWgs84(gcjLng, gcjLat);
@@ -310,11 +255,11 @@ async function geocodeJourneyMapLocation(query: string, language = 'zh,en'): Pro
   };
 }
 
-async function maybeGeocodeJourneyMapLocation(query: string | undefined): Promise<JourneyMapLocation | null> {
+async function maybeGeocodeJourneyMapLocation(query: string | undefined, province?: string): Promise<JourneyMapLocation | null> {
   const cleaned = query?.trim();
   if (!cleaned) return null;
   try {
-    return await geocodeJourneyMapLocation(cleaned);
+    return await geocodeJourneyMapLocation(cleaned, 'zh,en', province);
   } catch (error) {
     console.warn('Could not geocode journey location', error);
     return null;
@@ -440,8 +385,7 @@ async function mutateUnlocked<T>(toolName: string, args: unknown, runContext: Ru
   const argumentsHash = await sha256(stable(args));
   const existing = await client.from('agent_tool_calls').select('status,output').eq('run_id', context.runId).eq('tool_name', toolName).eq('arguments_hash', argumentsHash).maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data?.status === 'completed' && canReplayToolResult(toolName)
-    && !(toolName === 'search_travel_web' && !existing.data.output?.available && !needsSourceVerification(existing.data.output))) {
+  if (existing.data?.status === 'completed' && canReplayToolResult(toolName)) {
     if (toolName === 'create_journey' && context.task) {
       context.task.journeyId = existing.data.output.id;
       context.currentJourneyId = existing.data.output.id;
@@ -679,215 +623,47 @@ export const estimatePersonalPacking = tool({
   execute: runEstimatePersonalPacking,
 });
 
-export const searchTravelWeb = tool({
-  name: 'search_travel_web',
-  description: 'Search destination guides or transport reference pages. For guides, first verify the destination against journey/track context, then make one discovery search covering the task. Further guide queries reuse that result, including after recovery: read its articles/images, do not rephrase keywords. State unresolved gaps instead of inventing facts. Use purpose=transport only for actual transport evidence; community crawlers are excluded. For dated train/flight schedules, seats and fares use search_transport first. Web pages are not live availability or ticket quotes.',
-  parameters: z.object({
-    query: z.string().min(2).max(200),
-    purpose: z.enum(['guide', 'transport']).nullable().default(null),
-  }),
-  execute: async ({ query, purpose }, runContext) => {
-    const resolvedPurpose = searchPurpose(query, purpose ?? undefined);
-    const context = contextFor(runContext as RunContext);
-    const perform = async () => {
-      if (resolvedPurpose === 'guide') {
-        // The staged pipeline's deterministic research collector registers its
-        // fixed per-route queries in advance; those bypass the one-discovery
-        // guard so every route gets its own discovery pass. All other callers
-        // (the interactive loop) keep the single-search discipline.
-        const planned = plannedGuideQueries.get(context.runId)?.has(query.trim().replace(/\s+/g, ' ').toLocaleLowerCase()) === true;
-        const history = await guideHistory(clientFor(runContext as RunContext), context.runId);
-        const previous = planned ? undefined : history.find(call => call.tool_name === 'search_travel_web' && call.status === 'completed'
-          && (call.output?.purpose ?? searchPurpose(call.arguments.query || '', call.arguments.purpose)) === 'guide'
-          && Array.isArray(call.output?.results));
-        if (previous) return { ...previous.output, reused: true,
-          nextAction: 'This task already searched for guides. No new provider request was made. Reuse these original results and already-read articles/images; do not call search again or switch purpose to evade this limit. Finish remaining work and disclose unresolved facts.' };
+// Dependency injection keeps tests independent of concurrently curated guide data.
+export function createReadRouteGuide(lookup: GuideLookup = getRouteGuide) {
+  return tool({
+    name: 'read_route_guide',
+    description: 'Read the team maintained trusted route guide by catalog routeId or route name. Cite its sources, including sources without links. State asOf for prices, transport and closures. If missing or not covered, say so plainly and do not estimate or invent. No live web search.',
+    parameters: z.object({ routeId: z.string().min(1).max(100).nullable().default(null), name: z.string().min(1).max(120).nullable().default(null) }),
+    execute: (args, runContext) => mutate('read_route_guide', args, runContext as RunContext, async (client, context) => {
+      let routeId = args.routeId;
+      let name = args.name || routeId || '该路线';
+      if (!routeId && args.name) {
+        const result = await client.from('routes').select('id,name').ilike('name', `%${args.name}%`).limit(3);
+        if (result.error) throw result.error;
+        const rows = result.data || [];
+        const exact = rows.find((row: { name: string }) => row.name === args.name);
+        const route = exact ?? (rows.length === 1 ? rows[0] : null);
+        if (route) { routeId = route.id; name = route.name; }
       }
-      const searches = travelSearches.get(context.runId) || new Map<string, Promise<unknown>>();
-      travelSearches.set(context.runId, searches);
-      const key = `${resolvedPurpose}:${query.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`;
-      const activeSearch = searches.get(key);
-      if (activeSearch) return activeSearch;
-      const search = mutate('search_travel_web', { query, purpose: resolvedPurpose }, runContext as RunContext, async (client, context) => {
-        const getEnv = (name: string) => Deno.env.get(name);
-        const history = await client.from('agent_tool_calls').select('output').eq('run_id', context.runId).eq('tool_name', 'search_travel_web').eq('status', 'completed');
-        if (history.error) throw history.error;
-        const blocked = new Set((history.data || []).flatMap((call: { output?: { sources?: Array<{ source: string; errorCode?: string }> } }) =>
-          (call.output?.sources || []).filter(source => source.errorCode === 'verification_required').map(source => source.source)));
-        const providers = createTravelSearchProviders(getEnv, resolvedPurpose).map(provider => blocked.has(provider.source)
-          ? { source: provider.source, search: async () => ({ available: false, results: [], errorCode: 'verification_required' as const,
-            error: 'This source requires manual browser verification. No further platform request was made in this task.' }) }
-          : provider);
-        const hasCrawlerSource = providers.some((provider) => provider.source === 'xhs' || provider.source === 'douyin');
-        const maxResults = travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_MAX_RESULTS', 10, 1, 30);
-        const identity = await knowledgeCacheIdentity(client, context, query, resolvedPurpose);
-        const cacheKey = `travel-search:v2:${await sha256(stable({ purpose: resolvedPurpose, ...identity,
-          sources: providers.map(provider => provider.source).sort(), maxResults }))}`;
-        const cacheClient = cacheClientFor(context.runId, client);
-        const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-        if (cached?.available) return { ...cached, purpose: resolvedPurpose, cached: true,
-          cacheMeta: { ...(cached.cacheMeta || {}), cacheHit: true },
-          ...(resolvedPurpose === 'guide' ? { nextAction: 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again.' } : {}),
-        };
-        const result = await aggregateTravelSearch({
-          query,
-          providers,
-          // Max clamp is 30s, below the shortest stage budget, so a mis-set
-          // environment variable cannot again outlive the stage that waits on
-          // it. The documented default in README.md is 8000.
-          timeoutMs: stageBoundedTimeoutMs(travelSearchNumberSetting(getEnv, 'TRAVEL_SEARCH_TIMEOUT_MS', hasCrawlerSource ? 20000 : 8000, 2000, 30000), context.runId),
-          maxResults,
-        });
-        const cacheableResult = resolvedPurpose === 'guide'
-          ? { ...result, cacheMeta: cacheMetadata(identity, false) }
-          : result;
-        if (result.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, cacheableResult,
-          resolvedPurpose === 'guide' ? knowledgeCacheTtl(identity.topic) : cacheTtl('TRAVEL_SEARCH_CACHE_TTL_SECONDS', 900, 60, 86400));
-        return { ...cacheableResult, purpose: resolvedPurpose, ...(resolvedPurpose === 'guide' ? {
-          nextAction: result.results.length
-            ? 'Select 1-3 promising guide URLs and call read_travel_guide. This task has used its guide discovery search; do not change keywords to search again. Read selected images only if needed; snippets do not include image or video understanding. Finish with existing evidence and disclose missing facts.'
-            : 'No usable guide results. Do not repeat near-identical queries or retry unavailable sources. Use existing evidence and state the missing facts.',
-        } : {}), ...(resolvedPurpose === 'transport' ? {
-          limitation: 'Reference pages only, not live schedules, fares or inventory. Check operator provenance and publication dates. No community fallback is allowed.',
-          ...(!result.available ? { nextAction: 'The reference provider is unavailable. Do not rephrase or repeat searches to bypass missing access; explain the limitation and continue with clearly unverified estimates.' } : {}),
-        } : {}) };
-      });
-      searches.set(key, search);
-      void search.then(result => {
-        if (!(result as { available?: boolean }).available && !needsSourceVerification(result)) searches.delete(key);
-      }, () => { searches.delete(key); });
-      return search;
-    };
-    // The journal survives worker recovery; serialization also prevents parallel rephrases.
-    return resolvedPurpose === 'guide' ? guideOperation(runContext as RunContext, perform) : perform();
-  },
-});
-
-// Programmatic entry point for the staged pipeline's deterministic research
-// collector. It reuses the tool's own invoke path — argument parsing, journal
-// receipts, provider guards and read budgets — so the pipeline cannot drift
-// from the interactive code path. On a tool error the SDK's default error
-// function returns an error string instead of throwing; aborts still throw.
-export const runSearchTravelWeb = async (args: { query: string; purpose?: 'guide' | 'transport' | null }, runContext: RunContext): Promise<unknown> =>
-  searchTravelWeb.invoke(runContext as never, JSON.stringify(args), undefined);
-
-type GuideCall = { tool_name: string; status: string; arguments: { query?: string; purpose?: 'guide' | 'transport'; url?: string; imageIds?: number[] }; output?: any };
-
-// Fixed per-route discovery queries registered by the staged pipeline's
-// deterministic research collector. The interactive one-search guard stays in
-// force for every query that was not planned in advance.
-const plannedGuideQueries = new Map<string, Set<string>>();
-export function allowGuideQueries(runId: string, queries: string[]): void {
-  plannedGuideQueries.set(runId, new Set(queries.map(query => query.trim().replace(/\s+/g, ' ').toLocaleLowerCase())));
+      const evidence = guideEvidence(name, routeId, lookup);
+      await recordGuideGaps(cacheClients.get(context.runId), context.runId, context.userId, context.threadId, evidence);
+      const guide = routeId ? lookup(routeId) : null;
+      return { available: !!guide, routeId, name, markdown: guide?.markdown ?? '', asOf: evidence.asOf,
+        sections: guide?.sections ?? [], sources: evidence.sources, missingSections: evidence.missingSections,
+        disclosure: guideDisclosure(name, evidence.missingSections) };
+    }),
+  });
 }
-// The deterministic research collector registers the guide URLs it will read
-// before reading them, the same way it registers queries: the interactive
-// per-run page budget must not silently truncate a multi-route pipeline's
-// evidence collection. The collector's own deadline still bounds the work.
-const plannedGuideReads = new Map<string, Set<string>>();
-export function allowGuideReads(runId: string, urls: string[]): void {
-  const set = plannedGuideReads.get(runId) || new Set<string>();
-  for (const url of urls) set.add(url);
-  plannedGuideReads.set(runId, set);
-}
-export function clearGuideQueries(runId: string): void {
-  plannedGuideQueries.delete(runId);
-  plannedGuideReads.delete(runId);
+export const readRouteGuide = createReadRouteGuide();
+
+async function guideHistory(client: Client, runId: string) {
+  const [calls, stage] = await Promise.all([
+    client.from('agent_tool_calls').select('tool_name,status,output').eq('run_id', runId).eq('tool_name', 'read_route_guide'),
+    client.from('agent_stages').select('artifact').eq('run_id', runId).eq('stage', 'research').order('attempt', { ascending: false }).limit(1),
+  ]);
+  if (calls.error) throw calls.error;
+  if (stage.error) throw stage.error;
+  const guides = stage.data?.[0]?.artifact?.guideEvidence ?? [];
+  return [...(calls.data ?? []), ...guides.map((guide: { markdown: string; sources: unknown[] }) => ({
+    tool_name: 'read_route_guide', status: 'completed', output: { available: !!guide.markdown, ...guide },
+  }))];
 }
 
-async function guideHistory(client: Client, runId: string): Promise<GuideCall[]> {
-  const result = await client.from('agent_tool_calls').select('tool_name,status,arguments,output').eq('run_id', runId)
-    .in('tool_name', ['search_travel_web', 'read_travel_guide', 'read_travel_guide_images']);
-  if (result.error) throw result.error;
-  return result.data || [];
-}
-
-// Serialize read/vision decisions so parallel tool calls cannot evade the
-// per-run budget. Journal receipts also retain the budget across recovery.
-async function guideOperation<T>(runContext: RunContext, operation: () => Promise<T>): Promise<T> {
-  const runId = contextFor(runContext).runId;
-  const next = (guideReads.get(runId) || Promise.resolve()).catch(() => {}).then(operation);
-  guideReads.set(runId, next);
-  try { return await next; } finally { if (guideReads.get(runId) === next) guideReads.delete(runId); }
-}
-
-export const readTravelGuide = tool({
-  name: 'read_travel_guide',
-  description: 'Read the body and candidate image URLs of a selected search_travel_web result, not just its snippet. Read 1-3 promising guides from the existing search instead of searching again. Only URLs returned by this run\'s search are accepted. Images are NOT analyzed yet; choose relevant image IDs with read_travel_guide_images if text leaves important gaps. No videos or restricted-content bypass.',
-  parameters: z.object({ url: z.string().min(1).max(2048) }),
-  execute: ({ url: input }, runContext) => {
-    const url = publicGuideUrl(input);
-    return guideOperation(runContext as RunContext, () => mutate('read_travel_guide', { url }, runContext as RunContext, async (client, context) => {
-      const calls = await guideHistory(client, context.runId);
-      const sources = calls.filter(call => call.tool_name === 'search_travel_web' && call.status === 'completed')
-        .flatMap(call => Array.isArray(call.output?.results) ? call.output.results : []);
-      const source = sources.find((source: { url?: string }) => {
-        try { return typeof source.url === 'string' && publicGuideUrl(source.url) === url; } catch { return false; }
-      });
-      if (!source) throw new Error('Select an exact URL returned by search_travel_web in this task');
-      const plannedRead = plannedGuideReads.get(context.runId)?.has(url) === true;
-      if (!plannedRead && new Set(calls.filter(call => call.tool_name === 'read_travel_guide').map(call => call.arguments.url)).size > GUIDE_LIMITS.pages) {
-        return { available: false, status: 'budget_exhausted', url, limitation: 'Article read budget reached. Reuse existing guides and report remaining gaps; do not keep searching to bypass this limit.' };
-      }
-      const cacheClient = cacheClientFor(context.runId, client);
-      const cacheKey = `travel-guide:v1:${await sha256(url)}`;
-      const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-      if (cached?.available) return { ...cached, cached: true,
-        cacheMeta: { ...(cached.cacheMeta || {}), cacheHit: true }, title: source.title, publishedAt: source.publishedAt };
-      const result = await readGuide(url, name => Deno.env.get(name));
-      const output = { ...result, title: source.title, publishedAt: source.publishedAt,
-        results: result.available ? [{ title: source.title, url, source: source.source, publishedAt: source.publishedAt }] : [] };
-      const cacheableOutput = { ...output, cacheMeta: { layer: 'guide_document', sourceUrl: url, observedAt: new Date().toISOString(), cacheHit: false } };
-      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, cacheableOutput, knowledgeCacheTtl());
-      return cacheableOutput;
-    }));
-  },
-});
-
-export const runReadTravelGuide = async (args: { url: string }, runContext: RunContext): Promise<unknown> =>
-  readTravelGuide.invoke(runContext as never, JSON.stringify(args), undefined);
-
-export const readTravelGuideImages = tool({
-  name: 'read_travel_guide_images',
-  description: 'Read selected image IDs from a successful read_travel_guide receipt in this task. Prefer route diagrams/day tables where body text leaves a concrete gap. Returns visible text, observations, uncertainties and image/source URLs, not verified current facts. Max 4 images per call, 6 distinct images and 3 image-read batches per task. No video analysis.',
-  parameters: z.object({ url: z.string().min(1).max(2048), imageIds: z.array(z.number().int().positive()).min(1).max(GUIDE_LIMITS.batch) }),
-  execute: ({ url: input, imageIds }, runContext) => {
-    const url = publicGuideUrl(input);
-    const ids = [...new Set(imageIds)].sort((a, b) => a - b);
-    return guideOperation(runContext as RunContext, () => mutate('read_travel_guide_images', { url, imageIds: ids }, runContext as RunContext, async (client, context) => {
-      const calls = await guideHistory(client, context.runId);
-      const page = calls.find(call => call.tool_name === 'read_travel_guide' && call.status === 'completed'
-        && call.arguments.url === url && call.output?.available)?.output as GuideContent | undefined;
-      if (!page) throw new Error('Read the selected guide body first; only its returned images can be analyzed');
-      const images = ids.map(id => page.images.find(image => image.id === id));
-      if (images.some(image => !image)) throw new Error('Select only image IDs returned for this guide');
-      const imageCalls = calls.filter(call => call.tool_name === 'read_travel_guide_images');
-      const attempted = new Set(imageCalls.flatMap(call => (call.arguments.imageIds || []).map(id => `${call.arguments.url}#${id}`)));
-      if (imageCalls.length > 3 || attempted.size > GUIDE_LIMITS.images) {
-        return { available: false, status: 'budget_exhausted', sourceUrl: url, images: [], limitation: 'Image reading budget reached. Use existing text and observations; state any unresolved gaps.' };
-      }
-      const cached = new Map<number, GuideObservation>();
-      for (const call of imageCalls) {
-        if (call.arguments.url !== url || call.status !== 'completed' || !call.output?.available) continue;
-        for (const observation of call.output.images as GuideObservation[]) cached.set(observation.imageId, observation);
-      }
-      const pending = images.filter((image): image is NonNullable<typeof image> => Boolean(image && !cached.has(image.id)));
-      if (!pending.length) return { available: true, status: 'completed', sourceUrl: url, images: ids.map(id => cached.get(id)!), cached: true,
-        limitation: 'Reused image observations, not current safety verification or exact GPX distances. No video was read.' };
-      const cacheClient = cacheClientFor(context.runId, client);
-      const cacheKey = `travel-guide-images:v1:${await sha256(stable({ url, ids }))}`;
-      const external = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-      if (external?.available) return { ...external, cached: true };
-      const result = await analyzeGuideImages(url, pending, name => Deno.env.get(name));
-      const output = { ...result, images: [...ids.flatMap(id => cached.has(id) ? [cached.get(id)!] : []), ...result.images] };
-      if (output.available && cacheClient) await writeExternalCache(cacheClient, cacheKey, output, knowledgeCacheTtl());
-      return output;
-    }));
-  },
-});
-
-export const runReadTravelGuideImages = async (args: { url: string; imageIds: number[] }, runContext: RunContext): Promise<unknown> =>
-  readTravelGuideImages.invoke(runContext as never, JSON.stringify(args), undefined);
 
 export const searchTransport = tool({
   name: 'search_transport',
@@ -907,7 +683,9 @@ export const searchTransport = tool({
       const cacheKey = `transport:v2:${args.mode === 'flight' ? flightProvider : '12306'}:${await sha256(stable(args))}`;
       const cacheClient = cacheClientFor(contextFor(runContext as RunContext).runId, client);
       const cached = cacheClient ? await readExternalCache(cacheClient, cacheKey) : null;
-      if (cached?.available || cached?.status === 'empty') return { ...cached, cached: true,
+      const fresh = args.mode !== 'rail' || (typeof cached?.cacheMeta?.observedAt === 'string'
+        && Date.parse(cached.cacheMeta.observedAt) > Date.now() - railCacheTtl(args.departureDate) * 1000);
+      if (fresh && (cached?.available || cached?.status === 'empty')) return { ...cached, cached: true,
         cacheMeta: { ...(cached.cacheMeta || {}), layer: 'transport', cacheHit: true } };
       const result = await queryTransport(args, name => Deno.env.get(name));
       if ((result.available || result.status === 'empty') && cacheClient) {
@@ -915,7 +693,7 @@ export const searchTransport = tool({
         await writeExternalCache(cacheClient, cacheKey, { ...result,
           cacheMeta: { layer: 'transport', observedAt: new Date().toISOString(), cacheHit: false } },
           isRail
-            ? cacheTtl('RAIL_CACHE_TTL_SECONDS', 86400, 300, 604800)
+            ? railCacheTtl(args.departureDate)
             : cacheTtl('FLIGHT_CACHE_TTL_SECONDS', 300, 15, 3600));
       }
       return result;
@@ -1022,7 +800,7 @@ export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(10
 export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, runContext?: RunContext): Promise<unknown> => mutate('add_itinerary_items', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
-      client.from('journeys').select('total_days').eq('id', args.journeyId).single(),
+      client.from('journeys').select('total_days,region').eq('id', args.journeyId).single(),
       client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,location').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name,note,sort_order,deleted').eq('journey_id', args.journeyId),
     ]);
@@ -1033,7 +811,7 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       ...(existingGroups.data || []).map((group: { name: string }) => group.name),
       ...(existingRows.data || []).map((row: { day: string }) => row.day),
     ].filter(Boolean))];
-    const presentation = presentItinerary(expandItineraryLocations(args.items), args.groupNotes);
+    const presentation = presentItinerary(expandItineraryLocations(args.items), args.groupNotes, journey.data.total_days);
     const normalizedItems = presentation.items.map((item) => ({ ...item, day: resolveJourneyDay(item.day, existingNames) }));
     const validationIssues = validateItineraryItems(normalizedItems, journey.data.total_days || undefined);
     if (validationIssues.length) throw new Error(itineraryValidationError(validationIssues));
@@ -1057,7 +835,7 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     const locations = new Map<string, JourneyMapLocation | null>();
     const queries = [...new Set(uniqueItems.filter(item => item.location && (item.location.longitude == null || item.location.latitude == null) && !/→|->|住宿地点|候选营地|附近|住宿$|轨迹起点|轨迹终点/.test(item.location.name)).map(item => item.location!.name))];
     for (let offset = 0; offset < queries.length; offset += 4) {
-      await Promise.all(queries.slice(offset, offset + 4).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name))));
+      await Promise.all(queries.slice(offset, offset + 4).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name, ruralLocationProvince(name, journey.data.region)))));
     }
     const rows = uniqueItems.map((item, index) => ({
       id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
@@ -1157,7 +935,7 @@ export function resolvePackingOwner(companions: Array<{ id: number; user_id?: st
 
 type PackingArgs = { journeyId: string; mode: 'full' | 'incremental'; planProfile?: PackingProfile | null; items: PackingItem[] };
 
-async function preparePacking(client: Client, context: AgentContext, args: PackingArgs) {
+async function preparePacking(client: Client, context: AgentContext, args: PackingArgs, partial = false) {
   if (args.mode === 'full' && !args.planProfile) {
     throw new Error('mode=full 时必须提交 planProfile，未知条件请明确填写 unknown。');
   }
@@ -1176,7 +954,7 @@ async function preparePacking(client: Client, context: AgentContext, args: Packi
     : { data: [], error: null };
   if (existing.error) throw existing.error;
   const prepared = args.items.map((item) => ({ ...item, displayName: packingItemDisplayName(item) }));
-  const personalNeeds = args.mode === 'full' && args.planProfile
+  const personalNeeds = !partial && args.mode === 'full' && args.planProfile
     ? await loadPersonalPlanningNeeds(client, context, args.journeyId, args.planProfile)
     : undefined;
   const existingHasFood = (existing.data || []).some((item: { name: string; category_name?: string; quantity: number }) => isPlanningFoodItem({
@@ -1190,7 +968,7 @@ async function preparePacking(client: Client, context: AgentContext, args: Packi
   const dietaryError = personalNeeds
     ? dietaryConflictError(personalNeeds.personalization.dietaryRestrictions, args.items)
     : undefined;
-  const coverageGaps = args.mode === 'full' && args.planProfile
+  const coverageGaps = !partial && args.mode === 'full' && args.planProfile
     ? missingPackingCoverage([
       ...(existing.data || []).map((item: { name: string; category_name?: string; quantity: number; attrs?: [string, string][] }) => ({
         name: item.name,
@@ -1204,9 +982,9 @@ async function preparePacking(client: Client, context: AgentContext, args: Packi
   return { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError };
 }
 
-async function executePackingItems(args: PackingArgs, runContext: RunContext | undefined) {
-  return mutate('add_packing_items', args, runContext as RunContext, async (client, context) => {
-    const { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError } = await preparePacking(client, context, args);
+async function executePackingItems(args: PackingArgs, runContext: RunContext | undefined, partialRevision?: number) {
+  return mutate('add_packing_items', partialRevision == null ? args : { ...args, partialRevision }, runContext as RunContext, async (client, context) => {
+    const { kind, ownerCompanionId, list, createdList, existing, prepared, validationIssues, coverageGaps, nutritionError, dietaryError } = await preparePacking(client, context, args, partialRevision != null);
     const errors = [validationIssues.length ? packingValidationError(validationIssues) : '', coverageGaps.length ? packingCoverageError(coverageGaps) : '', nutritionError, dietaryError].filter(Boolean);
     if (errors.length) throw new Error(errors.join('\n'));
     const listId: string = list.data?.id || crypto.randomUUID();
@@ -1245,7 +1023,7 @@ export const addPackingItems = tool({
     planProfile: packingPlanProfile.nullable().default(null).describe('full 模式必填；只填写从用户、旅程或可靠资料中已知的场景，未知项使用 unknown'),
     items: z.array(packingItem).min(1).max(100),
   }),
-  execute: executePackingItems,
+  execute: (args, runContext) => executePackingItems(args, runContext as RunContext),
 });
 
 async function validateDraft(client: Client, context: AgentContext, draft: PackingDraft) {
@@ -1338,9 +1116,9 @@ export const runCommitPackingDraftBestEffort = (args: z.infer<typeof commitPacki
   const invalid = new Set(validatePackingItems(draft.items.map(item => item.value)).map(issue => issue.index));
   const usable = draft.items.filter((_, index) => !invalid.has(index)).map(item => item.value);
   if (!usable.length) return { added: 0, skippedInvalid: invalid.size };
-  // Incremental mode intentionally omits full-list coverage and nutrition
-  // gates; item-level validation above still protects the canonical writer.
-  const result = await executePackingItems({ journeyId: draft.journeyId, mode: 'incremental', planProfile: null, items: usable }, runContext);
+  // Only this run's draft can skip completeness gates; the writer still
+  // checks full-mode authorization and validates every retained item.
+  const result = await executePackingItems({ journeyId: draft.journeyId, mode: 'full', planProfile: draft.planProfile, items: usable }, runContext, draft.revision);
   return { ...(result as Record<string, unknown>), skippedInvalid: invalid.size };
 });
 export const commitPackingDraft = tool({
@@ -1591,8 +1369,8 @@ export const readConversationHistory = tool({
   }),
 });
 
-export const kaipaAllTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaAllTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaGlobalTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, searchTravelWeb, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaGlobalTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaJourneyTools = [readTravelGuide, readTravelGuideImages, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchTravelWeb, searchJourneys, searchRoutes, addGear];
+export const kaipaJourneyTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchJourneys, searchRoutes, addGear];

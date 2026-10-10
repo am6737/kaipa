@@ -70,13 +70,8 @@ function evidenceTexts(receipts: GuideReceipt[], url: string): string[] {
   return receipts.flatMap(receipt => {
     const output = record(receipt.output);
     if (receipt.status !== 'completed' || output.available !== true) return [];
-    if (receipt.tool_name === 'read_travel_guide' && output.url === url && typeof output.text === 'string') return [output.text];
-    if (receipt.tool_name === 'read_travel_guide_images' && output.sourceUrl === url && Array.isArray(output.images)) {
-      return output.images.flatMap(image => {
-        const value = record(image);
-        return typeof value.visibleText === 'string' ? [value.visibleText] : [];
-      });
-    }
+    if (receipt.tool_name === 'read_route_guide' && typeof output.markdown === 'string' && Array.isArray(output.sources)
+      && output.sources.some(source => record(source).url === url)) return [output.markdown];
     return [];
   });
 }

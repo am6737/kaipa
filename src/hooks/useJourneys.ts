@@ -452,8 +452,9 @@ export function useJourneys(userId: string | undefined) {
       }
     }
 
+    const updatedAt = row.updated_at as string;
     setJourneys((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, ...resolvedPatch, ...linkProjection } : j)),
+      prev.map((j) => (j.id === id ? { ...j, ...resolvedPatch, ...linkProjection, updatedAt } : j)),
     );
   };
   const deleteJourney = async (id: string) => {

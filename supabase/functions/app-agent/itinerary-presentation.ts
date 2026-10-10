@@ -1,6 +1,7 @@
 import type { z } from 'npm:zod@4.1.12';
 import type { itineraryItem } from './tools.ts';
 import { omitGenericLodging } from './itinerary-locations.ts';
+import { journeyDayOrdinal } from './journey-days.ts';
 
 type Item = z.infer<typeof itineraryItem>;
 type GroupNote = { day: string; note: string };
@@ -16,8 +17,8 @@ const placeKey = (name: string) => name.replace(/^D\d+[：:]\s*|^(?:终点|起�
  * Supplied summaries stay concise without appended provider receipts or prose;
  * the fallback retains
  * existing descriptive titles when a legacy or repair response omits them. */
-export function presentItinerary(items: Item[], groupNotes: GroupNote[] = []) {
-  items = omitGenericLodging(items);
+export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], totalDays?: number | null) {
+  items = removeOutOfRangeArrivals(omitGenericLodging(items), totalDays);
   const notes = new Map<string, string>();
   for (const entry of groupNotes) {
     if (notes.has(entry.day)) throw new Error('同一个行程日只能输出一份摘要');
@@ -42,6 +43,11 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = []) {
     const action = notes.get(item.day) && item.kind === 'custom' && item.location && !service
       && original.length <= 40 ? original.split(/[；;]/).slice(1).join('；').trim() : '';
     if (action) title = `${placeKey(item.location!.name)}（${action}）`;
+    if ((/(?:次日|过夜|通宵|夜行|卧铺)/.test(original)
+      || (item.timeStart && item.timeEnd && item.timeEnd <= item.timeStart))
+      && !/(?:次日|过夜|通宵|夜行|卧铺)/.test(title)) {
+      title = `${title.slice(0, 114)}（次日到达）`;
+    }
     if (title !== original && !notes.get(item.day) && (!isMarker || descriptive || service)) {
       const extra = additions.get(item.day) ?? [];
       if (!extra.includes(original) && !notes.get(item.day)?.includes(original)) extra.push(original);
@@ -98,4 +104,9 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = []) {
     notes.set(day, note);
   }
   return { items: result, groupNotes: [...notes].map(([day, note]) => ({ day, note })) };
+}
+
+export function removeOutOfRangeArrivals(items: Item[], totalDays?: number | null): Item[] {
+  return items.filter(item => !(totalDays != null && item.location?.incomingMode
+    && /^(?:抵达|到达)/.test(item.title) && (journeyDayOrdinal(item.day) ?? 0) > totalDays));
 }

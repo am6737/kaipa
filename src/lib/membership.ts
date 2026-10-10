@@ -19,7 +19,7 @@ export interface MembershipStatus {
   isLifetime: boolean;
   validUntil: string | null;
   accessSource: 'membership' | 'campaign' | 'free';
-  campaign: { id: string; endsAt: string | null } | null;
+  campaign: { id: string; startsAt?: string; endsAt: string | null } | null;
   stage: OperationStage;
   purchaseEnabled: boolean;
   features: Record<string, boolean>;

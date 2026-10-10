@@ -180,7 +180,8 @@ Deno.test('full tracked app planning exposes and requires endpoints even with un
   assert(task.decision.requiredOperations.includes('set_itinerary_group_endpoints'));
   const runtime = createAgentRuntime({ model: 'test', apiKey: 'test', baseUrl: 'https://example.test' }, true, task);
   assert(runtime.agent.tools.some(tool => tool.name === 'set_itinerary_group_endpoints'));
-  const calls = [{ toolName: 'add_itinerary_items', status: 'completed' }, { toolName: 'add_packing_items', status: 'completed' }];
+  const calls = [{ toolName: 'add_itinerary_items', status: 'completed' }, { toolName: 'add_packing_items', status: 'completed' },
+    { toolName: 'update_journey_schedule', status: 'completed' }, { toolName: 'set_journey_map_location', status: 'completed' }];
   assert(taskOutcome(task, { draft: null, pendingQuestion: null }, calls).status === 'partial');
   for (const groupCount of [1, 6, 7]) {
     const result = taskOutcome(task, { draft: null, pendingQuestion: null }, [...calls, {
@@ -244,4 +245,59 @@ Deno.test('a paraphrased authorization is flagged for confirmation instead of si
   assert(quoted.mode === 'execute' && quoted.authorizationUnconfirmed === false, 'a verified quote executes without the flag');
   const asked = constrainTaskDecision({ ...planned, mode: 'discuss', authorizationQuote: '' }, message, null, null, { hasBoundTrack: false });
   assert(asked.authorizationUnconfirmed === false, 'a question is not an unconfirmed execution request');
+});
+
+Deno.test('full hiking execution deterministically requires schedule and map writes without a track', () => {
+  for (const patch of [{ fullHikingPlan: true }, { fullHikingPlan: false }] as const) {
+    const result = constrainTaskDecision(decision(patch), 'save', null, 'journey', { hasBoundTrack: false, intent: 'plan_journey' });
+    for (const operation of ['update_journey_schedule', 'set_journey_map_location'] as const) {
+      assert(result.operations.includes(operation) && result.requiredOperations.includes(operation), `${operation} must be required`);
+    }
+  }
+  const full = constrainTaskDecision(decision({ fullHikingPlan: true }), 'save', null, 'journey');
+  assert(full.requiredOperations.includes('update_journey_schedule') && full.requiredOperations.includes('set_journey_map_location'));
+  const undecided = constrainTaskDecision(decision({ fullHikingPlan: true }), 'save，天数还没确定，不需要问我，装备不用添加', null, 'journey');
+  assert(undecided.operations.includes('update_journey_schedule') && undecided.operations.includes('set_journey_map_location'));
+  const single = constrainTaskDecision(decision(), 'save', null, 'journey');
+  assert(!single.operations.includes('update_journey_schedule') && !single.operations.includes('set_journey_map_location'));
+});
+
+Deno.test('full planning respects explicit schedule/map exclusions and discussion never gains writes', () => {
+  for (const message of ['save，不要修改日期和天数，不用设置地图定位', 'save，日期不要改，地图不需要动', "save, don't change dates, no map updates"]) {
+    const result = constrainTaskDecision(decision({ fullHikingPlan: true,
+      operations: ['add_itinerary_items', 'update_journey_schedule', 'set_journey_map_location'],
+    }), message, null, 'journey', { hasBoundTrack: true, intent: 'plan_journey' });
+    assert(!result.operations.includes('update_journey_schedule') && !result.requiredOperations.includes('update_journey_schedule'));
+    assert(!result.operations.includes('set_journey_map_location') && !result.requiredOperations.includes('set_journey_map_location'));
+  }
+  const result = constrainTaskDecision(decision({ mode: 'discuss', fullHikingPlan: true }), 'save', null, 'journey', { hasBoundTrack: true, intent: 'plan_journey' });
+  assert(result.operations.length === 0 && result.requiredOperations.length === 0);
+});
+
+Deno.test('authorized full planning fills missing full-packing write permissions', () => {
+  for (const context of [undefined, { hasBoundTrack: false, intent: 'plan_journey' }]) {
+    const result = constrainTaskDecision(decision({ fullHikingPlan: true, packingMode: 'full' }), 'save', null, null, context);
+    assert(result.operations.includes('add_packing_items') && result.requiredOperations.includes('add_packing_items'));
+    assertTaskPackingMode(state({ decision: result }), 'full');
+    assertTaskWrite(state({ decision: result }), 'add_packing_items', 'journey');
+  }
+  for (const patch of [{ domain: 'transport' }, { fullHikingPlan: false }, { mode: 'discuss' }, { packingMode: 'incremental' }] as const) {
+    const result = constrainTaskDecision(decision({ fullHikingPlan: true, packingMode: 'full', ...patch }), 'save', null, 'journey');
+    assert(!result.operations.includes('add_packing_items'), `unexpected packing permission: ${JSON.stringify(patch)}`);
+  }
+});
+
+Deno.test('full planning respects packing already arranged or explicitly unwanted', () => {
+  for (const message of ['save，装备不用添加', 'save，不需要装备清单', 'save，装备已经准备好了', 'save，装备已安排好', 'save，装备已经安排了', 'save，装备已备齐', 'save，不想要装备清单', "save, no packing", "save, don't generate packing", 'save, packing already arranged', 'save, packing is not wanted']) {
+    const result = constrainTaskDecision(decision({ fullHikingPlan: true, packingMode: 'full', operations: ['add_itinerary_items', 'add_packing_items'] }), message, null, null);
+    assert(result.packingMode === 'none' && !result.operations.includes('add_packing_items') && !result.requiredOperations.includes('add_packing_items'), `exclusion ignored: ${message}`);
+  }
+});
+
+Deno.test('a verified unchanged schedule satisfies the task without a fabricated write receipt', () => {
+  const task = state({ decision: decision({ requiredOperations: ['add_itinerary_items', 'update_journey_schedule'] }) });
+  const calls = [{ toolName: 'add_itinerary_items', status: 'completed' }];
+  const output = { pendingQuestion: null, draft: null };
+  assert(taskOutcome(task, output, calls).status === 'partial');
+  assert(taskOutcome(task, output, calls, ['update_journey_schedule']).status === 'completed');
 });

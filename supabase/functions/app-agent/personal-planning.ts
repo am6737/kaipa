@@ -141,7 +141,7 @@ export function estimatePersonalPackingNeeds(
   };
 }
 
-const FOOD_PATTERN = /(食物|食品|路餐|餐食|能量棒|蛋白棒|坚果|花生|巧克力|饼干|面包|三明治|饭|面|牛肉干|肉脯|火腿肠|水果|香蕉|苹果|冻干|燕麦|food|meal|snack|bar|nuts?|jerky|chocolate|bread|sandwich|noodles?|fruit)/i;
+const FOOD_PATTERN = /(食物|食品|路餐|餐食|能量棒|蛋白棒|坚果|花生|巧克力|饼干|面包|三明治|米饭|自热饭|饭团|炒饭|盖饭|面条|方便面|挂面|拉面|泡面|拌面|牛肉干|肉脯|火腿肠|水果|香蕉|苹果|冻干|燕麦|food|meal|snack|bar|nuts?|jerky|chocolate|bread|sandwich|noodles?|fruit)/i;
 
 export function isPlanningFoodItem(item: NutritionPlanningItem) {
   return FOOD_PATTERN.test(`${item.categoryName || ''} ${item.name}`);

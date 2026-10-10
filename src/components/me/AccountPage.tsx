@@ -1,11 +1,10 @@
-// AccountPage.tsx — 账户与登录: tappable avatar, 个人资料, 账号安全, 第三方登录,
+// AccountPage.tsx — 个人资料 and 账号安全 pushed pages.
 // 注销账号, and a UID/join-date footer. Mirrors the prototype AccountScreen.
 import React, { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet, TextInput } from 'react-native';
 import { Theme } from '../../theme/theme';
-import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Avatar } from '../Avatar';
 import { Press } from '../Press';
@@ -17,7 +16,7 @@ import { MeSection, MeCard, MeRow } from './parts';
 import { MeEditField } from './EditFieldPage';
 import { AvatarUpdateError } from '../../hooks/useProfile';
 import { AccountActionDialog } from './AccountActionDialog';
-import { AppCard, layout, radius, space } from '../../design-system';
+import { layout, radius, space } from '../../design-system';
 
 const waitForNativePhotoPickerDismissal = async () => {
   if (AppState.currentState !== 'active') {
@@ -50,14 +49,18 @@ export interface MeProfile {
 export function AccountPage({
   theme,
   profile,
+  section = 'profile',
   onBack,
   onEdit,
+  onDeleteAccount,
   showToast,
 }: {
   theme: Theme;
   profile: MeProfile;
+  section?: 'profile' | 'security';
   onBack: () => void;
   onEdit: (field: MeEditField) => void;
+  onDeleteAccount?: () => void;
   showToast: (m: string) => void;
 }) {
   const nav = useNav();
@@ -67,6 +70,8 @@ export function AccountPage({
   const displayedUid = uid.length > 13 ? `${uid.slice(0, 8)}…${uid.slice(-4)}` : uid;
   const createdAt = data.profile.createdAt;
   const [avatarSaving, setAvatarSaving] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({ nick: profile.nick, bio: profile.bio });
+  const [profileSaving, setProfileSaving] = useState(false);
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -141,71 +146,86 @@ export function AccountPage({
     }
   };
 
-  return (
-    <MePushPage theme={theme} title={t('account.profile.pageTitle')} onBack={onBack}>
-      <View style={{ paddingHorizontal: layout.pagePadding }}>
-        <AppCard theme={theme} radius={radius.feature} style={{ boxShadow: 'none', borderWidth: 0, overflow: 'hidden', backgroundColor: theme.featureSurface }}>
-          <View pointerEvents="none" style={{ position: 'absolute', width: 142, height: 142, borderRadius: radius.pill, right: -54, top: -76, backgroundColor: theme.accentSofter }} />
-          <View style={{ padding: space.lg }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text numberOfLines={1} style={{ fontSize: 23, fontWeight: '800', letterSpacing: -0.4, color: theme.text }}>{profile.nick || t('me.unnamed')}</Text>
-              </View>
-              <Press
-                onPress={avatarSaving ? undefined : () => void pickAvatar()}
-                accessibilityRole="button"
-                accessibilityLabel={t('account.profile.avatarLibrary')}
-                scaleTo={0.96}
-                opacityTo={0.82}
-                style={{ width: 68, height: 68, borderRadius: 34 }}
-              >
-                <Avatar uri={data.profile.avatarUrl} size={68} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
-                {avatarSaving ? <View pointerEvents="none" style={{ position: 'absolute', inset: 0, borderRadius: 34, backgroundColor: 'rgba(0,0,0,0.36)', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#FFFFFF" /></View> : null}
-                <View pointerEvents="none" style={{ position: 'absolute', right: -1, bottom: -1, width: 28, height: 28, borderRadius: radius.pill, backgroundColor: theme.accent, borderWidth: 2.5, borderColor: theme.featureSurface, alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="camera" color="#fff" size={14} />
-                </View>
-              </Press>
-            </View>
-            {profile.bio ? <Text numberOfLines={2} style={{ fontSize: 14.5, color: theme.text2, lineHeight: 20, marginTop: space.md }}>{profile.bio}</Text> : null}
-          </View>
-        </AppCard>
+  const saveProfile = async () => {
+    if (profileSaving) return;
+    setProfileSaving(true);
+    try {
+      if (profileDraft.nick !== profile.nick) await data.updateProfile('nick', profileDraft.nick.trim());
+      if (profileDraft.bio !== profile.bio) await data.updateProfile('bio', profileDraft.bio.trim());
+      showToast(t('common.saved'));
+      onBack();
+    } catch {
+      showToast(t('account.security.toastSaveFailed'));
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
+  return (
+    <MePushPage
+      theme={theme}
+      title={section === 'security' ? t('account.security.pageTitle') : t('account.profile.editTitle')}
+      onBack={onBack}
+      right={section === 'profile' ? (
+        <Press onPress={() => void saveProfile()} disabled={profileSaving} accessibilityRole="button" scaleTo={0.96} opacityTo={0.75}>
+          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', opacity: profileSaving ? 0.45 : 1 }}>{t('common.done')}</Text>
+        </Press>
+      ) : undefined}
+    >
+      {section === 'profile' ? <>
+      <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.sm, paddingBottom: space.xl, alignItems: 'center' }}>
+        <Press
+          onPress={avatarSaving ? undefined : () => void pickAvatar()}
+          accessibilityRole="button"
+          accessibilityLabel={t('account.profile.avatarLibrary')}
+          scaleTo={0.97}
+          opacityTo={0.82}
+          style={{ width: 112, height: 112, borderRadius: 56 }}
+        >
+          <Avatar uri={data.profile.avatarUrl} size={112} style={{ borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }} />
+          {avatarSaving ? <View pointerEvents="none" style={{ position: 'absolute', inset: 0, borderRadius: 56, backgroundColor: 'rgba(0,0,0,0.36)', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#FFFFFF" /></View> : null}
+          <View pointerEvents="none" style={{ position: 'absolute', right: 0, bottom: 0, width: 30, height: 30, borderRadius: radius.pill, backgroundColor: theme.text, borderWidth: 2.5, borderColor: theme.groupedBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="camera" color={theme.groupedBg} size={15} />
+          </View>
+        </Press>
       </View>
 
-      <MeSection theme={theme} title={t('account.profile.sectionProfile')} horizontalPadding={layout.pagePadding}>
-        <MeCard theme={theme}>
-          <MeRow
-            theme={theme}
-            label={t('account.profile.nick')}
-            detail={profile.nick}
-            onPress={() => onEdit({ label: t('account.profile.nick'), key: 'nick', value: profile.nick, placeholder: t('account.profile.nickPlaceholder') })}
+      <View style={{ paddingHorizontal: layout.pagePadding, gap: space.xl }}>
+        <View>
+          <Text style={{ color: theme.text2, fontSize: 16, marginBottom: space.sm }}>{t('account.profile.nick')}</Text>
+          <TextInput
+            value={profileDraft.nick}
+            onChangeText={(nick) => setProfileDraft((current) => ({ ...current, nick }))}
+            placeholder={t('account.profile.nickPlaceholder')}
+            placeholderTextColor={theme.text3}
+            selectionColor={theme.accent}
+            numberOfLines={1}
+            style={{ minHeight: 60, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop, paddingHorizontal: space.lg, color: theme.text, fontSize: 18, fontWeight: '600' }}
           />
-          <MeRow
-            theme={theme}
-            label={t('account.profile.bio')}
-            detail={profile.bio}
-            onPress={() =>
-              onEdit({ label: t('account.profile.bio'), key: 'bio', value: profile.bio, multiline: true, placeholder: t('account.profile.bioPlaceholder') })
-            }
-          />
-          <MeRow
-            theme={theme}
-            label={t('account.profile.uid')}
-            detail={displayedUid}
-            trailing={<Icon name="copy" color={theme.text3} size={14} />}
-            onPress={() => void copyUid()}
-            showChevron={false}
-          />
-          <MeRow
-            theme={theme}
-            label={t('account.profile.joinedDate')}
-            detail={createdAt ? new Date(createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, ' · ') : '—'}
-            last
-          />
-        </MeCard>
-      </MeSection>
+        </View>
 
-      <MeSection theme={theme} title={t('account.security.section')} horizontalPadding={layout.pagePadding}>
+        <View>
+          <Text style={{ color: theme.text2, fontSize: 16, marginBottom: space.sm }}>{t('account.profile.bio')}</Text>
+          <TextInput
+            value={profileDraft.bio}
+            onChangeText={(bio) => setProfileDraft((current) => ({ ...current, bio }))}
+            placeholder={t('account.profile.bioPlaceholder')}
+            placeholderTextColor={theme.text3}
+            selectionColor={theme.accent}
+            multiline
+            textAlignVertical="top"
+            style={{ minHeight: 132, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop, paddingHorizontal: space.lg, paddingTop: space.lg, color: theme.text, fontSize: 17, lineHeight: 25 }}
+          />
+        </View>
+
+        <MeCard theme={theme}>
+          <MeRow theme={theme} label={t('account.profile.uid')} detail={displayedUid} trailing={<Icon name="copy" color={theme.text3} size={14} />} onPress={() => void copyUid()} showChevron={false} />
+          <MeRow theme={theme} label={t('account.profile.joinedDate')} detail={createdAt ? new Date(createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, ' · ') : '—'} last />
+        </MeCard>
+      </View>
+      </> : null}
+
+      {section === 'security' ? <MeSection theme={theme} title={t('account.security.section')} horizontalPadding={layout.pagePadding}>
         <MeCard theme={theme}>
           <MeRow
             theme={theme}
@@ -233,31 +253,31 @@ export function AccountPage({
             last
           />
         </MeCard>
-      </MeSection>
+      </MeSection> : null}
 
-      <View style={{ paddingHorizontal: layout.pagePadding, marginTop: space.xxl, gap: space.md }}>
+      {section === 'security' ? <View style={{ paddingHorizontal: layout.pagePadding, marginTop: space.xxl, gap: space.md }}>
         <Press
-          onPress={() => setSignOutDialogOpen(true)}
+          onPress={onDeleteAccount}
           accessibilityRole="button"
           scaleTo={1}
           opacityTo={1}
           style={{ height: 52, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}
         >
-          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.danger }}>{t('me.signOut')}</Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.danger }}>{t('account.delete.row')}</Text>
         </Press>
 
         <Press
-          onPress={() => setDeleteDialogOpen(true)}
+          onPress={() => setSignOutDialogOpen(true)}
           accessibilityRole="button"
           scaleTo={1}
           opacityTo={1}
           style={{ height: 52, borderRadius: radius.feature, backgroundColor: theme.danger, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Text style={{ fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>{t('account.delete.row')}</Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>{t('me.signOut')}</Text>
         </Press>
-      </View>
+      </View> : null}
 
-      <AccountActionDialog
+      {section === 'security' ? <AccountActionDialog
         theme={theme}
         visible={signOutDialogOpen}
         title={t('me.signOut')}
@@ -269,14 +289,15 @@ export function AccountPage({
           setSignOutDialogOpen(false);
           void nav.auth.signOut();
         }}
-      />
+      /> : null}
 
-      <AccountActionDialog
+      {section === 'security' ? <AccountActionDialog
         theme={theme}
         visible={deleteDialogOpen}
         title={t('account.delete.title')}
         message={t('account.delete.message')}
         confirmPhrase={t('account.delete.confirmPhrase')}
+        confirmPlaceholder={t('account.delete.confirmPlaceholder')}
         confirmLabel={t('account.delete.action')}
         cancelLabel={t('common.cancel')}
         confirming={deletingAccount}
@@ -292,7 +313,7 @@ export function AccountPage({
             showToast(t('account.delete.toastFailed'));
           });
         }}
-      />
+      /> : null}
 
     </MePushPage>
   );

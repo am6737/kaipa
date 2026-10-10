@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string };
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; moderation_status?: string; rejection_reason?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string };
       const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact';
       if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
@@ -118,6 +118,21 @@ Deno.serve(async (req) => {
         const deleted = await service.from('inspo_media').delete().eq('id', body.id).select('id').maybeSingle();
         if (deleted.error) throw deleted.error;
         if (!deleted.data) return json({ error: 'content_not_found' }, 404);
+      } else if (body.action === 'moderate-route-observation') {
+        if (!['approved', 'rejected', 'pending'].includes(body.moderation_status || '')) return json({ error: 'invalid_observation_status' }, 400);
+        const updated = await service.from('route_observations').update({ moderation_status: body.moderation_status, updated_at: new Date().toISOString() }).eq('id', body.id).select('id').maybeSingle();
+        if (updated.error) throw updated.error;
+        if (!updated.data) return json({ error: 'route_observation_not_found' }, 404);
+      } else if (body.action === 'delete-route-observation') {
+        const deleted = await service.from('route_observations').delete().eq('id', body.id).select('id').maybeSingle();
+        if (deleted.error) throw deleted.error;
+        if (!deleted.data) return json({ error: 'route_observation_not_found' }, 404);
+      } else if (body.action === 'moderate-route-guide') {
+        if (!['approved', 'rejected', 'pending'].includes(body.status || '')) return json({ error: 'invalid_guide_status' }, 400);
+        if (body.status === 'rejected' && !body.rejection_reason?.trim()) return json({ error: 'rejection_reason_required' }, 400);
+        const updated = await service.from('route_guides').update({ status: body.status, rejection_reason: body.rejection_reason?.trim() || null, reviewed_by: auth.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', body.id).select('id').maybeSingle();
+        if (updated.error) throw updated.error;
+        if (!updated.data) return json({ error: 'route_guide_not_found' }, 404);
       } else if (body.action === 'create-gear' || body.action === 'update-gear') {
         if (!body.name?.trim() || !body.user_id || body.weight == null || body.price == null) return json({ error: 'gear_name_user_weight_price_required' }, 400);
         const gear = { name: body.name.trim(), user_id: body.user_id, weight: Number(body.weight), price: Number(body.price), qty: Math.max(1, Number(body.qty || 1)) };
@@ -315,6 +330,40 @@ Deno.serve(async (req) => {
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
       return json({ data: result.data || [] });
     }
+    if (resource === 'routeObservations') {
+      const result = await service.from('route_observations')
+        .select('id,route_id,user_id,author_name,visited_at,section,body,media,moderation_status,helpful_count,created_at,updated_at')
+        .order('created_at', { ascending: false }).limit(1000);
+      if (result.error) throw result.error;
+      const rows = result.data || [];
+      const routeIds = [...new Set(rows.map((row) => row.route_id).filter(Boolean))];
+      const userIds = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
+      const [routes, profiles] = await Promise.all([
+        routeIds.length ? service.from('routes').select('id,name').in('id', routeIds) : Promise.resolve({ data: [], error: null }),
+        userIds.length ? service.from('profiles').select('id,display_name,nick,username,avatar_url').in('id', userIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (routes.error || profiles.error) throw routes.error || profiles.error;
+      const routeById = new Map((routes.data || []).map((route) => [route.id, route]));
+      const profileById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+      await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: rows.length } });
+      return json({ data: rows.map((row) => ({ ...row, route: routeById.get(row.route_id) || null, user: profileById.get(row.user_id) || null })) });
+    }
+    if (resource === 'routeGuides') {
+      const result = await service.from('route_guides').select('id,route_id,author_id,title,intro,reflection,plan,status,rejection_reason,helpful_count,submitted_at,reviewed_at,updated_at').order('submitted_at', { ascending: false }).limit(1000);
+      if (result.error) throw result.error;
+      await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
+      const rows = result.data || [];
+      const routeIds = [...new Set(rows.map((row) => row.route_id).filter(Boolean))];
+      const authorIds = [...new Set(rows.map((row) => row.author_id).filter(Boolean))];
+      const [routes, profiles] = await Promise.all([
+        routeIds.length ? service.from('routes').select('id,name').in('id', routeIds) : Promise.resolve({ data: [], error: null }),
+        authorIds.length ? service.from('profiles').select('id,display_name,nick,username').in('id', authorIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (routes.error || profiles.error) throw routes.error || profiles.error;
+      const routeById = new Map((routes.data || []).map((route) => [route.id, route]));
+      const authorById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+      return json({ data: rows.map((row) => ({ ...row, route: routeById.get(row.route_id) || null, author: authorById.get(row.author_id) || null })) });
+    }
     const tables: Record<string, { table: string; select: string; order: string }> = {
       journeys: { table: 'journeys', select: 'id,name,region,created_at,planned_date,total_days,user_id,deleted_at', order: 'created_at' },
       // `gear_items` stores the user-maintained item name and measurements;
@@ -324,7 +373,7 @@ Deno.serve(async (req) => {
       tracks: { table: 'tracks', select: 'id,name,file_name,file_format,file_url,file_size,dist_m,asc_m,point_count,user_id,created_at', order: 'created_at' },
       notifications: { table: 'notifications', select: 'id,user_id,kind,cat,verb,target,read,created_at', order: 'created_at' },
       content: { table: 'inspo_media', select: 'id,journey_id,user_id,uri,thumbnail,kind,caption,moderation_status,moderation_reason,reviewed_at,created_at', order: 'created_at' },
-      agentRuns: { table: 'agent_runs', select: 'id,user_id,status,error,agent_version,created_at,updated_at', order: 'created_at' },
+            agentRuns: { table: 'agent_runs', select: 'id,user_id,status,error,agent_version,created_at,updated_at', order: 'created_at' },
       audit: { table: 'admin_audit_logs', select: 'id,actor_id,action,resource_type,resource_id,metadata,created_at', order: 'created_at' },
       // Ordered descending by the generic path; the route-facts UI re-sorts by sort_order.
       routeFactCategories: { table: 'route_fact_categories', select: 'slug,name,description,field_schema,review_interval_days,sort_order', order: 'sort_order' },
@@ -335,7 +384,7 @@ Deno.serve(async (req) => {
     const result = await query;
     if (result.error) throw result.error;
     await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
-    const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'agentRuns'].includes(resource) ? 'user_id' : null;
+    const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'routeObservations', 'agentRuns'].includes(resource) ? 'user_id' : null;
     if (userKey) {
       const rows = result.data || [];
       const userIds = [...new Set(rows.map((row) => row[userKey]).filter(Boolean))];

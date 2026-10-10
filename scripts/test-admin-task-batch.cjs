@@ -42,7 +42,7 @@ const { chromium } = require('playwright');
     await button('打开我的待办').click();
     await scope('团队全部');
     await select('审核重装徒步装备分享');
-    await select('审核山野照片分享');
+    await select('审核照片分享');
     await select('核实路线分享广告举报');
     await button('批量分配').click();
     await page.getByLabel('批量负责人').selectOption('A-002');

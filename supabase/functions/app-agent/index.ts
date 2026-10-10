@@ -9,7 +9,7 @@ import { bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
 import type { ModelMetric } from './model-metrics.ts';
 import type { AgentAttachment, AgentContext, AgentIntent, AgentMessageUi, AgentModelMetric, AgentQuickReply, AgentResponse, AgentRunActivity, AgentSource } from './types.ts';
-import { factSourceChips, routeFactSourcesFromArtifact, type RouteFactSource } from './route-fact-sources.ts';
+import { guideSourceChips, factSourceChips, routeFactSourcesFromArtifact, type RouteFactSource } from './route-fact-sources.ts';
 import { loadSavedPlanPreview, previewJourneyId } from './plan-preview.ts';
 import { normalizePlanningFollowUps, planningFollowUpReplies } from './planning-follow-ups.ts';
 import { conversationAttachments } from './conversation-attachments.ts';
@@ -80,7 +80,7 @@ function normalizeQuickReplies(value: unknown): AgentQuickReply[] {
   }).slice(0, 4);
 }
 
-function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickReply[]; travelContext?: TravelContext | null; offerJourneyExtras?: boolean; pendingQuestion: string | null; draft: PlanDraft | null; blocker?: string | null } {
+function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickReply[]; travelContext?: TravelContext | null; offerJourneyExtras?: boolean; pendingQuestion: string | null; draft: PlanDraft | null; blocker?: string | null; followUpSuggestion?: string | null } {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     return {
@@ -90,6 +90,7 @@ function finalMessage(value: unknown): { text: string; quickReplies: AgentQuickR
       offerJourneyExtras: record.offerJourneyExtras === true,
       pendingQuestion: typeof record.pendingQuestion === 'string' ? record.pendingQuestion : null,
       blocker: typeof record.blocker === 'string' ? record.blocker : null,
+      followUpSuggestion: typeof record.followUpSuggestion === 'string' ? record.followUpSuggestion : null,
       draft: record.draft == null ? null : planDraftSchema.parse(record.draft),
     };
   }
@@ -283,7 +284,6 @@ function metricRow(metric: any): AgentModelMetric {
 // Only expose the small fields required by progress UI. Full tool payloads
 // can contain private or very large journey records.
 function activityOutput(call: any): unknown {
-  if (call.tool_name === 'search_travel_web') return call.output;
   if (Array.isArray(call.output)) return { resultCount: call.output.length };
   if (typeof call.output?.added === 'number' || typeof call.output?.deleted === 'number') {
     return { added: call.output.added, deleted: call.output.deleted, skippedDuplicates: call.output.skippedDuplicates };
@@ -295,7 +295,7 @@ function activityOutput(call: any): unknown {
       reachesTrackEnd: call.output?.coverage?.reachesTrackEnd === true,
     } };
   }
-  if (call.tool_name === 'read_travel_guide' || call.tool_name === 'read_travel_guide_images') {
+  if (call.tool_name === 'read_route_guide') {
     return { available: call.output?.available, status: call.output?.status, cached: call.output?.cached, reused: call.output?.reused };
   }
   if (call.tool_name === 'search_ground_transport') {
@@ -320,16 +320,17 @@ function activityOutput(call: any): unknown {
 // The route facts this run planned with, as recorded on its research stage row.
 // Every failure returns no facts rather than failing the run: the UI is being
 // assembled here, and a missing citation is not worth losing the message over.
-async function loadRunFactSources(client: any, runId: string): Promise<RouteFactSource[]> {
+async function loadRunFactSources(client: any, runId: string): Promise<{ facts: RouteFactSource[]; guides: AgentSource[] }> {
   try {
     const row = await client.from('agent_stages')
-      .select('route_facts').eq('run_id', runId).eq('stage', 'research')
+      .select('route_facts,artifact').eq('run_id', runId).eq('stage', 'research')
       .order('attempt', { ascending: false }).limit(1);
-    if (row.error) return [];
-    const latest = (row.data || [])[0] as { route_facts?: unknown } | undefined;
-    return routeFactSourcesFromArtifact(latest?.route_facts);
+    if (row.error) return { facts: [], guides: [] };
+    const latest = (row.data || [])[0] as { route_facts?: unknown; artifact?: { guideEvidence?: Array<{ sources?: unknown }> } } | undefined;
+    return { facts: routeFactSourcesFromArtifact(latest?.route_facts),
+      guides: (latest?.artifact?.guideEvidence ?? []).flatMap(guide => guideSourceChips(guide.sources)) };
   } catch {
-    return [];
+    return { facts: [], guides: [] };
   }
 }
 
@@ -350,9 +351,11 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   quickReplies = planningFollowUpReplies(offerJourneyExtras, quickReplies, calls.data || [], locale);
 
   const sourcesByUrl = new Map<string, AgentSource>();
+  const guideSources = [...factResult.guides];
   const completedCalls = (calls.data || []).filter((call: any) => call.status === 'completed');
   for (const call of completedCalls) {
-    if (!['search_travel_web', 'search_transport', 'read_travel_guide'].includes(call.tool_name)) continue;
+    if (call.tool_name === 'read_route_guide') guideSources.push(...guideSourceChips(call.output?.sources));
+    if (call.tool_name !== 'search_transport') continue;
     const results = call.output && typeof call.output === 'object' && Array.isArray(call.output.results)
       ? call.output.results
       : [];
@@ -384,16 +387,15 @@ async function messageUiForRun(client: any, runId: string, quickReplies: AgentQu
   const changedJourneyId = previewJourneyId(calls.data || [], currentJourneyId);
   const planPreview = typeof changedJourneyId === "string" ? await loadSavedPlanPreview(client, changedJourneyId) : undefined;
 
-  // Preserve every receipt, including failed attempts, for execution transparency.
+  // Preserve action receipts, including failures; gap telemetry is internal.
   const activities: AgentRunActivity[] = (calls.data || [])
+    .filter((call: any) => call.tool_name !== 'record_route_guide_gaps')
     .map((call: any) => ({ ...activityRow(call), output: activityOutput(call) }));
   const modelMetrics: AgentModelMetric[] = (metricsResult.data || []).map(metricRow);
 
-  // Facts first, and only then the web: a maintained entry is the one source
-  // here a human confirmed. Every fact is cited — only the web links are capped
-  // — and a fact's own source link seeds the URL set, so a page that is both a
-  // library source and a search result is cited once, as the verified entry.
-  const sources = factSourceChips(factResult, [...sourcesByUrl.values()], { webLimit: 8 });
+  // Maintained facts and all guide sources are retained. Only operational
+  // reference links use the legacy web cap.
+  const sources = factSourceChips(factResult.facts, [...guideSources, ...sourcesByUrl.values()], { webLimit: 8 });
 
   return {
     quickReplies: quickReplies.length ? quickReplies : undefined,
@@ -453,6 +455,14 @@ Deno.serve(async (req) => {
       clientTimeZone?: string;
       clientTimestamp?: string;
     };
+
+    // This gate only applies to new planning work. Existing history, status,
+    // cancellation and read operations remain available during maintenance.
+    if (!body.action || body.action === 'turn' || body.action === 'retry_run') {
+      const { data: featureState, error: featureError } = await client.rpc('feature_control_state', { p_key: 'smart_planning' });
+      if (featureError) throw featureError;
+      if (featureState === 'disabled') throw new ResourceError('feature_disabled', 503);
+    }
 
     if (!body.action || body.action === 'turn' || body.action === 'retry_run') await rate(serviceClient(),'ai',user.id);
 
@@ -876,7 +886,7 @@ Deno.serve(async (req) => {
       const ui = await messageUiForRun(client, runId, output.quickReplies, output.offerJourneyExtras, body.locale, context.currentJourneyId);
       const retainedTravel = output.travelContext ?? confirmedTravel;
       ui.travelContext = retainedTravel ? { ...retainedTravel, journeyId: context.currentJourneyId || null } : null;
-      ui.taskOutcome = taskOutcome(task, output, ui.activities || []);
+      ui.taskOutcome = taskOutcome(task, output, ui.activities || [], context.satisfiedOperations);
       if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
         ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
       }

@@ -23,7 +23,7 @@ const RULES: Record<string, { label: string; pattern: RegExp }> = {
   hydration: { label: '饮水或饮水容器', pattern: /(矿泉水|瓶装水|纯净水|饮用水|水壶|水瓶|水袋)/ },
   carriedWater: { label: '明确容量的实际携带饮水', pattern: /(矿泉水|瓶装水|纯净水|饮用水)/ },
   purification: { label: '适用于天然水源的净水装备', pattern: /(净水器|净水滤芯|净水片|净水药片|过滤水壶)/ },
-  food: { label: '可直接准备的具体餐食或能量食品', pattern: /(能量棒|蛋白棒|牛肉干|肉脯|坚果|燕麦|巧克力|饼干|面包|三明治|饭|面|火腿肠|水果|香蕉|苹果)/ },
+  food: { label: '可直接准备的具体餐食或能量食品', pattern: /(能量棒|蛋白棒|牛肉干|肉脯|坚果|燕麦|巧克力|饼干|面包|三明治|米饭|自热饭|饭团|炒饭|盖饭|面条|方便面|挂面|拉面|泡面|拌面|火腿肠|水果|香蕉|苹果)/ },
   navigation: { label: '导航或通信设备', pattern: /(手机|地图|指南针|GPS|导航设备|导航手表|inReach|卫星通信)/i },
   power: { label: '有明确容量的备用电源', pattern: /(充电宝|移动电源)/ },
   lighting: { label: '头灯或手电', pattern: /(头灯|手电)/ },

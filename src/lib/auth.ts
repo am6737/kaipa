@@ -32,7 +32,7 @@ export async function signUpWithEmail(email: string, password: string) {
   return supabase.auth.signUp({ email, password });
 }
 
-const GUEST_ADJECTIVES = ['山野', '清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
+const GUEST_ADJECTIVES = ['清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
 const GUEST_NOUNS = ['旅人', '行者', '向导', '背包客', '探路者'];
 const GUEST_EMAIL_RE = /^[a-f0-9]{32}@guest\.kaipa\.app$/;
 

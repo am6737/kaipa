@@ -2,15 +2,19 @@ import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Image } from "expo-image";
 import Svg, { Circle, Path } from "react-native-svg";
 import * as ImagePicker from "expo-image-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Theme } from "../../theme/theme";
 import { Poi } from "../../data/pois";
 import { Icon } from "../Icon";
@@ -27,6 +31,13 @@ import {
 } from "../../design-system";
 import { MediaViewer } from "./JourneyTimeline";
 import { JourneyLocationPicker } from "./JourneyLocationPicker";
+import type { RouteGuidePlan } from "../../data/routeGuides";
+import { submitRouteGuide, useMyRouteGuideStatus } from "../../hooks/useRouteGuides";
+import { RouteGuideEquipment, RouteGuideItinerary } from "../discover/RouteGuideContent";
+import { useData } from "../../data/DataContext";
+import { Avatar } from "../Avatar";
+import { useTimeline } from "../../hooks/useTimeline";
+import { useJourneyPacking } from "../../hooks/useJourneyPacking";
 import {
   JourneyLocationValue,
   locationFromPoi,
@@ -483,6 +494,7 @@ export function JourneySettings({
   onToast: (message: string) => void;
 }) {
   const { t } = useI18n();
+  const { userId } = useData();
   const nav = useNav();
   const originalPhotos = useMemo(() => poi.photoUris ?? [], [poi.photoUris]);
   const [selectedCover, setSelectedCover] = useState<string | null>(
@@ -511,6 +523,8 @@ export function JourneySettings({
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [guidePublishOpen, setGuidePublishOpen] = useState(false);
+  const { status: guideStatus, refresh: refreshGuideStatus } = useMyRouteGuideStatus(poi.routeId, userId);
   const hasChanges = useMemo(
     () =>
       selectedCover !== (originalPhotos[0] ?? null) ||
@@ -818,6 +832,33 @@ export function JourneySettings({
             </View>
           ) : null}
 
+          {poi.routeId ? (
+            <View style={{ marginBottom: space.xxl }}>
+              {!hasTrack ? <SectionLabel theme={theme}>{t("journey.settings.exploreSection")}</SectionLabel> : null}
+              <Press
+                accessibilityRole="button"
+                accessibilityLabel="发布为路线攻略"
+                onPress={() => setGuidePublishOpen(true)}
+                style={{
+                  minHeight: 78,
+                  borderRadius: radius.feature,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: theme.hairline,
+                  backgroundColor: theme.surfaceTop,
+                  paddingHorizontal: space.lg,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 17, fontWeight: "600" }}>{guideStatus?.status === "approved" ? "路线攻略已通过" : guideStatus?.status === "pending" ? "路线攻略审核中" : guideStatus?.status === "rejected" ? "攻略审核未通过，可重新提交" : "发布为路线攻略"}</Text>
+                  <Text style={{ color: theme.text3, fontSize: 11.5, lineHeight: 18, marginTop: 3 }}>{guideStatus?.status === "approved" ? "已展示在路线卡片的大家的攻略中" : guideStatus?.status === "pending" ? "审核通过后会展示给其他人，请勿重复提交" : guideStatus?.status === "rejected" ? ("驳回原因：" + (guideStatus.rejectionReason || "请修改后重新提交")) : "整理行程、装备与复盘，提交审核后展示给其他人"}</Text>
+                </View>
+                {guideStatus?.status === "rejected" || !guideStatus ? <Icon name="chevronR" color={theme.text3} size={16} /> : null}
+              </Press>
+            </View>
+          ) : null}
+
           {poi.mine ? <Press
             onPress={confirmDelete}
             style={{
@@ -864,6 +905,19 @@ export function JourneySettings({
           onToast={onToast}
         />
       ) : null}
+      {guidePublishOpen ? (
+        <GuidePublishSheet
+          theme={theme}
+          poi={poi}
+          existing={guideStatus}
+          readOnly={guideStatus?.status === "pending" || guideStatus?.status === "approved"}
+          onClose={() => setGuidePublishOpen(false)}
+          onSubmit={async (payload) => {
+            setGuidePublishOpen(false);
+            try { await submitRouteGuide(payload); await refreshGuideStatus(); onToast("攻略已提交审核"); } catch (error) { onToast(error instanceof Error ? error.message : "提交失败，请重试"); }
+          }}
+        />
+      ) : null}
 
       {coverViewerOpen && selectedCover ? (
         <MediaViewer
@@ -895,5 +949,108 @@ export function JourneySettings({
         }}
       />
     </View>
+  );
+}
+
+function GuidePublishSheet({
+  theme,
+  poi,
+  existing,
+  readOnly,
+  onClose,
+  onSubmit,
+}: {
+  theme: Theme;
+  poi: Poi;
+  existing: ReturnType<typeof useMyRouteGuideStatus>["status"];
+  readOnly: boolean;
+  onClose: () => void;
+  onSubmit: (payload: { routeId: string; authorId: string; title: string; intro: string; reflection: string; plan: RouteGuidePlan }) => Promise<void>;
+}) {
+  const { profile, userId } = useData();
+  const timeline = useTimeline(poi.id, userId);
+  const packing = useJourneyPacking({ journey: poi, userId, realtime: false });
+  const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<"edit" | "preview">("preview");
+  const [title, setTitle] = useState(existing?.title || poi.name);
+  const [intro, setIntro] = useState(existing?.intro || "");
+  const [reflection, setReflection] = useState(existing?.reflection || "");
+  const author = profile.nick.trim() || "我";
+  const publishedDate = new Date().toISOString().slice(0, 10);
+  const plan = useMemo<RouteGuidePlan>(() => {
+    const pair = (value: string) => ({ zh: value, en: value });
+    const timelineDays = timeline.knownGroups.map((group) => ({
+      title: pair(group),
+      summary: pair(group),
+      detail: pair(''),
+      items: timeline.rows.filter((row) => row.day === group).map((row) => pair(row.title)),
+    }));
+    const days = timelineDays.length ? timelineDays : (poi.planningTemplate?.days ?? []).map((day) => ({
+      title: pair(day.title),
+      summary: pair(day.title),
+      detail: pair(''),
+      items: day.items.map(pair),
+    }));
+    const gear = packing.items.length ? packing.items.map((item) => ({
+      name: pair(item.name),
+      category: pair(item.categoryName || '装备'),
+      note: pair(item.note || ''),
+      quantity: Math.max(1, item.quantity || 1),
+      weightKg: item.weightKg,
+      carryStatus: item.carryStatus,
+    })) : (poi.planningTemplate?.gear ?? []).map((item) => ({
+      name: pair(item.name),
+      category: pair(item.categoryName || '装备'),
+      note: pair(item.note || ''),
+      quantity: Math.max(1, item.quantity || 1),
+      weightKg: item.weightKg,
+      carryStatus: item.carryStatus,
+    }));
+    return existing?.plan || {
+      id: `journey-${poi.id}`,
+      routeId: poi.routeId ?? poi.id,
+      title: pair(poi.name),
+      shortTitle: pair(poi.name),
+      description: pair(''),
+      stay: 'day',
+      days,
+      gear,
+      draft: true,
+    };
+  }, [existing?.plan, packing.items, poi.id, poi.name, poi.planningTemplate, poi.routeId, timeline.knownGroups, timeline.rows]);
+  // Match the journey creation form's text field card: one shared white
+  // surface, 14px corner radius, and the same horizontal/vertical insets.
+  const guideTextCard = { minHeight: 96, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop } as const;
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <DetailPage
+        theme={theme}
+        title="攻略详情"
+        onBack={onClose}
+        backgroundColor={theme.groupedBg}
+        flatChrome
+        entryVariant="continuationX"
+        scrollable={false}
+        overlay={<View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.sm, paddingBottom: Math.max(insets.bottom, space.md) }}>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            {readOnly ? null : step === "edit" ? <Press onPress={() => setStep("preview")} style={{ flex: 1, minHeight: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}><Text style={{ color: theme.text, fontSize: 13, fontWeight: "700" }}>完成编辑</Text></Press> : <Press onPress={() => setStep("edit")} style={{ flex: 1, minHeight: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 }}><Text style={{ color: theme.text, fontSize: 13, fontWeight: "700" }}>编辑攻略</Text></Press>}
+            {readOnly ? <Press onPress={onClose} style={{ flex: 1, minHeight: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: theme.controlSurface }}><Text style={{ color: theme.text, fontSize: 13, fontWeight: "700" }}>关闭</Text></Press> : <Press onPress={() => step === "edit" ? setStep("preview") : void onSubmit({ routeId: poi.routeId ?? poi.id, authorId: userId, title, intro, reflection, plan })} style={{ flex: 1.45, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline, minHeight: 44, paddingHorizontal: space.md, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: theme.accent }}><Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "700" }}>提交审核</Text></Press>}
+          </View>
+        </View>}
+      >
+        <KeyboardAwareScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={insets.bottom + 24} extraKeyboardSpace={insets.bottom} contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.xl, paddingBottom: 130 }}>
+          <>
+            {step === "edit" && !readOnly ? <View style={[guideTextCard, { marginTop: space.sm }]}><TextInput value={title} onChangeText={setTitle} maxLength={60} placeholder="输入攻略标题" placeholderTextColor={theme.text3} style={{ width: "100%", minHeight: 48, padding: 0, color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: "600" }} /></View> : <Text style={[type.pageTitle, { color: theme.text, lineHeight: 32, marginTop: space.sm }]}>{title || "未命名攻略"}</Text>}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.sm }}><Avatar size={28} uri={profile.avatarUrl} /><Text style={[type.caption, { color: theme.text2 }]}>{author}</Text></View>
+            <Text style={[type.caption, { color: theme.text2, marginTop: space.sm }]}>发布于 {publishedDate}</Text>
+            {step === "edit" && !readOnly ? <View style={[guideTextCard, { marginTop: space.xl }]}><TextInput value={intro} onChangeText={setIntro} maxLength={180} multiline placeholder="这次旅程最值得分享的经验" placeholderTextColor={theme.text3} style={{ width: "100%", minHeight: 48, padding: 0, color: theme.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" }} /></View> : intro.trim() ? <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 25, marginTop: space.xl }}>{intro}</Text> : null}
+            <View style={{ marginTop: space.xl }}><Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.md }]}>行程</Text>
+            <RouteGuideItinerary theme={theme} plan={plan} />
+            <View style={{ marginTop: space.xxl }}><RouteGuideEquipment theme={theme} plan={plan} /></View></View>
+            {step === "edit" && !readOnly ? <><Text style={[type.sectionTitle, { color: theme.text, marginTop: space.xxl, marginBottom: space.md }]}>如果再走一次</Text><View style={guideTextCard}><TextInput value={reflection} onChangeText={setReflection} maxLength={280} multiline placeholder="记录给后来者的建议" placeholderTextColor={theme.text3} style={{ width: "100%", minHeight: 48, padding: 0, color: theme.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" }} /></View></> : <><Text style={[type.sectionTitle, { color: theme.text, marginTop: space.xxl, marginBottom: space.md }]}>如果再走一次</Text>{reflection.trim() ? <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 25 }}>{reflection}</Text> : null}</>}
+          </>
+        </KeyboardAwareScrollView>
+      </DetailPage>
+    </Modal>
   );
 }

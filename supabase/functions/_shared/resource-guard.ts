@@ -14,7 +14,9 @@ export function resourceFailure(error: unknown): Response {
     unauthorized: '请先登录', rate_limited: '操作较频繁，请稍后再试', quota_exceeded: '当前用量已达到上限，请清理后再试',
     service_budget_exceeded: '服务今日用量已达到安全上限，请稍后再试', file_too_large: '文件过大，请压缩后再上传',
     concurrency_exceeded: '正在处理的任务较多，请等待完成后再试', payload_too_large: '提交内容过大',
-    purchase_disabled: '目前免费开放，暂未开启购买', invalid_request: '请求无效', forbidden: '无权执行此操作',
+    purchase_disabled: '目前免费开放，暂未开启购买', feature_disabled: '该功能暂时不可用，请稍后再试',
+    registration_disabled: '当前暂时无法注册，请稍后再试', registration_limit_reached: '今日注册名额已用完，请明天再试',
+    invalid_request: '请求无效', forbidden: '无权执行此操作',
   };
   return new Response(JSON.stringify({ error: { code: e.code, message: messages[e.code] || '服务暂时不可用，请稍后重试' } }), {
     status: e.status, headers: { ...resourceCors, 'Content-Type': 'application/json', 'Retry-After': String(e.retryAfter) },
@@ -26,7 +28,7 @@ export function serviceClient() {
 export async function rpc<T = any>(db: SupabaseClient, name: string, args: Record<string, unknown> = {}): Promise<T> {
   const { data, error } = await db.rpc(name, args);
   if (error) {
-    const code = ['quota_exceeded','service_budget_exceeded','concurrency_exceeded','file_too_large','gear_photo_limit','payload_too_large'].find(c => error.message.includes(c));
+    const code = ['quota_exceeded','service_budget_exceeded','concurrency_exceeded','file_too_large','gear_photo_limit','payload_too_large','feature_disabled','registration_disabled','registration_limit_reached'].find(c => error.message.includes(c));
     if (code) throw new ResourceError(code, code === 'file_too_large' || code === 'payload_too_large' ? 413 : 429);
     if (error.code === '42501') throw new ResourceError('forbidden', 403);
     if (['22023','22P02','P0002','23502','23514','23503','23505'].includes(error.code)) throw new ResourceError('invalid_request', 400);
