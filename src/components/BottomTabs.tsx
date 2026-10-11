@@ -10,8 +10,12 @@ import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
+import { GradientBlur } from '../../modules/gradient-blur';
 
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
+const BAR_HEIGHT = 52;
+// Room above the pill for the blur to fade in through, like the system bars.
+const FADE_ABOVE = space.xl;
 
 const IS_IOS = Platform.OS === 'ios';
 // requireNativeModule throws in Expo Go; keep the plain solid bar there.
@@ -40,12 +44,14 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       useNativeDriver: true,
     }).start();
   }, [hidden, anim]);
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 120] });
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 160] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
-  // Glass cannot render inside a partially transparent view, so the bar only
-  // slides out while glassed; everywhere else it fades as before.
-  const barOpacity = LIQUID_GLASS ? 1 : opacity;
+  // A UIVisualEffectView ignores any animated alpha on its ancestors, so on iOS
+  // the bar only slides out; the plain bar fades as before elsewhere.
+  const barOpacity = IS_IOS ? 1 : opacity;
+
+  const bottomGap = Math.max(insets.bottom, space.sm);
 
   const barFrame = theme.dark
     ? {
@@ -63,22 +69,31 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       style={[
         styles.position,
         {
-          bottom: Math.max(insets.bottom, space.sm),
+          bottom: 0,
           opacity: barOpacity,
           transform: [{ translateY }],
         },
       ]}
     >
-      <View style={styles.row}>
-        <View style={[styles.bar, barFrame, !LIQUID_GLASS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
-          {LIQUID_GLASS ? (
-            <GlassView
-              pointerEvents="none"
-              glassEffectStyle="regular"
-              colorScheme={theme.dark ? 'dark' : 'light'}
-              style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
-            />
-          ) : null}
+      <View pointerEvents="box-none" style={[styles.footer, { paddingTop: FADE_ABOVE, paddingBottom: bottomGap }]}>
+        {IS_IOS ? (
+          <GradientBlur
+            tint={theme.dark ? 'dark' : 'light'}
+            startFraction={0}
+            endFraction={(FADE_ABOVE + BAR_HEIGHT) / (FADE_ABOVE + BAR_HEIGHT + bottomGap)}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
+        <View style={styles.row}>
+          <View style={[styles.bar, barFrame, !LIQUID_GLASS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
+            {LIQUID_GLASS ? (
+              <GlassView
+                pointerEvents="none"
+                glassEffectStyle="regular"
+                colorScheme={theme.dark ? 'dark' : 'light'}
+                style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
+              />
+            ) : null}
           {TABS.map((tab) => {
             // Gear is reached from the Me shortcuts now, so keep Me as the
             // selected section while its list/detail surface is open.
@@ -120,6 +135,7 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
             <Text numberOfLines={1} style={styles.assistantLabel}>{t('agent.open')}</Text>
           </Press>
         ) : null}
+        </View>
       </View>
     </Animated.View>
   );
@@ -134,11 +150,14 @@ const styles = StyleSheet.create({
     zIndex: 400,
     elevation: 30,
   },
+  footer: {
+    width: '100%',
+  },
   bar: {
     flexGrow: 0,
     flexShrink: 1,
     flexBasis: 210,
-    height: 52,
+    height: BAR_HEIGHT,
     flexDirection: 'row',
     paddingVertical: space.xxs,
     paddingHorizontal: space.sm,
