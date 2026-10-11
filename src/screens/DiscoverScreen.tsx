@@ -1711,6 +1711,13 @@ export function DiscoverScreen({
     : null;
   const sharingJourneyId = useSharingJourneyId();
   const sharingThisJourney = !!openJourneyId && sharingJourneyId === openJourneyId;
+  // Location sharing is scoped to the journey detail that started it. The
+  // publisher lives above this screen so it can survive ordinary renders, but
+  // it must stop as soon as the detail is dismissed or this tab is left.
+  useEffect(() => {
+    if (!sharingJourneyId) return;
+    if (!active || sharingJourneyId !== openJourneyId) setSharingJourneyId(null);
+  }, [active, openJourneyId, sharingJourneyId]);
   const { peers, presenceClock } = useCompanionLocations(openJourneyId, active && !covered);
   const selfPresence = useLastSelfPresence();
   const companionPins = useMemo<NativeMapMarker[]>(() => {

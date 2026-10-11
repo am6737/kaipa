@@ -121,6 +121,8 @@ export function usePresencePublisher(userId: string | null) {
     const bus = acquireBus(sharingJourneyId);
     let disposed = false;
     let positionSub: Location.LocationSubscription | null = null;
+    let appSuspended = false;
+    let suspendUntrack: Promise<unknown> | null = null;
     const cachedSelf = getLastSelfPresence();
     let latest: CompanionPresence | null = cachedSelf
       ? { ...cachedSelf, seenAt: Date.now() }
@@ -132,7 +134,7 @@ export function usePresencePublisher(userId: string | null) {
       // subscribed is only ever set by the join callback of a real channel, so
       // the null test is for the type, not for a race.
       const channel = bus.channel;
-      if (!channel || !bus.subscribed || !latest || !untrackSettled) return;
+      if (appSuspended || !channel || !bus.subscribed || !latest || !untrackSettled) return;
       const now = Date.now();
       if (now - lastBroadcastAt < (force ? MIN_TRACK_GAP_MS : PRESENCE_REBROADCAST_MS)) return;
       lastBroadcastAt = now;
@@ -165,7 +167,7 @@ export function usePresencePublisher(userId: string | null) {
 
     let watchStarting = false;
     const startWatch = async () => {
-      if (disposed || positionSub || watchStarting) return;
+      if (disposed || appSuspended || positionSub || watchStarting) return;
       watchStarting = true;
       // A cached fix only shortcuts the first avatar. It must never decide
       // whether the watch runs: getLastKnownPositionAsync returns null on a
@@ -177,7 +179,7 @@ export function usePresencePublisher(userId: string | null) {
         if (!latest) {
           const cached = await Location.getLastKnownPositionAsync({ maxAge: 120_000 })
             .catch(() => null);
-          if (disposed) return;
+          if (disposed || appSuspended) return;
           if (cached && !latest) {
             const cachedPresence = toPresence(cached, publisherId);
             if (cachedPresence) {
@@ -189,7 +191,7 @@ export function usePresencePublisher(userId: string | null) {
       } finally {
         watchStarting = false;
       }
-      if (disposed || positionSub) return;
+      if (disposed || appSuspended || positionSub) return;
       void Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
@@ -242,10 +244,38 @@ export function usePresencePublisher(userId: string | null) {
       });
     }
 
+    // A foreground-only feature must not leave the last position live while
+    // the app is in the background. Keep the user's intent in
+    // sharingJourneyId so a short app switch can resume when they return to
+    // this journey, but remove the realtime presence and location watcher.
+    const suspendPublishing = () => {
+      if (appSuspended) return;
+      appSuspended = true;
+      positionSub?.remove();
+      positionSub = null;
+      setLastSelfPresence(null);
+      const channel = bus.channel;
+      if (channel && bus.subscribed) {
+        lastTrackedByJourney.delete(sharingJourneyId);
+        suspendUntrack = channel.untrack().catch(() => undefined);
+      }
+    };
+
+    const resumePublishing = async () => {
+      if (!appSuspended || disposed) return;
+      if (suspendUntrack) await suspendUntrack;
+      if (disposed) return;
+      appSuspended = false;
+      lastBroadcastAt = 0;
+      void startWatch();
+      broadcast(true);
+    };
+
     // Coming back to the foreground after a suspend the socket may still be up
     // but our last fix is now stale; republish the freshest one immediately.
     const appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') broadcast(true);
+      if (state === 'active') void resumePublishing();
+      else suspendPublishing();
     });
 
     return () => {
