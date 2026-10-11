@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
@@ -15,7 +14,7 @@ import { AssistantMark } from './assistant/AssistantMark';
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
 
 const IS_IOS = Platform.OS === 'ios';
-// requireNativeModule throws in Expo Go; keep the BlurView fallback there.
+// requireNativeModule throws in Expo Go; keep the plain solid bar there.
 const LIQUID_GLASS = (() => {
   if (!IS_IOS) return false;
   try {
@@ -44,9 +43,9 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 120] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
-  // Glass/blur cannot render inside a partially transparent view, so on iOS
-  // the bar only slides out (opacity stays 1) and fades on other platforms.
-  const barOpacity = IS_IOS ? 1 : opacity;
+  // Glass cannot render inside a partially transparent view, so the bar only
+  // slides out while glassed; everywhere else it fades as before.
+  const barOpacity = LIQUID_GLASS ? 1 : opacity;
 
   const barFrame = theme.dark
     ? {
@@ -71,25 +70,14 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       ]}
     >
       <View style={styles.row}>
-        <View style={[styles.bar, barFrame, !IS_IOS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
-          {IS_IOS ? (
-            LIQUID_GLASS ? (
-              <GlassView
-                pointerEvents="none"
-                glassEffectStyle="regular"
-                colorScheme={theme.dark ? 'dark' : 'light'}
-                style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
-              />
-            ) : (
-              <View style={styles.blurClip}>
-                <BlurView
-                  pointerEvents="none"
-                  intensity={80}
-                  tint={theme.dark ? 'systemMaterialDark' : 'systemMaterialLight'}
-                  style={StyleSheet.absoluteFill}
-                />
-              </View>
-            )
+        <View style={[styles.bar, barFrame, !LIQUID_GLASS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
+          {LIQUID_GLASS ? (
+            <GlassView
+              pointerEvents="none"
+              glassEffectStyle="regular"
+              colorScheme={theme.dark ? 'dark' : 'light'}
+              style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
+            />
           ) : null}
           {TABS.map((tab) => {
             // Gear is reached from the Me shortcuts now, so keep Me as the
@@ -156,15 +144,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     borderRadius: radius.pill,
     borderWidth: 1.5,
-  },
-  blurClip: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: radius.pill,
-    overflow: 'hidden',
   },
   row: {
     width: '100%',
