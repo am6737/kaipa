@@ -17,65 +17,72 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * `createWaveform([0, 50], [0, 30])` burst, so detents fired closer than 50 ms restart each other and
  * the motor never stops: a buzz with no clicks. This module asks the framework or the device's own
  * vibration primitives for a short click instead, and degrades when a device has neither.
+ *
+ * Three events, no soft tier to pad the notch with. A tickmark is one click, and a fling passes a hundred
+ * of them per second, so the notch has to be the shortest thing this cascade can find: mass belongs to the
+ * limit and the settle, which answer the user rather than mark travel.
  */
 class HapticsEngineModule : Module() {
-  private enum class Level { FINE, COARSE, BOUNDARY, COMMIT }
+  private enum class Event { NOTCH, BOUNDARY, COMMIT }
 
   override fun definition() = ModuleDefinition {
     Name("HapticsEngine")
 
+    // Capability only, and without touching the activity: this runs once at JS load, where a null
+    // `currentActivity` would otherwise downgrade every device to the weaker `expo-haptics` path.
     Function("isSupported") {
-      hasVibrator() || contentView()?.isHapticFeedbackEnabled == true
+      hasVibrator()
     }
 
-    AsyncFunction("tick") { level: String ->
-      fire(if (level == "coarse") Level.COARSE else Level.FINE)
+    AsyncFunction("detent") {
+      fire(Event.NOTCH)
     }
 
     AsyncFunction("boundary") {
-      fire(Level.BOUNDARY)
+      fire(Event.BOUNDARY)
     }
 
     AsyncFunction("commit") {
-      fire(Level.COMMIT)
+      fire(Event.COMMIT)
     }
   }
 
-  private fun fire(level: Level) {
-    if (segmentTick(level)) return
-    if (primitiveTick(level)) return
-    legacyTick(level)
+  private fun fire(event: Event) {
+    if (!hapticsEnabled()) return
+    if (frameworkEvent(event)) return
+    if (primitiveEvent(event)) return
+    legacyEvent(event)
   }
 
   /**
-   * Android 13/14 detent semantics, plus the 12+ confirm/reject events. Always preferred over the raw
-   * vibrator because `performHapticFeedback` is the path that honours the system haptics toggle.
+   * The framework's own picker events. Preferred over the raw vibrator because `performHapticFeedback` is
+   * the path that honours the system haptics toggle and each OEM's tuning of these named effects.
+   *
+   * `SEGMENT_TICK` is Android 14's ruler segment, `VIRTUAL_KEY` is the nav-bar click and `CLOCK_TICK` what
+   * `NumberPicker` fires per row. All three are short: a fling crosses a hundred tickmarks a second, and a
+   * canned burst with mass in it restarts before it lands, which is a buzz no intensity can rescue.
    */
-  private fun segmentTick(level: Level): Boolean {
+  private fun frameworkEvent(event: Event): Boolean {
     val view = contentView() ?: return false
-    if (!view.isHapticFeedbackEnabled) return false
-    val constant = when (level) {
-      // SEGMENT_* are 33/34; below them a fine detent is better served by a device primitive.
-      Level.FINE -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) null else constantOrNull("SEGMENT_FREQUENT_TICK")
-      Level.COARSE -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) null
-        else constantOrNull("SEGMENT_TICK") ?: constantOrNull("SEGMENT_FREQUENT_TICK")
+    val constant = when (event) {
+      Event.NOTCH -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) constantOrNull("SEGMENT_TICK")
+        ?: HapticFeedbackConstants.VIRTUAL_KEY else HapticFeedbackConstants.VIRTUAL_KEY
       // Reaching the end of the ruler is a refusal to go further; stopping under the finger is a completion.
-      Level.BOUNDARY -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) null else constantOrNull("REJECT")
-      Level.COMMIT -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) null else constantOrNull("CONFIRM")
+      Event.BOUNDARY -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) null else constantOrNull("REJECT")
+      Event.COMMIT -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) null else constantOrNull("CONFIRM")
     } ?: return false
     return view.performHapticFeedback(constant)
   }
 
-  /** Android 10+: use the primitive this device's motor is tuned for, scaled down for fine detents. */
-  private fun primitiveTick(level: Level): Boolean {
+  /** Android 10+: the primitive this device's motor is tuned for. */
+  private fun primitiveEvent(event: Event): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
     val vibrator = vibrator() ?: return false
     if (!vibrator.hasVibrator()) return false
-    val (name, scale) = when (level) {
-      Level.FINE -> "PRIMITIVE_TICK" to 0.45f
-      Level.COARSE -> "PRIMITIVE_CLICK" to 0.8f
-      Level.BOUNDARY -> "PRIMITIVE_HEAVY_CLICK" to 1.0f
-      Level.COMMIT -> "PRIMITIVE_CLICK" to 1.0f
+    val (name, scale) = when (event) {
+      Event.NOTCH -> "PRIMITIVE_CLICK" to 1.0f
+      Event.BOUNDARY -> "PRIMITIVE_HEAVY_CLICK" to 1.0f
+      Event.COMMIT -> "PRIMITIVE_CLICK" to 1.0f
     }
     val primitive = primitiveId(name) ?: return false
     return try {
@@ -89,19 +96,20 @@ class HapticsEngineModule : Module() {
   }
 
   /**
-   * Oldest devices: `CLOCK_TICK` is what the framework's own `NumberPicker` uses, so fine and coarse
-   * land on the same effect there. Better than silence, and the value readout still carries the rest.
+   * Oldest devices: `CLOCK_TICK` is what the framework's own `NumberPicker` uses, so a notch and a limit
+   * share two canned events there. Better than silence, and the readout still carries the fine value.
    */
-  private fun legacyTick(level: Level) {
+  private fun legacyEvent(event: Event) {
     val view = contentView() ?: return
-    val constant = when (level) {
-      Level.FINE, Level.COARSE -> HapticFeedbackConstants.CLOCK_TICK
-      else -> HapticFeedbackConstants.CONTEXT_CLICK
-    }
+    val constant = if (event == Event.NOTCH) HapticFeedbackConstants.CLOCK_TICK else HapticFeedbackConstants.CONTEXT_CLICK
     view.performHapticFeedback(constant)
   }
 
   private fun contentView(): View? = appContext.currentActivity?.findViewById<View>(android.R.id.content)
+
+  // `performHapticFeedback` honours the system haptics toggle on its own; the raw vibrator does not, so the
+  // fallback has to be gated the same way or a disabled setting leaks one buzz per notch.
+  private fun hapticsEnabled(): Boolean = contentView()?.isHapticFeedbackEnabled ?: true
 
   private fun vibrator(): Vibrator? {
     val context = appContext.reactContext ?: return null

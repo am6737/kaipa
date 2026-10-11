@@ -12,8 +12,6 @@ const MIN = 250;
 const MAX = 3000;
 const TICK_WIDTH = 10;
 const WEIGHTS = Array.from({ length: MAX - MIN + 1 }, (_, index) => MIN + index);
-// Detents in tenths of a kilogram: the 0.5 kg mid tick, and the 1 kg mark that carries a label.
-const WEIGHT_DETENTS = { minor: 5, major: 10 };
 const clamp = (value: number) => Math.max(MIN, Math.min(MAX, value));
 
 export function PlanningWeightPage({ theme, value, onBack }: {
@@ -31,12 +29,13 @@ export function PlanningWeightPage({ theme, value, onBack }: {
   const initialized = useRef(false);
   const interacted = useRef(false);
   const lastTick = useRef(selected);
-  const rulerHaptics = useMemo(() => createRulerHaptics(WEIGHT_DETENTS), []);
+  const rulerHaptics = useMemo(() => createRulerHaptics(), []);
   const initialOffset = useRef((selected - MIN) * TICK_WIDTH).current;
   const effectiveWidth = rulerWidth || 320;
   const padding = Math.max(0, (effectiveWidth - TICK_WIDTH) / 2);
   const adjust = (delta: number) => {
     const next = clamp(selected + delta);
+    rulerHaptics.move(lastTick.current, next);
     lastTick.current = next;
     setSelected(next);
     ruler.current?.scrollToOffset({ offset: (next - MIN) * TICK_WIDTH, animated: false });

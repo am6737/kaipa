@@ -1,25 +1,22 @@
 import { detentFeedback } from '../../../modules/haptics-engine';
 
-type Detents = { minor: number; major: number };
-
 /**
- * Detents sit on the ruler's emphasised marks — `minor` the half-step tick, `major` the labelled one —
- * not on every printed raster line, so 0.1 kg of travel does not mean 0.1 kg of buzzing.
+ * One event per tickmark, the way the Clock app's countdown wheel does it: a row the value passes is a
+ * click, and nothing else clicks.
  *
- * Firing on a crossed boundary instead of on a clock keeps the rhythm tied to geometry: a slow drag can
- * no longer drop beats, and a fast one can no longer stack them.
+ * The rhythm comes from the value, not from a clock: firing on every scroll callback buzzes because
+ * `Math.round` walks back and forth over one boundary while the list settles, and throttling by time drops
+ * beats on a slow drag. So one call per change of the reported value, and the engine decides how many
+ * clicks per second an actuator can actually render.
  */
-export function createRulerHaptics({ minor, major }: Detents) {
-  let coasting = true;
+export function createRulerHaptics() {
   let atEdge = false;
   return {
     grab() {
-      coasting = false;
       atEdge = false;
       detentFeedback.prepare();
     },
     release() {
-      coasting = true;
       atEdge = false;
       detentFeedback.commit();
     },
@@ -29,31 +26,28 @@ export function createRulerHaptics({ minor, major }: Detents) {
       atEdge = atBoundary;
     },
     move(previous: number, next: number) {
-      if (next === previous) return;
-      // Under the finger every tick answers; coasting, only the labelled ones do, or it reads as a rattle.
-      tick(previous, next, { minor, major }, coasting);
+      if (next !== previous) detentFeedback.detent();
     },
   };
 }
 
-export function createWheelHaptics({ minor, major }: Detents) {
-  /** A wheel reports discrete items, so each reported change is already one detent; the last one is the settle. */
+/**
+ * A wheel already reports discrete rows, so every change it hands over is one click and the row it lands on
+ * is the settle. `settle` stays silent until something rolled, because these libraries also report the
+ * current row on mount and a mount must not click.
+ */
+export function createWheelHaptics<Value extends number | string>() {
+  let rolled = false;
   return {
-    select(previous: number, next: number) {
+    select(previous: Value, next: Value) {
       if (next === previous) return;
-      tick(previous, next, { minor, major }, false);
+      rolled = true;
+      detentFeedback.detent();
+    },
+    settle() {
+      if (!rolled) return;
+      rolled = false;
+      detentFeedback.commit();
     },
   };
-}
-
-const crossed = (from: number, to: number, step: number) => Math.floor(from / step) !== Math.floor(to / step);
-
-function tick(previous: number, next: number, { minor, major }: Detents, coarseOnly: boolean) {
-  if (crossed(previous, next, major)) {
-    detentFeedback.detent('coarse');
-    return;
-  }
-  if (!coarseOnly && crossed(previous, next, minor)) {
-    detentFeedback.detent('fine');
-  }
 }

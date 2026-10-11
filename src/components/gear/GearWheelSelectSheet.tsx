@@ -96,7 +96,7 @@ export function GearWheelSelectSheet({
             <WheelPicker
               data={data}
               value={selected}
-              onValueChanging={() => { detentFeedback.detent('fine'); }}
+              onValueChanging={() => { detentFeedback.detent(); }}
               onValueChanged={({ item }) => setSelected(String(item.value))}
               itemHeight={40}
               visibleItemCount={5}

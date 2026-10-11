@@ -2,12 +2,11 @@ import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { requireNativeModule } from 'expo-modules-core';
 
-export type DetentLevel = 'fine' | 'coarse';
-
 export interface DetentFeedback {
   /** Warm the actuator ahead of a gesture so the first detent is not a cold start. */
   prepare(): void;
-  detent(level: DetentLevel): void;
+  /** One notch passed. There is deliberately no level: a ruler has one click, and its density is the tuning knob. */
+  detent(): void;
   boundary(): void;
   commit(): void;
 }
@@ -15,7 +14,7 @@ export interface DetentFeedback {
 type NativeEngine = {
   isSupported?: () => boolean;
   prepare?: () => Promise<void>;
-  tick?: (level: DetentLevel) => Promise<void>;
+  detent?: () => Promise<void>;
   boundary?: () => Promise<void>;
   commit?: () => Promise<void>;
 };
@@ -35,35 +34,33 @@ function loadEngine(): NativeEngine | null {
 
 const engine = loadEngine();
 
-/** `expo-haptics` still beats the previous implementation: selection ticks on iOS, framework detents on Android. */
+/**
+ * Older binary or Expo Go: the same three events, expressed in what `expo-haptics` exposes. `Rigid` and
+ * `Virtual_Key` are the firmest short clicks either platform offers, so a notch is still a click and not a
+ * canned 50 ms thud even when the native module is missing from the binary.
+ */
 const fallback: DetentFeedback = {
   prepare() {},
-  detent(level) {
+  detent() {
     if (Platform.OS === 'android') {
-      run(Haptics.performAndroidHapticsAsync(
-        level === 'coarse' ? Haptics.AndroidHaptics.Segment_Tick : Haptics.AndroidHaptics.Segment_Frequent_Tick,
-      ));
+      run(Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Virtual_Key));
       return;
     }
-    if (level === 'coarse') {
-      run(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid));
-      return;
-    }
-    run(Haptics.selectionAsync());
+    run(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid));
   },
   boundary() {
     if (Platform.OS === 'android') {
-      run(Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Context_Click));
+      run(Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Reject));
       return;
     }
-    run(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
+    run(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
   },
   commit() {
     if (Platform.OS === 'android') {
       run(Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Confirm));
       return;
     }
-    run(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+    run(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
   },
 };
 
@@ -74,20 +71,43 @@ const noop: DetentFeedback = {
   commit() {},
 };
 
-export const detentFeedback: DetentFeedback = Platform.OS === 'web' ? noop : engine ? {
+/**
+ * One click per actuator recovery, whatever the caller reports.
+ *
+ * A wheel hands over one row at a time, so its events are already spaced. A ruler hands over a float
+ * offset, so `Math.round` walks back and forth over one boundary while the list settles, and a fling can
+ * cross a hundred tickmarks in a second. Both cases turn the same short click into a continuous buzz.
+ * Below this spacing the ruler is moving faster than any actuator can restart, and the train is meant to
+ * merge into a roll the way a hard flick on a wheel does.
+ */
+const MIN_SPACING_MS = 30;
+let lastDetentAt = 0;
+
+function throttled(detent: () => void): () => void {
+  return () => {
+    const now = Date.now();
+    if (now - lastDetentAt < MIN_SPACING_MS) return;
+    lastDetentAt = now;
+    detent();
+  };
+}
+
+const playDetent = throttled(() => {
+  if (engine?.detent) run(engine.detent());
+  else fallback.detent();
+});
+
+export const detentFeedback: DetentFeedback = Platform.OS === 'web' ? noop : {
   prepare() {
-    if (engine.prepare) run(engine.prepare());
+    if (engine?.prepare) run(engine.prepare());
   },
-  detent(level) {
-    if (engine.tick) run(engine.tick(level));
-    else fallback.detent(level);
-  },
+  detent: playDetent,
   boundary() {
-    if (engine.boundary) run(engine.boundary());
+    if (engine?.boundary) run(engine.boundary());
     else fallback.boundary();
   },
   commit() {
-    if (engine.commit) run(engine.commit());
+    if (engine?.commit) run(engine.commit());
     else fallback.commit();
   },
-} : fallback;
+};

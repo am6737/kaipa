@@ -12,9 +12,6 @@ export type PlanningMetric = 'heightCm' | 'ageYears';
 const MIN_HEIGHT = 80;
 const MAX_HEIGHT = 250;
 const TICK_HEIGHT = 16;
-// Centimetres: the wider 5 cm tick, and the 10 cm mark that carries a label.
-const HEIGHT_DETENTS = { minor: 5, major: 10 };
-const YEAR_DETENTS = { minor: 1, major: 10 };
 const HEIGHTS = Array.from({ length: MAX_HEIGHT - MIN_HEIGHT + 1 }, (_, index) => MAX_HEIGHT - index);
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -41,13 +38,14 @@ export function PlanningMetricPage({ theme, metric, value, onBack }: {
   const rulerInitialized = useRef(false);
   const rulerInteracted = useRef(false);
   const lastTick = useRef(selected);
-  const rulerHaptics = useMemo(() => createRulerHaptics(HEIGHT_DETENTS), []);
-  const wheelHaptics = useMemo(() => createWheelHaptics(YEAR_DETENTS), []);
+  const rulerHaptics = useMemo(() => createRulerHaptics(), []);
+  const wheelHaptics = useMemo(() => createWheelHaptics<number>(), []);
   const initialHeight = useRef(Math.round(selected)).current;
   const min = isHeight ? MIN_HEIGHT : currentYear - 100;
   const max = isHeight ? MAX_HEIGHT : currentYear - 10;
   const adjust = (delta: number) => {
     const next = clamp(Math.round(selected) + delta, min, max);
+    rulerHaptics.move(lastTick.current, next);
     lastTick.current = next;
     setSelected(next);
     if (isHeight) ruler.current?.scrollTo({ y: (MAX_HEIGHT - next) * TICK_HEIGHT, animated: false });
@@ -115,7 +113,7 @@ export function PlanningMetricPage({ theme, metric, value, onBack }: {
               data={years}
               value={selected}
               onValueChanging={({ item }) => { wheelHaptics.select(lastTick.current, item.value); lastTick.current = item.value; setSelected(item.value); }}
-              onValueChanged={({ item }) => setSelected(item.value)}
+              onValueChanged={({ item }) => { wheelHaptics.settle(); setSelected(item.value); }}
               enableScrollByTapOnItem
               itemHeight={stageHeight / 5}
               visibleItemCount={5}
