@@ -29,7 +29,10 @@ create policy route_guides_insert on public.route_guides for insert to authentic
 drop policy if exists route_guides_update on public.route_guides;
 create policy route_guides_update on public.route_guides for update to authenticated
   using (author_id = auth.uid()) with check (author_id = auth.uid());
-grant select, insert, update on public.route_guides to authenticated;
+drop policy if exists route_guides_delete on public.route_guides;
+create policy route_guides_delete on public.route_guides for delete to authenticated
+  using (author_id = auth.uid());
+grant select, insert, update, delete on public.route_guides to authenticated;
 grant select on public.route_guides to anon;
 notify pgrst, 'reload schema';
 commit;

@@ -4,6 +4,7 @@ import type { RouteCommunityGuide, RouteGuidePlan, GuideText } from '../data/rou
 
 type Row = { id: string; title: string; intro: string | null; reflection: string | null; plan: RouteGuidePlan; author_id: string; submitted_at: string; updated_at: string; helpful_count: number; profile?: { display_name?: string | null; nick?: string | null; avatar_url?: string | null } | null };
 export type MyRouteGuideStatus = { id: string; status: 'pending' | 'approved' | 'rejected'; rejectionReason: string | null; updatedAt: string; title: string; intro: string; reflection: string; plan: RouteGuidePlan | null };
+export type MyRouteGuide = MyRouteGuideStatus & { routeId: string; submittedAt: string; helpfulCount: number };
 const text = (value: string): GuideText => ({ zh: value, en: value });
 const mapRow = (row: Row): RouteCommunityGuide => ({
   id: row.id, title: text(row.title), description: text(row.intro || ''), author: text(row.profile?.display_name || row.profile?.nick || 'Kaipa 用户'), authorAvatarUrl: row.profile?.avatar_url || null,
@@ -35,6 +36,18 @@ export async function submitRouteGuide(input: { routeId: string; authorId: strin
   if (error) throw error;
 }
 
+export async function updateRouteGuide(input: { id: string; title: string; intro: string; reflection: string; plan?: RouteGuidePlan | null }) {
+  const payload: Record<string, unknown> = { title: input.title.trim(), intro: input.intro.trim(), reflection: input.reflection.trim(), status: 'pending', rejection_reason: null, updated_at: new Date().toISOString() };
+  if (input.plan) payload.plan = input.plan;
+  const { error } = await supabase.from('route_guides').update(payload).eq('id', input.id);
+  if (error) throw error;
+}
+
+export async function deleteRouteGuide(id: string) {
+  const { error } = await supabase.from('route_guides').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export function useMyRouteGuideStatus(routeId: string | undefined, authorId: string | undefined) {
   const [status, setStatus] = useState<MyRouteGuideStatus | null>(null);
   const [loading, setLoading] = useState(Boolean(routeId && authorId));
@@ -47,4 +60,25 @@ export function useMyRouteGuideStatus(routeId: string | undefined, authorId: str
   }, [authorId, routeId]);
   useEffect(() => { void refresh(); }, [refresh]);
   return { status, loading, refresh };
+}
+
+/** All submissions owned by the signed-in user, for the personal guide library. */
+export function useMyRouteGuides(authorId: string | undefined) {
+  const [guides, setGuides] = useState<MyRouteGuide[]>([]);
+  const [loading, setLoading] = useState(Boolean(authorId));
+  const refresh = useCallback(async () => {
+    if (!authorId) { setGuides([]); setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await supabase.from('route_guides')
+      .select('id,route_id,status,rejection_reason,updated_at,submitted_at,title,intro,reflection,plan,helpful_count')
+      .eq('author_id', authorId).order('updated_at', { ascending: false });
+    if (!error) setGuides((data || []).map((row) => ({
+      id: row.id, routeId: row.route_id, status: row.status, rejectionReason: row.rejection_reason,
+      updatedAt: row.updated_at, submittedAt: row.submitted_at, title: row.title, intro: row.intro || '',
+      reflection: row.reflection || '', plan: row.plan as RouteGuidePlan, helpfulCount: row.helpful_count || 0,
+    })));
+    setLoading(false);
+  }, [authorId]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  return { guides, loading, refresh };
 }

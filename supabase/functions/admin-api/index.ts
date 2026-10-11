@@ -48,8 +48,8 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; moderation_status?: string; rejection_reason?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string };
-      const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact';
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; moderation_status?: string; rejection_reason?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string; section?: string; body?: string; sources?: string; as_of?: string; origin?: string };
+      const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact' || body.action === 'save-route-knowledge';
       if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
       if (!editors.includes(role)) return json({ error: 'write_forbidden' }, 403);
@@ -60,12 +60,12 @@ Deno.serve(async (req) => {
       if (body.action === 'set-user-role') {
         if (role !== 'owner') return json({ error: 'owner_required' }, 403);
         if (!['owner', 'admin', 'editor', 'viewer', 'none'].includes(body.role || '')) return json({ error: 'invalid_role' }, 400);
-        const { data: target, error: getError } = await service.auth.admin.getUserById(body.id);
+        const { data: target, error: getError } = await service.auth.admin.getUserById(body.id!);
         if (getError || !target.user) return json({ error: 'user_not_found' }, 404);
         const nextMetadata = { ...target.user.app_metadata };
         if (body.role === 'none') delete nextMetadata.role;
         else nextMetadata.role = body.role;
-        const updated = await service.auth.admin.updateUserById(body.id, { app_metadata: nextMetadata });
+        const updated = await service.auth.admin.updateUserById(body.id!, { app_metadata: nextMetadata });
         if (updated.error) throw updated.error;
       } else if (body.action === 'create-user') {
         if (role !== 'owner' && role !== 'admin') return json({ error: 'admin_required' }, 403);
@@ -92,12 +92,12 @@ Deno.serve(async (req) => {
         if (profile.error) throw profile.error;
       } else if (body.action === 'ban-user' || body.action === 'unban-user') {
         if (body.action === 'ban-user' && role !== 'owner' && role !== 'admin') return json({ error: 'admin_required' }, 403);
-        const updated = await service.auth.admin.updateUserById(body.id, { ban_duration: body.action === 'ban-user' ? (body.ban_duration || '876000h') : 'none' });
+        const updated = await service.auth.admin.updateUserById(body.id!, { ban_duration: body.action === 'ban-user' ? (body.ban_duration || '876000h') : 'none' });
         if (updated.error) throw updated.error;
       } else if (body.action === 'delete-user') {
         if (role !== 'owner') return json({ error: 'owner_required' }, 403);
         if (body.id === auth.user.id) return json({ error: 'cannot_delete_self' }, 400);
-        const deleted = await service.auth.admin.deleteUser(body.id);
+        const deleted = await service.auth.admin.deleteUser(body.id!);
         if (deleted.error) throw deleted.error;
       } else if (body.action === 'delete-journey' || body.action === 'restore-journey') {
         const deleted_at = body.action === 'delete-journey' ? new Date().toISOString() : null;
@@ -193,6 +193,20 @@ Deno.serve(async (req) => {
         const fileUrl = existing.data?.file_url;
         const marker = '/storage/v1/object/public/kaipa/';
         if (fileUrl?.includes(marker)) await service.storage.from('kaipa').remove([decodeURIComponent(fileUrl.split(marker)[1])]);
+      } else if (resource === 'routeKnowledge' && (body.action === 'save-route-knowledge' || body.action === 'publish-route-knowledge' || body.action === 'archive-route-knowledge')) {
+        if (body.action === 'save-route-knowledge') {
+          if (!body.section || !['overview','itinerary','access','overnight','costs','water_supply','season_risk','gear','tips'].includes(body.section) || !body.title?.trim() || !body.body?.trim() || !body.as_of) return json({ error: 'route_knowledge_fields_required' }, 400);
+          if ((body.route_id && body.region) || (!body.route_id && !body.region)) return json({ error: 'route_or_region_required' }, 400);
+          let sources: unknown = [];
+          try { sources = body.sources ? JSON.parse(body.sources) : []; } catch { return json({ error: 'sources_invalid' }, 400); }
+          if (!Array.isArray(sources)) return json({ error: 'sources_invalid' }, 400);
+          const values = { route_id: body.route_id || null, region: body.region || null, section: body.section, title: body.title.trim(), body: body.body, sources, as_of: body.as_of, status: ['draft','published','archived'].includes(body.status || '') ? body.status : 'draft', origin: ['manual','import','collection'].includes(body.origin || '') ? body.origin : 'manual', updated_by: auth.user.id };
+          const result = body.id ? await service.from('route_knowledge_entries').update(values).eq('id', body.id).select('id').maybeSingle() : await service.from('route_knowledge_entries').insert({ ...values, created_by: auth.user.id }).select('id').single();
+          if (result.error) throw result.error; if (!result.data) return json({ error: 'route_knowledge_not_found' }, 404); body.id = result.data.id;
+        } else {
+          const updated = await service.from('route_knowledge_entries').update({ status: body.action === 'publish-route-knowledge' ? 'published' : 'archived', updated_by: auth.user.id }).eq('id', body.id).select('id').maybeSingle();
+          if (updated.error) throw updated.error; if (!updated.data) return json({ error: 'route_knowledge_not_found' }, 404);
+        }
       } else if (body.action === 'delete-route-fact') {
         // Keep the status predicate on DELETE itself so a concurrent restore
         // cannot turn an archived-only deletion into deletion of a live fact.
@@ -318,6 +332,14 @@ Deno.serve(async (req) => {
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
       return json({ data: result.data || [] });
     }
+    if (resource === 'routeKnowledge') {
+      let query = service.from('route_knowledge_entries').select('id,route_id,region,section,title,body,sources,as_of,status,origin,created_by,updated_by,created_at,updated_at,route:routes(id,name,region)').order('updated_at', { ascending: false }).limit(1000);
+      for (const field of ['route_id', 'region', 'status', 'section'] as const) { const value = url.searchParams.get(field); if (value && value !== 'all') query = query.eq(field, value); }
+      const result = await query;
+      if (result.error) throw result.error;
+      await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
+      return json({ data: result.data || [] });
+    }
     // Change history for 线路资料. Read whole and filtered by entry in the
     // console: the volume is small, and adminApi's url builder takes no query
     // parameters, so adding a filter would mean widening that helper for one
@@ -330,12 +352,17 @@ Deno.serve(async (req) => {
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
       return json({ data: result.data || [] });
     }
+    if (resource === 'routeKnowledgeRevisions') {
+      const result = await service.from('route_knowledge_revisions').select('id,entry_id,snapshot,changed_by,changed_at').order('changed_at', { ascending: false }).limit(1000);
+      if (result.error) throw result.error;
+      return json({ data: result.data || [] });
+    }
     if (resource === 'routeObservations') {
       const result = await service.from('route_observations')
         .select('id,route_id,user_id,author_name,visited_at,section,body,media,moderation_status,helpful_count,created_at,updated_at')
         .order('created_at', { ascending: false }).limit(1000);
       if (result.error) throw result.error;
-      const rows = result.data || [];
+      const rows: any[] = result.data || [];
       const routeIds = [...new Set(rows.map((row) => row.route_id).filter(Boolean))];
       const userIds = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
       const [routes, profiles] = await Promise.all([
@@ -352,7 +379,7 @@ Deno.serve(async (req) => {
       const result = await service.from('route_guides').select('id,route_id,author_id,title,intro,reflection,plan,status,rejection_reason,helpful_count,submitted_at,reviewed_at,updated_at').order('submitted_at', { ascending: false }).limit(1000);
       if (result.error) throw result.error;
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
-      const rows = result.data || [];
+      const rows: any[] = result.data || [];
       const routeIds = [...new Set(rows.map((row) => row.route_id).filter(Boolean))];
       const authorIds = [...new Set(rows.map((row) => row.author_id).filter(Boolean))];
       const [routes, profiles] = await Promise.all([
@@ -386,7 +413,7 @@ Deno.serve(async (req) => {
     await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
     const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'routeObservations', 'agentRuns'].includes(resource) ? 'user_id' : null;
     if (userKey) {
-      const rows = result.data || [];
+      const rows: any[] = result.data || [];
       const userIds = [...new Set(rows.map((row) => row[userKey]).filter(Boolean))];
       const profiles = userIds.length
         ? await service.from('profiles').select('id,display_name,nick,username,avatar_url').in('id', userIds)

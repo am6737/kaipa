@@ -1,21 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Check, Trash2 } from 'lucide-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppActionDialog, DetailPage, layout, radius, space, type } from '../../design-system';
+import { AppActionDialog, layout, radius, space, type } from '../../design-system';
 import { useData } from '../../data/DataContext';
+import type { Poi } from '../../data/pois';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { Theme } from '../../theme/theme';
-import { Icon } from '../Icon';
 import { Press } from '../Press';
+import { MePushPage } from '../me/MePushPage';
 import { JourneyPlanCard } from './JourneyPlanCard';
 
 export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () => void }) {
   const { t } = useI18n();
   const data = useData();
   const nav = useNav();
-  const insets = useSafeAreaInsets();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -26,7 +25,7 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
     setSelectedIds((current) => new Set([...current].filter((id) => availableIds.has(id))));
   }, [data.trashedJourneys]);
 
-  const toggleSelected = (id: string) => {
+  const toggleSelected = useCallback((id: string) => {
     if (busy) return;
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -34,7 +33,7 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
       else next.add(id);
       return next;
     });
-  };
+  }, [busy]);
 
   const restoreSelected = async () => {
     if (!selectedIds.size || busy) return;
@@ -72,23 +71,12 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
 
   return (
     <>
-      <DetailPage
+      <MePushPage
         theme={theme}
         title={t('journeyHome.trash.title')}
         onBack={onBack}
-        left={(
-          <Press
-            accessibilityRole="button"
-            accessibilityLabel={t('common.back')}
-            onPress={onBack}
-            style={styles.backButton}
-          >
-            <Icon name="chevronL" color={theme.text} size={24} />
-          </Press>
-        )}
-        backgroundColor={theme.groupedBg}
-        overlay={data.trashedJourneys.length ? (
-          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, space.sm), backgroundColor: theme.groupedBg }]}>
+        footer={data.trashedJourneys.length ? (
+          <View style={styles.bottomBar}>
             <Press
               disabled={busy}
               accessibilityRole="checkbox"
@@ -96,7 +84,7 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
               accessibilityLabel={t(allSelected ? 'common.deselectAll' : 'common.selectAll')}
               onPress={() => setSelectedIds(allSelected ? new Set() : new Set(data.trashedJourneys.map((journey) => journey.id)))}
               scaleTo={1}
-              style={styles.selectAll}
+              style={[styles.selectAll, { backgroundColor: theme.controlSurface }]}
             >
               <SelectionCircle theme={theme} selected={allSelected} />
               <Text style={[styles.selectAllText, { color: theme.text }]}>{t(allSelected ? 'common.deselectAll' : 'common.selectAll')}</Text>
@@ -109,7 +97,7 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
               scaleTo={1}
               style={[styles.secondaryAction, { backgroundColor: theme.controlSurface }]}
             >
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={[styles.bottomActionText, { color: selectedIds.size ? theme.text : theme.text3 }]}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={[styles.bottomActionText, { color: selectedIds.size ? theme.danger : theme.text3 }]}>
                 {t('journeyHome.trash.deletePermanently')}
               </Text>
             </Press>
@@ -133,32 +121,16 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
         <View style={styles.content}>
           {data.trashedJourneys.length ? (
             <View style={styles.list}>
-              {data.trashedJourneys.map((journey) => {
-                const selected = selectedIds.has(journey.id);
-                return (
-                  <View key={journey.id} style={styles.entry}>
-                    <Press
-                      disabled={busy}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected, disabled: busy }}
-                      accessibilityLabel={journey.name}
-                      onPress={() => toggleSelected(journey.id)}
-                      style={styles.selector}
-                    >
-                      <SelectionCircle theme={theme} selected={selected} />
-                    </Press>
-                    <View style={styles.cardWrap}>
-                      <JourneyPlanCard
-                        theme={theme}
-                        journey={journey}
-                        onPress={() => toggleSelected(journey.id)}
-                        pressFeedback={false}
-                        showStatus={false}
-                      />
-                    </View>
-                  </View>
-                );
-              })}
+              {data.trashedJourneys.map((journey) => (
+                <TrashEntry
+                  key={journey.id}
+                  theme={theme}
+                  journey={journey}
+                  selected={selectedIds.has(journey.id)}
+                  disabled={busy}
+                  onToggle={toggleSelected}
+                />
+              ))}
             </View>
           ) : (
             <View style={styles.empty}>
@@ -168,7 +140,7 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
             </View>
           )}
         </View>
-      </DetailPage>
+      </MePushPage>
       <AppActionDialog
         theme={theme}
         visible={deleteDialogOpen}
@@ -186,6 +158,27 @@ export function JourneyTrashPage({ theme, onBack }: { theme: Theme; onBack: () =
   );
 }
 
+const TrashEntry = React.memo(function TrashEntry({ theme, journey, selected, disabled, onToggle }: { theme: Theme; journey: Poi; selected: boolean; disabled: boolean; onToggle: (id: string) => void }) {
+  const toggle = useCallback(() => onToggle(journey.id), [onToggle, journey.id]);
+  return (
+    <View style={styles.entry}>
+      <Press
+        disabled={disabled}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected, disabled }}
+        accessibilityLabel={journey.name}
+        onPress={toggle}
+        style={styles.selector}
+      >
+        <SelectionCircle theme={theme} selected={selected} />
+      </Press>
+      <View style={styles.cardWrap}>
+        <JourneyPlanCard theme={theme} journey={journey} onPress={toggle} pressFeedback={false} showStatus={false} />
+      </View>
+    </View>
+  );
+});
+
 function SelectionCircle({ theme, selected }: { theme: Theme; selected: boolean }) {
   return (
     <View style={[styles.selectionCircle, { borderColor: selected ? theme.accent : theme.fieldBorder, backgroundColor: selected ? theme.accent : 'transparent' }]}>
@@ -194,19 +187,20 @@ function SelectionCircle({ theme, selected }: { theme: Theme; selected: boolean 
   );
 }
 
+const floatShadow = { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 };
+
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: layout.pagePadding, paddingBottom: 88 },
-  backButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: layout.pagePadding },
   list: { marginTop: space.sm, gap: space.md },
   entry: { minHeight: 166, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   selector: { width: 32, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
   selectionCircle: { width: 23, height: 23, borderRadius: radius.pill, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   cardWrap: { flex: 1, minWidth: 0 },
-  bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 68, paddingTop: space.sm, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs },
-  selectAll: { width: 96, height: 46, flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  bottomBar: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  selectAll: { height: 46, flexShrink: 0, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, ...floatShadow },
   selectAllText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
-  secondaryAction: { flex: 1, height: 46, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
-  primaryAction: { flex: 1, height: 46, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
+  secondaryAction: { flex: 1, height: 46, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm, ...floatShadow },
+  primaryAction: { flex: 1, height: 46, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm, ...floatShadow },
   bottomActionText: { fontSize: 14, lineHeight: 19, fontWeight: '800', letterSpacing: 0 },
   empty: { paddingHorizontal: space.xl, paddingVertical: 90, alignItems: 'center', gap: space.sm },
   emptyBody: { textAlign: 'center', lineHeight: 21 },

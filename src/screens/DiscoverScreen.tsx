@@ -2,7 +2,7 @@
 // (探索) or the user's journeys (旅程), with a draggable bottom sheet listing them
 // and an in-place route/journey detail panel.
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { ActivityIndicator, Animated, BackHandler, Easing, InteractionManager, Platform, Pressable, ScrollView, View, Text, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, Easing, InteractionManager, Platform, Pressable, ScrollView, View, Text, TextInput, useWindowDimensions, StyleSheet, Alert, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { Theme } from '../theme/theme';
 import { useNav, useNavSubTab } from '../nav/NavContext';
-import { countRender, markTabTap } from '../lib/tabSwitchProbe';
+import { countRender } from '../lib/tabSwitchProbe';
 import { visiblePinKeys as railVisibleKeys } from '../lib/pinVisibility';
 import { useI18n, TKey } from '../i18n';
 import { Poi } from '../data/pois';
@@ -27,7 +27,7 @@ import { KPState, KPSkeletonLine } from '../components/State';
 import { StaggerIn } from '../components/StaggerIn';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
-import { AppActionDialog, motion, radius, space, type } from '../design-system';
+import { AppActionDialog, layout, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
 import { Avatar } from '../components/Avatar';
 import Svg, { Circle, ClipPath, Defs, FeDropShadow, Filter, G, Image as SvgImage, Path } from 'react-native-svg';
@@ -63,6 +63,57 @@ import { FeedbackPage } from '../components/me/FeedbackPage';
 const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
 const MEMORY_CHIPS = ['all', 'fav'] as const;
 const ROUTE_COMPARISON_COLORS = ['#F08A5D', '#26B7E8', '#6C63F5', '#35B779', '#E35D9A', '#D9A21B'] as const;
+const ADMIN_REGION_OPTIONS = [
+  '全国', '北京', '上海', '天津', '重庆',
+  '河北', '山西', '辽宁', '吉林', '黑龙江', '江苏', '浙江', '安徽', '福建', '江西', '山东',
+  '河南', '湖北', '湖南', '广东', '海南', '四川', '贵州', '云南', '陕西', '甘肃', '青海',
+  '台湾', '内蒙古', '广西', '西藏', '宁夏', '新疆', '香港', '澳门',
+] as const;
+const INTERNATIONAL_REGION_OPTIONS = ['尼泊尔'] as const;
+// Geographic extents (southwest / northeast), independent of route coverage.
+// Fit the whole administrative region to the actual map viewport on each device.
+const ADMIN_REGION_BOUNDS: Record<string, [number, number][]> = {
+  全国: [[73.5, 18.1], [135.1, 53.6]],
+  北京: [[115.4, 39.4], [117.6, 41.1]],
+  上海: [[120.85, 30.65], [122.2, 31.9]],
+  广东: [[109.6, 20.2], [117.35, 25.55]],
+  湖南: [[108.75, 24.6], [114.25, 30.15]],
+  浙江: [[118.0, 27.0], [123.0, 31.2]],
+  江西: [[113.55, 24.3], [118.5, 30.1]],
+  四川: [[97.35, 26.0], [108.55, 34.35]],
+  云南: [[97.5, 21.1], [106.2, 29.25]],
+  陕西: [[105.45, 31.7], [111.3, 39.6]],
+  湖北: [[108.35, 29.0], [116.15, 33.3]],
+  福建: [[115.8, 23.5], [120.75, 28.35]],
+  重庆: [[105.15, 28.1], [110.2, 32.25]],
+  天津: [[116.7, 38.5], [118.1, 40.3]],
+  河北: [[113.4, 36.0], [119.9, 42.6]],
+  山西: [[110.2, 35.2], [114.6, 40.8]],
+  辽宁: [[118.8, 38.7], [125.8, 43.5]],
+  吉林: [[121.6, 40.8], [131.2, 46.3]],
+  黑龙江: [[121.2, 43.4], [135.1, 53.6]],
+  江苏: [[116.3, 30.7], [121.9, 35.2]],
+  安徽: [[114.8, 29.4], [119.7, 34.7]],
+  山东: [[114.8, 34.2], [122.7, 38.4]],
+  河南: [[110.3, 31.4], [116.7, 36.4]],
+  海南: [[108.5, 18.1], [111.2, 20.2]],
+  贵州: [[103.5, 24.6], [109.6, 29.3]],
+  广西: [[104.4, 20.9], [112.1, 26.4]],
+  甘肃: [[92.3, 32.6], [108.8, 42.8]],
+  青海: [[89.4, 31.6], [103.1, 39.2]],
+  台湾: [[119.9, 21.8], [122.1, 25.4]],
+  内蒙古: [[97.2, 37.4], [121.3, 53.3]],
+  西藏: [[78.4, 26.8], [99.1, 36.5]],
+  宁夏: [[104.0, 35.2], [107.7, 39.4]],
+  新疆: [[73.5, 34.2], [96.4, 49.2]],
+  香港: [[113.8, 22.1], [114.5, 22.6]],
+  澳门: [[113.4, 22.0], [113.7, 22.3]],
+  尼泊尔: [[80.05, 26.35], [88.25, 30.45]],
+};
+
+function adminRegionOf(poi: Poi): string {
+  return poi.region.split('·')[0]?.trim() || poi.region;
+}
 
 type FilterMenuAnchor = { x: number; y: number; width: number; height: number };
 
@@ -614,6 +665,40 @@ export function DiscoverScreen({
   // When a clustered map pin is tapped, the same journey-list sheet is scoped to
   // that trailhead (coordinate key) — only the header copy changes to 这个地点的旅程.
   const [placeSel, setPlaceSel] = React.useState<string | null>(null);
+  const adminRegion = nav.discoverRegion;
+  const [adminRegionPickerOpen, setAdminRegionPickerOpen] = React.useState(false);
+  const [adminRegionPickerMounted, setAdminRegionPickerMounted] = React.useState(false);
+  const [adminRegionQuery, setAdminRegionQuery] = React.useState('');
+  const [adminRegionScope, setAdminRegionScope] = React.useState<'china' | 'international'>('china');
+  const adminRegionChevronProgress = React.useRef(new Animated.Value(0)).current;
+  const adminRegionPickerProgress = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.timing(adminRegionChevronProgress, {
+      toValue: adminRegionPickerOpen ? 1 : 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    if (adminRegionPickerOpen) setAdminRegionPickerMounted(true);
+    const pickerAnimation = Animated.timing(adminRegionPickerProgress, {
+      toValue: adminRegionPickerOpen ? 1 : 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    pickerAnimation.start(({ finished }) => {
+      if (finished && !adminRegionPickerOpen) setAdminRegionPickerMounted(false);
+    });
+    return () => pickerAnimation.stop();
+  }, [adminRegionChevronProgress, adminRegionPickerOpen, adminRegionPickerProgress]);
+  React.useEffect(() => {
+    if (!adminRegionPickerOpen || Platform.OS === 'web') return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setAdminRegionPickerOpen(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [adminRegionPickerOpen]);
   const [focusReturnToList, setFocusReturnToList] = React.useState(false);
   const sheetRef = React.useRef<TrailSheetHandle>(null);
   const routeJourneyTransitionRef = React.useRef(false);
@@ -1129,7 +1214,13 @@ export function DiscoverScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav.savedRoutes, routes, publicTrackPois]);
 
-  const basePois: Poi[] = isMemory ? memoryBasePois : exploreBasePois;
+  const regionBasePois = useMemo(
+    () => adminRegion === '全国'
+      ? exploreBasePois
+      : exploreBasePois.filter((poi) => adminRegionOf(poi) === adminRegion),
+    [adminRegion, exploreBasePois],
+  );
+  const basePois: Poi[] = isMemory ? memoryBasePois : regionBasePois;
 
   const pois = useMemo(() => {
     let list = [...basePois];
@@ -1152,6 +1243,54 @@ export function DiscoverScreen({
     () => (placeSel ? pois.filter((p) => placeKey(p) === placeSel) : pois),
     [pois, placeSel]
   );
+
+  const visibleAdminRegions = useMemo(() => {
+    const query = adminRegionQuery.trim();
+    const source: readonly string[] = adminRegionScope === 'china' ? ADMIN_REGION_OPTIONS : INTERNATIONAL_REGION_OPTIONS;
+    const available = new Set<string>(source);
+    if (adminRegionScope === 'china') {
+      exploreBasePois.map(adminRegionOf).forEach((region) => {
+        if (source.includes(region)) available.add(region);
+      });
+    }
+    return [...available].sort((a, b) => a === '全国' ? -1 : b === '全国' ? 1 : a.localeCompare(b))
+      .filter((region) => !query || region.includes(query));
+  }, [adminRegionQuery, adminRegionScope, exploreBasePois]);
+
+  const chooseAdminRegion = useCallback((region: string) => {
+    nav.setDiscoverRegion(region);
+    setAdminRegionPickerOpen(false);
+    setAdminRegionQuery('');
+    setPlaceSel(null);
+    const coordinates = ADMIN_REGION_BOUNDS[region];
+    if (coordinates) {
+      setMapAtCurrentLocation(false);
+      setMapCameraAction((current) => ({
+        type: 'fitCoordinates',
+        revision: (current?.revision ?? 0) + 1,
+        coordinates,
+        // Administrative overviews should be centred in the full map viewport;
+        // the usual route padding reserves space above the journey sheet and
+        // makes a province appear too high on the screen.
+        padding: [24, 24, 24, 24],
+      }));
+    }
+  }, []);
+
+  // The shared search page can change the active destination directly through
+  // navigation state. Keep the map camera in sync with that selection.
+  useEffect(() => {
+    const coordinates = ADMIN_REGION_BOUNDS[adminRegion];
+    if (!coordinates || isMemory) return;
+    setMapAtCurrentLocation(false);
+    setPlaceSel(null);
+    setMapCameraAction((current) => ({
+      type: 'fitCoordinates',
+      revision: (current?.revision ?? 0) + 1,
+      coordinates,
+      padding: [24, 24, 24, 24],
+    }));
+  }, [adminRegion, isMemory]);
 
   const allSelected = displayPois.length > 0 && selectedIds.size === displayPois.length;
   const toggleAll = useCallback(() => {
@@ -1605,8 +1744,9 @@ export function DiscoverScreen({
   };
 
   React.useEffect(() => {
-    onBlockingOverlayChange?.(mapStylePickerVisible);
-  }, [mapStylePickerVisible, onBlockingOverlayChange]);
+    // Full-screen pickers must cover the bottom tab bar as well as the map.
+    onBlockingOverlayChange?.(mapStylePickerVisible || adminRegionPickerOpen || adminRegionPickerMounted);
+  }, [adminRegionPickerMounted, adminRegionPickerOpen, mapStylePickerVisible, onBlockingOverlayChange]);
 
   const locateCurrentPosition = useCallback(async () => {
     if (locating) return;
@@ -1845,8 +1985,8 @@ export function DiscoverScreen({
   // and 284ms.
   const useRail = railAvailable;
   const exploreLayerPins = useMemo(
-    () => pinsFromGroups(groupByPlace(exploreBasePois), 'explore', null),
-    [exploreBasePois],
+    () => pinsFromGroups(groupByPlace(regionBasePois), 'explore', null),
+    [regionBasePois],
   );
   const memoryLayerPins = useMemo(
     () => pinsFromGroups(groupByPlace(memoryBasePois), 'memory', null),
@@ -2160,54 +2300,38 @@ export function DiscoverScreen({
         ) : null}
       </View>
 
-      {/* Discover keeps its original route / journey map modes. */}
-      {!nav.pointInfo && !mapImmersive ? (
-      <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>
-        <Glass theme={chromeTheme} radius={16} intensity={30}>
-          <View style={{ flexDirection: 'row', padding: 3, gap: 3 }}>
-            {[
-              { id: 'explore', label: t('discover.tabExplore') },
-              { id: 'memory', label: t('discover.tabMemory') },
-            ].map((tab) => {
-              const active = subTab === tab.id;
-              return (
-                <Press
-                  key={tab.id}
-                  onPress={() => {
-                    if (active) {
-                      // Re-tapping the shown mode only means "put the sheet away".
-                      if (nav.sheetOpen) nav.setSubTab(tab.id as 'explore' | 'memory');
-                      return;
-                    }
-                    markTabTap(`sub:${subTab} ${nav.sheetOpen ? 'sheet' : 'clean'}`, tab.id);
-                    // Same batch as the mode change: leaving these to the post-commit
-                    // `[isMemory]` effect cost every tap a second full pass.
-                    setChip(0);
-                    setPlaceSel(null);
-                    nav.setSubTab(tab.id as 'explore' | 'memory');
-                  }}
-                  style={{
-                    paddingHorizontal: 20,
-                    height: 30,
-                    borderRadius: 13,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: active ? (chromeTheme.dark ? 'rgba(120,120,128,0.5)' : '#fff') : 'transparent',
-                  }}
-                >
-                  <Text style={{ fontSize: 14, fontWeight: active ? '700' : '500', color: active ? chromeTheme.text : chromeTheme.text2 }}>
-                    {tab.label}
-                  </Text>
-                </Press>
-              );
-            })}
-          </View>
-        </Glass>
-      </View>
-      ) : null}
+      {/* The 探索 / 旅程 switch is temporarily hidden. The selected mode is
+          still controlled by navigation when entering 发现 from other pages. */}
 
       {/* top-right chrome */}
       {!nav.pointInfo && !mapImmersive ? (
+      <>
+      {!isMemory ? (
+        <Press
+          accessibilityRole="button"
+          accessibilityLabel="选择行政区"
+          onPress={() => nav.openSearch()}
+          style={{
+            position: 'absolute', top: insets.top + 4, left: 19,
+            height: 44, alignItems: 'flex-start', justifyContent: 'center',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: 0.88 }}>
+            <Text style={{
+              color: chromeTheme.text,
+              fontSize: 20,
+              lineHeight: 25,
+              fontWeight: '600',
+              textShadowColor: chromeTheme.dark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.58)',
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 2,
+            }}>{adminRegion}</Text>
+            <Animated.View style={{ transform: [{ rotate: adminRegionChevronProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+              <Icon name="chevronDown" color={chromeTheme.text} size={15} strokeWidth={2.3} />
+            </Animated.View>
+          </View>
+        </Press>
+      ) : null}
       <View style={{ position: 'absolute', top: insets.top + 4, right: 16, gap: 10 }}>
         <Press
           accessibilityRole="button"
@@ -2218,6 +2342,7 @@ export function DiscoverScreen({
           <Search color={chromeTheme.text} size={25} strokeWidth={2.2} />
         </Press>
       </View>
+      </>
       ) : !mapImmersive && nav.pointInfo?.kind === 'journey' ? (
         <>
           <View style={{ position: 'absolute', top: insets.top + 5, left: 13 }}>
@@ -2259,6 +2384,65 @@ export function DiscoverScreen({
           </View> : null}
         </>
       ) : null}
+
+      {/* Keep this in the existing screen tree instead of opening a native
+          full-screen Modal. A native Modal creates another window and its
+          platform fade can stall while the map is rendering. */}
+      {adminRegionPickerMounted ? <Animated.View
+        pointerEvents={adminRegionPickerOpen && !isMemory ? 'auto' : 'none'}
+        accessibilityViewIsModal={adminRegionPickerOpen && !isMemory}
+        style={[StyleSheet.absoluteFill, {
+          zIndex: 100,
+          elevation: 100,
+          opacity: adminRegionPickerProgress,
+        }]}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
+          <View style={{ paddingTop: insets.top + space.sm, paddingHorizontal: space.md, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            <Press onPress={() => setAdminRegionPickerOpen(false)} accessibilityRole="button" accessibilityLabel={t('common.back')} hitSlop={8} style={{ width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="chevronL" color={theme.text} size={28} strokeWidth={1.9} />
+            </Press>
+            <View style={{ flex: 1, height: layout.fieldHeight, borderRadius: layout.fieldHeight / 2, backgroundColor: theme.featureSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md }}>
+              <Icon name="search" color={theme.text3} size={17} />
+              <TextInput
+                value={adminRegionQuery}
+                onChangeText={setAdminRegionQuery}
+                placeholder="输入省份、自治区或直辖市"
+                placeholderTextColor={theme.text3}
+                returnKeyType="search"
+                autoCorrect={false}
+                style={{ flex: 1, height: layout.fieldHeight, fontSize: 15, lineHeight: 21, color: theme.text, paddingVertical: 0, paddingHorizontal: 0, minWidth: 0, textAlignVertical: 'center' }}
+              />
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', paddingHorizontal: space.lg, gap: 28, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.fieldBorder }}>
+            <Press onPress={() => { setAdminRegionScope('china'); setAdminRegionQuery(''); }} accessibilityRole="tab" accessibilityState={{ selected: adminRegionScope === 'china' }}>
+              <Text style={{ paddingBottom: 12, color: theme.text, fontSize: 16, fontWeight: '700', borderBottomWidth: 3, borderBottomColor: adminRegionScope === 'china' ? theme.accent : 'transparent' }}>中国</Text>
+            </Press>
+            <Press onPress={() => { setAdminRegionScope('international'); setAdminRegionQuery(''); }} accessibilityRole="tab" accessibilityState={{ selected: adminRegionScope === 'international' }}>
+              <Text style={{ paddingBottom: 12, color: theme.text, fontSize: 16, fontWeight: '700', borderBottomWidth: 3, borderBottomColor: adminRegionScope === 'international' ? theme.accent : 'transparent' }}>国际</Text>
+            </Press>
+          </View>
+          <View style={{ flex: 1, marginTop: 8, backgroundColor: theme.groupedBg, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden' }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: insets.bottom + space.xl }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+                {visibleAdminRegions.map((region) => (
+                  <Press
+                    key={region}
+                    onPress={() => chooseAdminRegion(region)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: adminRegion === region }}
+                    style={{ minWidth: 88, paddingHorizontal: 16, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: adminRegion === region ? theme.accent : theme.featureSurface }}
+                  >
+                    <Text numberOfLines={1} style={{ color: adminRegion === region ? '#FFFFFF' : theme.text, fontSize: 16, fontWeight: adminRegion === region ? '700' : '500' }}>{region}</Text>
+                  </Press>
+                ))}
+              </View>
+              {visibleAdminRegions.length === 0 ? <Text style={{ color: theme.text3, textAlign: 'center', marginTop: space.xl }}>没有匹配的行政区</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Animated.View> : null}
 
       {/* Fullscreen renders no chrome at all — the map is the whole screen and
           a tap on it is the only way out (see mapHandlers.onBackgroundPress). */}

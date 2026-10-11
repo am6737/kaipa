@@ -1,11 +1,12 @@
 # 线路攻略离线采集
 
-规划只读取 git 中人工维护的
-`data/route-guides/<routeId>.md`。缺失或不完整时，服务端调用
+规划只读取数据库中已发布的路线知识库条目。缺失或不完整时，服务端调用
 `record_route_guide_gaps(p_route_id text, p_sections text[], p_run_id uuid default null)`
 记录缺口。 `route_guide_gap_queue` 是仅供 service role
 读取的未解决队列，按命中次数、最近发现时间降序排列。 `*`
-表示整份攻略缺失，同一线路同一章节只有一条未解决记录；解决后的记录保留历史。
+表示整份攻略缺失，同一线路同一章节只有一条未解决记录；解决后的记录保留历史。发布对应线路或章节的知识条目会自动关闭缺口。
+
+现在的流程是：采集器把素材写入 `_inbox` → 策展人在管理后台「路线知识库」创建或编辑草稿 → 核对来源和 `asOf` 后发布 → 规划立即读取，无需重新部署。`data/route-guides/*.md` 只保留为历史导入源，运行时不会读取；可用 `node scripts/import-route-guides.mjs --dry-run` 预览分章节导入结果。
 
 采集脚本仅做离线素材收集，不写数据库、不写攻略、不部署服务。凭据由运行环境提供：
 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`；搜索来源沿用
@@ -61,22 +62,10 @@ inbox 目录，日志放在受控目录）：
 0 3 * * * cd /home/coder/workspaces/kaipa && flock -n /run/user/1000/kaipa-route-collector.lock /home/coder/.deno/bin/deno run --allow-env --allow-read --allow-write=data/route-guides/_inbox --allow-net scripts/collect-route-sources.ts --gaps --limit-routes 5 --delay-ms 5000 >> /var/log/kaipa/route-guide-collection.log 2>&1
 ```
 
-策展者逐条核对线路身份、来源、时间和相互冲突的说法，必要时通过可靠渠道核实。只把审核过的内容整理成
-`data/route-guides/<routeId>.md`，遵守攻略格式规范，保留来源和审核时间，并在 git
-中审查、提交。 不要把原始 JSON
-直接作为攻略，也不要仅因采集成功就关闭缺口。攻略更新并可供规划读取后，
-操作者通过有权限的数据库连接按实际覆盖的章节关闭记录（不要默认关闭全部）：
+策展者逐条核对线路身份、来源、时间和相互冲突的说法，必要时通过可靠渠道核实。不要把原始 JSON
+直接作为知识条目，也不要仅因采集成功就关闭缺口。通过后台发布实际覆盖的章节后，数据库触发器会自动关闭对应记录：
 
-```sql
-begin;
-update public.route_guide_gaps
-set resolved_at = now()
-where route_id = 'trk009'
-  and section in ('access', 'water_supply')
-  and resolved_at is null;
--- 若该线路此前没有攻略，完整攻略已审核并提交后，再显式关闭 section = '*'。
-commit;
-```
+手工 SQL 仅用于历史数据修正；日常发布不需要执行。
 
 后续规划再次发现缺口时，RPC
 会新建开放记录，保留旧的已解决记录。采集器本身永远不执行上述 SQL。

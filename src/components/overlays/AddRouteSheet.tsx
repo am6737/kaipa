@@ -49,7 +49,7 @@ function OptionCard({
   );
 }
 
-export function AddRouteSheet({ theme, onClose, onUpload, loading }: { theme: Theme; onClose: () => void; onUpload: () => void; loading?: boolean }) {
+export function AddRouteSheet({ theme, onClose, onUpload, onRequest, loading }: { theme: Theme; onClose: () => void; onUpload: () => void; onRequest?: () => void; loading?: boolean }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const slide = useRef(new Animated.Value(0)).current;
@@ -88,7 +88,7 @@ export function AddRouteSheet({ theme, onClose, onUpload, loading }: { theme: Th
         </Text>
         <View style={{ gap: 10 }}>
           <OptionCard theme={theme} icon="upload" title={t('journeyEdit.addRoute.uploadTitle')} sub={loading ? t('journeyEdit.addRoute.parsing') : t('journeyEdit.addRoute.uploadSub')} loading={loading} onPress={onUpload} />
-          <OptionCard theme={theme} icon="route" title={t('journeyEdit.addRoute.drawTitle')} sub={t('journeyEdit.addRoute.drawSub')} disabled />
+          <OptionCard theme={theme} icon="route" title={t('journeyEdit.addRoute.drawTitle')} sub={t('journeyEdit.addRoute.drawSub')} onPress={onRequest} />
         </View>
       </Animated.View>
     </View>

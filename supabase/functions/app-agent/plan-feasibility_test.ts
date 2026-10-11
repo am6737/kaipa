@@ -258,6 +258,21 @@ Deno.test("daily_load: consecutive endpoint differences and route resets", () =>
     "label estimate",
   );
 });
+Deno.test("endpoint_day_alignment: an unrepairable endpoint count is a blocker", () => {
+  const result = evaluate(
+    plan([
+      item("Day 3"),
+      item("Day 4"),
+      transfer("Day 5", { title: "出山接驳至成都" }),
+    ], [
+      endpoint("Day 4", { waypointIndex: 54 }),
+    ]),
+    { research: research() },
+  );
+  const alignment = code(result, "endpoint_day_alignment");
+  assert(alignment.length === 1 && alignment[0].severity === "blocker", "an incomplete endpoint mapping must block the plan");
+  assert(alignment[0].detail?.activityDays instanceof Array && alignment[0].detail.activityDays.join() === "Day 3,Day 4", "the blocker must identify hiking days");
+});
 Deno.test("daily_load: real cumulative ascent counter is used; net elevation is never ascent", () => {
   const r = route();
   Object.assign(r.waypoints[0], { cumulativeAscentMeters: 0 });
@@ -618,6 +633,7 @@ Deno.test("provider-only rows: past departure checked, city sleep anchored, no m
       originQuote: "",
       modesQuote: "",
     },
+    hubs: [],
     queries: [],
     itineraryItems: [provider, arrival],
     unresolved: [],

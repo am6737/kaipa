@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Check, ChevronRight } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Keyboard, StyleSheet, Text, View } from 'react-native';
+import { Check } from 'lucide-react-native';
 import type { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { useData } from '../../data/DataContext';
 import { useNav } from '../../nav/NavContext';
 import type { UserPlanningProfile } from '../../hooks/usePlanningProfile';
-import { layout, radius, space } from '../../design-system';
+import { AppChoiceChip, AppFieldCard, AppTextArea, layout, radius, space, type } from '../../design-system';
 import { Press } from '../Press';
 import { MePushPage } from './MePushPage';
 import { PlanningMetricPage } from './PlanningMetricPage';
@@ -29,61 +29,6 @@ function toDraft(profile: UserPlanningProfile): Draft {
 
 function optionalNumber(value: string) {
   return value.trim() ? Number(value) : null;
-}
-
-function PlanningField({
-  theme,
-  label,
-  value,
-  description,
-  unit,
-  error,
-  decimal,
-  onChange,
-  onOpen,
-}: {
-  theme: Theme;
-  label: string;
-  value: string;
-  description: string;
-  unit: string;
-  error?: string;
-  decimal?: boolean;
-  onChange: (value: string) => void;
-  onOpen?: () => void;
-}) {
-  const input = useRef<TextInput>(null);
-  const [focused, setFocused] = useState(false);
-  return (
-    <Press accessible={!!onOpen} accessibilityRole={onOpen ? 'button' : undefined} accessibilityLabel={onOpen ? `${label} ${value || '--'} ${unit}` : undefined} onPress={onOpen ?? (() => input.current?.focus())} style={[styles.card, {
-      backgroundColor: theme.surfaceTop,
-      borderColor: error ? theme.danger : focused ? theme.accent : 'transparent',
-    }]}>
-      <View style={styles.fieldRow}>
-        <Text style={[styles.label, { color: theme.text, flex: 1 }]}>{label}</Text>
-        <View style={styles.valueRow}>
-          {onOpen ? <Text style={[styles.displayValue, { color: value ? theme.text : theme.text3 }]}>{value || '--'}</Text> : <TextInput
-            ref={input}
-            value={value}
-            onChangeText={(text) => onChange(decimal ? text.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1') : text.replace(/\D/g, ''))}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
-            maxLength={decimal ? 6 : 3}
-            placeholder="--"
-            placeholderTextColor={theme.text3}
-            accessibilityLabel={`${label} (${unit})`}
-            selectionColor={theme.accent}
-            style={[styles.valueInput, { color: theme.text }]}
-          />}
-          <Text style={[styles.unit, { color: theme.text }]}>{unit}</Text>
-          <ChevronRight size={18} color={theme.text3} />
-        </View>
-      </View>
-      <Text style={[styles.description, { color: theme.text2 }]}>{description}</Text>
-      {error ? <Text accessibilityRole="alert" style={[styles.description, { color: theme.danger }]}>{error}</Text> : null}
-    </Press>
-  );
 }
 
 export function PlanningProfilePage({ theme, onBack }: { theme: Theme; onBack: () => void }) {
@@ -155,35 +100,26 @@ export function PlanningProfilePage({ theme, onBack }: { theme: Theme; onBack: (
     <>
       <MePushPage theme={theme} title={t('planningProfile.title')} onBack={onBack} right={done}>
         <View style={styles.content}>
-          <PlanningField theme={theme} label={t('planningProfile.height')} description={t('planningProfile.heightHint')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => setNumeric('heightCm', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('heightCm'); }} />
-          <PlanningField theme={theme} label={t('planningProfile.weight')} description={t('planningProfile.weightHint')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => setNumeric('weightKg', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('weightKg'); }} />
-          <PlanningField theme={theme} label={t('planningProfile.age')} description={t('planningProfile.ageHint')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => setNumeric('ageYears', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('ageYears'); }} />
-          <View style={[styles.card, { backgroundColor: theme.surfaceTop, borderColor: 'transparent', gap: space.md }]}>
-            <Text style={[styles.label, { color: theme.text }]}>{t('planningProfile.dietaryRestrictions')}</Text>
+          <AppFieldCard theme={theme} label={t('planningProfile.height')} description={t('planningProfile.heightHint')} value={draft.heightCm} unit="cm" error={errors.heightCm} decimal onChange={(value) => setNumeric('heightCm', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('heightCm'); }} />
+          <AppFieldCard theme={theme} label={t('planningProfile.weight')} description={t('planningProfile.weightHint')} value={draft.weightKg} unit="kg" error={errors.weightKg} decimal onChange={(value) => setNumeric('weightKg', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('weightKg'); }} />
+          <AppFieldCard theme={theme} label={t('planningProfile.age')} description={t('planningProfile.ageHint')} value={draft.ageYears} unit={t('planningProfile.years')} error={errors.ageYears} onChange={(value) => setNumeric('ageYears', value)} onOpen={() => { Keyboard.dismiss(); setEditingMetric('ageYears'); }} />
+          <View style={[styles.card, { backgroundColor: theme.surfaceTop, gap: space.md }]}>
+            <Text style={[type.fieldLabel, { color: theme.text }]}>{t('planningProfile.dietaryRestrictions')}</Text>
             <View style={styles.options}>
-              {DIETARY_OPTIONS.map((option) => {
-                const selected = dietarySelected.includes(option);
-                return (
-                  <Press key={option} onPress={() => toggleDietary(option)} accessibilityRole="checkbox" accessibilityState={{ checked: selected }} style={[styles.option, { backgroundColor: selected ? theme.accent : theme.fieldSurface, borderColor: selected ? theme.accent : 'transparent' }]}>
-                    <Text style={[styles.optionText, { color: selected ? '#FFFFFF' : theme.text2 }]}>{t(`onboarding.dietary.${option}` as any)}</Text>
-                  </Press>
-                );
-              })}
+              {DIETARY_OPTIONS.map((option) => (
+                <AppChoiceChip key={option} theme={theme} label={t(`onboarding.dietary.${option}` as any)} selected={dietarySelected.includes(option)} onPress={() => toggleDietary(option)} />
+              ))}
             </View>
-            <TextInput
+            <AppTextArea
+              theme={theme}
               value={draft.dietaryRestrictions}
               onChangeText={(dietaryRestrictions) => setDraft((current) => ({ ...current, dietaryRestrictions: dietaryRestrictions.slice(0, 200) }))}
               placeholder={t('planningProfile.dietaryPlaceholder')}
-              placeholderTextColor={theme.text2}
               accessibilityLabel={t('planningProfile.dietaryRestrictions')}
-              selectionColor={theme.accent}
               maxLength={200}
-              multiline
-              textAlignVertical="top"
-              style={[styles.dietaryInput, { backgroundColor: theme.fieldSurface, color: theme.text }]}
             />
           </View>
-          <Text style={[styles.description, styles.hint, { color: theme.text2 }]}>{t('planningProfile.emptyHint')}</Text>
+          <Text style={[type.hint, styles.hint, { color: theme.text2 }]}>{t('planningProfile.emptyHint')}</Text>
         </View>
       </MePushPage>
       {editingMetric === 'weightKg' ? <PlanningWeightPage theme={theme} value={draft.weightKg} onBack={(value) => { setNumeric('weightKg', value); setEditingMetric(null); }} /> : editingMetric ? <PlanningMetricPage key={editingMetric} theme={theme} metric={editingMetric} value={draft[editingMetric]} onBack={(value) => { setNumeric(editingMetric, value); setEditingMetric(null); }} /> : null}
@@ -193,17 +129,8 @@ export function PlanningProfilePage({ theme, onBack }: { theme: Theme; onBack: (
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: layout.pagePadding, paddingTop: space.xl, gap: space.sm },
-  card: { borderRadius: radius.showcase, paddingHorizontal: space.lg, paddingVertical: space.md, borderWidth: 1 },
-  fieldRow: { minHeight: layout.fieldHeight, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.xs },
-  label: { fontSize: 17, fontWeight: '600' },
-  valueRow: { flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1, transform: [{ translateY: 6 }] },
-  valueInput: { width: 78, minHeight: layout.fieldHeight, paddingVertical: 0, fontSize: 21, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
-  displayValue: { minHeight: layout.fieldHeight, lineHeight: layout.fieldHeight, fontSize: 21, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  unit: { fontSize: 17, fontWeight: '600' },
-  description: { fontSize: 12, lineHeight: 19 },
+  // Same shell as AppFieldCard, for the card that groups several controls.
+  card: { borderRadius: radius.showcase, paddingHorizontal: space.lg, paddingVertical: space.md, borderWidth: 1, borderColor: 'transparent' },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
-  option: { borderWidth: 1, minHeight: layout.fieldHeight, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
-  optionText: { fontSize: 14, fontWeight: '600' },
-  dietaryInput: { minHeight: 92, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card, fontSize: 14, lineHeight: 22 },
   hint: { paddingHorizontal: space.lg, paddingTop: space.xs },
 });

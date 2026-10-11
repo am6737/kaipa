@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../../theme/theme';
-import { AppCard, radius, space, type } from '../../design-system';
+import { AppCard, layout, radius, space, type } from '../../design-system';
 import { Icon, type IconName } from '../Icon';
 import type { Poi } from '../../data/pois';
 import type { Track } from '../../data/tracks';
@@ -47,7 +47,7 @@ export function ProfileShortcut({ theme, title, detail, items, trackItems, previ
   trackItems?: Pick<Track, 'id' | 'coords'>[];
   previewRows?: { id?: string; label: string; value: string; inline?: boolean }[];
   icon: IconName;
-  variant: 'journeys' | 'favorites' | 'gear' | 'checklist' | 'trash' | 'tracks';
+  variant: 'journeys' | 'favorites' | 'gear' | 'checklist' | 'trash' | 'tracks' | 'guide';
   onPress: () => void;
   stats?: { label: string; value: string; progress?: number }[];
   badge?: string;
@@ -58,6 +58,7 @@ export function ProfileShortcut({ theme, title, detail, items, trackItems, previ
   const isTrash = variant === 'trash';
   const isGear = variant === 'gear';
   const isTracks = variant === 'tracks';
+  const isGuide = variant === 'guide';
   const surface = theme.fieldSurface;
 
   if (isTrash) return (
@@ -77,6 +78,7 @@ export function ProfileShortcut({ theme, title, detail, items, trackItems, previ
     </AppCard>
   );
 
+
   return (
     <AppCard theme={theme} radius={radius.showcase} style={{ aspectRatio: 1, minWidth: 0, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: surface, boxShadow: 'none', borderWidth: isGear ? StyleSheet.hairlineWidth : 0, borderColor: theme.fieldBorder }}>
       <Press onPress={onPress} accessibilityRole="button" scaleTo={0.98} accessibilityLabel={`${title}, ${detail}`}
@@ -95,6 +97,8 @@ export function ProfileShortcut({ theme, title, detail, items, trackItems, previ
                 </View>
               ))}
             </View>
+          ) : isGuide ? (
+            <Icon name={icon} color={theme.text3} size={layout.iconButton} />
           ) : isFavorites ? (
             <View style={{ width: 88, height: 64, maxWidth: '100%' }}>
               {Array.from({ length: 3 }, (_, index) => previews[index]).map((item, index) => item?.photoUris?.[0] ? (

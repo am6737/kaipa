@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { MONO } from '../theme/fonts';
 import { Theme } from '../theme/theme';
-import { MAX_JOURNEY_PARTICIPANTS, Poi, type Companion } from '../data/pois';
+import { MAX_JOURNEY_PARTICIPANTS, orderCompanionsForDisplay, Poi, type Companion } from '../data/pois';
 import { TLRow } from '../data/timeline';
 import { JourneyTimelineCard, MediaViewer } from '../components/overlays/JourneyTimeline';
 import { PhotoTile } from '../components/PhotoTile';
@@ -1264,7 +1264,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     const list = poi.companionList?.length
       ? [...poi.companionList]
       : [{ ini: author.ini, name: author.name, color: author.color, self: true, host: true }];
-    return list.sort((a, b) => Number(Boolean(b.self)) - Number(Boolean(a.self)) || Number(Boolean(b.host)) - Number(Boolean(a.host)));
+    return orderCompanionsForDisplay(list);
   }, [author, poi.companionList]);
   const elevationSummary = useMemo(() => {
     const elevations = (poi.trackElevation || []).map((p) => p.ele).filter((n) => Number.isFinite(n));

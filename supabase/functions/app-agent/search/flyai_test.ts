@@ -22,8 +22,8 @@ Deno.test('FlyAI uses private service and produces dated single-adult offers and
   const offer = result.offers[0] as any;
   assert(offer.pricePerAdult === 380 && offer.pricedAdults === 1 && !offer.totalPrice && !offer.booked);
   assert(offer.itineraries[0].segments[0].departure === '2026-10-10T07:40:00+08:00');
-  const rows = providerItinerary({ ...query, direction: 'outbound', earliestHour: null }, result, query.departureDate);
-  assert(rows.length === 1 && rows[0].timeStart === '07:40' && rows[0].timeEnd === '09:50');
+  const rows = providerItinerary({ ...query, direction: 'outbound', earliestHour: null }, result, query.departureDate, Date.parse('2026-10-01T00:00:00+08:00'));
+  assert(rows.length === 2 && rows[0].timeStart === '07:40' && rows[0].timeEnd === '09:50' && rows[1].title.startsWith('抵达浦东国际机场'));
   assert(rows[0].title.includes('MF8561') && rows[0].title.includes('飞猪FlyAI') && rows[0].title.includes('¥380/人'));
   assert(!JSON.stringify(result).includes('private-token'));
 });
@@ -74,7 +74,7 @@ Deno.test('FlyAI keeps matching candidates from broad results and rejects unsafe
   assert(result.status === 'results' && result.offers.length === 1 && result.limitation.includes('已排除'));
   second.depDateTime = '2026-10-10 10:30:00';
   const connected = await queryTransport(query, env, async () => Response.json({ ...f, data: { itemList: [transfer] } }));
-  const rows = providerItinerary({ ...query, direction: 'outbound', earliestHour: null }, connected, query.departureDate);
-  assert(connected.status === 'results' && rows.length === 2);
-  assert(rows[0].title.includes('全程¥380/人') && !rows[1].title.includes('¥380'), 'Do not repeat whole-journey price on every leg');
+  const rows = providerItinerary({ ...query, direction: 'outbound', earliestHour: null }, connected, query.departureDate, Date.parse('2026-10-01T00:00:00+08:00'));
+  assert(connected.status === 'results' && rows.length === 4);
+  assert(rows[0].title.includes('全程¥380/人') && !rows[2].title.includes('¥380'), 'Do not repeat whole-journey price on every leg');
 });

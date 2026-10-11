@@ -318,3 +318,52 @@ estimates, not merely its source chips. GPX is still loaded from the catalog.
 No migration or deletion of saved journeys is required. Checks cover edits,
 archival, additions, ordering, expiry and failed reads in
 `route-fact-sources_test.ts`.
+
+## Fixed hub chain (2026-10-11)
+
+Resolved transport hubs are persisted in `mainTravel.hubs`. The server inserts
+the departure-hub-to-arrival-hub chain on Day 1 and the matching return chain on
+the final day. It omits home-to-hub legs when structured city data says the
+origin and hub are in the same city, and never creates the reverse home leg on
+the last day. Untimed 车次待查/航班待查 rows remain when providers have no dated
+result. Provider names take precedence over model display names; missing flight
+names use the model city and IATA code with an unverified disclosure. No airport,
+station or route lookup table is embedded in the function.
+
+The structured city data comes from the transport-endpoint model output and is
+persisted with each hub: `*OriginCity`/`*DestinationCity` name the hub cities,
+and `outboundUserCity`/`returnUserCity` name the user's own city. An urban
+district counts as its city (南宁良庆区 → 南宁市), but a county or county-level
+city counts as itself (凌云县 stays 凌云县 even though it is in 百色市), so a
+county origin keeps its ground leg to the hub. Comparison ignores only a
+trailing 市. All merge call sites read the persisted values, so no caller has
+to supply them.
+
+When hubs resolve, that chain is tier one. A failed or ground-only resolution
+falls back to a transfer-city-to-transfer-city row with a 高德驾车估算 when
+available. A missing origin station keeps an origin-to-hub-city ground leg. A
+self-drive request uses only ground rows and never creates station or airport
+rows.
+
+## Hiking boundary day alignment (2026-10-11)
+
+Plan finalization now compares GPX endpoint days with the route-specific
+`activity` days. When the counts match, endpoints are reassigned to the
+ordered hiking days deterministically; this repairs a transport-day shift
+without changing cumulative GPX positions. A route or count mismatch remains
+a feasibility blocker for the existing plan re-ask, so endpoint writes cannot
+land on a day without that route's hiking activity.
+
+## Hub chain live matrix
+
+After deploying the self-hosted `app-agent` function, run the disposable-account matrix sequentially (the default 20-second gap protects 12306 rate limits):
+
+```bash
+node scripts/test-agent-hub-matrix-e2e.mjs --report=/tmp/kaipa-hub-matrix.json
+node scripts/test-agent-hub-matrix-e2e.mjs --case=T1,T7 --gap-ms=20000
+node scripts/test-agent-hub-matrix-e2e.mjs --list
+node scripts/test-agent-hub-matrix-e2e.mjs --dry-run --case=T1,T8
+node scripts/test-agent-hub-matrix-e2e.mjs --self-test
+```
+
+The script loads `infra/supabase/docker/.env`, uses Kong on `127.0.0.1:${KONG_HTTP_PORT||8010}`, creates and removes one disposable user per case, snapshots and restores `route_guide_gaps`, and writes the full result to `--report`. `--list`, `--dry-run`, and `--self-test` make no network calls; do not run the live matrix until the deployment is ready.

@@ -1027,7 +1027,7 @@ function GuidePublishSheet({
         theme={theme}
         title="攻略详情"
         onBack={onClose}
-        backgroundColor={theme.groupedBg}
+        backgroundColor={readOnly ? '#fff' : theme.groupedBg}
         flatChrome
         entryVariant="continuationX"
         scrollable={false}

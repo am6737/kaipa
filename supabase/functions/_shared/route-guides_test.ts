@@ -4,10 +4,10 @@ import {
   guideSourcesFor,
   missingGuideSections,
   REQUIRED_GUIDE_SECTIONS,
+  routeGuideFromKnowledge,
   type GuideSource,
   type RouteGuide,
 } from './route-guides.ts';
-import { ROUTE_GUIDES } from './route-guides.generated.ts';
 
 function equal(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -42,41 +42,20 @@ Deno.test('section keys, headings and required sections follow the contract', ()
   equal(REQUIRED_GUIDE_SECTIONS, ['overview', 'itinerary', 'access', 'overnight', 'season_risk']);
 });
 
-Deno.test('getRouteGuide returns null for absent ids and inherited object properties', () => {
+Deno.test('getRouteGuide returns null for absent ids and inherited object properties', async () => {
   for (const id of ['', '__absent_route__', 'toString', 'constructor', '__proto__']) {
-    equal(getRouteGuide(id), null);
+    equal(await getRouteGuide(id), null);
   }
 });
 
-Deno.test('getRouteGuide loads a known guide directly from the generated map', () => {
-  // A temporary in-memory entry keeps this test independent of real guide content.
-  const map = ROUTE_GUIDES as Record<string, RouteGuide>;
-  const guide = fixture();
-  const previous = map[guide.routeId];
-  map[guide.routeId] = guide;
-  try {
-    if (getRouteGuide(guide.routeId) !== guide) throw new Error('Guide was not loaded from generated data');
-    equal(getRouteGuide(guide.routeId)?.markdown, guide.markdown);
-  } finally {
-    if (previous) map[guide.routeId] = previous;
-    else delete map[guide.routeId];
-  }
-});
-
-Deno.test('every generated guide is accessible and conforms to the shared section schema', () => {
-  for (const [id, guide] of Object.entries(ROUTE_GUIDES)) {
-    equal(getRouteGuide(id), guide);
-    equal(guide.routeId, id);
-    const keys = GUIDE_SECTIONS.filter((spec) => guide.sections.some((section) => section.key === spec.key));
-    equal(guide.sections.map(({ key, heading }) => ({ key, heading })), keys);
-    const sourceIds = new Set(guide.sources.map((entry) => entry.id));
-    for (const section of guide.sections) {
-      if (!section.body.trim()) throw new Error(`${id}: empty section`);
-      for (const sourceId of section.sourceIds) {
-        if (!sourceIds.has(sourceId)) throw new Error(`${id}: undefined citation ${sourceId}`);
-      }
-    }
-  }
+Deno.test('knowledge rows assemble into ordered markdown and deduplicated sources', () => {
+  const guide = routeGuideFromKnowledge('test-route', [
+    { id: 'a', route_id: 'test-route', region: null, section: 'tips', title: '路线提示', body: '正文', as_of: '2026-10-09', sources: [source('s1')] },
+    { id: 'b', route_id: null, region: '四川', section: 'overview', title: '区域信息', body: '区域正文', as_of: '2026-10-10', sources: [source('s1'), source('s2')] },
+  ]);
+  equal(guide?.sections.map(section => section.key), ['overview', 'tips']);
+  equal(guide?.sources.map(source => source.id), ['s1', 's2']);
+  if (!guide?.markdown.includes('区域知识：四川')) throw new Error('region knowledge must be labelled');
 });
 
 Deno.test('missingGuideSections returns wildcard for an absent guide', () => {

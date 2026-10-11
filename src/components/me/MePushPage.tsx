@@ -71,7 +71,7 @@ export function MePushPage({ theme, title, onBack, right, showBack = true, showT
         ) : null}
       </View>
       {footer ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: layout.pagePadding, paddingTop: space.sm, paddingBottom: insets.bottom + space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xl, backgroundColor: theme.groupedBg }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: layout.pagePadding, paddingTop: space.sm, paddingBottom: Math.max(insets.bottom, space.md), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xl }}>
           {footer}
         </View>
       ) : null}

@@ -1,0 +1,21 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const source = fs.readFileSync('src/data/footprints.ts', 'utf8');
+const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const context = { exports: {}, require: (name) => name.includes('JourneyPlanCard') ? { journeyStartDate: (j) => j.date || j.plannedDate ? new Date(j.date || j.plannedDate) : null, journeyStatus: (j, now) => {
+  if (j.date) return 'completed';
+  return j.plannedDate && new Date(j.plannedDate) > now ? 'planned' : 'completed';
+} } : {} };
+vm.runInNewContext(js, context);
+const { buildRouteFootprints, routeProvince } = context.exports;
+const route = (id, region, dist) => ({ id, kind: 'route', name: id, region, dist, deletedAt: undefined });
+const journey = (id, routeId, extra = {}) => ({ id, kind: 'journey', name: id, region: '', routeId, dist: '', ...extra });
+const now = new Date('2026-01-01');
+const routes = [route('a', '四川 · 甘孜', '12.5'), route('b', '四川 · 阿坝', '8'), route('c', '尼泊尔', '4')];
+const result = buildRouteFootprints(routes, [journey('done', 'a', { date: '2025-01-01' }), journey('again', 'a', { date: '2025-02-01' }), journey('future', 'b', { plannedDate: '2026-02-01' }), journey('deleted', 'c', { date: '2025-01-01', deletedAt: 'yes' }), journey('orphan', undefined, { date: '2025-01-01' })], now);
+assert.equal(result.litCount, 1); assert.equal(result.total, 3); assert.equal(result.litKm, 12.5); assert.equal(JSON.stringify(result.provinces), JSON.stringify(['四川'])); assert.equal(result.items.find((i) => i.route.id === 'a').journey.id, 'again'); assert.equal(routeProvince('  '), undefined);
+const multi = buildRouteFootprints(routes, [journey('a-lit', 'a', { date: '2025-01-01' }), journey('b-lit', 'b', { date: '2025-03-01' }), journey('c-lit', 'c', { date: '2025-04-01' })], now);
+assert.equal(JSON.stringify(multi.provinces), JSON.stringify(['四川', '尼泊尔']));
+console.log('footprints: all cases passed');

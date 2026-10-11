@@ -34,6 +34,17 @@ type Item = PlanDocument["itineraryItems"][number];
 type Endpoint = PlanDocument["endpoints"][number];
 type Route = ResearchBrief["routes"][number];
 type Waypoint = Route["waypoints"][number];
+
+export type EndpointDayAlignmentMismatch = {
+  routeId: string | null;
+  activityDays: string[];
+  endpointDays: string[];
+};
+
+export type EndpointDayAlignment = {
+  changed: boolean;
+  mismatches: EndpointDayAlignmentMismatch[];
+};
 const TRANSPORT =
   /接驳|转乘|包车|拼车|班车|公交|地铁|出租|网约车|自驾|高铁|动车|火车|列车|卧铺|航班|飞机|跨城|异地|\b(?:transfer|train|flight|bus|taxi)\b/i;
 const LODGING =
@@ -46,6 +57,77 @@ const same = (a?: string | null, b?: string | null) =>
   !!a && !!b && key(a) === key(b);
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
+
+function routeDayKey(plan: PlanDocument, routeId: string | null | undefined, explicitActivityRoutes: string[]) {
+  return routeId ?? plan.journey?.routeId ??
+    (explicitActivityRoutes.length === 1 ? explicitActivityRoutes[0] : null);
+}
+
+function orderedDays(items: Item[]) {
+  const firstByDay = new Map<string, { day: string; index: number }>();
+  items.forEach((item, index) => {
+    const day = canonicalJourneyDay(item.day);
+    if (!firstByDay.has(day)) firstByDay.set(day, { day: item.day, index });
+  });
+  return [...firstByDay.values()]
+    .sort((a, b) => (journeyDayOrdinal(a.day) ?? Infinity) - (journeyDayOrdinal(b.day) ?? Infinity) || a.index - b.index)
+    .map(entry => entry.day);
+}
+
+function orderedEndpoints(endpoints: Endpoint[]) {
+  return endpoints
+    .map((endpoint, index) => ({ endpoint, index }))
+    .sort((a, b) => (journeyDayOrdinal(a.endpoint.day) ?? Infinity) - (journeyDayOrdinal(b.endpoint.day) ?? Infinity) || a.index - b.index);
+}
+
+/**
+ * Compare route-specific hiking days with route-specific endpoint days. When
+ * both sides have the same number of ordered entries, the mapping is
+ * unambiguous and endpoint labels can be repaired without changing any GPX
+ * position. A count or route mismatch is left untouched for the feasibility
+ * blocker to send through the plan re-ask.
+ */
+export function alignEndpointDaysWithActivityDays(plan: PlanDocument, apply = true): EndpointDayAlignment {
+  const explicitActivityRoutes = [...new Set(plan.itineraryItems
+    .filter(item => item.kind === "activity" && item.routeId)
+    .map(item => item.routeId!))];
+  const activityGroups = new Map<string | null, Item[]>();
+  for (const item of plan.itineraryItems.filter(item => item.kind === "activity")) {
+    const key = routeDayKey(plan, item.routeId, explicitActivityRoutes);
+    activityGroups.set(key, [...(activityGroups.get(key) ?? []), item]);
+  }
+  // Endpoint-only drafts are used while the itinerary is still being filled;
+  // there is no route-day mapping to validate until at least one activity is
+  // present. Existing endpoint location checks still handle those drafts.
+  if (!activityGroups.size) return { changed: false, mismatches: [] };
+  const endpointGroups = new Map<string | null, Endpoint[]>();
+  for (const endpoint of plan.endpoints) {
+    const key = routeDayKey(plan, endpoint.routeId, explicitActivityRoutes);
+    endpointGroups.set(key, [...(endpointGroups.get(key) ?? []), endpoint]);
+  }
+
+  let changed = false;
+  const mismatches: EndpointDayAlignmentMismatch[] = [];
+  for (const [routeId, endpoints] of endpointGroups) {
+    const activityDays = orderedDays(activityGroups.get(routeId) ?? []);
+    const ordered = orderedEndpoints(endpoints);
+    const endpointDays = ordered.map(entry => entry.endpoint.day);
+    if (!activityDays.length || endpoints.length !== activityDays.length) {
+      mismatches.push({ routeId, activityDays, endpointDays });
+      continue;
+    }
+    const sameDays = ordered.every((entry, index) =>
+      canonicalJourneyDay(entry.endpoint.day) === canonicalJourneyDay(activityDays[index]));
+    if (sameDays) continue;
+    if (apply) {
+      ordered.forEach((entry, index) => {
+        entry.endpoint.day = activityDays[index];
+      });
+      changed = true;
+    }
+  }
+  return { changed, mismatches };
+}
 
 function duration(item: Item): number | null {
   const start = itineraryMinutes(item.timeStart),
@@ -209,6 +291,21 @@ export function validatePlanFeasibility(plan: PlanDocument, ctx: {
     for (let n = 1; n <= dayCount; n++) {
       if (!grouped.has(`Day ${n}`)) grouped.set(`Day ${n}`, []);
     }
+  }
+  const endpointAlignment = alignEndpointDaysWithActivityDays(plan, false);
+  for (const mismatch of endpointAlignment.mismatches) {
+    const routeLabel = mismatch.routeId ?? "当前绑定轨迹";
+    issues.push({
+      code: "endpoint_day_alignment",
+      severity: "blocker",
+      day: mismatch.endpointDays[0] ?? mismatch.activityDays[0] ?? null,
+      message: `${routeLabel} 的 GPX 徒步终点日与徒步活动日不一致：活动为${mismatch.activityDays.join("、") || "无"}，终点为${mismatch.endpointDays.join("、") || "无"}。请为每个徒步日提供对应终点。`,
+      detail: {
+        routeId: mismatch.routeId,
+        activityDays: mismatch.activityDays,
+        endpointDays: mismatch.endpointDays,
+      },
+    });
   }
   const labels = [...grouped.keys()].sort((a, b) =>
     (journeyDayOrdinal(a) ?? Infinity) - (journeyDayOrdinal(b) ?? Infinity)

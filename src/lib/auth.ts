@@ -32,6 +32,19 @@ export async function signUpWithEmail(email: string, password: string) {
   return supabase.auth.signUp({ email, password });
 }
 
+/** Send a Supabase GoTrue SMS OTP. The phone must be E.164 (for example +8613812345678). */
+export async function sendPhoneOtp(phone: string) {
+  return withNetworkRetry(() => supabase.auth.signInWithOtp({
+    phone,
+    options: { shouldCreateUser: true },
+  }));
+}
+
+/** Verify the SMS OTP and establish the session returned by GoTrue. */
+export async function verifyPhoneOtp(phone: string, token: string) {
+  return withNetworkRetry(() => supabase.auth.verifyOtp({ phone, token, type: 'sms' }));
+}
+
 const GUEST_ADJECTIVES = ['清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
 const GUEST_NOUNS = ['旅人', '行者', '向导', '背包客', '探路者'];
 const GUEST_EMAIL_RE = /^[a-f0-9]{32}@guest\.kaipa\.app$/;

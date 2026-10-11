@@ -30,14 +30,18 @@ export function useRoutes(userId: string | undefined) {
 
   const refetch = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const [{ data, error }, favorites] = await Promise.all([supabase
       .from('routes')
       .select('*')
-      .order('created_at');
+      .order('created_at'), userId
+        ? supabase.from('route_favorites').select('route_id').eq('user_id', userId)
+        : Promise.resolve({ data: [], error: null } as any)]);
     if (error) console.warn('[useRoutes] fetch error:', error.message);
-    if (data) setRoutes(data.map((r: any) => toRoutePoi({ ...r, asc: r.asc_ })));
+    if (favorites.error) console.warn('[useRoutes] favorites fetch error:', favorites.error.message);
+    const ids = new Set<string>((favorites.data ?? []).map((r: any) => r.route_id));
+    if (data) setRoutes(data.map((r: any) => ({ ...toRoutePoi({ ...r, asc: r.asc_ }), fav: ids.has(r.id) })));
     setLoading(false);
-  }, []);
+  }, [userId]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
@@ -58,5 +62,19 @@ export function useRoutes(userId: string | undefined) {
     setRoutes((prev) => prev.map((p) => (p.id === id ? { ...p, ...resolvedPatch } : p)));
   };
 
-  return { routes, loading, updateRoute, refetch };
+  const toggleFavorite = async (id: string, current: boolean) => {
+    if (!userId) return;
+    const next = !current;
+    const query = next
+      ? supabase.from('route_favorites').upsert({ user_id: userId, route_id: id })
+      : supabase.from('route_favorites').delete().eq('user_id', userId).eq('route_id', id);
+    const { error } = await query;
+    if (error) {
+      console.warn('[useRoutes] favorite update error:', error.message);
+      return;
+    }
+    setRoutes((prev) => prev.map((p) => (p.id === id ? { ...p, fav: next } : p)));
+  };
+
+  return { routes, loading, updateRoute, toggleFavorite, refetch };
 }

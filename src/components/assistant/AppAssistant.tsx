@@ -487,7 +487,7 @@ function markdownInline(text: string, color: string) {
 function SelectableMessageText({ text, theme }: { text: string; theme: Theme }) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   return (
-    <Text selectable accessibilityLabel={text} style={[type.body, { color: theme.text, lineHeight: 22 }]}>
+    <Text selectable accessibilityLabel={text} style={[type.message, { color: theme.text }]}>
       {lines.map((line, index) => {
         const heading = line.match(/^\s{0,3}#{1,6}\s+(.+)$/)?.[1];
         const bullet = line.match(/^\s*[-*+]\s+(.+)$/)?.[1];
@@ -829,13 +829,7 @@ function actionResultForTurn(turn: Turn) {
   const gear = [...activities].reverse().find((activity) => activity.toolName === 'add_gear' && activity.status === 'completed');
   if (gear && gear.output && typeof gear.output === 'object') {
     const output = gear.output as { name?: unknown };
-    return { kind: 'gear' as const, name: String(output.name || '装备'), detail: '已添加到装备库' };
-  }
-  const packing = [...activities].reverse().find((activity) => (activity.toolName === 'add_packing_items' || activity.toolName === 'commit_packing_draft') && activity.status === 'completed');
-  if (packing && packing.output && typeof packing.output === 'object') {
-    const output = packing.output as { added?: unknown; journeyId?: unknown };
-    const added = Number(output.added);
-    return { kind: 'packing' as const, name: '', added: Number.isFinite(added) ? added : undefined, journeyId: typeof output.journeyId === 'string' ? output.journeyId : undefined };
+    return { name: String(output.name || '装备') };
   }
   return undefined;
 }
@@ -2040,10 +2034,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                 const result = actionResultForTurn(turn)!;
                 return <ActionResultCard
                   theme={theme}
-                  title={result.kind === 'gear' ? result.name : t('agent.checklistUpdated')}
-                  detail={result.kind === 'gear' ? t('agent.gearAddedToLibrary') : result.added != null ? t('agent.checklistItemsAdded', { count: result.added }) : t('agent.checklistSaved')}
-                  openLabel={t(result.kind === 'gear' ? 'agent.viewGear' : 'agent.viewChecklist')}
-                  onOpen={() => onOpenGear(result.kind === 'gear' ? 'items' : 'sets')}
+                  title={result.name}
+                  detail={t('agent.gearAddedToLibrary')}
+                  openLabel={t('agent.viewGear')}
+                  onOpen={() => onOpenGear('items')}
                 />;
               })() : null}
               {turn.role === 'assistant' ? (
@@ -2282,21 +2276,21 @@ const styles = StyleSheet.create({
   headerButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 7px 20px rgba(0,0,0,0.07)' },
   activeThreadTitleWrap: { position: 'absolute', left: 76, right: 76, bottom: space.sm, height: 44, justifyContent: 'center', alignItems: 'center' },
   journeyTitleWrap: { maxWidth: '100%', height: 44, borderRadius: radius.pill, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
-  activeThreadTitle: { maxWidth: '100%', flexShrink: 1, fontSize: 16, lineHeight: 21, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
+  activeThreadTitle: { maxWidth: '100%', flexShrink: 1, textAlign: 'center', ...type.threadTitle },
   content: { flexGrow: 1, paddingHorizontal: layout.pagePadding, paddingTop: space.md, paddingBottom: space.xxl },
   emptyContent: { justifyContent: 'flex-end', paddingBottom: 58 },
   journeyEmptyContent: { justifyContent: 'flex-start', paddingTop: space.lg },
   center: { flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center' },
   welcome: { alignItems: 'flex-start' },
   heroMark: { height: 20, justifyContent: 'center', marginBottom: space.lg },
-  welcomeTitle: { fontSize: 25, lineHeight: 31, fontWeight: '800', letterSpacing: 0 },
-  welcomeBody: { maxWidth: 350, fontSize: 19, lineHeight: 27, fontWeight: '700', letterSpacing: 0 },
+  welcomeTitle: { ...type.welcomeTitle },
+  welcomeBody: { maxWidth: 350, ...type.welcomeBody },
   suggestions: { alignItems: 'flex-start', gap: space.xs, marginTop: space.lg },
   suggestion: { width: 248, height: 50, borderRadius: radius.pill, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
-  suggestionText: { flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: '500', letterSpacing: 0 },
+  suggestionText: { flex: 1, minWidth: 0, ...type.suggestion },
   journeySuggestions: { alignItems: 'stretch', gap: space.sm },
   journeySuggestion: { minHeight: 52, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  journeySuggestionText: { flex: 1, minWidth: 0, fontSize: 15, lineHeight: 21, fontWeight: '500', letterSpacing: 0 },
+  journeySuggestionText: { flex: 1, minWidth: 0, ...type.journeySuggestion },
   userRow: { alignItems: 'flex-end', marginBottom: space.lg },
   assistantRow: { alignItems: 'stretch', marginBottom: space.xl },
   userBubble: { maxWidth: '84%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.card },
@@ -2317,48 +2311,48 @@ const styles = StyleSheet.create({
   quickReplies: { alignItems: 'flex-start', gap: space.xs, marginTop: space.sm },
   quickReply: { minHeight: 44, maxWidth: '92%', borderRadius: radius.pill, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm },
   quickReplyDisabled: { opacity: 0.65 },
-  quickReplyText: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '600', letterSpacing: 0 },
+  quickReplyText: { flexShrink: 1, ...type.quickReply },
   sourcesWrap: { marginTop: space.md, marginHorizontal: -layout.pagePadding },
-  supportLabel: { paddingHorizontal: layout.pagePadding, marginBottom: space.xs, fontSize: 12, lineHeight: 16, fontWeight: '600', letterSpacing: 0 },
+  supportLabel: { paddingHorizontal: layout.pagePadding, marginBottom: space.xs, ...type.chatLabel },
   sourcesContent: { paddingHorizontal: layout.pagePadding, gap: space.xs },
   sourceCard: { width: 220, height: 94, borderRadius: radius.card, padding: space.sm, justifyContent: 'space-between' },
   sourceTop: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
-  sourceHost: { flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 15, letterSpacing: 0 },
-  sourceTitle: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  sourceHost: { flex: 1, minWidth: 0, ...type.sourceHost },
+  sourceTitle: { ...type.sourceTitle },
   planPreview: { marginTop: space.lg, borderRadius: radius.feature, padding: space.md, boxShadow: '0px 12px 32px rgba(0,0,0,0.07)' },
-  planTitle: { fontSize: 20, lineHeight: 26, fontWeight: '800', letterSpacing: 0 },
-  planMeta: { marginTop: space.xxs, fontSize: 13, lineHeight: 18, letterSpacing: 0 },
+  planTitle: { ...type.planTitle },
+  planMeta: { marginTop: space.xxs, ...type.chatDetail },
   planDays: { marginTop: space.md },
   planDay: { paddingVertical: space.sm },
-  planDayTitle: { fontSize: 15.5, lineHeight: 21, fontWeight: '800', letterSpacing: 0 },
+  planDayTitle: { ...type.planDay },
   planItem: { marginTop: space.xs, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
-  planTime: { width: 78, fontSize: 12, lineHeight: 18, fontWeight: '600', letterSpacing: 0 },
-  planItemText: { flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 19, letterSpacing: 0 },
+  planTime: { width: 78, ...type.planTime },
+  planItemText: { flex: 1, minWidth: 0, ...type.planItem },
   viewJourney: { alignSelf: 'flex-start', minHeight: 42, marginTop: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  viewJourneyText: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  viewJourneyText: { ...type.chatAction },
   actionResultCard: { marginTop: space.md, minHeight: 72, borderRadius: radius.card, padding: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm, boxShadow: '0px 8px 22px rgba(0,0,0,0.06)' },
   actionResultIcon: { width: 36, height: 36, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(128,128,128,0.12)' },
   actionResultCopy: { flex: 1, minWidth: 0, gap: 2 },
-  actionResultTitle: { fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0 },
-  actionResultDetail: { fontSize: 13, lineHeight: 18, letterSpacing: 0 },
+  actionResultTitle: { ...type.resultTitle },
+  actionResultDetail: { ...type.chatDetail },
   actionResultOpen: { flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 },
-  actionResultOpenText: { fontSize: 13, lineHeight: 18, fontWeight: '700', letterSpacing: 0 },
+  actionResultOpenText: { ...type.chatDetailStrong },
   copyAction: { alignSelf: 'flex-start', minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.xxs, marginTop: space.xs },
   messageActions: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  copyText: { fontSize: 13, lineHeight: 17, letterSpacing: 0 },
+  copyText: { ...type.chatCopy },
   researchProgress: { alignSelf: 'stretch', marginBottom: space.xl, paddingVertical: space.sm },
   researchHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  researchTitle: { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: '800', letterSpacing: 0 },
+  researchTitle: { flexShrink: 1, ...type.researchTitle },
   researchLine: { minHeight: 30, flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, paddingVertical: 4 },
   researchLineIcon: { width: 18, minHeight: 20, alignItems: 'center', justifyContent: 'center', paddingTop: 2 },
   researchLineCopy: { flex: 1, minWidth: 0, gap: 3 },
-  researchLineTitle: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', letterSpacing: 0 },
+  researchLineTitle: { ...type.researchLineTitle },
   researchTransportGroup: { gap: 4, paddingVertical: 2 },
   researchTransportRow: { marginLeft: 12 },
-  researchTransportSubtitle: { fontSize: 12.5, lineHeight: 18, fontWeight: '500' },
+  researchTransportSubtitle: { ...type.researchSubtitle },
   researchActiveTitle: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  researchLineText: { flex: 1, minWidth: 0, fontSize: 12.5, lineHeight: 18, letterSpacing: 0 },
-  researchLineMeta: { fontSize: 11.5, lineHeight: 16, letterSpacing: 0 },
+  researchLineText: { flex: 1, minWidth: 0, ...type.researchLine },
+  researchLineMeta: { ...type.researchMeta },
   loadingDots: { width: 14, height: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },
@@ -2367,28 +2361,28 @@ const styles = StyleSheet.create({
   pendingAttachments: { gap: space.xs, paddingBottom: space.xs },
   pendingAttachment: { width: 64, height: 64, borderRadius: radius.control, overflow: 'hidden' },
   pendingFile: { flex: 1, padding: space.xs, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  pendingFileName: { maxWidth: '100%', fontSize: 9.5, lineHeight: 12, textAlign: 'center', letterSpacing: 0 },
+  pendingFileName: { maxWidth: '100%', textAlign: 'center', ...type.fileName },
   removeAttachment: { position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   composer: { minHeight: layout.fieldHeight, maxHeight: 108, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: space.xs, paddingVertical: space.xxs / 2, boxShadow: '0px 12px 30px rgba(0,0,0,0.08)' },
   composerAction: { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   voiceActionHidden: { opacity: 0 },
   inputWrap: { flex: 1, minWidth: 0, minHeight: 40, maxHeight: 100 },
-  input: { width: '100%', minHeight: 40, maxHeight: 100, fontSize: 15, lineHeight: 20, paddingHorizontal: space.xs, paddingTop: 8, paddingBottom: 6 },
+  input: { width: '100%', minHeight: 40, maxHeight: 100, paddingHorizontal: space.xs, paddingTop: 8, paddingBottom: 6, ...type.composerInput },
   voiceInputHidden: { opacity: 0 },
-  voiceGestureHint: { minHeight: 20, marginBottom: space.sm, textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '600', letterSpacing: 0 },
+  voiceGestureHint: { minHeight: 20, marginBottom: space.sm, textAlign: 'center', ...type.voiceHint },
   voiceListening: { position: 'absolute', top: 0, right: -44, bottom: 0, left: -44, alignItems: 'center', justifyContent: 'center' },
   voiceBars: { width: 132, height: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   voiceBar: { width: 2, borderRadius: radius.pill },
   attachmentTrayClip: { overflow: 'hidden' },
-  generatedNotice: { textAlign: 'center', marginTop: space.xxs, fontSize: 11, lineHeight: 14, letterSpacing: 0 },
+  generatedNotice: { textAlign: 'center', marginTop: space.xxs, ...type.disclaimer },
   threadOverlay: { zIndex: 20, justifyContent: 'flex-end' },
   threadBackdrop: { backgroundColor: 'rgba(0,0,0,0.56)' },
   threadSheet: { height: '66%', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingTop: space.xs, paddingHorizontal: space.lg, overflow: 'hidden' },
   threadHandle: { width: 30, height: 4, borderRadius: radius.pill, alignSelf: 'center', opacity: 0.55 },
   threadHeader: { height: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  threadTitle: { fontSize: 26, lineHeight: 32, fontWeight: '800', letterSpacing: 0 },
+  threadTitle: { ...type.sheetTitle },
   newThreadButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.sm },
-  newThreadText: { fontSize: 15, fontWeight: '700', letterSpacing: 0 },
+  newThreadText: { ...type.threadAction },
   threadList: { gap: space.sm, paddingBottom: space.xxl },
   threadLoading: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },
   threadCard: { height: 96, borderRadius: radius.feature, flexDirection: 'row', alignItems: 'stretch', overflow: 'hidden' },
@@ -2397,8 +2391,8 @@ const styles = StyleSheet.create({
   threadSwipeAction: { width: 72, height: 96, alignItems: 'center', justifyContent: 'center' },
   threadCopy: { flex: 1, minWidth: 0, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: 'space-between', zIndex: 1 },
   threadCopyWithCover: { paddingRight: 126 },
-  threadCardTitle: { fontSize: 16.5, lineHeight: 22, fontWeight: '700', letterSpacing: 0 },
+  threadCardTitle: { ...type.threadCardTitle },
   threadMeta: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  threadMetaText: { fontSize: 12, lineHeight: 16, letterSpacing: 0 },
+  threadMetaText: { ...type.threadMeta },
   threadCover: { position: 'absolute', top: 0, right: 0, width: 118, height: 96 },
 });

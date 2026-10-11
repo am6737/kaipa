@@ -88,19 +88,20 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   };
   const title = page.view === 'guides' ? `${request.route.name}${resolved === 'zh' ? '攻略' : ' guides'}` : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : page.view === 'conditions' ? `${request.route.name}${c.conditions}` : page.view === 'condition-compose' ? c.shareCondition : c.referencePlan;
   const hasCreate = page.view === 'guide' || page.view === 'plan';
+  const pageBackgroundColor = page.view === 'guide' ? theme.featureSurface : theme.groupedBg;
   return <>
   <Modal visible={!exportOpen} presentationStyle="fullScreen" animationType="slide" onRequestClose={goBack}>
-    <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
-      <DetailPage scrollable={false} theme={theme} backgroundColor={theme.groupedBg} title={title} onBack={goBack} right={page.view === 'conditions' ? <Press accessibilityRole="button" onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])} style={styles.headerAdd} accessibilityLabel={c.shareCondition}><Plus color={theme.text} size={22} /></Press> : page.view === 'guide' ? <Press accessibilityRole="button" onPress={() => setShareOpen(true)} style={styles.headerAdd} accessibilityLabel={c.shareGuide}><Share2 color={theme.text} size={20} /></Press> : undefined} flatChrome entryVariant="continuationX" overlay={hasCreate ? <View pointerEvents="box-none" style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
+    <View style={{ flex: 1, backgroundColor: pageBackgroundColor }}>
+      <DetailPage scrollable={false} theme={theme} backgroundColor={pageBackgroundColor} title={title} onBack={goBack} right={page.view === 'conditions' ? <Press accessibilityRole="button" onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])} style={styles.headerAdd} accessibilityLabel={c.shareCondition}><Plus color={theme.text} size={22} /></Press> : page.view === 'guide' ? <Press accessibilityRole="button" onPress={() => setShareOpen(true)} style={styles.headerAdd} accessibilityLabel={c.shareGuide}><Share2 color={theme.text} size={20} /></Press> : undefined} flatChrome entryVariant="continuationX" overlay={hasCreate ? <View pointerEvents="box-none" style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.md) }]}> 
         <View style={styles.footerRow}>
-          {page.view === 'guide' ? <Press accessibilityRole="button" accessibilityState={{ selected: helpful.has(guide.id) }} onPress={() => { setHelpful((old) => { const next = new Set(old); if (next.has(guide.id)) next.delete(guide.id); else next.add(guide.id); return next; }); }} style={[styles.footerHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><Heart color={helpful.has(guide.id) ? '#E5484D' : theme.text2} fill={helpful.has(guide.id) ? '#E5484D' : 'transparent'} size={18} /><Text numberOfLines={1} style={{ fontSize: 12, color: theme.text2 }}>{guide.helpful + Number(helpful.has(guide.id))}</Text></Press> : null}
-          <Press onPress={create} accessibilityRole="button" style={[styles.create, page.view === 'guide' && styles.createWithHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><CalendarDays color={theme.text} size={18} /><Text numberOfLines={1} style={{ flexShrink: 1, textAlign: 'center', color: theme.text, fontSize: 13, fontWeight: '700' }}>{page.view === 'guide' ? c.createGuide : c.createPlan}</Text></Press>
+          {page.view === 'guide' ? <Press accessibilityRole="button" accessibilityState={{ selected: helpful.has(guide.id) }} onPress={() => { setHelpful((old) => { const next = new Set(old); if (next.has(guide.id)) next.delete(guide.id); else next.add(guide.id); return next; }); }} style={[styles.footerHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><Heart color={helpful.has(guide.id) ? theme.like : theme.text2} fill={helpful.has(guide.id) ? theme.like : 'transparent'} size={18} /><Text numberOfLines={1} style={[type.note, { color: theme.text2 }]}>{guide.helpful + Number(helpful.has(guide.id))}</Text></Press> : null}
+          <Press onPress={create} accessibilityRole="button" style={[styles.create, page.view === 'guide' && styles.createWithHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><CalendarDays color={theme.text} size={18} /><Text numberOfLines={1} style={[type.labelStrong, { flexShrink: 1, textAlign: 'center', color: theme.text }]}>{page.view === 'guide' ? c.createGuide : c.createPlan}</Text></Press>
         </View>
       </View> : undefined}>
         <ScrollView key={`${page.view}:${plan.id}`} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}>
         <View style={styles.content}>
           {page.view === 'guides' ? <>
-            <View style={styles.filters}>{([{ id: undefined, label: c.all }, { id: 'camp', label: c.camp }, { id: 'stay', label: c.stay }, { id: 'day', label: c.day }] as { id: GuideStay | undefined; label: string }[]).map((filter) => <Press key={filter.id ?? 'all'} accessibilityRole="button" accessibilityState={{ selected: stay === filter.id }} onPress={() => setStay(filter.id)} style={[styles.filter, { backgroundColor: stay === filter.id ? theme.featureSurface : theme.fieldSurface }]}><Text style={{ color: stay === filter.id ? theme.text : theme.text2, fontSize: 12 }}>{filter.label}</Text></Press>)}</View>
+            <View style={styles.filters}>{([{ id: undefined, label: c.all }, { id: 'camp', label: c.camp }, { id: 'stay', label: c.stay }, { id: 'day', label: c.day }] as { id: GuideStay | undefined; label: string }[]).map((filter) => <Press key={filter.id ?? 'all'} accessibilityRole="button" accessibilityState={{ selected: stay === filter.id }} onPress={() => setStay(filter.id)} style={[styles.filter, { backgroundColor: stay === filter.id ? theme.featureSurface : theme.fieldSurface }]}><Text style={[type.note, { color: stay === filter.id ? theme.text : theme.text2 }]}>{filter.label}</Text></Press>)}</View>
             <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended', stay).map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} helpful={item.helpful + Number(helpful.has(item.id))} onPress={() => openGuide(item.id)} photoUri={request.route.photoUris?.[0]} /></View>)}{!guidesLoading && sortRouteGuides(guides, 'recommended', stay).length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{resolved === 'zh' ? '这个走法还没有审核通过的攻略' : 'No approved guides for this style yet.'}</Text> : null}</View>
           </> : page.view === 'condition-compose' ? <>
             <View style={{ marginTop: space.xl }}>
@@ -108,7 +109,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
               <Text style={[styles.counter, { color: theme.text3 }]}>{conditionDraft.length}/200</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.mediaGrid, { height: conditionMedia.length ? 84 : 0 }, conditionMedia.length === 0 && { marginTop: 0 }]} contentContainerStyle={styles.mediaGridContent}>{conditionMedia.map((asset, index) => <View key={`${asset.assetId ?? asset.uri}-${index}`} style={styles.mediaTile}><ExpoImage source={{ uri: conditionMediaPreview[asset.uri] ?? asset.uri }} contentFit="cover" style={StyleSheet.absoluteFill} /><View style={styles.mediaBadge}><Text style={styles.mediaBadgeText}>{asset.type === 'video' ? '视频' : asset.type === 'livePhoto' ? '实况' : '图片'}</Text></View><Press onPress={() => setConditionMedia((old) => old.filter((_, i) => i !== index))} style={styles.mediaRemove}><Trash2 color="#fff" size={13} /></Press></View>)}</ScrollView>
               <View style={styles.composerActions}>
-                <View style={styles.addMediaGroup}><Press accessibilityRole="button" accessibilityLabel={c.addMedia} accessibilityState={{ disabled: conditionMedia.length >= 9 }} disabled={conditionMedia.length >= 9} onPress={() => void pickConditionMedia()} style={styles.addMediaAction}><ImagePlus color={conditionMedia.length >= 9 ? theme.text3 : theme.text2} size={18} /><Text style={{ color: conditionMedia.length >= 9 ? theme.text3 : theme.text2, fontSize: 13 }}>{c.addMedia}</Text></Press><Text style={[styles.mediaHintInline, { color: theme.text3 }]}>{c.mediaLimitShort}</Text></View>
+                <View style={styles.addMediaGroup}><Press accessibilityRole="button" accessibilityLabel={c.addMedia} accessibilityState={{ disabled: conditionMedia.length >= 9 }} disabled={conditionMedia.length >= 9} onPress={() => void pickConditionMedia()} style={styles.addMediaAction}><ImagePlus color={conditionMedia.length >= 9 ? theme.text3 : theme.text2} size={18} /><Text style={[type.small, { color: conditionMedia.length >= 9 ? theme.text3 : theme.text2 }]}>{c.addMedia}</Text></Press><Text style={[styles.mediaHintInline, { color: theme.text3 }]}>{c.mediaLimitShort}</Text></View>
                 <Press accessibilityRole="button" disabled={!canPublishCondition || publishingCondition} onPress={async () => {
                 if (!canPublishCondition || publishingCondition) return;
                 const now = new Date();
@@ -123,7 +124,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
                   setConditionPublishError(message);
                   Alert.alert(resolved === 'zh' ? '发布失败' : 'Publish failed', message);
                 } finally { setPublishingCondition(false); }
-              }} style={[styles.publishButton, { backgroundColor: canPublishCondition && !publishingCondition ? theme.accent : theme.fieldSurface }]}><Text style={{ color: canPublishCondition && !publishingCondition ? '#fff' : theme.text3, fontSize: 13, fontWeight: '700' }}>{publishingCondition ? (resolved === 'zh' ? '发布中…' : 'Publishing…') : c.publishCondition}</Text></Press>
+              }} style={[styles.publishButton, { backgroundColor: canPublishCondition && !publishingCondition ? theme.accent : theme.fieldSurface }]}><Text style={[type.labelStrong, { color: canPublishCondition && !publishingCondition ? '#fff' : theme.text3 }]}>{publishingCondition ? (resolved === 'zh' ? '发布中…' : 'Publishing…') : c.publishCondition}</Text></Press>
               {conditionPublishError ? <Text style={[styles.publishError, { color: theme.danger }]}>{conditionPublishError}</Text> : null}
               </View>
             </View>
@@ -169,10 +170,10 @@ const styles = StyleSheet.create({
   // Keep the full-height capture surface separate from the scrollable preview.
   captureHost: { position: 'absolute', left: 0, top: 0, zIndex: 0 },
   content: { paddingHorizontal: space.xl, paddingTop: space.md },
-  body: { fontSize: 14.5, lineHeight: 27 }, caption: { fontSize: 11.5, lineHeight: 20 },
-  guideDescription: { marginTop: space.xl, fontSize: 14.5, lineHeight: 25 },
+  body: { ...type.reading }, caption: { ...type.meta, lineHeight: 20 },
+  guideDescription: { marginTop: space.xl, ...type.readingLead },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.sm },
-  author: { fontSize: 13, lineHeight: 21 },
+  author: { ...type.byline },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.xs, marginTop: space.sm },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.sm },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
@@ -182,21 +183,21 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.lg },
   filter: { borderRadius: radius.pill, minHeight: 36, paddingHorizontal: space.md, alignItems: 'center', justifyContent: 'center' },
   headerAdd: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  composerInput: { minHeight: 96, padding: space.md, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, fontSize: 14, lineHeight: 22, textAlignVertical: 'top' },
+  composerInput: { minHeight: 96, padding: space.md, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, ...type.textInput, textAlignVertical: 'top' },
   composerPageInput: { minHeight: 180 },
-  counter: { textAlign: 'right', fontSize: 11, marginTop: space.xs },
+  counter: { textAlign: 'right', marginTop: space.xs, ...type.micro },
   mediaGrid: { width: '100%', alignSelf: 'stretch', marginTop: space.md },
   mediaGridContent: { flexDirection: 'row', gap: space.sm },
   composerActions: { width: '100%', minHeight: 48, marginTop: space.xs, paddingTop: space.xs, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md, position: 'relative', zIndex: 2 },
   addMediaGroup: { flexDirection: 'row', alignItems: 'center', gap: space.sm, flexShrink: 1 },
   addMediaAction: { minHeight: 40, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  mediaHintInline: { fontSize: 10, flexShrink: 1 },
+  mediaHintInline: { flexShrink: 1, ...type.tiny },
   mediaTile: { width: 76, height: 76, borderRadius: radius.control, overflow: 'hidden', backgroundColor: '#222' },
   mediaBadge: { position: 'absolute', left: 4, bottom: 4, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.65)' },
-  mediaBadgeText: { color: '#fff', fontSize: 10 },
+  mediaBadgeText: { color: '#fff', ...type.tiny },
   mediaRemove: { position: 'absolute', right: 3, top: 3, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
   publishButton: { minHeight: 40, borderRadius: radius.pill, paddingHorizontal: space.md, alignItems: 'center', justifyContent: 'center' },
   weatherState: { minHeight: 200, alignItems: 'center', justifyContent: 'center', gap: space.md },
   emptyConditions: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.xl },
-  publishError: { marginTop: space.xs, maxWidth: 240, fontSize: 11, lineHeight: 16, textAlign: 'right' },
+  publishError: { marginTop: space.xs, maxWidth: 240, textAlign: 'right', ...type.microNote },
 });

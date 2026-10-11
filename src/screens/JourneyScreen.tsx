@@ -236,9 +236,8 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
         pointerEvents="none"
       />
       <ScrollView
-        style={{ marginTop: insets.top }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: space.xs }}
+        contentContainerStyle={{ paddingTop: insets.top + layout.iconButton + space.lg }}
         refreshControl={(
           <RefreshControl
             refreshing={refreshing}
@@ -250,17 +249,6 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
           />
         )}
       >
-        <View style={styles.header}>
-          <View style={styles.headerActions}>
-            <Press accessibilityRole="button" accessibilityLabel={t('search.placeholder')} onPress={() => nav.openSearch()} style={styles.headerButton}>
-              <Search color={theme.text} size={25} strokeWidth={2.2} />
-            </Press>
-            <Press accessibilityRole="button" accessibilityLabel={t('journeyHome.create')} accessibilityState={{ expanded: createMenuOpen }} onPress={() => setCreateMenuOpen(true)} style={styles.headerButton}>
-              {createMenuOpen ? null : <Plus color={theme.text} size={28} strokeWidth={2} />}
-            </Press>
-          </View>
-        </View>
-
         <View style={styles.hero}>
           <Text numberOfLines={2} style={[styles.heroTitle, { color: theme.text }]}>
             {heroContent.title}
@@ -388,6 +376,18 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
           </View>
         </View>
       </ScrollView>
+      <View pointerEvents="box-none" style={styles.headerOverlay}>
+        <View style={[styles.header, { marginTop: insets.top + space.xs }]}>
+          <View style={styles.headerActions}>
+            <Press accessibilityRole="button" accessibilityLabel={t('search.placeholder')} onPress={() => nav.openSearch()} style={styles.headerButton}>
+              <Search color={theme.text} size={25} strokeWidth={2.2} />
+            </Press>
+            <Press accessibilityRole="button" accessibilityLabel={t('journeyHome.create')} accessibilityState={{ expanded: createMenuOpen }} onPress={() => setCreateMenuOpen(true)} style={styles.headerButton}>
+              {createMenuOpen ? null : <Plus color={theme.text} size={28} strokeWidth={2} />}
+            </Press>
+          </View>
+        </View>
+      </View>
       {filterSheetOpen ? (
         <View style={styles.filterBackdrop}>
           <Press accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setFilterSheetOpen(false)} style={styles.filterDismiss}>{null}</Press>
@@ -455,6 +455,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
+  headerOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
   header: { height: layout.iconButton, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   headerButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },

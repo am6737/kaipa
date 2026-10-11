@@ -8,7 +8,8 @@
       "Bash(grep -n \"tmpfile\\\\|filePath\\\\|path\\\\|scratch\\\\|directory\\\\|stringByAppending\\\\|NSLog\\\\|error\" node_modules/react-native-view-shot/ios/RNViewShot.mm | head -40)",
       "Bash(grep -rn \"findNodeHandle\\\\|captureRef\\\\|useRenderInContext\\\\|snapshotContentContainer\" node_modules/react-native-view-shot/src/ 2>/dev/null | head -30; ls node_modules/react-native-view-shot/src 2>/dev/null || ls node_modules/react-native-view-shot)",
       "Bash(grep -n \"width\\\\|height\\\\|validateOptions\\\\|captureRef\" node_modules/react-native-view-shot/src/index.tsx | head -40)",
-      "Bash(cd /home/coder/workspaces/kaipa && git log --oneline -12 -- src/components/discover/RouteGuideExportSheet.tsx src/components/overlays/SharePoster.tsx && grep -n '\"react-native-view-shot\"' package.json)"
+      "Bash(cd /home/coder/workspaces/kaipa && git log --oneline -12 -- src/components/discover/RouteGuideExportSheet.tsx src/components/overlays/SharePoster.tsx && grep -n '\"react-native-view-shot\"' package.json)",
+      "Bash(ls /home/coder/workspaces/yibai && grep -ri \"doopush\" /home/coder/workspaces/yibai --include=\"*.json\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" -l | head -50)"
     ]
   }
 }

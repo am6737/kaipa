@@ -44,6 +44,10 @@ export interface Theme {
   fieldSurface: string;
   fieldBorder: string;
   progressTrack: string;
+  // Raised panel that hosts a ruler / wheel picker on measurement pages.
+  measureSurface: string;
+  measureBorder: string;
+  measureShadow: string;
   surfaceTop: string;
   surface: string;
   surfaceStrong: string;
@@ -58,6 +62,8 @@ export interface Theme {
   accentShadow: string;
   danger: string;
   dangerSoft: string;
+  // Filled state of a like / 有用 / 有帮助 heart.
+  like: string;
   // Globe / map
   globeStops: string[]; // radial gradient stops (center -> edge)
   globeRim: string;
@@ -88,6 +94,9 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       fieldSurface: 'rgba(255,255,255,0.07)',
       fieldBorder: 'rgba(255,255,255,0.08)',
       progressTrack: 'rgba(255,255,255,0.10)',
+      measureSurface: 'rgba(255,255,255,0.05)',
+      measureBorder: 'rgba(255,255,255,0.16)',
+      measureShadow: '0px 8px 24px rgba(0,0,0,0.18)',
       surfaceTop: 'rgba(40,40,44,0.92)',
       surface: 'rgba(255,255,255,0.05)',
       surfaceStrong: 'rgba(28,28,30,0.96)',
@@ -102,6 +111,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
       accentShadow: rgba(a, 0.3),
       danger: '#FF453A',
       dangerSoft: 'rgba(255,69,58,0.18)',
+      like: '#FF6369',
       globeStops: ['#2A2A2D', '#18181A', '#0A0A0C', '#000000'],
       globeRim: 'rgba(255,255,255,0.10)',
       globeGrid: 'rgba(255,255,255,0.10)',
@@ -124,6 +134,9 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     fieldSurface: 'rgba(0,0,0,0.045)',
     fieldBorder: 'rgba(0,0,0,0.035)',
     progressTrack: 'rgba(0,0,0,0.07)',
+    measureSurface: '#F7F7F8',
+    measureBorder: '#FFFFFF',
+    measureShadow: '0px 8px 24px rgba(0,0,0,0.025)',
     surfaceTop: '#FFFFFF',
     surface: 'rgba(245,245,247,0.95)',
     surfaceStrong: '#FFFFFF',
@@ -138,6 +151,7 @@ export function makeTheme(mode: Mode, accent?: string): Theme {
     accentShadow: rgba(a, 0.28),
     danger: '#FF3B30',
     dangerSoft: 'rgba(255,59,48,0.10)',
+    like: '#E5484D',
     globeStops: ['#FFFFFF', '#F2F2F4', '#D8D8DC', '#B8B8BE'],
     globeRim: 'rgba(0,0,0,0.08)',
     globeGrid: 'rgba(0,0,0,0.10)',

@@ -1,23 +1,27 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { removeMedia, uploadMedia } from '../lib/storage';
 import type { RouteCondition } from '../data/routeConditions';
 
-type Row = { id: string; route_id: string; user_id: string; author_name: string; visited_at: string; section: string; body: string; media: unknown; helpful_count: number; created_at: string };
+type Row = { id: string; route_id: string; user_id: string; author_name: string; visited_at: string; section: string; body: string; media: unknown; helpful_count: number; created_at: string; route_observation_helpful_votes?: { user_id: string }[] };
+const observationSelect = '*,route_observation_helpful_votes(user_id)';
 const text = (value: string) => ({ zh: value, en: value });
 const subscribers = new Map<string, Set<(report: RouteCondition) => void>>();
 function mapRow(row: Row): RouteCondition {
   const media = Array.isArray(row.media) ? row.media as RouteCondition['media'] : [];
-  return { id: row.id, routeId: row.route_id, author: text(row.author_name), source: 'user', visitedAt: row.visited_at, publishedAt: row.created_at, section: text(row.section), body: text(row.body), photos: media?.map((item) => item.thumbnail || item.uri) ?? [], media, helpful: row.helpful_count };
+  return { id: row.id, routeId: row.route_id, author: text(row.author_name), source: 'user', visitedAt: row.visited_at, publishedAt: row.created_at, section: text(row.section), body: text(row.body), photos: media?.map((item) => item.thumbnail || item.uri) ?? [], media, helpful: row.helpful_count, helpfulMarked: Boolean(row.route_observation_helpful_votes?.length) };
 }
 
 export function useRouteConditions(routeId: string) {
   const [reports, setReports] = useState<RouteCondition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const requestVersion = useRef(0);
   const refresh = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
-    const result = await supabase.from('route_observations').select('*').eq('route_id', routeId).order('created_at', { ascending: false });
+    const result = await supabase.from('route_observations').select(observationSelect).eq('route_id', routeId).order('created_at', { ascending: false });
+    if (version !== requestVersion.current) return;
     if (result.error) setError(result.error); else { setError(null); setReports((result.data as Row[]).map(mapRow)); }
     setLoading(false);
   }, [routeId]);
@@ -25,10 +29,19 @@ export function useRouteConditions(routeId: string) {
     setReports([]);
     const listeners = subscribers.get(routeId) ?? new Set();
     subscribers.set(routeId, listeners);
-    const receive = (report: RouteCondition) => setReports((old) => [report, ...old.filter((item) => item.id !== report.id)]);
+    const receive = (report: RouteCondition) => setReports((old) => old.some((item) => item.id === report.id)
+      ? old.map((item) => item.id === report.id ? report : item)
+      : [report, ...old]);
     listeners.add(receive);
     void refresh();
-    return () => { listeners.delete(receive); if (!listeners.size) subscribers.delete(routeId); };
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        ++requestVersion.current;
+        setReports([]);
+        setTimeout(() => { if (listeners.has(receive)) void refresh(); }, 0);
+      }
+    });
+    return () => { ++requestVersion.current; authListener.subscription.unsubscribe(); listeners.delete(receive); if (!listeners.size) subscribers.delete(routeId); };
   }, [routeId, refresh]);
   return { reports, loading, error, refresh };
 }
@@ -82,4 +95,9 @@ export async function submitRouteCondition(args: { routeId: string; body: string
 export async function markRouteConditionHelpful(id: string) {
   const { error } = await supabase.rpc('route_observation_helpful', { p_id: id });
   if (error) throw error;
+  const result = await supabase.from('route_observations').select(observationSelect).eq('id', id).single();
+  if (result.error) throw result.error;
+  const report = mapRow(result.data as Row);
+  for (const receive of subscribers.get(report.routeId) ?? []) receive(report);
+  return report;
 }

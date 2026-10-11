@@ -56,7 +56,15 @@ export async function runSaveStage(client: Client, context: AgentContext, plan: 
   const runContext = { context } as RunContext;
   const artifact: SaveArtifact = { journeyId: boundJourneyId(context), saved: [], skipped: [], failed: [] };
   const authorized = context.task?.decision.operations || [];
-  const operations = saveOperations(plan);
+  const alignmentBlocked = plan.feasibility?.issues.some(issue =>
+    issue.code === 'endpoint_day_alignment' && issue.severity === 'blocker');
+  const operations = saveOperations(plan).filter(operation => {
+    if (alignmentBlocked && operation.tool === 'set_itinerary_group_endpoints') {
+      artifact.skipped.push({ tool: operation.tool, reason: 'endpoint_day_alignment' });
+      return false;
+    }
+    return true;
+  });
 
   // Creation runs first: every other operation needs the journey it returns.
   const creation = operations.find(operation => operation.tool === 'create_journey');

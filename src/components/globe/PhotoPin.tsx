@@ -92,7 +92,7 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
           width: PHOTO_SIZE,
           height: PHOTO_SIZE,
           borderRadius: PHOTO_RADIUS,
-          backgroundColor: palette[1],
+          backgroundColor: poi.muted ? theme.fieldSurface : palette[1],
           zIndex: 2,
           boxShadow: theme.dark ? '0px 2px 5px rgba(0,0,0,0.4)' : '0px 2px 5px rgba(0,0,0,0.16)',
         }}
@@ -105,10 +105,26 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
             borderRadius: PHOTO_RADIUS,
             borderWidth: 1,
             borderColor: 'rgba(255,255,255,0.9)',
-            backgroundColor: palette[1],
+            backgroundColor: poi.muted ? theme.fieldSurface : palette[1],
           }}
           contentFit="cover"
         />
+        {poi.muted ? (
+          // A wash rather than a grayscale filter: the filter renders every pin
+          // offscreen on iOS, which stutters with the whole catalog on the map.
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: PHOTO_SIZE,
+              height: PHOTO_SIZE,
+              borderRadius: PHOTO_RADIUS,
+              backgroundColor: theme.dark ? 'rgba(28,28,30,0.62)' : 'rgba(255,255,255,0.62)',
+            }}
+          />
+        ) : null}
         {count ? (
           <View
             style={{
@@ -154,7 +170,7 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
           <Text
             numberOfLines={2}
             style={{
-              color: theme.text,
+              color: poi.muted ? theme.text3 : theme.text,
               fontSize: 12,
               lineHeight: 16,
               fontWeight: '600',

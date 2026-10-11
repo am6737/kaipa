@@ -14,6 +14,7 @@ import type { GearCat, GearItem, GearSet, GearSetOverride } from './gear';
 import type { Notif } from './notifications';
 import type { Track } from './tracks';
 import { useJourneyHomeContent, type JourneyHomeContent } from '../hooks/useJourneyHomeContent';
+import { useRouteRequests, type RouteRequest } from '../hooks/useRouteRequests';
 
 export interface DataValue {
   userId: string;
@@ -33,6 +34,7 @@ export interface DataValue {
   createJourney: (poi: Partial<Poi>) => Promise<Poi | null>;
   updateJourney: (id: string, patch: Partial<Poi>) => Promise<void>;
   updateRoute: (id: string, patch: Partial<Poi>) => Promise<void>;
+  toggleRouteFavorite: (id: string, current: boolean) => Promise<void>;
   deleteJourney: (id: string) => Promise<void>;
   restoreJourney: (id: string) => Promise<void>;
   permanentlyDeleteJourney: (id: string) => Promise<void>;
@@ -43,6 +45,11 @@ export interface DataValue {
   journeyHomeContentLoading: boolean;
   refetchJourneyHomeContent: () => Promise<void>;
   refetchRoutes: () => Promise<void>;
+  routeRequests: RouteRequest[];
+  routeRequestsLoading: boolean;
+  createRouteRequest: ReturnType<typeof useRouteRequests>['createRequest'];
+  deleteRouteRequest: (id: string) => Promise<void>;
+  refetchRouteRequests: () => Promise<void>;
   tracks: Track[];
   tracksLoading: boolean;
   createTrack: (draft: TrackDraft) => Promise<Track | null>;
@@ -73,7 +80,10 @@ export interface DataValue {
 const DataContext = createContext<DataValue | null>(null);
 
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
-  const { routes, loading: routesLoading, updateRoute, refetch: refetchRoutes } = useRoutes(userId);
+  const {
+    profile, loading: profileLoading, updateProfile, completeOnboarding, updateAvatar,
+  } = useProfile(userId);
+  const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
     tracks, loading: tracksLoading,
     createTrack, updateTrack, deleteTrack, deleteTracks,
@@ -83,8 +93,9 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     journeys, trashedJourneys, loading: journeysLoading,
     createJourney, updateJourney, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav,
     refetch: refetchJourneys,
-  } = useJourneys(userId);
+  } = useJourneys(userId, profile);
   const { content: journeyHomeContent, loading: journeyHomeContentLoading, refetch: refetchJourneyHomeContent } = useJourneyHomeContent();
+  const { requests: routeRequests, loading: routeRequestsLoading, createRequest: createRouteRequest, deleteRequest: deleteRouteRequest, refresh: refetchRouteRequests } = useRouteRequests(userId);
   const {
     cats, items, sets, loading: gearLoading,
     addCat, updateCat, deleteCat,
@@ -92,9 +103,6 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     addSet, updateSet, deleteSet,
     refetch: refetchGear,
   } = useGear(userId);
-  const {
-    profile, loading: profileLoading, updateProfile, completeOnboarding, updateAvatar,
-  } = useProfile(userId);
   const {
     planningProfile, loading: planningProfileLoading, savePlanningProfile,
   } = usePlanningProfile(userId);
@@ -122,8 +130,9 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     profile, profileLoading, updateProfile, completeOnboarding, updateAvatar,
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
+    routeRequests, routeRequestsLoading, createRouteRequest, deleteRouteRequest, refetchRouteRequests,
     tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,
-    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes, journeyHomeContent, journeyHomeContentLoading, refetchJourneyHomeContent,
+    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, toggleRouteFavorite, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes, journeyHomeContent, journeyHomeContentLoading, refetchJourneyHomeContent,
     cats, items, sets, gearLoading,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,

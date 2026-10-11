@@ -5,7 +5,8 @@ import { expandItineraryLocations } from './itinerary-locations.ts';
 import { tool } from 'npm:@openai/agents@0.16.1';
 // @ts-ignore Deno npm specifier
 import { z } from 'npm:zod@4.1.12';
-import { getRouteGuide, guideEvidence, guideDisclosure, recordGuideGaps, type GuideLookup } from './trusted-guides.ts';
+import { guideEvidence, guideDisclosure, recordGuideGaps, type GuideLookup } from './trusted-guides.ts';
+import { lookupRouteKnowledge, type RouteGuide } from '../_shared/route-guides.ts';
 import type { AgentContext } from './types.ts';
 import { assertCreationFacts, assertTaskPackingMode, assertTaskWrite } from './task.ts';
 import { packingItem, packingPlanProfile, type PackingItem, type PackingProfile } from './packing-schema.ts';
@@ -624,10 +625,10 @@ export const estimatePersonalPacking = tool({
 });
 
 // Dependency injection keeps tests independent of concurrently curated guide data.
-export function createReadRouteGuide(lookup: GuideLookup = getRouteGuide) {
+export function createReadRouteGuide(lookup?: GuideLookup | ((routeId: string) => RouteGuide | null)) {
   return tool({
     name: 'read_route_guide',
-    description: 'Read the team maintained trusted route guide by catalog routeId or route name. Cite its sources, including sources without links. State asOf for prices, transport and closures. If missing or not covered, say so plainly and do not estimate or invent. No live web search.',
+    description: 'Read the published team-maintained route knowledge by catalog routeId or route name. Cite its sources, including sources without links. State asOf for prices, transport and closures. If missing or not covered, say so plainly and do not estimate or invent. No live web search.',
     parameters: z.object({ routeId: z.string().min(1).max(100).nullable().default(null), name: z.string().min(1).max(120).nullable().default(null) }),
     execute: (args, runContext) => mutate('read_route_guide', args, runContext as RunContext, async (client, context) => {
       let routeId = args.routeId;
@@ -640,16 +641,49 @@ export function createReadRouteGuide(lookup: GuideLookup = getRouteGuide) {
         const route = exact ?? (rows.length === 1 ? rows[0] : null);
         if (route) { routeId = route.id; name = route.name; }
       }
-      const evidence = guideEvidence(name, routeId, lookup);
-      await recordGuideGaps(cacheClients.get(context.runId), context.runId, context.userId, context.threadId, evidence);
-      const guide = routeId ? lookup(routeId) : null;
+      const effectiveLookup: any = !lookup
+        ? (id: string) => lookupRouteKnowledge(cacheClients.get(context.runId) || client, id)
+        : lookup;
+      let evidence: any;
+      let guide: any = null;
+      try {
+        guide = routeId ? await effectiveLookup(routeId) : null;
+        // Build the evidence from the same read so a mutable knowledge row is
+        // not fetched twice during one tool invocation.
+        evidence = guideEvidence(name, routeId, () => guide);
+      } catch (error) {
+        console.warn('[AppAgent] route knowledge read failed', String(error instanceof Error ? error.message : error).slice(0, 200));
+        evidence = { routeName: name, routeId, markdown: '', asOf: null, sources: [], missingSections: ['*'], knowledgeReadFailed: true };
+      }
+      if (!evidence.knowledgeReadFailed) await recordGuideGaps(cacheClients.get(context.runId), context.runId, context.userId, context.threadId, evidence);
       return { available: !!guide, routeId, name, markdown: guide?.markdown ?? '', asOf: evidence.asOf,
         sections: guide?.sections ?? [], sources: evidence.sources, missingSections: evidence.missingSections,
-        disclosure: guideDisclosure(name, evidence.missingSections) };
+        disclosure: guideDisclosure(name, evidence.missingSections, evidence.knowledgeReadFailed) };
     }),
   });
 }
 export const readRouteGuide = createReadRouteGuide();
+
+export const searchRouteKnowledge = tool({
+  name: 'search_route_knowledge',
+  description: 'Search the published route and area knowledge base by keyword. Cite returned sources and state each asOf date. If nothing is found, say so plainly and do not invent information.',
+  parameters: z.object({
+    query: z.string().min(1).max(240),
+    routeIds: z.array(z.string().min(1).max(100)).max(30).nullable().default(null),
+    regions: z.array(z.string().min(1).max(100)).max(30).nullable().default(null),
+    sections: z.array(z.enum(['overview','itinerary','access','overnight','costs','water_supply','season_risk','gear','tips'])).max(9).nullable().default(null),
+  }),
+  execute: (args, runContext) => mutate('search_route_knowledge', args, runContext as RunContext, async (client) => {
+    const result = await (cacheClients.get((runContext as RunContext).context.runId) || client).rpc('search_route_knowledge', {
+      p_query: args.query, p_route_ids: args.routeIds, p_regions: args.regions, p_sections: args.sections, p_limit: 12,
+    });
+    if (result.error) throw result.error;
+    return { query: args.query, entries: (result.data || []).map((entry: any) => ({
+      id: entry.id, routeId: entry.route_id, region: entry.region, section: entry.section,
+      title: entry.title, body: entry.body, sources: entry.sources || [], asOf: entry.as_of,
+    })), found: Boolean(result.data?.length), disclosure: result.data?.length ? null : '知识库中没有找到相关内容，不能据此编造。' };
+  }),
+});
 
 async function guideHistory(client: Client, runId: string) {
   const [calls, stage] = await Promise.all([
@@ -1369,8 +1403,8 @@ export const readConversationHistory = tool({
   }),
 });
 
-export const kaipaAllTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaAllTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaGlobalTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaGlobalTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaJourneyTools = [readRouteGuide, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchJourneys, searchRoutes, addGear];
+export const kaipaJourneyTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchJourneys, searchRoutes, addGear];

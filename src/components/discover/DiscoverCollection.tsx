@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { Poi } from '../../data/pois';
+import { orderCompanionsForDisplay, Poi } from '../../data/pois';
 import { AppCard, layout, radius, space, type } from '../../design-system';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
@@ -249,7 +249,7 @@ function JourneyParticipants({
   onInvite?: () => void;
   inviteAccessibilityLabel: string;
 }) {
-  const people = (poi.companionList || []).slice(0, 2);
+  const people = orderCompanionsForDisplay(poi.companionList || []).slice(0, 2);
   if (!people.length && !onInvite) return null;
   const size = 24;
   return (

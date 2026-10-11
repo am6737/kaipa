@@ -15,6 +15,8 @@ export interface GlobePoi {
   coverUri?: string;
   /** route or journey name shown in the marker's capsule label */
   label?: string;
+  /** a catalog route the user has not walked yet: the same pin, greyed out */
+  muted?: boolean;
   /** Which 发现 mode this pin belongs to, so the two layers can be told apart by
       the visibility rail below. Part of the pin's key, not of its visibility:
       a pin's own fields must not change when a switch hides it, or the switch is
@@ -52,7 +54,7 @@ export type GlobeMapStyle = 'standard' | 'terrain' | 'satellite';
 
 export type GlobeCameraAction =
   | { type: 'fitRoute' | 'resetNorth'; revision: number }
-  | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][] }
+  | { type: 'fitCoordinates'; revision: number; coordinates: [number, number][]; padding?: [number, number, number, number] }
   | { type: 'locate'; revision: number; coordinate: [number, number] }
   | { type: 'restore'; revision: number; coordinate: [number, number]; zoom: number };
 

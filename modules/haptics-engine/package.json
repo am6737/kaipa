@@ -1,0 +1,7 @@
+{
+  "name": "haptics-engine",
+  "version": "1.0.0",
+  "description": "App-local detent haptics for Kaipa's rulers and wheels.",
+  "main": "src/index.ts",
+  "private": true
+}

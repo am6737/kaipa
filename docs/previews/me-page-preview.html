@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kaipa · 我的页面预览</title>
+<style>
+:root{--bg:#f3f1ec;--card:#fbfaf7;--text:#252621;--muted:#78766e;--faint:#a6a39a;--line:rgba(37,38,33,.1);--accent:#b96549;--accentSoft:#ead8cd}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#d8d4cc;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif}.phone{width:min(100%,430px);min-height:100vh;margin:0 auto;padding:20px 16px 38px;background:var(--bg)}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}h1{margin:0;font-size:29px;letter-spacing:-.06em}.settings{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;background:#fff6;font-size:18px}.identity{display:flex;align-items:center;gap:15px;margin-bottom:34px}.avatar{width:68px;height:68px;display:grid;place-items:center;border-radius:50%;color:#fff;font-size:25px;font-weight:700;background:linear-gradient(145deg,#7c8b79,#b8785e);box-shadow:0 7px 18px #36312722}.identity h2{margin:0 0 5px;font-size:19px;letter-spacing:-.02em}.identity p{margin:0;color:var(--muted);font-size:13px}.section{margin-top:26px}.section-title{margin:0 2px 11px;font-size:15px;letter-spacing:.01em}.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.card{min-height:122px;padding:16px;display:flex;flex-direction:column;justify-content:space-between;border-radius:22px;background:var(--card);border:1px solid #2526210f;box-shadow:0 5px 15px #3a352b09}.card-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:11px;color:var(--accent);background:var(--accentSoft);font-size:16px}.card strong{display:block;font-size:16px;font-weight:680}.card small{display:block;margin-top:4px;color:var(--muted);font-size:12px}.wide-card{min-height:88px;padding:16px;display:flex;align-items:center;gap:13px;border-radius:22px;background:var(--card);border:1px solid #2526210f;box-shadow:0 5px 15px #3a352b09}.wide-card .card-icon{flex:0 0 auto}.wide-card .copy{flex:1;min-width:0}.wide-card strong{font-size:16px}.wide-card small{display:block;margin-top:5px;color:var(--muted);font-size:12px}.chevron{color:var(--faint);font-size:21px}.contribution{overflow:hidden;border-radius:22px;background:var(--card);border:1px solid #2526210f;box-shadow:0 5px 15px #3a352b09}.row{min-height:64px;padding:12px 15px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.row .card-icon{width:29px;height:29px;flex:0 0 auto;border-radius:10px;background:#eeeae3;color:var(--muted);font-size:14px}.row .copy{flex:1;min-width:0}.row strong{display:block;font-size:14px;font-weight:650}.row small{display:block;margin-top:3px;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{color:var(--accent);font-size:11px;white-space:nowrap}.footer{margin:28px 0 0;color:var(--faint);text-align:center;font-size:11px}.scrim{position:fixed;inset:0;background:rgba(35,37,36,.38);opacity:0;pointer-events:none;transition:opacity .22s ease}.drawer{position:fixed;top:0;right:0;width:min(82vw,350px);height:100vh;padding:28px 0 24px;background:#fff;border-radius:28px 0 0 28px;transform:translateX(102%);transition:transform .25s cubic-bezier(.2,.8,.2,1);box-shadow:-12px 0 30px rgba(34,34,30,.12)}.drawer h2{margin:8px 24px 18px;font-size:25px;letter-spacing:-.04em}.drawer-row{min-height:64px;padding:0 24px;display:flex;align-items:center;gap:15px;border-bottom:1px solid rgba(37,38,33,.09);font-size:16px}.drawer-row:last-child{border-bottom:0}.drawer-icon{width:28px;color:#272824;font-size:20px;text-align:center}.drawer-arrow{margin-left:auto;color:#c1c2bd;font-size:22px}.drawer-close{position:absolute;top:18px;right:18px;width:32px;height:32px;border:0;background:none;color:#9b9b96;font-size:24px}.open .scrim{opacity:1;pointer-events:auto}.open .drawer{transform:translateX(0)}@media(min-width:600px){.phone{min-height:auto;margin:30px auto;border-radius:28px;box-shadow:0 20px 55px #2d2a222e}}
+</style>
+</head>
+<body><main class="phone">
+<header class="top"><h1>我的</h1><button class="settings" id="openSettings" aria-label="打开设置">⚙</button></header>
+<section class="identity"><div class="avatar">K</div><div><h2>你的昵称</h2><p>把走过的路，留成自己的风景</p></div></section>
+<section class="section"><h3 class="section-title">我的内容</h3><div class="grid">
+<div class="card"><div class="card-icon">↗</div><div><strong>我的旅程</strong><small>12 次旅程</small></div></div><div class="card"><div class="card-icon">✦</div><div><strong>我的足迹</strong><small>已点亮 8 条路线</small></div></div><div class="card"><div class="card-icon">♡</div><div><strong>我的收藏</strong><small>24 条路线</small></div></div><div class="card"><div class="card-icon">⌁</div><div><strong>我的轨迹</strong><small>16 条轨迹</small></div></div>
+</div></section>
+<section class="section"><h3 class="section-title">出行准备</h3><div class="contribution"><div class="row"><div class="card-icon">▱</div><div class="copy"><strong>装备</strong><small>32 件装备</small></div><div class="chevron">›</div></div><div class="row"><div class="card-icon">☷</div><div class="copy"><strong>清单</strong><small>4 个清单</small></div><div class="chevron">›</div></div></div></section>
+<section class="section"><h3 class="section-title">我的贡献</h3><div class="contribution">
+<div class="row"><div class="card-icon">✎</div><div class="copy"><strong>我的攻略</strong><small>已发布 3 篇</small></div><div class="chevron">›</div></div><div class="row"><div class="card-icon">⌖</div><div class="copy"><strong>路线请求</strong><small>已上线 1 条</small></div><div class="status">审核中 2</div><div class="chevron">›</div></div><div class="row"><div class="card-icon">⌁</div><div class="copy"><strong>路线纠错</strong><small>帮助完善路线资料</small></div><div class="chevron">›</div></div>
+</div></section>
+</main>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="设置抽屉">
+  <button class="drawer-close" id="closeSettings" aria-label="关闭设置">×</button>
+  <h2>设置</h2>
+  <div class="drawer-row"><span class="drawer-icon">◌</span><span>规划偏好</span><span class="drawer-arrow">›</span></div>
+  <div class="drawer-row"><span class="drawer-icon">▱</span><span>计划回收站</span><span class="drawer-arrow">›</span></div>
+  <div class="drawer-row"><span class="drawer-icon">◎</span><span>账号与安全</span><span class="drawer-arrow">›</span></div>
+  <div class="drawer-row"><span class="drawer-icon">✎</span><span>编辑资料</span><span class="drawer-arrow">›</span></div>
+  <div class="drawer-row"><span class="drawer-icon">文</span><span>设置语言</span><span class="drawer-arrow">›</span></div>
+  <div class="drawer-row"><span class="drawer-icon">ⓘ</span><span>版本信息</span><span class="drawer-arrow">›</span></div>
+</aside>
+<script>
+const root=document.body;const open=()=>root.classList.add('open');const close=()=>root.classList.remove('open');
+document.getElementById('openSettings').addEventListener('click',open);document.getElementById('closeSettings').addEventListener('click',close);document.getElementById('scrim').addEventListener('click',close);
+</script>
+</body></html>

@@ -59,7 +59,7 @@ app restart. Schema errors are not reported as successful imports.
 
 ```sh
 npx tsc --noEmit
-node --test scripts/test-route-guides.cjs
+node --test scripts/import-route-guides.test.mjs
 node scripts/test-route-guide-import-db.cjs
 npx expo export --platform web --output-dir /tmp/kaipa-route-guide-web
 ```

@@ -18,8 +18,13 @@ import { markRouteConditionHelpful } from '../../hooks/useRouteConditions';
 export function RouteConditionCard({ theme, report, compact = false, onPress }: { theme: Theme; report: RouteCondition; compact?: boolean; onPress?: () => void }) {
   const { resolved } = useI18n();
   const [width, setWidth] = useState(0);
-  const [helpful, setHelpful] = useState(false);
+  const [helpful, setHelpful] = useState(report.helpfulMarked ?? false);
   const [helpfulCount, setHelpfulCount] = useState(report.helpful ?? 0);
+  const helpfulPending = useRef(false);
+  useEffect(() => {
+    setHelpful(report.helpfulMarked ?? false);
+    setHelpfulCount(report.helpful ?? 0);
+  }, [report.id, report.helpfulMarked, report.helpful]);
   if (compact) {
     const preview = <View style={styles.preview}>
       <View style={styles.previewText}>
@@ -38,9 +43,22 @@ export function RouteConditionCard({ theme, report, compact = false, onPress }: 
     <Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 20, marginTop: space.xs }}>{formatObservationDate(report.publishedAt, resolved)}</Text>
     {guideText(report.body, resolved).trim() ? <Text style={{ color: theme.text, fontSize: 13, lineHeight: 23, marginTop: space.sm }}>{guideText(report.body, resolved)}</Text> : null}
     {(report.media?.length || report.photos.length) && width > 0 ? <View style={{ marginTop: space.md }}><ConditionMediaStrip theme={theme} report={report} /></View> : null}
-    <Press accessibilityRole="button" accessibilityState={{ selected: helpful }} onPress={() => { if (helpful) return; setHelpful(true); setHelpfulCount((count) => count + 1); void markRouteConditionHelpful(report.id).catch(() => { setHelpful(false); setHelpfulCount((count) => Math.max(0, count - 1)); }); }} style={styles.helpfulAction}>
-      <Heart color={helpful ? '#E5484D' : theme.text2} fill={helpful ? '#E5484D' : 'transparent'} size={16} />
-      <Text style={{ color: helpful ? '#E5484D' : theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '有帮助' : 'Helpful'} {helpfulCount}</Text>
+    <Press accessibilityRole="button" accessibilityState={{ selected: helpful }} onPress={() => {
+      if (helpfulPending.current) return;
+      helpfulPending.current = true;
+      const previousHelpful = helpful;
+      setHelpful(!previousHelpful);
+      setHelpfulCount((count) => Math.max(0, count + (previousHelpful ? -1 : 1)));
+      void markRouteConditionHelpful(report.id).then((updated) => {
+        setHelpful(updated.helpfulMarked ?? false);
+        setHelpfulCount(updated.helpful ?? 0);
+      }).catch(() => {
+        setHelpful(report.helpfulMarked ?? false);
+        setHelpfulCount(report.helpful ?? 0);
+      }).finally(() => { helpfulPending.current = false; });
+    }} style={styles.helpfulAction}>
+      <Heart color={helpful ? theme.like : theme.text2} fill={helpful ? theme.like : 'transparent'} size={16} />
+      <Text style={{ color: helpful ? theme.like : theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '有帮助' : 'Helpful'} {helpfulCount}</Text>
     </Press>
   </>;
   const style = { paddingVertical: space.md };

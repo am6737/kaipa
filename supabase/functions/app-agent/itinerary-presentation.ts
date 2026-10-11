@@ -10,7 +10,10 @@ const readable = (text: string) => text.replace(/ResearchBrief/g, '路线资料'
 // Feasibility issues remain in the plan/task metadata and the final planning response.
 const briefSummary = (text: string) => text.split(/(?<=[。；;])/).filter((sentence, index) => index === 0
   || !/(?:未纳入.*查询|未构成预订|查询参考|尚缺.*(?:安排|核对)|(?:接驳|班次|道路耗时|落脚点|过夜点).*(?:未核实|未确定|尚未确定|未核定|未能从.*标注.*定位)|具体终点安排取决于)/.test(sentence)).join('').trim().replace(/[；;]$/, '。');
-const serviceCode = (title: string) => /\b(?:[GDKTZCY]\d{1,6}|[A-Z0-9]{2}\d{2,5})\b/.exec(title.replace(/D\d+[：:]/gi, ''))?.[0];
+// An undated hub skeleton carries a pending marker instead of a service code;
+// keep it beside the station name so the stop does not read as settled.
+const serviceCode = (title: string) => /\b(?:[GDKTZCY]\d{1,6}|[A-Z0-9]{2}\d{2,5})\b/.exec(title.replace(/D\d+[：:]/gi, ''))?.[0]
+  ?? /车次待查|航班待查/.exec(title)?.[0];
 const placeKey = (name: string) => name.replace(/^D\d+[：:]\s*|^(?:终点|起点)[：:]\s*/i, '').trim();
 
 /** Keep generated prose in the daily note while preserving map/time metadata.

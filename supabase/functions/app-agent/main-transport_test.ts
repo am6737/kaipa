@@ -1,6 +1,9 @@
-import { collectMainTransport, mergeMainTransportItems, mainTransportQueries, providerItinerary, transportEndpointsSchema } from './main-transport.ts';
+import { collectMainTransport, mainTransportSchema, mergeMainTransportItems, mainTransportQueries, providerItinerary, transportEndpointsSchema } from './main-transport.ts';
 import { resolveTravelRequest, travelIntake, travelRequestSchema, travelContextFromRequest } from './travel-request.ts';
 import { constrainTaskDecision, taskDecisionSchema, type TaskState } from './task.ts';
+import { carryDailyStarts } from './itinerary-locations.ts';
+import { presentItinerary } from './itinerary-presentation.ts';
+import { itineraryItem } from './tools.ts';
 
 function assert(value: unknown, message = 'Assertion failed'): asserts value { if (!value) throw new Error(message); }
 const now = Date.parse('2026-10-08T00:00:00+08:00');
@@ -113,7 +116,8 @@ Deno.test('model arrival spanning the same provider train is removed before itin
   const arrival = main.itineraryItems[1];
   const merged = mergeMainTransportItems([{ ...train, title: '抵达成都东', location: { ...arrival.location!, incomingMode: null },
     startLocation: train.location }], main);
-  assert(merged.length === main.itineraryItems.length);
+  assert(merged.some(item => item.title === '前往杭州东'), 'the server adds the origin-to-station local leg');
+  assert(merged.some(item => item.title.includes('车次待查')), 'the server keeps the missing return skeleton');
   assert(merged.every(item => item.title !== '抵达成都东'));
 });
 
@@ -225,4 +229,157 @@ Deno.test('flight departure filtering interprets unzoned provider timestamps in 
     offer('100', '2026-10-08T16:43:00'), offer('200', '2026-10-08T22:00:00'),
   ] }, '2026-10-08', Date.parse('2026-10-08T20:00:00+08:00'));
   assert(items.length === 2 && items[0].title.includes('CA200'), 'unzoned China departures must not be treated as UTC');
+});
+
+Deno.test('fixed hubs survive empty outbound providers and canonicalize the complete six-day fixture', async () => {
+  const trip = travelRequestSchema.parse({ origin: '南宁良庆区', returnDestination: '南宁良庆区', modes: ['rail', 'flight'] });
+  const hubs = transportEndpointsSchema.parse({ endpoints: [
+    { mode: 'rail', outboundOrigin: '南宁东', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '南宁东', outboundOriginCity: '南宁', outboundDestinationCity: '成都', returnOriginCity: '成都', returnDestinationCity: '南宁' },
+    { mode: 'flight', outboundOrigin: 'NNG', outboundDestination: 'TFU', returnOrigin: 'TFU', returnDestination: 'NNG',
+      outboundOriginDisplayName: '南宁吴圩国际机场', outboundDestinationDisplayName: '成都天府国际机场',
+      returnOriginDisplayName: '成都天府国际机场', returnDestinationDisplayName: '南宁吴圩国际机场' },
+  ] });
+  const returnTrain = { available: true, status: 'results', offers: [{ trainNumber: 'D1723', from: '成都东', to: '南宁东',
+    departure: '2026-10-14T08:27:00+08:00', arrival: '2026-10-14T15:30:00+08:00', seats: [{ availability: '有' }] }] };
+  const main = await collectMainTransport({ now, request: trip, endpoints: hubs, plannedDate: '2026-10-09', days: 6,
+    query: async query => query.direction === 'return' && query.mode === 'rail' ? returnTrain
+      : query.mode === 'rail' ? { available: true, status: 'empty', offers: [] } : { available: false, status: 'provider_error' } });
+  const model = [
+    { day: 'Day 1', kind: 'custom' as const, title: '前往成都', startLocation: { name: '南宁良庆区', latitude: 22.7595, longitude: 108.4255 }, location: { name: '南宁良庆区', latitude: 22.7595, longitude: 108.4255 } },
+    { day: 'Day 1', kind: 'custom' as const, title: '抵达成都', startLocation: { name: '南宁良庆区' }, location: { name: '成都', incomingMode: 'rail' as const } },
+    { day: 'Day 2', kind: 'custom' as const, title: '成都至卡尔杂村', startLocation: { name: '成都' }, location: { name: '卡尔杂村' } },
+    { day: 'Day 2', kind: 'stay' as const, title: '卡尔杂村休整', location: { name: '卡尔杂村通铺' } },
+    { day: 'Day 5', kind: 'custom' as const, title: '返回成都', startLocation: { name: '卡尔杂村' }, location: { name: '成都' } },
+    { day: 'Day 6', kind: 'custom' as const, title: 'D1723 成都东至南宁东', timeStart: '08:27', timeEnd: '15:30', startLocation: { name: '成都东' }, location: { name: '南宁东', incomingMode: 'rail' as const } },
+    { day: 'Day 6', kind: 'custom' as const, title: '返回南宁良庆区', startLocation: { name: '南宁东' }, location: { name: '南宁良庆区' } },
+  ].map(item => itineraryItem.parse(item));
+  const final = presentItinerary(carryDailyStarts(mergeMainTransportItems(model, main, { totalDays: 6, originCity: '南宁', returnCity: '南宁' })), [], 6).items;
+  const names = (day: string) => final.filter(item => item.day === day && item.location).map(item => item.location!.name)
+    .filter((name, index, all) => index === 0 || name !== all[index - 1]);
+  assert(JSON.stringify(names('Day 1')) === JSON.stringify(['南宁东', '成都东']));
+  assert(names('Day 2')[0] === '成都东' && names('Day 2')[1] === '卡尔杂村' && !names('Day 2').includes('成都'));
+  assert(JSON.stringify(names('Day 6')) === JSON.stringify(['成都东', '南宁东']));
+  assert(final.some(item => item.title.includes('D1723') && item.timeStart === '08:27' && item.timeEnd === '15:30'));
+});
+
+Deno.test('date-less queries still produce untimed hub skeletons', async () => {
+  const main = await collectMainTransport({ request, endpoints, plannedDate: null, days: 4, query: async () => { throw new Error('must not query without a date'); } });
+  const merged = mergeMainTransportItems([], main, 4);
+  assert(merged.filter(item => item.day === 'Day 1').some(item => item.title.includes('车次待查')));
+  assert(merged.filter(item => item.day === 'Day 4').some(item => item.title.includes('车次待查')));
+  assert(merged.every(item => !item.timeStart && !item.timeEnd));
+});
+
+Deno.test('provider rows remain singular while both local origin legs are retained', async () => {
+  const main = await collectMainTransport({ now, request, endpoints, plannedDate: '2026-10-09', days: 5, query: async query => ({ ...rail,
+    offers: rail.offers.map(offer => query.direction === 'outbound' ? offer : { ...offer, from: '成都东', to: '杭州东', departure: '2026-10-13T08:00:00+08:00', arrival: '2026-10-13T18:30:00+08:00' }) }) });
+  const merged = mergeMainTransportItems([], main, 5);
+  assert(merged.filter(item => item.title.includes('G123')).length === 4);
+  assert(merged.filter(item => item.title === '前往杭州东').length === 1);
+  assert(merged.some(item => item.day === 'Day 5' && item.title === '前往杭州'));
+});
+
+Deno.test('flight skeletons use Chinese airport display names and never IATA place names', async () => {
+  const flightRequest = travelRequestSchema.parse({ origin: '南宁', returnDestination: '南宁', modes: ['flight'] });
+  const flightEndpoints = transportEndpointsSchema.parse({ endpoints: [{ mode: 'flight', outboundOrigin: 'NNG', outboundDestination: 'TFU', returnOrigin: 'TFU', returnDestination: 'NNG',
+    outboundOriginDisplayName: '南宁吴圩国际机场', outboundDestinationDisplayName: '成都天府国际机场', returnOriginDisplayName: '成都天府国际机场', returnDestinationDisplayName: '南宁吴圩国际机场' }] });
+  const main = await collectMainTransport({ request: flightRequest, endpoints: flightEndpoints, plannedDate: null, days: 3, query: async () => ({}) });
+  const rows = mergeMainTransportItems([], main, 3);
+  assert(rows.some(item => item.location?.name === '南宁吴圩国际机场') && rows.some(item => item.location?.name === '成都天府国际机场'));
+  assert(rows.every(item => item.location?.name !== 'NNG' && item.location?.name !== 'TFU'));
+});
+
+Deno.test('legacy main transport artifacts without hubs retain their model rows', () => {
+  const legacy = mainTransportSchema.parse({ request, itineraryItems: [{ day: 'Day 1', title: '抵达成都', location: { name: '成都' } }] });
+  assert(legacy.hubs.length === 0 && mergeMainTransportItems(legacy.itineraryItems, legacy).length === 1);
+});
+
+Deno.test('outbound provider rows precede untimed post-arrival rows on Day 1', async () => {
+  const main = await collectMainTransport({ now, request, endpoints, plannedDate: '2026-10-09', days: 5, query: async () => rail });
+  const postArrival = itineraryItem.parse({ day: 'Day 1', title: '成都东到卡尔杂村接驳', startLocation: { name: '成都东' }, location: { name: '卡尔杂村' } });
+  const merged = mergeMainTransportItems([postArrival], main, 5);
+  const day = merged.filter(item => item.day === 'Day 1');
+  assert(day.findIndex(item => item.title.includes('G123')) < day.findIndex(item => item.title.includes('卡尔杂村')));
+  assert(day.find(item => item.location?.name === '成都东' && item.location.incomingMode === 'rail'));
+});
+
+Deno.test('same-city structured metadata suppresses district home legs', () => {
+  const localHubs = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '南宁东', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '南宁东',
+    outboundOriginCity: '南宁', outboundDestinationCity: '成都', returnOriginCity: '成都', returnDestinationCity: '南宁' }] });
+  const main = mainTransportSchema.parse({ request: { origin: '南宁良庆区', returnDestination: '南宁良庆区', modes: ['rail'] }, hubs: localHubs.endpoints });
+  const rows = mergeMainTransportItems([itineraryItem.parse({ day: 'Day 1', title: '前往成都', startLocation: { name: '南宁良庆区' }, location: { name: '南宁良庆区' } }),
+    itineraryItem.parse({ day: 'Day 6', title: '返回南宁良庆区', startLocation: { name: '南宁东' }, location: { name: '南宁良庆区' } })], main, { totalDays: 6, originCity: '南宁', returnCity: '南宁' });
+  assert(!rows.some(item => /南宁良庆区|前往南宁东|从南宁良庆区|返回南宁/.test(item.title) || item.location?.name === '南宁良庆区'));
+  assert(rows.some(item => item.location?.name === '南宁东') && rows.some(item => item.location?.name === '成都东'));
+});
+
+Deno.test('different-city origin keeps the ground leg', () => {
+  const localHubs = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '百色站', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '百色站', outboundOriginCity: '百色', outboundDestinationCity: '成都', returnOriginCity: '成都', returnDestinationCity: '百色' }] });
+  const main = mainTransportSchema.parse({ request: { origin: '广西凌云县', returnDestination: '广西凌云县', modes: ['rail'] }, hubs: localHubs.endpoints });
+  const rows = mergeMainTransportItems([], main, { totalDays: 4, originCity: '凌云', returnCity: '凌云' });
+  assert(rows.some(item => item.title === '前往百色站' && item.startLocation?.name === '广西凌云县'));
+});
+
+Deno.test('self-drive emits ground rows without station or airport rows', async () => {
+  const driveRequest = travelRequestSchema.parse({ origin: '西安', returnDestination: '西安', modes: ['self_drive'] });
+  const driveEndpoints = transportEndpointsSchema.parse({ endpoints: [{ mode: 'self_drive', outboundOrigin: '西安', outboundDestination: '鳌太起点', returnOrigin: '鳌太起点', returnDestination: '西安' }] });
+  const main = await collectMainTransport({ request: driveRequest, endpoints: driveEndpoints, plannedDate: null, days: 3,
+    query: async () => ({ available: true, status: 'results', distanceKm: 240, durationMinutes: 300 }) });
+  const rows = mergeMainTransportItems([], main, 3);
+  assert(rows.length > 0 && rows.every(item => !/车站|机场|高铁|航班/.test(item.title)) && rows.some(item => item.title.includes('高德估算')));
+});
+
+Deno.test('failed hub resolution falls back to transfer-city ground estimates', async () => {
+  const main = await collectMainTransport({ request, endpoints: transportEndpointsSchema.parse({ endpoints: [] }), plannedDate: null, days: 4,
+    fallbackDestination: '成都', query: async query => query.mode === 'self_drive'
+      ? { available: true, status: 'results', distanceKm: 1200, durationMinutes: 900 } : {} });
+  assert(main.itineraryItems.some(item => item.title.includes('交通方式待定') && item.title.includes('高德驾车估算')));
+});
+
+// Production passes only totalDays and the GPS place (mainTransportMergeOptions);
+// the user's city must come from the persisted endpoint output, not the caller.
+Deno.test('persisted endpoint user city suppresses home legs without caller-supplied cities', async () => {
+  const localRequest = travelRequestSchema.parse({ origin: '南宁良庆区', returnDestination: '南宁良庆区', modes: ['rail'] });
+  const localEndpoints = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '南宁东', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '南宁东',
+    outboundOriginCity: '南宁', outboundDestinationCity: '成都市', returnOriginCity: '成都', returnDestinationCity: '南宁', outboundUserCity: '南宁市', returnUserCity: '南宁市' }] });
+  const main = await collectMainTransport({ now, request: localRequest, endpoints: localEndpoints, plannedDate: null, days: 6, query: async () => ({ available: false, status: 'not_configured' }) });
+  const stored = mainTransportSchema.parse(JSON.parse(JSON.stringify(main)));
+  const model = [
+    itineraryItem.parse({ day: 'Day 1', title: '从南宁良庆区出发', location: { name: '南宁良庆区' } }),
+    itineraryItem.parse({ day: 'Day 2', title: '成都东到卡尔杂村接驳', startLocation: { name: '成都东' }, location: { name: '卡尔杂村' } }),
+    itineraryItem.parse({ day: 'Day 6', title: '返回南宁良庆区', startLocation: { name: '南宁东' }, location: { name: '南宁良庆区' } }),
+  ];
+  const rows = presentItinerary(carryDailyStarts(mergeMainTransportItems(model, stored, {
+    totalDays: 6, originLocation: { name: '南宁良庆区', latitude: 22.75, longitude: 108.39, source: 'custom' } })), [], 6).items;
+  const chain = (day: string) => rows.filter(item => item.day === day && item.location).map(item => item.location!.name);
+  assert(!rows.some(item => item.location?.name === '南宁良庆区' || item.startLocation?.name === '南宁良庆区'), JSON.stringify(rows.map(item => [item.day, item.title])));
+  assert(chain('Day 1')[0] === '南宁东' && chain('Day 1').includes('成都东'), JSON.stringify(chain('Day 1')));
+  assert(chain('Day 6').at(-1) === '南宁东', JSON.stringify(chain('Day 6')));
+});
+
+Deno.test('a county origin keeps its ground leg even inside the hub prefecture', async () => {
+  const countyEndpoints = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '百色', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '百色',
+    outboundOriginCity: '百色市', outboundDestinationCity: '成都', returnOriginCity: '成都', returnDestinationCity: '百色市', outboundUserCity: '凌云县', returnUserCity: '凌云县' }] });
+  const countyRequest = travelRequestSchema.parse({ origin: '广西凌云县', returnDestination: '广西凌云县', modes: ['rail'] });
+  const main = await collectMainTransport({ now, request: countyRequest, endpoints: countyEndpoints, plannedDate: null, days: 4, query: async () => ({ available: false, status: 'not_configured' }) });
+  const rows = mergeMainTransportItems([], main, { totalDays: 4 });
+  assert(rows.some(item => item.day === 'Day 1' && item.startLocation?.name === '广西凌云县' && item.location?.name === '百色'), JSON.stringify(rows.map(item => [item.day, item.title])));
+});
+
+Deno.test('undated hub skeleton leads Day 1 and closes the last day ahead of model transfers', async () => {
+  const localRequest = travelRequestSchema.parse({ origin: '南宁良庆区', returnDestination: '南宁良庆区', modes: ['rail'] });
+  const localEndpoints = transportEndpointsSchema.parse({ endpoints: [{ mode: 'rail', outboundOrigin: '南宁东', outboundDestination: '成都东', returnOrigin: '成都东', returnDestination: '南宁东',
+    outboundOriginCity: '南宁市', outboundDestinationCity: '成都市', returnOriginCity: '成都市', returnDestinationCity: '南宁市', outboundUserCity: '南宁市', returnUserCity: '南宁市' }] });
+  const main = await collectMainTransport({ now, request: localRequest, endpoints: localEndpoints, plannedDate: null, days: 6, query: async () => ({ available: false, status: 'date_required' }) });
+  // The live T1 plan: the model puts the mountain transfer on Day 1 after its own rail row.
+  const model = [
+    itineraryItem.parse({ day: 'Day 1', title: '铁路前往成都', startLocation: { name: '南宁东' }, location: { name: '成都东', incomingMode: 'rail' } }),
+    itineraryItem.parse({ day: 'Day 1', title: '成都接驳卡尔杂', startLocation: { name: '成都东' }, location: { name: '卡尔杂村', trackId: 'trk008', trackMeters: 0 } }),
+    itineraryItem.parse({ day: 'Day 6', title: '卡尔杂村返回成都接驳', startLocation: { name: '卡尔杂村' }, location: { name: '成都东' } }),
+  ];
+  const rows = presentItinerary(carryDailyStarts(mergeMainTransportItems(model, mainTransportSchema.parse(JSON.parse(JSON.stringify(main))), { totalDays: 6 })), [], 6).items;
+  const chain = (day: string) => rows.filter(item => item.day === day && item.location).map(item => item.location!.name);
+  assert(JSON.stringify(chain('Day 1')) === JSON.stringify(['南宁东', '成都东', '卡尔杂村']), JSON.stringify(chain('Day 1')));
+  assert(rows.some(item => item.day === 'Day 1' && item.title === '南宁东 · 车次待查'), JSON.stringify(rows.filter(item => item.day === 'Day 1').map(item => item.title)));
+  assert(chain('Day 6').at(-1) === '南宁东' && chain('Day 6').indexOf('成都东') < chain('Day 6').indexOf('南宁东'), JSON.stringify(chain('Day 6')));
 });

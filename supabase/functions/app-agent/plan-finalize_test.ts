@@ -153,17 +153,68 @@ Deno.test('an endpoint on another route of the same trip is kept and measured th
     journey: { name: '两条路线', region: '', days: 4, routeId: 'trk008' },
     itineraryItems: [
       { day: 'Day 1', title: '党岭', routeId: 'trk008' },
-      { day: 'Day 2', title: '党岭', routeId: 'trk008' },
-      { day: 'Day 3', title: '雅拉', routeId: 'trk065' },
       { day: 'Day 4', title: '雅拉', routeId: 'trk065' },
     ],
     endpoints: [
-      { day: 'Day 2', trackFinish: true, routeId: 'trk008' },
+      { day: 'Day 1', trackFinish: true, routeId: 'trk008' },
       { day: 'Day 4', trackFinish: true, routeId: 'trk065' },
     ],
   }, pipelineOf(decisionOf({})), research, null, 4);
   assert(plan.endpoints.length === 2, `both routes keep their endpoint, got ${JSON.stringify(plan.endpoints)}`);
   assert(plan.unverified.some(item => item.includes('没有核对到的路线')) === false, 'a known route is not disclosed as a gap');
+});
+
+Deno.test('realigns shifted GPX endpoint days to the route activity days', () => {
+  const plan = finalizePlan({
+    journey: { name: '党岭', region: '四川', days: 6, routeId: 'trk008' },
+    itineraryItems: [
+      { day: 'Day 3', title: '党岭三湖连穿第一天', kind: 'activity', routeId: 'trk008' },
+      { day: 'Day 4', title: '卓雍措至卡尔杂村', kind: 'activity', routeId: 'trk008' },
+      { day: 'Day 5', title: '卡尔杂村至成都', kind: 'custom' },
+    ],
+    endpoints: [
+      { day: 'Day 4', routeId: 'trk008', waypointIndex: 54 },
+      { day: 'Day 5', routeId: 'trk008', waypointIndex: 104, trackFinish: true },
+    ],
+  }, pipelineOf(decisionOf({ fullHikingPlan: true, days: 6 })), null, null, 6);
+  assert(plan.endpoints.map(endpoint => endpoint.day).join() === 'Day 3,Day 4', `shifted days must follow hiking activities: ${JSON.stringify(plan.endpoints)}`);
+  assert(plan.endpoints.map(endpoint => endpoint.waypointIndex).join() === '54,104', 'day repair must preserve GPX boundary positions');
+  assert(plan.endpoints.every(endpoint => endpoint.routeId === 'trk008'), 'route binding must survive day repair');
+  assert(!plan.blocker, 'an equal-count ordered shift is deterministic and should not block');
+});
+
+Deno.test('correct GPX endpoint days are unchanged', () => {
+  const expected = [
+    { day: 'Day 3', routeId: 'trk008', waypointIndex: 54, trackFinish: null },
+    { day: 'Day 4', routeId: 'trk008', waypointIndex: 104, trackFinish: true },
+  ];
+  const plan = finalizePlan({
+    journey: { name: '党岭', region: '四川', days: 6, routeId: 'trk008' },
+    itineraryItems: [
+      { day: 'Day 3', title: '党岭三湖连穿第一天', kind: 'activity', routeId: 'trk008' },
+      { day: 'Day 4', title: '卓雍措至卡尔杂村', kind: 'activity', routeId: 'trk008' },
+    ],
+    endpoints: [
+      { day: 'Day 3', routeId: 'trk008', waypointIndex: 54 },
+      { day: 'Day 4', routeId: 'trk008', waypointIndex: 104, trackFinish: true },
+    ],
+  }, pipelineOf(decisionOf({ fullHikingPlan: true, days: 6 })), null, null, 6);
+  assert(plan.endpoints.map(endpoint => endpoint.day).join() === 'Day 3,Day 4', 'correct endpoint days must remain unchanged');
+  assert(JSON.stringify(plan.endpoints.map(endpoint => ({ day: endpoint.day, routeId: endpoint.routeId, waypointIndex: endpoint.waypointIndex, trackFinish: endpoint.trackFinish ?? null }))) === JSON.stringify(expected), 'correct endpoint positions must remain unchanged');
+  assert(!plan.blocker, 'a correct route boundary mapping should remain unblocked');
+});
+
+Deno.test('unrepairable endpoint count is blocked for the feasibility repair', () => {
+  const plan = finalizePlan({
+    journey: { name: '党岭', region: '四川', days: 6, routeId: 'trk008' },
+    itineraryItems: [
+      { day: 'Day 3', title: '党岭三湖连穿第一天', kind: 'activity', routeId: 'trk008' },
+      { day: 'Day 4', title: '卓雍措至卡尔杂村', kind: 'activity', routeId: 'trk008' },
+    ],
+    endpoints: [{ day: 'Day 5', routeId: 'trk008', trackFinish: true }],
+  }, pipelineOf(decisionOf({ fullHikingPlan: true, days: 6 })), null, null, 6);
+  assert(plan.blocker?.includes('终点日') === true, 'an incomplete mapping must remain a feasibility blocker');
+  assert(plan.endpoints.length === 1, 'the original endpoint remains available to the re-ask context');
 });
 
 Deno.test('an endpoint tagged with a route nothing matched is dropped and disclosed', () => {
@@ -293,6 +344,28 @@ Deno.test('feasibility repair can correct an excessive day instead of retaining 
   const plan = await h.run();
   assert(h.calls.length === 2 && !plan.blocker && !plan.unverified.length && !plan.feasibility?.issues.length, 'corrected plan must be rechecked without stale issues');
   assert(String(h.calls[1].input).includes('合计15小时'), 'repair must identify the excessive day');
+});
+
+Deno.test('endpoint day-count blockers re-ask the planner before saving', async () => {
+  const bad = {
+    journey: { name: '党岭', region: '四川', days: 6, routeId: 'trk008' },
+    itineraryItems: [
+      { day: 'Day 3', title: '第一天徒步', kind: 'activity', routeId: 'trk008' },
+      { day: 'Day 4', title: '第二天徒步', kind: 'activity', routeId: 'trk008' },
+    ],
+    endpoints: [{ day: 'Day 5', routeId: 'trk008', trackFinish: true }],
+  };
+  const repaired = {
+    ...bad,
+    endpoints: [
+      { day: 'Day 3', routeId: 'trk008', waypointIndex: 54 },
+      { day: 'Day 4', routeId: 'trk008', trackFinish: true },
+    ],
+  };
+  const h = plannerHarness([bad, repaired], { fullHikingPlan: true, days: 6 });
+  const plan = await h.run();
+  assert(h.calls.length === 2 && !plan.blocker, 'an endpoint count mismatch must use the existing repair turn');
+  assert(plan.endpoints.map(endpoint => endpoint.day).join() === 'Day 3,Day 4', 'the repaired plan must cover each hiking day');
 });
 
 Deno.test('a failed feasibility repair retains the system blocker and model caveat', async () => {

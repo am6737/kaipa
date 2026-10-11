@@ -4,6 +4,7 @@ import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { MePushPage } from './MePushPage';
 import { space } from '../../design-system';
+import { LEGAL_UPDATED_LABEL } from './legalMeta';
 
 type LegalDocument = 'agreement' | 'privacy';
 
@@ -41,7 +42,7 @@ export function LegalDocumentPage({ theme, document, onBack }: { theme: Theme; d
   return (
     <MePushPage theme={theme} title={title} onBack={onBack}>
       <View style={{ paddingHorizontal: space.xl }}>
-        <Text style={{ fontSize: 12, color: theme.text3 }}>更新日期：2026 年 4 月 1 日</Text>
+        <Text style={{ fontSize: 12, color: theme.text3 }}>{LEGAL_UPDATED_LABEL}</Text>
         <Text style={{ fontSize: 14, color: theme.text2, lineHeight: 24, marginTop: space.md }}>{doc.intro}</Text>
         {doc.sections.map((section) => (
           <View key={section.heading} style={{ marginTop: space.xxl }}>

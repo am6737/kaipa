@@ -38,6 +38,13 @@ export interface Companion {
   self?: boolean;
 }
 
+/** Display order used by journey companion previews and the detail header. */
+export function orderCompanionsForDisplay(companions: Companion[]): Companion[] {
+  return [...companions].sort(
+    (a, b) => Number(Boolean(b.self)) - Number(Boolean(a.self)) || Number(Boolean(b.host)) - Number(Boolean(a.host)),
+  );
+}
+
 export interface Poi {
   id: string;
   kind: "route" | "journey";

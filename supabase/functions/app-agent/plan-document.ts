@@ -66,7 +66,7 @@ export const researchBriefSchema = z.object({
   guideFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional().describe('系统填充，模型留空'),
   guideEvidence: z.array(z.object({
     routeName: z.string(), routeId: z.string().nullable(), markdown: z.string(), asOf: z.string().nullable(),
-    missingSections: z.array(z.string()),
+    missingSections: z.array(z.string()), knowledgeReadFailed: z.boolean().optional(),
     sources: z.array(z.object({
       id: z.string(), platform: z.enum(['xiaohongshu', 'douyin', 'web', 'official', 'firsthand', 'social']),
       title: z.string(), url: z.string().nullable(), author: z.string().nullable(),

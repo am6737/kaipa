@@ -5,7 +5,7 @@ import { View, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Theme } from '../theme/theme';
 import { MONO } from '../theme/fonts';
-import { Poi } from '../data/pois';
+import { orderCompanionsForDisplay, Poi } from '../data/pois';
 import { Avatar, AvatarStack } from './Avatar';
 import { Icon } from './Icon';
 import { Press } from './Press';
@@ -73,7 +73,7 @@ export function PoiRow({
           </View>
         </View>
         {isJourney && poi.companionList && poi.companionList.length > 0 ? (
-          <AvatarStack people={poi.companionList} size={22} max={3} ringColor={theme.dark ? '#1c1c1e' : '#fff'} />
+          <AvatarStack people={orderCompanionsForDisplay(poi.companionList)} size={22} max={3} ringColor={theme.dark ? '#1c1c1e' : '#fff'} />
         ) : (
           <Icon name="chevronR" color={theme.text3} size={16} />
         )}

@@ -12,5 +12,6 @@ export interface RouteCondition {
   photos: string[];
   media?: { uri: string; kind: 'image' | 'video' | 'livePhoto'; thumbnail?: string; pairedVideoUri?: string }[];
   helpful?: number;
+  helpfulMarked?: boolean;
   verification?: { by: GuideText; at: string };
 }

@@ -382,8 +382,9 @@ export default function MapGlobe({
     if (cameraAction.type === 'fitCoordinates') {
       const coordinates = cameraAction.coordinates.filter(isValidMapCoordinate);
       const duration = Platform.OS === 'android' ? 680 : 260;
-      if (coordinates.length >= 2) mapRef.current?.fitCoordinates(coordinates, routePadding, duration);
-      else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration, { edgePadding: routePadding });
+      const padding = cameraAction.padding ?? routePadding;
+      if (coordinates.length >= 2) mapRef.current?.fitCoordinates(coordinates, padding, duration);
+      else if (coordinates.length === 1) mapRef.current?.moveCamera(coordinates[0], 12, duration, { edgePadding: padding });
       return;
     }
     if (!cameraFocusCoords?.length) return;
@@ -506,7 +507,7 @@ export default function MapGlobe({
     // cascade); the mount-time entrance is for the callers without it.
     const alphas = new Map<string, Animated.Value>();
     if (showPoiMarkers) {
-      pois.forEach((poi, index) => {
+      [...pois].sort((a, b) => Number(Boolean(a.muted)) - Number(Boolean(b.muted))).forEach((poi, index) => {
         if (!isValidMapCoordinate([poi.lng, poi.lat])) return;
         // Inlined `pinKey` - see the note in ./types about the framing test's
         // dependency whitelist.
@@ -526,7 +527,7 @@ export default function MapGlobe({
           ? Math.min(index, ENTRANCE_LAST_INDEX) * STAGGER_STEP_MS
           : undefined;
         values.push({
-          id: `poi-${key}`,
+          id: `poi-${key}${poi.muted ? ':muted' : ''}`,
           coordinate: [poi.lng, poi.lat],
           anchor: { x: 0.5, y: PHOTO_PIN_ANCHOR_Y },
           title: poi.label,

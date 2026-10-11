@@ -1,6 +1,6 @@
 import React from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { detentFeedback } from '../../../modules/haptics-engine';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
@@ -96,7 +96,7 @@ export function GearWheelSelectSheet({
             <WheelPicker
               data={data}
               value={selected}
-              onValueChanging={() => { Haptics.selectionAsync(); }}
+              onValueChanging={() => { detentFeedback.detent('fine'); }}
               onValueChanged={({ item }) => setSelected(String(item.value))}
               itemHeight={40}
               visibleItemCount={5}

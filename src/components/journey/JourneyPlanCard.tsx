@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { CalendarDays, Pin, Plus, Route, TrendingUp } from 'lucide-react-native';
-import type { Poi } from '../../data/pois';
+import { orderCompanionsForDisplay, type Poi } from '../../data/pois';
 import { radius, space } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { Theme } from '../../theme/theme';
@@ -51,7 +51,7 @@ function journeyCardBackground(theme: Theme, status: JourneyStatus) {
   return '#E3F1FD';
 }
 
-export function JourneyPlanCard({
+function JourneyPlanCardView({
   theme,
   journey,
   pinned = false,
@@ -74,7 +74,7 @@ export function JourneyPlanCard({
   countRender('JourneyPlanCard');
   const status = journeyStatus(journey);
   const coverUri = journey.photoUris?.[0];
-  const companions = journey.companionList?.slice(0, 2) || [];
+  const companions = orderCompanionsForDisplay(journey.companionList || []).slice(0, 2);
   const date = journey.plannedDate || journey.date || t('journeyEdit.time.datePending');
   const duration = journey.totalDays ? t('journeyEdit.meta.days', { count: journey.totalDays }) : journey.days || undefined;
   const statusVisible = showStatus && (status === 'planned' || status === 'active');
@@ -176,6 +176,8 @@ export function JourneyPlanCard({
     <View style={cardStyle}>{content}</View>
   );
 }
+
+export const JourneyPlanCard = React.memo(JourneyPlanCardView);
 
 const styles = StyleSheet.create({
   planCard: { height: 166, borderRadius: 26, overflow: 'hidden' },

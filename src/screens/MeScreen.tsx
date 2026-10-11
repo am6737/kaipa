@@ -1,76 +1,149 @@
 // MeScreen.tsx — the 我 tab, with personal content on the overview and
 // account, appearance, preferences, and support grouped on a settings page.
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Modal, useWindowDimensions } from 'react-native';
-import { Image } from 'expo-image';
-import { Bell, ChevronLeft, Luggage, ScanLine, Settings, Trash2 } from 'lucide-react-native';
-import ReAnimated, { Easing, Extrapolation, interpolate, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Theme, ACCENT_PRESETS } from '../theme/theme';
-import { Icon, IconName } from '../components/Icon';
-import { Press } from '../components/Press';
-import { ProfileIdentity, ProfileShortcut } from '../components/me/ProfileIdentity';
-import { Glass } from '../components/Glass';
-import { TwoStageSwipeable } from '../components/TwoStageSwipeable';
-import { Globe } from '../components/globe';
-import { TrailSheet } from '../components/Sheet';
-import { useAppearance } from '../theme/AppearanceContext';
-import { useI18n, Lang, TKey } from '../i18n';
-import { useNav } from '../nav/NavContext';
-import { countRender } from '../lib/tabSwitchProbe';
-import { useData } from '../data/DataContext';
-import { WEIGHT_UNITS, WeightUnit, itemPrice, itemWeight, fmtWeight } from '../data/gear';
-import { useNotifCenter, Notif } from '../data/notifications';
-import { ColorDot } from '../components/me/parts';
-import { makeMeTheme } from '../components/me/appearance';
-import { AccountPage } from '../components/me/AccountPage';
-import type { MeProfile } from '../components/me/AccountPage';
-import { EditFieldPage, MeEditField } from '../components/me/EditFieldPage';
-import { NotifSettingsPage, NotifSettings } from '../components/me/NotifSettingsPage';
-import { NotifInboxPage } from '../components/me/NotifInboxPage';
-import { FeedbackPage } from '../components/me/FeedbackPage';
-import { AboutPage } from '../components/me/AboutPage';
-import { LegalDocumentPage } from '../components/me/LegalDocumentPage';
-import { PlanningProfilePage } from '../components/me/PlanningProfilePage';
-import { MembershipPage } from '../components/me/MembershipPage';
-import { MembershipEntryCard } from '../components/me/MembershipEntryCard';
-import type { UserPlanningProfile } from '../hooks/usePlanningProfile';
-import { JourneyTrashPage } from '../components/journey/JourneyTrashPage';
-import { TracksPage } from '../components/tracks/TracksPage';
-import { TrackDetailPage } from '../components/tracks/TrackDetailPage';
-import { KPState } from '../components/State';
-import { AppActionDialog, AppCard, AppMetricStrip, AppSectionHeader, DetailPage, layout, motion, radius, space, type, type AppMetric } from '../design-system';
-import { QrLoginScannerPage } from '../components/auth/QrLoginScannerPage';
-import { joinJourneyByInvite } from '../lib/journeyInvite';
-import type { Poi } from '../data/pois';
-import { ParticipantAvatar } from '../components/overlays/ParticipantAvatar';
-import { DeleteAccountReasonsPage } from '../components/me/DeleteAccountReasonsPage';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  Modal,
+  BackHandler,
+  useWindowDimensions,
+} from "react-native";
+import { Image } from "expo-image";
+import Constants from "expo-constants";
+import {
+  Bell,
+  ChevronLeft,
+  Luggage,
+  Mountain,
+  ScanLine,
+  Settings,
+} from "lucide-react-native";
+import ReAnimated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Theme, ACCENT_PRESETS } from "../theme/theme";
+import { Icon, IconName } from "../components/Icon";
+import { Press } from "../components/Press";
+import {
+  ProfileIdentity,
+  ProfileShortcut,
+} from "../components/me/ProfileIdentity";
+import { Glass } from "../components/Glass";
+import { TwoStageSwipeable } from "../components/TwoStageSwipeable";
+import { Globe } from "../components/globe";
+import { TrailSheet } from "../components/Sheet";
+import { useAppearance } from "../theme/AppearanceContext";
+import { useI18n, Lang, TKey } from "../i18n";
+import { useNav } from "../nav/NavContext";
+import { countRender } from "../lib/tabSwitchProbe";
+import { useData } from "../data/DataContext";
+import {
+  itemPrice,
+  itemWeight,
+  fmtWeight,
+} from "../data/gear";
+import { useNotifCenter, Notif } from "../data/notifications";
+import { ColorDot } from "../components/me/parts";
+import { makeMeTheme } from "../components/me/appearance";
+import { AccountPage } from "../components/me/AccountPage";
+import type { MeProfile } from "../components/me/AccountPage";
+import { EditFieldPage, MeEditField } from "../components/me/EditFieldPage";
+import {
+  NotifSettingsPage,
+  NotifSettings,
+} from "../components/me/NotifSettingsPage";
+import { NotifInboxPage } from "../components/me/NotifInboxPage";
+import { openNotificationTargetById } from "../lib/notificationRouting";
+import { FeedbackPage } from "../components/me/FeedbackPage";
+import { AboutPage } from "../components/me/AboutPage";
+import { LegalDocumentPage } from "../components/me/LegalDocumentPage";
+import { PlanningProfilePage } from "../components/me/PlanningProfilePage";
+import { MembershipPage } from "../components/me/MembershipPage";
+import { MembershipEntryCard } from "../components/me/MembershipEntryCard";
+import type { UserPlanningProfile } from "../hooks/usePlanningProfile";
+import { JourneyTrashPage } from "../components/journey/JourneyTrashPage";
+import { TracksPage } from "../components/tracks/TracksPage";
+import { TrackDetailPage } from "../components/tracks/TrackDetailPage";
+import { KPState } from "../components/State";
+import {
+  AppActionDialog,
+  AppCard,
+  AppMetricStrip,
+  AppSectionHeader,
+  DetailPage,
+  layout,
+  motion,
+  radius,
+  space,
+  type,
+  type AppMetric,
+} from "../design-system";
+import { QrLoginScannerPage } from "../components/auth/QrLoginScannerPage";
+import { joinJourneyByInvite } from "../lib/journeyInvite";
+import { orderCompanionsForDisplay, type Poi } from "../data/pois";
+import { buildRouteFootprints, type RouteFootprints } from "../data/footprints";
+import { ParticipantAvatar } from "../components/overlays/ParticipantAvatar";
+import { DeleteAccountReasonsPage } from "../components/me/DeleteAccountReasonsPage";
+import { MyRouteGuidesPage } from "../components/me/MyRouteGuidesPage";
+import {
+  JOURNEY_SWIPE_SPRING,
+  JourneySwipeDeleteAction,
+} from "../components/me/JourneySwipeDelete";
+import {
+  deleteRouteGuide,
+  updateRouteGuide,
+  useMyRouteGuides,
+} from "../hooks/useRouteGuides";
+import { MyRouteRequestsPage } from "../components/me/MyRouteRequestsPage";
+import { CardPickerPage, type CardPickerOption } from "../components/me/CardPickerPage";
+import { LanguagePickerPage } from "../components/me/LanguagePickerPage";
+
+const appVersionLabel = Constants.expoConfig?.version
+  ? `v${Constants.expoConfig.version}`
+  : undefined;
 
 type MePage =
-  | { type: 'scanLogin' }
-  | { type: 'settings' }
-  | { type: 'journeys' }
-  | { type: 'favorites' }
-  | { type: 'tracks' }
-  | { type: 'trackDetail'; trackId: string }
-  | { type: 'trash' }
-  | { type: 'profile' }
-  | { type: 'accountSecurity' }
-  | { type: 'deleteAccountReasons' }
-  | { type: 'planningProfile' }
-  | { type: 'membership'; view?: 'usage' }
-  | { type: 'edit'; field: MeEditField }
-  | { type: 'notif' }
-  | { type: 'inbox' }
-  | { type: 'feedback' }
-  | { type: 'about' }
-  | { type: 'legalDocument'; document: 'agreement' | 'privacy' };
+  | { type: "scanLogin" }
+  | { type: "settings" }
+  | { type: "journeys" }
+  | { type: "footprints" }
+  | { type: "favorites" }
+  | { type: "routeGuides" }
+  | { type: "routeRequests" }
+  | { type: "tracks" }
+  | { type: "trackDetail"; trackId: string }
+  | { type: "trash" }
+  | { type: "profile" }
+  | { type: "accountSecurity" }
+  | { type: "deleteAccountReasons" }
+  | { type: "planningProfile" }
+  | { type: "membership"; view?: "usage" }
+  | { type: "edit"; field: MeEditField }
+  | { type: "notif" }
+  | { type: "inbox" }
+  | { type: "feedback" }
+  | { type: "about" }
+  | { type: "picker"; picker: AppearancePopup }
+  | { type: "legalDocument"; document: "agreement" | "privacy" };
 
-type AppearancePopup = 'theme' | 'accent' | 'language' | 'weight';
+type AppearancePopup = "theme" | "accent" | "language";
 type PopupAnchor = { x: number; y: number; width: number; height: number };
 const SETTINGS_ROW_HEIGHT = layout.listRowMinHeight;
-const flatMeCardStyle = { boxShadow: 'none' as const };
-const headerButtonStyle = { width: layout.iconButton, height: layout.iconButton, alignItems: 'center' as const, justifyContent: 'center' as const };
+const flatMeCardStyle = { boxShadow: "none" as const };
+const headerButtonStyle = {
+  width: layout.iconButton,
+  height: layout.iconButton,
+  alignItems: "center" as const,
+  justifyContent: "center" as const,
+};
 
 function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
   const progress = useSharedValue(open ? 1 : 0);
@@ -83,7 +156,9 @@ function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
   }, [open, progress]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${interpolate(progress.value, [0, 1], [90, -90])}deg` }],
+    transform: [
+      { rotate: `${interpolate(progress.value, [0, 1], [90, -90])}deg` },
+    ],
   }));
 
   return (
@@ -93,24 +168,53 @@ function AppearanceChevron({ theme, open }: { theme: Theme; open: boolean }) {
   );
 }
 
-const AppearanceRow = React.forwardRef<View, {
-  theme: Theme;
-  label: string;
-  value: string;
-  leading: React.ReactNode;
-  open: boolean;
-  onPress: () => void;
-  last?: boolean;
-}>(({ theme, label, value, leading, open, onPress }, ref) => (
+const AppearanceRow = React.forwardRef<
+  View,
+  {
+    theme: Theme;
+    label: string;
+    value: string;
+    leading: React.ReactNode;
+    open: boolean;
+    onPress: () => void;
+    last?: boolean;
+  }
+>(({ theme, label, value, leading, open, onPress }, ref) => (
   <View ref={ref} collapsable={false}>
-    <Press onPress={onPress} accessibilityRole="button" accessibilityState={{ expanded: open }} scaleTo={1} opacityTo={1}>
-      <View style={{ minHeight: SETTINGS_ROW_HEIGHT, paddingVertical: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <View style={{ width: 32, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      scaleTo={1}
+      opacityTo={1}
+    >
+      <View
+        style={{
+          minHeight: SETTINGS_ROW_HEIGHT,
+          paddingVertical: space.md,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.md,
+        }}
+      >
+        <View
+          style={{
+            width: 32,
+            height: 38,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           {leading}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
-          <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: 3 }]}>{value}</Text>
+          <Text
+            numberOfLines={1}
+            style={[type.caption, { color: theme.text2, marginTop: 3 }]}
+          >
+            {value}
+          </Text>
         </View>
         <AppearanceChevron theme={theme} open={open} />
       </View>
@@ -118,12 +222,48 @@ const AppearanceRow = React.forwardRef<View, {
   </View>
 ));
 
-function PopupOption({ theme, label, selected, onPress, leading }: { theme: Theme; label: string; selected: boolean; onPress: () => void; leading?: React.ReactNode; last?: boolean }) {
+function PopupOption({
+  theme,
+  label,
+  selected,
+  onPress,
+  leading,
+}: {
+  theme: Theme;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  leading?: React.ReactNode;
+  last?: boolean;
+}) {
   return (
-    <Press onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} scaleTo={1} opacityTo={1}>
-      <View style={{ minHeight: 54, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      scaleTo={1}
+      opacityTo={1}
+    >
+      <View
+        style={{
+          minHeight: 54,
+          paddingHorizontal: space.md,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+        }}
+      >
         {leading}
-        <Text style={{ flex: 1, fontSize: 14, fontWeight: selected ? '700' : '500', color: selected ? theme.accent : theme.text }}>{label}</Text>
+        <Text
+          style={{
+            flex: 1,
+            fontSize: 14,
+            fontWeight: selected ? "700" : "500",
+            color: selected ? theme.accent : theme.text,
+          }}
+        >
+          {label}
+        </Text>
         {selected ? <Icon name="check" color={theme.accent} size={17} /> : null}
       </View>
     </Press>
@@ -146,22 +286,41 @@ function SettingsRow({
   last?: boolean;
 }) {
   return (
-    <Press onPress={onPress} accessibilityRole="button" scaleTo={1} opacityTo={1}>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      scaleTo={1}
+      opacityTo={1}
+    >
       <View
         style={{
           minHeight: SETTINGS_ROW_HEIGHT,
           paddingVertical: space.md,
-          flexDirection: 'row',
-          alignItems: 'center',
+          flexDirection: "row",
+          alignItems: "center",
           gap: space.md,
         }}
       >
-        <View style={{ width: 32, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+        <View
+          style={{
+            width: 32,
+            height: 38,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           <Icon name={icon} color={theme.text2} size={19} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[type.cardTitle, { color: theme.text }]}>{label}</Text>
-          {detail ? <Text numberOfLines={1} style={[type.caption, { color: theme.text2, marginTop: 3 }]}>{detail}</Text> : null}
+          {detail ? (
+            <Text
+              numberOfLines={1}
+              style={[type.caption, { color: theme.text2, marginTop: 3 }]}
+            >
+              {detail}
+            </Text>
+          ) : null}
         </View>
         <Icon name="chevronR" color={theme.text3} size={15} />
       </View>
@@ -171,7 +330,9 @@ function SettingsRow({
 
 function mapCoordinate(point: Poi): [number, number] {
   const start = point.trackCoords?.[0];
-  return start && Number.isFinite(start[0]) && Number.isFinite(start[1]) ? start : [point.lng, point.lat];
+  return start && Number.isFinite(start[0]) && Number.isFinite(start[1])
+    ? start
+    : [point.lng, point.lat];
 }
 
 function groupMapPoints(points: Poi[]) {
@@ -185,37 +346,79 @@ function groupMapPoints(points: Poi[]) {
   return [...groups.values()];
 }
 
-function CollectionMap({ theme, points, onPointPress }: { theme: Theme; points: Poi[]; onPointPress?: (point: Poi) => void }) {
+function CollectionMap({
+  theme,
+  points,
+  onPointPress,
+  mutedIds,
+  frameCoords,
+  coverUriById,
+  focusBottomPadding,
+}: {
+  theme: Theme;
+  points: Poi[];
+  onPointPress?: (point: Poi) => void;
+  mutedIds?: Set<string>;
+  frameCoords?: [number, number][];
+  coverUriById?: Record<string, string | undefined>;
+  focusBottomPadding?: number;
+}) {
   const { resolved } = useI18n();
   const { width } = useWindowDimensions();
   // Some native map implementations retain removed custom markers when their
   // marker collection is updated in place. Remount only when the point set
   // changes so a deleted journey cannot remain visible, while camera state is
   // preserved for ordinary renders (theme, layout, or label updates).
-  const pointSetKey = points.map((point) => point.id).sort().join('|');
-  const groups = groupMapPoints(points);
-  const coordinates = groups.map((group) => mapCoordinate(group[0]));
-  const center = coordinates.length ? {
-    lon: coordinates.reduce((sum, [lng]) => sum + lng, 0) / coordinates.length,
-    lat: coordinates.reduce((sum, [, lat]) => sum + lat, 0) / coordinates.length,
-  } : { lon: 104, lat: 35 };
-  const pois = groups.map((group) => {
-    const representative = group[0];
-    const [lng, lat] = mapCoordinate(representative);
+  const pointSetKey = points
+    .map((point) => `${point.id}:${mutedIds?.has(point.id) ? "muted" : "lit"}`)
+    .sort()
+    .join("|");
+  // Memoised so unrelated re-renders don't rebuild every native marker.
+  const { center, pois } = useMemo(() => {
+    const groups = groupMapPoints(points);
+    const coordinates = groups.map((group) => mapCoordinate(group[0]));
     return {
-      id: representative.id,
-      lng,
-      lat,
-      mine: representative.kind === 'journey',
-      tone: representative.tone,
-      count: group.length,
-      coverUri: representative.photoUris?.[0],
-      label: representative.name,
+      center: coordinates.length
+        ? {
+            lon:
+              coordinates.reduce((sum, [lng]) => sum + lng, 0) /
+              coordinates.length,
+            lat:
+              coordinates.reduce((sum, [, lat]) => sum + lat, 0) /
+              coordinates.length,
+          }
+        : { lon: 104, lat: 35 },
+      pois: groups.map((group) => {
+        const representative = group[0];
+        const [lng, lat] = mapCoordinate(representative);
+        return {
+          id: representative.id,
+          lng,
+          lat,
+          mine: representative.kind === "journey",
+          tone: representative.tone,
+          count: group.length,
+          coverUri:
+            coverUriById?.[representative.id] ??
+            representative.photoUris?.[0],
+          label: representative.name,
+          muted: mutedIds?.has(representative.id),
+        };
+      }),
     };
-  });
+  }, [points, mutedIds, coverUriById]);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }]}>
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.bg,
+        },
+      ]}
+    >
       <Globe
         key={pointSetKey}
         theme={theme}
@@ -223,48 +426,133 @@ function CollectionMap({ theme, points, onPointPress }: { theme: Theme; points: 
         pois={pois}
         center={center}
         mapStyle="standard"
+        frameCoords={frameCoords}
+        focusBottomPadding={focusBottomPadding}
         showMapLabels
-        onPoiPress={onPointPress ? (id) => {
-          const point = points.find((item) => item.id === id);
-          if (point) onPointPress(point);
-        } : undefined}
+        onPoiPress={
+          onPointPress
+            ? (id) => {
+                const point = points.find((item) => item.id === id);
+                if (point) onPointPress(point);
+              }
+            : undefined
+        }
       />
     </View>
   );
 }
 
-function FootprintShortcut({ theme, points, title, detail, onPress }: { theme: Theme; points: Poi[]; title: string; detail: string; onPress: () => void }) {
+function FootprintShortcut({
+  theme,
+  points,
+  title,
+  detail,
+  onPress,
+}: {
+  theme: Theme;
+  points: Poi[];
+  title: string;
+  detail: string;
+  onPress: () => void;
+}) {
   const previews = points.slice(0, 3);
 
   return (
-    <AppCard theme={theme} radius={radius.showcase} style={{ aspectRatio: 1, borderCurve: 'continuous', borderWidth: 0, overflow: 'hidden', backgroundColor: theme.fieldSurface, boxShadow: 'none' }}>
-      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}, ${detail}`} scaleTo={0.985} style={{ flex: 1, padding: space.lg, flexDirection: 'column', justifyContent: 'space-between', gap: space.sm }}>
-        <View style={{ minWidth: 0, alignItems: 'flex-start', gap: space.xs }}>
-          <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text, textAlign: 'left' }]}>{title}</Text>
-          <Text numberOfLines={2} style={[type.caption, { color: theme.text2, textAlign: 'left' }]}>{detail}</Text>
+    <AppCard
+      theme={theme}
+      radius={radius.showcase}
+      style={{
+        aspectRatio: 1,
+        borderCurve: "continuous",
+        borderWidth: 0,
+        overflow: "hidden",
+        backgroundColor: theme.fieldSurface,
+        boxShadow: "none",
+      }}
+    >
+      <Press
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}, ${detail}`}
+        scaleTo={0.985}
+        style={{
+          flex: 1,
+          padding: space.lg,
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: space.sm,
+        }}
+      >
+        <View style={{ minWidth: 0, alignItems: "flex-start", gap: space.xs }}>
+          <Text
+            numberOfLines={2}
+            style={[type.cardTitle, { color: theme.text, textAlign: "left" }]}
+          >
+            {title}
+          </Text>
+          <Text
+            numberOfLines={2}
+            style={[type.caption, { color: theme.text2, textAlign: "left" }]}
+          >
+            {detail}
+          </Text>
         </View>
-        <View pointerEvents="none" style={{ height: 70, alignItems: 'center', justifyContent: 'center' }}>
+        <View
+          pointerEvents="none"
+          style={{ height: 70, alignItems: "center", justifyContent: "center" }}
+        >
           <View style={{ width: 88, height: 64 }}>
-            {Array.from({ length: 3 }, (_, index) => previews[index]).map((journey, index) => journey?.photoUris?.[0] ? (
-              <View key={journey.id} style={{
-                position: 'absolute', right: index * 18, top: index === 0 ? 6 : 0,
-                width: 48, height: 58, borderRadius: space.xxs, borderWidth: 3, borderColor: theme.surfaceTop,
-                overflow: 'hidden', backgroundColor: theme.surfaceTop,
-                transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
-              }}>
-                {journey.photoUris?.[0] ? <Image source={{ uri: journey.photoUris[0] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} /> : null}
-              </View>
-            ) : (
-              <View key={`placeholder-${index}`} style={{
-                position: 'absolute', right: index * 18, top: index === 0 ? 6 : 0,
-                width: 48, height: 58, borderRadius: space.xxs, borderWidth: 2,
-                borderColor: theme.fieldBorder, backgroundColor: theme.surfaceTop,
-                alignItems: 'center', justifyContent: 'center',
-                transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
-              }}>
-                <Icon name="photo" color={theme.text2} size={18} />
-              </View>
-            ))}
+            {Array.from({ length: 3 }, (_, index) => previews[index]).map(
+              (journey, index) =>
+                journey?.photoUris?.[0] ? (
+                  <View
+                    key={journey.id}
+                    style={{
+                      position: "absolute",
+                      right: index * 18,
+                      top: index === 0 ? 6 : 0,
+                      width: 48,
+                      height: 58,
+                      borderRadius: space.xxs,
+                      borderWidth: 3,
+                      borderColor: theme.surfaceTop,
+                      overflow: "hidden",
+                      backgroundColor: theme.surfaceTop,
+                      transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
+                    }}
+                  >
+                    {journey.photoUris?.[0] ? (
+                      <Image
+                        source={{ uri: journey.photoUris[0] }}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={0}
+                        style={StyleSheet.absoluteFill}
+                      />
+                    ) : null}
+                  </View>
+                ) : (
+                  <View
+                    key={`placeholder-${index}`}
+                    style={{
+                      position: "absolute",
+                      right: index * 18,
+                      top: index === 0 ? 6 : 0,
+                      width: 48,
+                      height: 58,
+                      borderRadius: space.xxs,
+                      borderWidth: 2,
+                      borderColor: theme.fieldBorder,
+                      backgroundColor: theme.surfaceTop,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transform: [{ rotate: `${index === 0 ? 9 : -9}deg` }],
+                    }}
+                  >
+                    <Icon name="photo" color={theme.text2} size={18} />
+                  </View>
+                ),
+            )}
           </View>
         </View>
       </Press>
@@ -272,7 +560,11 @@ function FootprintShortcut({ theme, points, title, detail, onPress }: { theme: T
   );
 }
 
-function PlanningProfileCard({ theme, profile, onPress }: {
+function PlanningProfileCard({
+  theme,
+  profile,
+  onPress,
+}: {
   theme: Theme;
   profile: UserPlanningProfile;
   loading: boolean;
@@ -280,31 +572,95 @@ function PlanningProfileCard({ theme, profile, onPress }: {
 }) {
   const { t } = useI18n();
   const facts: AppMetric[] = [
-    { label: `${t('planningProfile.height')} cm`, value: profile.heightCm == null ? '--' : String(profile.heightCm), muted: profile.heightCm == null },
-    { label: `${t('planningProfile.weight')} kg`, value: profile.weightKg == null ? '--' : String(profile.weightKg), muted: profile.weightKg == null },
-    { label: `${t('planningProfile.age')} ${t('planningProfile.years')}`, value: profile.ageYears == null ? '--' : String(profile.ageYears), muted: profile.ageYears == null },
+    {
+      label: `${t("planningProfile.height")} cm`,
+      value: profile.heightCm == null ? "--" : String(profile.heightCm),
+      muted: profile.heightCm == null,
+    },
+    {
+      label: `${t("planningProfile.weight")} kg`,
+      value: profile.weightKg == null ? "--" : String(profile.weightKg),
+      muted: profile.weightKg == null,
+    },
+    {
+      label: `${t("planningProfile.age")} ${t("planningProfile.years")}`,
+      value: profile.ageYears == null ? "--" : String(profile.ageYears),
+      muted: profile.ageYears == null,
+    },
   ];
   // The profile stores dietary needs as one 、-joined string, and the editor is a
   // multiline field, so the card splits on both separators and line breaks.
-  const dietary = profile.dietaryRestrictions.split(/[、,，;；\r\n]+/).map((item) => item.trim()).filter(Boolean);
+  const dietary = profile.dietaryRestrictions
+    .split(/[、,，;；\r\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
   const tags = dietary.slice(0, 3);
 
   return (
-    <AppCard theme={theme} radius={radius.showcase} style={[flatMeCardStyle, { aspectRatio: 1, minWidth: 0, borderWidth: 0, backgroundColor: theme.fieldSurface, overflow: 'hidden' }]}>
-      <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={`${t('planningProfile.title')}, ${t('planningProfile.cardSummary')}`} scaleTo={0.985} style={{ flex: 1, padding: space.lg, justifyContent: 'space-between', gap: space.sm }}>
+    <AppCard
+      theme={theme}
+      radius={radius.showcase}
+      style={[
+        flatMeCardStyle,
+        {
+          aspectRatio: 1,
+          minWidth: 0,
+          borderWidth: 0,
+          backgroundColor: theme.fieldSurface,
+          overflow: "hidden",
+        },
+      ]}
+    >
+      <Press
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${t("planningProfile.title")}, ${t("planningProfile.cardSummary")}`}
+        scaleTo={0.985}
+        style={{
+          flex: 1,
+          padding: space.lg,
+          justifyContent: "space-between",
+          gap: space.sm,
+        }}
+      >
         <View style={{ gap: space.xs }}>
-          <Text style={[type.cardTitle, { color: theme.text }]}>{t('planningProfile.title')}</Text>
-          <Text numberOfLines={1} style={[type.caption, { color: theme.text2 }]}>{t('planningProfile.cardSummary')}</Text>
+          <Text style={[type.cardTitle, { color: theme.text }]}>
+            {t("planningProfile.title")}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[type.caption, { color: theme.text2 }]}
+          >
+            {t("planningProfile.cardSummary")}
+          </Text>
         </View>
 
         <View style={{ gap: space.sm }}>
           <AppMetricStrip theme={theme} stats={facts} />
 
           {tags.length ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minWidth: 0 }}>
-              <Text numberOfLines={1} style={[type.caption, { color: theme.text3, flexShrink: 1 }]}>{t('planningProfile.dietaryRestrictions')}</Text>
-              <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flex: 1 }]}>
-                {tags.join('、')}{dietary.length > tags.length ? ` +${dietary.length - tags.length}` : ''}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.xs,
+                minWidth: 0,
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={[type.caption, { color: theme.text3, flexShrink: 1 }]}
+              >
+                {t("planningProfile.dietaryRestrictions")}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[type.caption, { color: theme.text2, flex: 1 }]}
+              >
+                {tags.join("、")}
+                {dietary.length > tags.length
+                  ? ` +${dietary.length - tags.length}`
+                  : ""}
               </Text>
             </View>
           ) : null}
@@ -322,6 +678,9 @@ function MapCollectionPage({
   onBack,
   onPointPress,
   primaryAction,
+  mutedIds,
+  frameCoords,
+  coverUriById,
   children,
 }: {
   theme: Theme;
@@ -331,6 +690,9 @@ function MapCollectionPage({
   onBack: () => void;
   onPointPress: (point: Poi) => void;
   primaryAction?: { label: string; onPress: () => void };
+  mutedIds?: Set<string>;
+  frameCoords?: [number, number][];
+  coverUriById?: Record<string, string | undefined>;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -338,18 +700,34 @@ function MapCollectionPage({
   const { height } = useWindowDimensions();
   const fullHeight = Math.max(360, height - insets.top - space.xs);
   const minimizedHeight = Math.min(156, fullHeight);
-  const middleHeight = Math.max(minimizedHeight, Math.min(fullHeight - 1, Math.round(height * 0.58)));
+  const middleHeight = Math.max(
+    minimizedHeight,
+    Math.min(fullHeight - 1, Math.round(height * 0.58)),
+  );
 
   return (
-    <View style={{ flex: 1, overflow: 'hidden', backgroundColor: theme.bg }}>
-      <CollectionMap theme={theme} points={points} onPointPress={onPointPress} />
-      <View style={{ position: 'absolute', left: 14, top: insets.top + 5 }}>
+    <View style={{ flex: 1, overflow: "hidden", backgroundColor: theme.bg }}>
+      <CollectionMap
+        theme={theme}
+        points={points}
+        onPointPress={onPointPress}
+        mutedIds={mutedIds}
+        frameCoords={frameCoords}
+        focusBottomPadding={middleHeight}
+        coverUriById={coverUriById}
+      />
+      <View style={{ position: "absolute", left: 14, top: insets.top + 5 }}>
         <Press
           onPress={onBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
+          accessibilityLabel={t("common.back")}
           hitSlop={6}
-          style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            width: 52,
+            height: 52,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
           <Icon name="chevronL" color={theme.text} size={27} />
         </Press>
@@ -362,32 +740,65 @@ function MapCollectionPage({
         borderless
         backgroundColor={theme.featureSurface}
         topAccessoryHeight={64}
-        topAccessory={primaryAction ? (
-          <View style={{ flex: 1, paddingHorizontal: layout.pagePadding, paddingBottom: space.sm, alignItems: 'flex-end', justifyContent: 'flex-end' }}>
-            <Press
-              onPress={primaryAction.onPress}
-              accessibilityRole="button"
-              accessibilityLabel={primaryAction.label}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-              scaleTo={0.96}
+        topAccessory={
+          primaryAction ? (
+            <View
               style={{
-                height: 36,
-                paddingHorizontal: space.md,
-                borderRadius: radius.pill,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.text,
-                boxShadow: theme.dark ? '0px 5px 16px rgba(0,0,0,0.42)' : '0px 5px 16px rgba(0,0,0,0.16)',
+                flex: 1,
+                paddingHorizontal: layout.pagePadding,
+                paddingBottom: space.sm,
+                alignItems: "flex-end",
+                justifyContent: "flex-end",
               }}
             >
-              <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: theme.featureSurface }}>{primaryAction.label}</Text>
-            </Press>
-          </View>
-        ) : undefined}
+              <Press
+                onPress={primaryAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={primaryAction.label}
+                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                scaleTo={0.96}
+                style={{
+                  height: 36,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.pill,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: theme.text,
+                  boxShadow: theme.dark
+                    ? "0px 5px 16px rgba(0,0,0,0.42)"
+                    : "0px 5px 16px rgba(0,0,0,0.16)",
+                }}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: theme.featureSurface,
+                  }}
+                >
+                  {primaryAction.label}
+                </Text>
+              </Press>
+            </View>
+          ) : undefined
+        }
         header={
-          <View style={{ paddingHorizontal: layout.pagePadding, paddingTop: space.xs, paddingBottom: space.md }}>
+          <View
+            style={{
+              paddingHorizontal: layout.pagePadding,
+              paddingTop: space.xs,
+              paddingBottom: space.md,
+            }}
+          >
             <Text style={[type.pageTitle, { color: theme.text }]}>{title}</Text>
-            {summary ? <Text style={[type.body, { color: theme.text2, marginTop: space.xs }]}>{summary}</Text> : null}
+            {summary ? (
+              <Text
+                style={[type.body, { color: theme.text2, marginTop: space.xs }]}
+              >
+                {summary}
+              </Text>
+            ) : null}
           </View>
         }
       >
@@ -405,7 +816,7 @@ function JourneyOverviewTile({
   previewUris,
 }: {
   theme: Theme;
-  icon: IconName | 'luggage';
+  icon: IconName | "luggage" | "mountain";
   value: string;
   label: string;
   previewUris?: string[];
@@ -416,24 +827,50 @@ function JourneyOverviewTile({
     <View
       style={{
         flexGrow: 1,
-        flexBasis: '46%',
+        flexBasis: "46%",
         minWidth: 132,
         height: 82,
         paddingHorizontal: space.md,
         paddingVertical: space.sm,
         borderRadius: radius.feature,
         backgroundColor: theme.fieldSurface,
-        overflow: 'hidden',
+        overflow: "hidden",
       }}
     >
-      <Text numberOfLines={1} adjustsFontSizeToFit style={[type.metric, { maxWidth: '72%', fontSize: 24, lineHeight: 28, color: theme.text }]}>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={[
+          type.metric,
+          { maxWidth: "72%", fontSize: 24, lineHeight: 28, color: theme.text },
+        ]}
+      >
         {value}
       </Text>
-      <Text numberOfLines={1} style={{ maxWidth: '72%', marginTop: space.xs, fontSize: 13, lineHeight: 18, fontWeight: '700', color: theme.text2 }}>
+      <Text
+        numberOfLines={1}
+        style={{
+          maxWidth: "72%",
+          marginTop: space.xs,
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: "700",
+          color: theme.text2,
+        }}
+      >
         {label}
       </Text>
       {previews.length ? (
-        <View pointerEvents="none" style={{ position: 'absolute', right: -3, bottom: -8, width: 82, height: 78 }}>
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            right: -3,
+            bottom: -8,
+            width: 82,
+            height: 78,
+          }}
+        >
           {previews.map((uri, index) => (
             <Image
               key={`${uri}-${index}`}
@@ -442,7 +879,7 @@ function JourneyOverviewTile({
               cachePolicy="memory-disk"
               transition={0}
               style={{
-                position: 'absolute',
+                position: "absolute",
                 right: index === 0 ? 28 : 2,
                 bottom: index === 0 ? 4 : 0,
                 width: 48,
@@ -450,15 +887,19 @@ function JourneyOverviewTile({
                 borderRadius: radius.control,
                 borderWidth: 2,
                 borderColor: theme.featureSurface,
-                transform: [{ rotate: index === 0 ? '-8deg' : '7deg' }],
+                transform: [{ rotate: index === 0 ? "-8deg" : "7deg" }],
               }}
             />
           ))}
         </View>
       ) : (
-        <View style={{ position: 'absolute', right: space.md, bottom: space.sm }}>
-          {icon === 'luggage' ? (
+        <View
+          style={{ position: "absolute", right: space.md, bottom: space.sm }}
+        >
+          {icon === "luggage" ? (
             <Luggage color={theme.text} size={22} strokeWidth={1.9} />
+          ) : icon === "mountain" ? (
+            <Mountain color={theme.text} size={22} strokeWidth={1.9} />
           ) : (
             <Icon name={icon} color={theme.text} size={21} strokeWidth={1.9} />
           )}
@@ -482,57 +923,205 @@ function JourneyRecordCard({
   inviteAccessibilityLabel?: string;
 }) {
   const photos = journey.photoUris?.slice(0, 2) || [];
-  const date = (journey.plannedDate || journey.date || journey.days || '—').replace(/\s*·\s*/g, ' ');
-  const region = journey.region.replace(/\s*·\s*/g, ' ');
+  const date = (
+    journey.plannedDate ||
+    journey.date ||
+    journey.days ||
+    "—"
+  ).replace(/\s*·\s*/g, " ");
+  const region = journey.region.replace(/\s*·\s*/g, " ");
 
   return (
-    <Press onPress={onPress} accessibilityRole="button" scaleTo={0.985} style={{ borderRadius: radius.feature }}>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      scaleTo={0.985}
+      style={{ borderRadius: radius.feature }}
+    >
       <AppCard
         theme={theme}
         radius={radius.feature}
-        style={[flatMeCardStyle, { minHeight: 118, padding: space.md, borderWidth: 0, backgroundColor: theme.fieldSurface, overflow: 'hidden' }]}
+        style={[
+          flatMeCardStyle,
+          {
+            minHeight: 118,
+            padding: space.md,
+            borderWidth: 0,
+            backgroundColor: theme.fieldSurface,
+            overflow: "hidden",
+          },
+        ]}
       >
-        <View style={{ minHeight: 86, flexDirection: 'row', alignItems: 'stretch', gap: space.md }}>
+        <View
+          style={{
+            minHeight: 86,
+            flexDirection: "row",
+            alignItems: "stretch",
+            gap: space.md,
+          }}
+        >
           <View style={{ flex: 1, minWidth: 0, paddingVertical: 2 }}>
-            <Text numberOfLines={2} style={{ fontSize: 16.5, lineHeight: 21, fontWeight: '800', color: theme.text }}>
+            <Text
+              numberOfLines={2}
+              style={{
+                fontSize: 16.5,
+                lineHeight: 21,
+                fontWeight: "800",
+                color: theme.text,
+              }}
+            >
               {journey.name}
             </Text>
-            <JourneyParticipants theme={theme} journey={journey} onInvite={onInvite} inviteAccessibilityLabel={inviteAccessibilityLabel} />
+            <JourneyParticipants
+              theme={theme}
+              journey={journey}
+              onInvite={onInvite}
+              inviteAccessibilityLabel={inviteAccessibilityLabel}
+            />
 
             <View style={{ marginTop: space.xs, gap: 5 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  minWidth: 0,
+                }}
+              >
                 <Icon name="pin" color={theme.text3} size={12} />
-                <Text numberOfLines={1} style={[type.caption, { flex: 1, color: theme.text2 }]}>{region}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[type.caption, { flex: 1, color: theme.text2 }]}
+                >
+                  {region}
+                </Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  minWidth: 0,
+                }}
+              >
                 <Icon name="calendar" color={theme.text3} size={12} />
-                <Text numberOfLines={1} style={[type.caption, { flex: 1, color: theme.text2 }]}>{date}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[type.caption, { flex: 1, color: theme.text2 }]}
+                >
+                  {date}
+                </Text>
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, marginTop: 'auto', paddingTop: space.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.md,
+                marginTop: "auto",
+                paddingTop: space.sm,
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
                 <Icon name="distance" color={theme.text2} size={13} />
-                <Text numberOfLines={1} style={[type.metric, { fontSize: 12, color: theme.text }]}>{journey.dist || '—'}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[type.metric, { fontSize: 12, color: theme.text }]}
+                >
+                  {journey.dist || "—"}
+                </Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
                 <Icon name="arrowUp" color={theme.text2} size={13} />
-                <Text numberOfLines={1} style={[type.metric, { fontSize: 12, color: theme.text }]}>{journey.asc?.replace(/[+,]/g, '') || '—'}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[type.metric, { fontSize: 12, color: theme.text }]}
+                >
+                  {journey.asc?.replace(/[+,]/g, "") || "—"}
+                </Text>
               </View>
             </View>
           </View>
 
-          <View style={{ width: 94, minHeight: 86, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center' }}>
+          <View
+            style={{
+              width: 94,
+              minHeight: 86,
+              flexShrink: 0,
+              alignItems: "flex-end",
+              justifyContent: "center",
+            }}
+          >
             {photos[1] ? (
-              <View style={{ position: 'absolute', right: 8, width: 74, height: 78, borderRadius: radius.card, overflow: 'hidden', transform: [{ rotate: '7deg' }] }}>
-                <Image source={{ uri: photos[1] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} />
+              <View
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  width: 74,
+                  height: 78,
+                  borderRadius: radius.card,
+                  overflow: "hidden",
+                  transform: [{ rotate: "7deg" }],
+                }}
+              >
+                <Image
+                  source={{ uri: photos[1] }}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                  style={StyleSheet.absoluteFill}
+                />
               </View>
             ) : null}
-            <View style={{ width: 82, height: 86, borderRadius: radius.card, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surfaceTop, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
-              {photos[0] ? <Image source={{ uri: photos[0] }} contentFit="cover" cachePolicy="memory-disk" transition={0} style={StyleSheet.absoluteFill} /> : <Icon name="photo" color={theme.text3} size={24} />}
+            <View
+              style={{
+                width: 82,
+                height: 86,
+                borderRadius: radius.card,
+                overflow: "hidden",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: theme.surfaceTop,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.fieldBorder,
+              }}
+            >
+              {photos[0] ? (
+                <Image
+                  source={{ uri: photos[0] }}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : (
+                <Icon name="photo" color={theme.text3} size={24} />
+              )}
               {(journey.photoUris?.length || 0) > 1 ? (
-                <View style={{ position: 'absolute', right: space.xs, bottom: space.xs, minWidth: 24, height: 20, paddingHorizontal: 6, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.62)' }}>
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{journey.photoUris?.length}</Text>
+                <View
+                  style={{
+                    position: "absolute",
+                    right: space.xs,
+                    bottom: space.xs,
+                    minWidth: 24,
+                    height: 20,
+                    paddingHorizontal: 6,
+                    borderRadius: radius.pill,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "rgba(0,0,0,0.62)",
+                  }}
+                >
+                  <Text
+                    style={{ fontSize: 10, fontWeight: "700", color: "#fff" }}
+                  >
+                    {journey.photoUris?.length}
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -543,54 +1132,69 @@ function JourneyRecordCard({
   );
 }
 
-function JourneyParticipants({ theme, journey, onInvite, inviteAccessibilityLabel = 'Invite companions' }: { theme: Theme; journey: Poi; onInvite?: () => void; inviteAccessibilityLabel?: string }) {
-  const people = (journey.companionList || []).slice(0, 2);
+function JourneyParticipants({
+  theme,
+  journey,
+  onInvite,
+  inviteAccessibilityLabel = "Invite companions",
+}: {
+  theme: Theme;
+  journey: Poi;
+  onInvite?: () => void;
+  inviteAccessibilityLabel?: string;
+}) {
+  const people = orderCompanionsForDisplay(journey.companionList || []).slice(0, 2);
   const size = 24;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', height: 28, marginTop: space.xs }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        height: 28,
+        marginTop: space.xs,
+      }}
+    >
       {people.map((person, index) => (
-        <View key={`${person.id || person.ini}-${index}`} style={{ marginLeft: index ? -7 : 0, zIndex: people.length - index }}>
-          <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={size} backgroundColor={theme.groupedBg} ring ringColor={theme.fieldSurface} ringWidth={2} />
+        <View
+          key={`${person.id || person.ini}-${index}`}
+          style={{ marginLeft: index ? -7 : 0, zIndex: people.length - index }}
+        >
+          <ParticipantAvatar
+            theme={theme}
+            uri={person.avatarUrl}
+            size={size}
+            backgroundColor={theme.groupedBg}
+            ring
+            ringColor={theme.fieldSurface}
+            ringWidth={2}
+          />
         </View>
       ))}
       {onInvite ? (
-        <Press onPress={(event) => { event.stopPropagation(); onInvite(); }} accessibilityRole="button" accessibilityLabel={inviteAccessibilityLabel} hitSlop={6} style={{ width: size, height: size, marginLeft: people.length ? -7 : 0, borderRadius: size / 2, borderWidth: 1.5, borderColor: theme.fieldBorder, backgroundColor: theme.controlSurface, alignItems: 'center', justifyContent: 'center' }}>
+        <Press
+          onPress={(event) => {
+            event.stopPropagation();
+            onInvite();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={inviteAccessibilityLabel}
+          hitSlop={6}
+          style={{
+            width: size,
+            height: size,
+            marginLeft: people.length ? -7 : 0,
+            borderRadius: size / 2,
+            borderWidth: 1.5,
+            borderColor: theme.fieldBorder,
+            backgroundColor: theme.controlSurface,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           <Icon name="plus" color={theme.text2} size={14} strokeWidth={2.1} />
         </Press>
       ) : null}
     </View>
-  );
-}
-
-const JOURNEY_SWIPE_SPRING = { mass: 0.7, damping: 22, stiffness: 240, overshootClamping: true } as const;
-
-function JourneySwipeDeleteAction({
-  progress,
-  theme,
-  label,
-  onPress,
-}: {
-  progress: SharedValue<number>;
-  theme: Theme;
-  label: string;
-  onPress: () => void;
-}) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0, 0.18, 1], [0, 0.62, 1], Extrapolation.CLAMP),
-    transform: [{ translateX: interpolate(progress.value, [0, 1], [32, 0], Extrapolation.CLAMP) }],
-  }));
-
-  return (
-    <ReAnimated.View style={[{ width: 76, alignSelf: 'stretch', backgroundColor: theme.featureSurface }, animatedStyle]}>
-      <Press
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        style={{ flex: 1, width: 76, alignItems: 'center', justifyContent: 'center' }}
-      >
-        <Trash2 size={28} color={theme.danger} strokeWidth={2.1} />
-      </Press>
-    </ReAnimated.View>
   );
 }
 
@@ -610,37 +1214,271 @@ function FavoritesPage({
     const distance = Number.parseFloat(route.dist);
     return sum + (Number.isFinite(distance) ? distance : 0);
   }, 0);
-  const regionCount = new Set(routes.map((route) => route.region).filter(Boolean)).size;
-  const photoCount = routes.reduce((sum, route) => sum + (route.photoUris?.length || 0), 0);
-  const photoPreviewUris = routes.flatMap((route) => route.photoUris || []).slice(0, 2);
+  const regionCount = new Set(
+    routes.map((route) => route.region).filter(Boolean),
+  ).size;
+  const photoCount = routes.reduce(
+    (sum, route) => sum + (route.photoUris?.length || 0),
+    0,
+  );
+  const photoPreviewUris = routes
+    .flatMap((route) => route.photoUris || [])
+    .slice(0, 2);
 
   return (
     <MapCollectionPage
       theme={theme}
-      title={t('me.myFavorites')}
+      title={t("me.myFavorites")}
       points={routes}
       onBack={onBack}
       onPointPress={onOpenRoute}
     >
-      <View style={{ minHeight: 500, paddingHorizontal: layout.pagePadding, paddingBottom: space.xxxl }}>
-        <View style={{ marginTop: space.lg, flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-          <JourneyOverviewTile theme={theme} icon="pin" value={String(routes.length)} label={t('me.metricRoutes')} />
-          <JourneyOverviewTile theme={theme} icon="distance" value={totalKm.toFixed(1)} label={t('me.metricDistance')} />
-          <JourneyOverviewTile theme={theme} icon="photo" value={String(photoCount)} label={t('me.metricRoutePhotos')} previewUris={photoPreviewUris} />
-          <JourneyOverviewTile theme={theme} icon="globe" value={String(regionCount)} label={t('me.metricRegions')} />
+      <View
+        style={{
+          minHeight: 500,
+          paddingHorizontal: layout.pagePadding,
+          paddingBottom: space.xxxl,
+        }}
+      >
+        <View
+          style={{
+            marginTop: space.lg,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: space.sm,
+          }}
+        >
+          <JourneyOverviewTile
+            theme={theme}
+            icon="pin"
+            value={String(routes.length)}
+            label={t("me.metricRoutes")}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="distance"
+            value={totalKm.toFixed(1)}
+            label={t("me.metricDistance")}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="photo"
+            value={String(photoCount)}
+            label={t("me.metricRoutePhotos")}
+            previewUris={photoPreviewUris}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="globe"
+            value={String(regionCount)}
+            label={t("me.metricRegions")}
+          />
         </View>
 
         {routes.length ? (
           <View style={{ gap: space.md }}>
-            <AppSectionHeader theme={theme} text={t('me.savedRouteList')} marginTop={layout.sectionGap} variant="title" />
+            <AppSectionHeader
+              theme={theme}
+              text={t("me.savedRouteList")}
+              marginTop={layout.sectionGap}
+              variant="title"
+            />
             {routes.map((route) => (
-              <JourneyRecordCard key={route.id} theme={theme} journey={route} onPress={() => onOpenRoute(route)} />
+              <JourneyRecordCard
+                key={route.id}
+                theme={theme}
+                journey={route}
+                onPress={() => onOpenRoute(route)}
+              />
             ))}
           </View>
         ) : (
-          <View style={{ alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.xxxl, marginTop: space.xl }}>
-            <Text style={[type.sectionTitle, { color: theme.text, textAlign: 'center' }]}>{t('me.favoritesEmptyTitle')}</Text>
-            <Text style={[type.body, { color: theme.text2, lineHeight: 20, textAlign: 'center', marginTop: space.xs }]}>{t('me.favoritesEmptyBody')}</Text>
+          <View
+            style={{
+              alignItems: "center",
+              paddingHorizontal: space.xl,
+              paddingVertical: space.xxxl,
+              marginTop: space.xl,
+            }}
+          >
+            <Text
+              style={[
+                type.sectionTitle,
+                { color: theme.text, textAlign: "center" },
+              ]}
+            >
+              {t("me.favoritesEmptyTitle")}
+            </Text>
+            <Text
+              style={[
+                type.body,
+                {
+                  color: theme.text2,
+                  lineHeight: 20,
+                  textAlign: "center",
+                  marginTop: space.xs,
+                },
+              ]}
+            >
+              {t("me.favoritesEmptyBody")}
+            </Text>
+          </View>
+        )}
+      </View>
+    </MapCollectionPage>
+  );
+}
+
+function FootprintsPage({
+  theme,
+  footprints,
+  journeys,
+  onBack,
+  onOpenJourney,
+  onOpenRoute,
+  onAllJourneys,
+}: {
+  theme: Theme;
+  footprints: RouteFootprints;
+  journeys: Poi[];
+  onBack: () => void;
+  onOpenJourney: (journey: Poi) => void;
+  onOpenRoute: (route: Poi) => void;
+  onAllJourneys: () => void;
+}) {
+  const { t } = useI18n();
+  const { items, litItems, litCount } = footprints;
+  // Every catalog route is a map pin, so these must keep their identity across
+  // renders: a new array rebuilds every marker and refits the camera.
+  const map = useMemo(
+    () => ({
+      points: items.map((item) => item.route),
+      mutedIds: new Set(
+        items.filter((item) => !item.lit).map((item) => item.route.id),
+      ),
+      // Frame what the user has walked; with nothing lit yet, the whole catalog.
+      frameCoords: (litItems.length ? litItems : items).map(
+        (item): [number, number] => [item.route.lng, item.route.lat],
+      ),
+      coverUriById: Object.fromEntries(
+        litItems.map((item) => [item.route.id, item.journey?.photoUris?.[0]]),
+      ),
+    }),
+    [items, litItems],
+  );
+  // Distance and photos still sum every journey, as this entry always did.
+  const totalKm = journeys.reduce((sum, journey) => {
+    const distance = Number.parseFloat(journey.dist);
+    return sum + (Number.isFinite(distance) ? distance : 0);
+  }, 0);
+  const photoCount = journeys.reduce(
+    (sum, journey) => sum + (journey.photoUris?.length || 0),
+    0,
+  );
+  const photoPreviewUris = journeys
+    .flatMap((journey) => journey.photoUris || [])
+    .slice(0, 2);
+
+  return (
+    <MapCollectionPage
+      theme={theme}
+      title={t("me.myFootprints")}
+      summary={
+        litCount
+          ? t("me.footprintSummary", { count: litCount })
+          : t("me.footprintSummaryEmpty")
+      }
+      points={map.points}
+      mutedIds={map.mutedIds}
+      frameCoords={map.frameCoords}
+      coverUriById={map.coverUriById}
+      onBack={onBack}
+      onPointPress={(route) => {
+        const item = items.find((entry) => entry.route.id === route.id);
+        if (item?.journey) onOpenJourney(item.journey);
+        else onOpenRoute(route);
+      }}
+      primaryAction={{ label: t("me.allJourneys"), onPress: onAllJourneys }}
+    >
+      <View
+        style={{
+          minHeight: 500,
+          paddingHorizontal: layout.pagePadding,
+          paddingBottom: space.xxxl,
+        }}
+      >
+        <View
+          style={{
+            marginTop: space.lg,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: space.sm,
+          }}
+        >
+          <JourneyOverviewTile
+            theme={theme}
+            icon="mountain"
+            value={String(litCount)}
+            label={t("me.metricRoutes")}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="distance"
+            value={totalKm.toFixed(1)}
+            label={t("me.metricDistance")}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="photo"
+            value={String(photoCount)}
+            label={t("me.metricPhotos")}
+            previewUris={photoPreviewUris}
+          />
+          <JourneyOverviewTile
+            theme={theme}
+            icon="globe"
+            value={String(footprints.provinces.length)}
+            label={t("me.metricRegions")}
+          />
+        </View>
+
+        <AppSectionHeader
+          theme={theme}
+          text={t("me.footprintLitList")}
+          marginTop={layout.sectionGap}
+          variant="title"
+        />
+        {litItems.length ? (
+          <View style={{ gap: space.md }}>
+            {litItems.map(({ journey }) =>
+              journey ? (
+                <JourneyRecordCard
+                  key={journey.id}
+                  theme={theme}
+                  journey={journey}
+                  onPress={() => onOpenJourney(journey)}
+                />
+              ) : null,
+            )}
+          </View>
+        ) : (
+          <View style={{ alignItems: "center", paddingVertical: space.xxxl }}>
+            <Text
+              style={[
+                type.sectionTitle,
+                { color: theme.text, textAlign: "center" },
+              ]}
+            >
+              {t("me.footprintEmptyTitle")}
+            </Text>
+            <Text
+              style={[
+                type.body,
+                { color: theme.text2, textAlign: "center", marginTop: space.xs },
+              ]}
+            >
+              {t("me.footprintEmptyBody")}
+            </Text>
           </View>
         )}
       </View>
@@ -673,31 +1511,80 @@ function JourneysPage({
     const distance = Number.parseFloat(journey.dist);
     return sum + (Number.isFinite(distance) ? distance : 0);
   }, 0);
-  const photoCount = journeys.reduce((sum, journey) => sum + (journey.photoUris?.length || 0), 0);
-  const photoPreviewUris = journeys.flatMap((journey) => journey.photoUris || []).slice(0, 2);
-  const regionCount = new Set(journeys.map((journey) => journey.region).filter(Boolean)).size;
+  const photoCount = journeys.reduce(
+    (sum, journey) => sum + (journey.photoUris?.length || 0),
+    0,
+  );
+  const photoPreviewUris = journeys
+    .flatMap((journey) => journey.photoUris || [])
+    .slice(0, 2);
+  const regionCount = new Set(
+    journeys.map((journey) => journey.region).filter(Boolean),
+  ).size;
 
   return (
     <>
       <MapCollectionPage
         theme={theme}
-        title={t('me.myJourneys')}
+        title={t("me.myJourneys")}
         points={journeys}
         onBack={onBack}
         onPointPress={onOpenJourney}
-        primaryAction={{ label: t('journeyEdit.planner.create'), onPress: onCreateJourney }}
+        primaryAction={{
+          label: t("journeyEdit.planner.create"),
+          onPress: onCreateJourney,
+        }}
       >
-        <View style={{ minHeight: 500, paddingHorizontal: layout.pagePadding, paddingBottom: space.xxxl }}>
-          <View style={{ marginTop: space.lg, flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-            <JourneyOverviewTile theme={theme} icon="luggage" value={String(journeys.length)} label={t('me.metricJourneys')} />
-            <JourneyOverviewTile theme={theme} icon="distance" value={totalKm.toFixed(1)} label={t('me.metricDistance')} />
-            <JourneyOverviewTile theme={theme} icon="photo" value={String(photoCount)} label={t('me.metricPhotos')} previewUris={photoPreviewUris} />
-            <JourneyOverviewTile theme={theme} icon="globe" value={String(regionCount)} label={t('me.metricRegions')} />
+        <View
+          style={{
+            minHeight: 500,
+            paddingHorizontal: layout.pagePadding,
+            paddingBottom: space.xxxl,
+          }}
+        >
+          <View
+            style={{
+              marginTop: space.lg,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: space.sm,
+            }}
+          >
+            <JourneyOverviewTile
+              theme={theme}
+              icon="luggage"
+              value={String(journeys.length)}
+              label={t("me.metricJourneys")}
+            />
+            <JourneyOverviewTile
+              theme={theme}
+              icon="distance"
+              value={totalKm.toFixed(1)}
+              label={t("me.metricDistance")}
+            />
+            <JourneyOverviewTile
+              theme={theme}
+              icon="photo"
+              value={String(photoCount)}
+              label={t("me.metricPhotos")}
+              previewUris={photoPreviewUris}
+            />
+            <JourneyOverviewTile
+              theme={theme}
+              icon="globe"
+              value={String(regionCount)}
+              label={t("me.metricRegions")}
+            />
           </View>
 
           {journeys.length ? (
             <View style={{ gap: space.md }}>
-              <AppSectionHeader theme={theme} text={t('me.journeyList')} marginTop={layout.sectionGap} variant="title" />
+              <AppSectionHeader
+                theme={theme}
+                text={t("me.journeyList")}
+                marginTop={layout.sectionGap}
+                variant="title"
+              />
               {journeys.map((journey) => (
                 <TwoStageSwipeable
                   key={journey.id}
@@ -709,12 +1596,16 @@ function JourneysPage({
                     pendingSwipeCloseRef.current = methods.close;
                     setDeleteCandidate(journey);
                   }}
-                  containerStyle={{ borderRadius: radius.feature, overflow: 'hidden', backgroundColor: theme.featureSurface }}
+                  containerStyle={{
+                    borderRadius: radius.feature,
+                    overflow: "hidden",
+                    backgroundColor: theme.featureSurface,
+                  }}
                   renderRightActions={(progress, _translation, methods) => (
                     <JourneySwipeDeleteAction
                       progress={progress}
                       theme={theme}
-                      label={t('journey.settings.deleteJourney')}
+                      label={t("journey.settings.deleteJourney")}
                       onPress={() => {
                         methods.close();
                         setDeleteCandidate(journey);
@@ -722,14 +1613,48 @@ function JourneysPage({
                     />
                   )}
                 >
-                  <JourneyRecordCard theme={theme} journey={journey} onPress={() => onOpenJourney(journey)} onInvite={() => onInviteJourney(journey)} inviteAccessibilityLabel={t('journey.manage.inviteParticipant')} />
+                  <JourneyRecordCard
+                    theme={theme}
+                    journey={journey}
+                    onPress={() => onOpenJourney(journey)}
+                    onInvite={() => onInviteJourney(journey)}
+                    inviteAccessibilityLabel={t(
+                      "journey.manage.inviteParticipant",
+                    )}
+                  />
                 </TwoStageSwipeable>
               ))}
             </View>
           ) : (
-            <View style={{ alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.xxxl, marginTop: space.xl }}>
-              <Text style={[type.sectionTitle, { color: theme.text, textAlign: 'center' }]}>{t('me.journeysEmptyTitle')}</Text>
-              <Text style={[type.body, { color: theme.text2, lineHeight: 20, textAlign: 'center', marginTop: space.xs }]}>{t('me.journeysEmptyBody')}</Text>
+            <View
+              style={{
+                alignItems: "center",
+                paddingHorizontal: space.xl,
+                paddingVertical: space.xxxl,
+                marginTop: space.xl,
+              }}
+            >
+              <Text
+                style={[
+                  type.sectionTitle,
+                  { color: theme.text, textAlign: "center" },
+                ]}
+              >
+                {t("me.journeysEmptyTitle")}
+              </Text>
+              <Text
+                style={[
+                  type.body,
+                  {
+                    color: theme.text2,
+                    lineHeight: 20,
+                    textAlign: "center",
+                    marginTop: space.xs,
+                  },
+                ]}
+              >
+                {t("me.journeysEmptyBody")}
+              </Text>
             </View>
           )}
         </View>
@@ -738,10 +1663,10 @@ function JourneysPage({
       <AppActionDialog
         theme={theme}
         visible={Boolean(deleteCandidate)}
-        title={t('journey.settings.deleteConfirmTitle')}
-        message={t('journey.remove.confirmMessage')}
-        confirmLabel={t('journey.settings.deleteJourney')}
-        cancelLabel={t('common.cancel')}
+        title={t("journey.settings.deleteConfirmTitle")}
+        message={t("journey.remove.confirmMessage")}
+        confirmLabel={t("journey.settings.deleteJourney")}
+        cancelLabel={t("common.cancel")}
         destructive
         confirming={deletingId === deleteCandidate?.id}
         confirmIcon="trash"
@@ -766,7 +1691,7 @@ function JourneysPage({
 }
 
 export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
-  countRender('Me');
+  countRender("Me");
   const theme = makeMeTheme(baseTheme);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -774,96 +1699,130 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
   const { t, lang, setLang } = useI18n();
   const nav = useNav();
   const data = useData();
+  const footprints = useMemo(
+    () => buildRouteFootprints(data.routes, data.journeys),
+    [data.routes, data.journeys],
+  );
+  const myRouteGuides = useMyRouteGuides(data.userId);
   const { unread } = useNotifCenter();
 
   const profile: MeProfile = {
     nick: data.profile.nick,
-    username: data.profile.username ? `@${data.profile.username}` : '',
+    username: data.profile.username ? `@${data.profile.username}` : "",
     bio: data.profile.bio,
     phone: data.profile.phone,
     email: data.profile.email,
   };
-  const [notif, setNotif] = useState<NotifSettings>({ push: true, social: true, system: false });
+  const [notif, setNotif] = useState<NotifSettings>({
+    push: true,
+    social: true,
+    system: false,
+  });
 
   const [stack, setStack] = useState<MePage[]>([]);
   const push = (pg: MePage) => setStack((s) => [...s, pg]);
   const pop = () => setStack((s) => s.slice(0, -1));
-  const [appearancePopup, setAppearancePopup] = useState<AppearancePopup | null>(null);
+  const [appearancePopup, setAppearancePopup] =
+    useState<AppearancePopup | null>(null);
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
+  const drawerProgress = useSharedValue(0);
+  useEffect(() => {
+    drawerProgress.value = withTiming(settingsDrawerOpen ? 1 : 0, {
+      duration: motion.emphasized,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    });
+  }, [settingsDrawerOpen, drawerProgress]);
+  const drawerFadeStyle = useAnimatedStyle(() => ({
+    opacity: drawerProgress.value,
+  }));
+  const drawerPanelStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX: interpolate(
+          drawerProgress.value,
+          [0, 1],
+          [windowWidth * 0.8, 0],
+        ),
+      },
+    ],
+  }));
+  // Keep the drawer mounted under the pushed pages so returning from a page
+  // shows it still open, without a close/re-open flash. Android back closes it
+  // only when no sub-page is on top.
+  useEffect(() => {
+    if (!settingsDrawerOpen) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (stack.length > 0) return false;
+      setSettingsDrawerOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [settingsDrawerOpen, stack.length]);
   const [popupAnchor, setPopupAnchor] = useState<PopupAnchor | null>(null);
   const themeRowRef = useRef<View>(null);
   const accentRowRef = useRef<View>(null);
   const languageRowRef = useRef<View>(null);
-  const weightRowRef = useRef<View>(null);
   const appearanceProgress = useSharedValue(0);
 
-  // Hide the floating tab bar whenever a sub-page is pushed.
+  // Hide the floating tab bar whenever a sub-page is pushed or the settings
+  // drawer is open (the drawer is an in-tree overlay, below the tab bar layer).
   const setTabBarHidden = nav.setTabBarHidden;
   useEffect(() => {
-    setTabBarHidden('me', stack.length > 0);
-  }, [setTabBarHidden, stack.length]);
-  useEffect(() => () => setTabBarHidden('me', false), [setTabBarHidden]);
+    setTabBarHidden("me", stack.length > 0 || settingsDrawerOpen);
+  }, [setTabBarHidden, stack.length, settingsDrawerOpen]);
+  useEffect(() => () => setTabBarHidden("me", false), [setTabBarHidden]);
 
   const showToast = nav.showToast;
   const saveEdit = async (field: MeEditField, val: string) => {
     try {
       if (field.key) {
-        const dbKey = field.key === 'username' ? 'username' : field.key;
-        const dbVal = field.key === 'username' ? val.replace(/^@/, '') : val;
+        const dbKey = field.key === "username" ? "username" : field.key;
+        const dbVal = field.key === "username" ? val.replace(/^@/, "") : val;
         await data.updateProfile(dbKey, dbVal);
       }
       pop();
-      showToast(field.toast || t('common.saved'));
+      showToast(field.toast || t("common.saved"));
     } catch {
-      showToast(t('account.security.toastSaveFailed'));
+      showToast(t("account.security.toastSaveFailed"));
     }
   };
 
   const openNotificationTarget = (item: Notif) => {
-    const targetId = item.targetId;
-    if (!targetId) return;
-
-    const journey = data.journeys.find((candidate) => candidate.id === targetId);
-    if (journey) {
-      nav.setSubTab('memory');
-      nav.openPoint(journey);
-      return;
-    }
-
-    const route = data.routes.find((candidate) => candidate.id === targetId);
-    if (route) {
-      nav.setSubTab('explore');
-      nav.openPoint(route);
-      return;
-    }
-
-    const gearId = Number(targetId);
-    if (Number.isInteger(gearId) && gearId > 0) {
-      nav.openGearItem(gearId);
-      return;
-    }
-
-    showToast(t('account.inbox.toastTargetUnavailable'));
+    void openNotificationTargetById(item.targetId, {
+      nav,
+      journeys: data.journeys,
+      routes: data.routes,
+    }).then((ok) => {
+      if (!ok) showToast(t("account.inbox.toastTargetUnavailable"));
+    });
   };
 
-  const themeModes: { id: 'system' | 'light' | 'dark'; label: string }[] = [
-    { id: 'system', label: t('me.themeSystem') },
-    { id: 'light', label: t('me.themeLight') },
-    { id: 'dark', label: t('me.themeDark') },
+  const themeModes: { id: "system" | "light" | "dark"; label: string }[] = [
+    { id: "system", label: t("me.themeSystem") },
+    { id: "light", label: t("me.themeLight") },
+    { id: "dark", label: t("me.themeDark") },
   ];
   const langs: { id: Lang; label: string }[] = [
-    { id: 'system', label: t('me.langSystem') },
-    { id: 'zh', label: t('me.langZh') },
-    { id: 'en', label: t('me.langEn') },
+    { id: "system", label: t("me.langSystem") },
+    { id: "zh", label: t("me.langZh") },
+    { id: "en", label: t("me.langEn") },
   ];
-  const modeLabel = themeModes.find((item) => item.id === mode)?.label || themeModes[0].label;
-  const langLabel = langs.find((item) => item.id === lang)?.label || langs[0].label;
+  const modeLabel =
+    themeModes.find((item) => item.id === mode)?.label || themeModes[0].label;
+  const langLabel =
+    langs.find((item) => item.id === lang)?.label || langs[0].label;
   // Accent preset display names are translated by their stable id (theme.ts
   // keeps the Chinese name only as a fallback label).
   const accentLabel = (id: string) => t(`accent.${id}` as TKey);
-  const curAccent = accent || '#0A84FF';
-  const curPreset = ACCENT_PRESETS.find((p) => p.color.toLowerCase() === curAccent.toLowerCase());
-  const accentName = curPreset ? accentLabel(curPreset.id) : t('common.custom');
-  const openAppearancePopup = (popup: AppearancePopup, ref: React.RefObject<View | null>) => {
+  const curAccent = accent || "#0A84FF";
+  const curPreset = ACCENT_PRESETS.find(
+    (p) => p.color.toLowerCase() === curAccent.toLowerCase(),
+  );
+  const accentName = curPreset ? accentLabel(curPreset.id) : t("common.custom");
+  const openAppearancePopup = (
+    popup: AppearancePopup,
+    ref: React.RefObject<View | null>,
+  ) => {
     if (appearancePopup === popup) {
       setAppearancePopup(null);
       return;
@@ -886,19 +1845,37 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
     });
   }, [appearancePopup, appearanceProgress]);
 
-  const setGearWeightUnit = (unit: WeightUnit) => {
-    data.updateProfile('gearWeightUnit', unit);
-    showToast(t('me.gearWeightUnitSaved', { unit }));
-  };
-
   const favoriteRoutes = data.routes.filter((route) => route.fav).length;
+  const guideSummary = `已发布 ${myRouteGuides.guides.filter((guide) => guide.status === "approved").length}`;
   const savedRoutes = data.routes.filter((route) => route.fav);
-  const linkedTrackIds = new Set(data.journeys.map((journey) => journey.trackId).filter((id): id is string => Boolean(id)));
-  const unusedTrackCount = data.tracks.filter((track) => !linkedTrackIds.has(track.id)).length;
-  const latestTrack = [...data.tracks].sort((a, b) => (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? ''))[0];
+  const linkedTrackIds = new Set(
+    data.journeys
+      .map((journey) => journey.trackId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const unusedTrackCount = data.tracks.filter(
+    (track) => !linkedTrackIds.has(track.id),
+  ).length;
+  const latestTrack = [...data.tracks].sort((a, b) =>
+    (b.updatedAt ?? b.createdAt ?? "").localeCompare(
+      a.updatedAt ?? a.createdAt ?? "",
+    ),
+  )[0];
   const tracksPreviewRows = [
-    ...(unusedTrackCount > 0 ? [{ label: t('tracks.overview.unused', { count: unusedTrackCount }), value: '', inline: true }] : []),
-    { label: t('tracks.overview.recentPrefix'), value: latestTrack?.name || t('tracks.overview.noRecent'), inline: true },
+    ...(unusedTrackCount > 0
+      ? [
+          {
+            label: t("tracks.overview.unused", { count: unusedTrackCount }),
+            value: "",
+            inline: true,
+          },
+        ]
+      : []),
+    {
+      label: t("tracks.overview.recentPrefix"),
+      value: latestTrack?.name || t("tracks.overview.noRecent"),
+      inline: true,
+    },
   ];
   const gearWeight = data.items.reduce((sum, item) => sum + itemWeight(item), 0);
   const gearValue = data.items.reduce((sum, item) => sum + itemPrice(item), 0);
@@ -906,101 +1883,241 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
     const weight = set.items.reduce((sum, itemName) => {
       const item = data.items.find((candidate) => candidate.name === itemName);
       if (!item) return sum;
-      const override = item.id != null
-        ? set.overrides?.[String(item.id)] ?? set.overrides?.[itemName]
-        : set.overrides?.[itemName];
-      const quantity = override?.qty ?? item.qty ?? 1;
-      return sum + item.w * quantity;
+      const override = item.id != null ? (set.overrides?.[String(item.id)] ?? set.overrides?.[itemName]) : set.overrides?.[itemName];
+      return sum + item.w * (override?.qty ?? item.qty ?? 1);
     }, 0);
-    return {
-      label: set.name,
-      value: fmtWeight(weight, data.profile.gearWeightUnit || 'kg', true),
-    };
+    return { label: set.name, value: fmtWeight(weight, data.profile.gearWeightUnit || "kg", true) };
   });
-
   const renderPage = (pg: MePage) => {
-    const theme = pg.type === 'settings' || pg.type === 'membership' ? makeMeTheme(baseTheme) : baseTheme;
+    const theme =
+      pg.type === "settings" || pg.type === "membership"
+        ? makeMeTheme(baseTheme)
+        : baseTheme;
     switch (pg.type) {
-      case 'membership':
+      case "membership":
         return <MembershipPage theme={theme} onBack={pop} view={pg.view} />;
-      case 'scanLogin':
+      case "scanLogin":
         return (
           <QrLoginScannerPage
             theme={theme}
             onBack={pop}
             onApproved={() => {
               pop();
-              showToast(t('qrLogin.approvedToast'));
+              showToast(t("qrLogin.approvedToast"));
             }}
             onJourneyInvite={async (invite) => {
               const journey = await joinJourneyByInvite(invite);
               await data.refetchJourneys();
               pop();
-              nav.setSubTab('memory');
+              nav.setSubTab("memory");
               nav.openPoint(journey);
-              showToast(t('qrLogin.journeyJoined', { name: journey.name }));
+              showToast(t("qrLogin.journeyJoined", { name: journey.name }));
             }}
           />
         );
-      case 'settings':
+      case "settings":
         return (
           <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + space.xs + layout.topBarHeight, paddingBottom: insets.bottom + space.xxl }}
+              contentContainerStyle={{
+                paddingHorizontal: layout.pagePadding,
+                paddingTop: insets.top + space.xs + layout.topBarHeight,
+                paddingBottom: insets.bottom + space.xxl,
+              }}
             >
               <View style={{ marginTop: space.lg }}>
-                <MembershipEntryCard theme={theme} onPress={() => push({ type: 'membership' })} onUsage={() => push({ type: 'membership', view: 'usage' })} />
+                <MembershipEntryCard
+                  theme={theme}
+                  onPress={() => push({ type: "membership" })}
+                  onUsage={() => push({ type: "membership", view: "usage" })}
+                />
               </View>
-              <AppSectionHeader theme={theme} text={t('account.security.pageTitle')} marginTop={layout.sectionGap} />
-              <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="user" label={t('account.security.pageTitle')} detail={profile.email || t('account.security.notBound')} onPress={() => push({ type: 'accountSecurity' })} last />
+              <AppSectionHeader
+                theme={theme}
+                text={t("account.security.pageTitle")}
+                marginTop={layout.sectionGap}
+              />
+              <AppCard
+                theme={theme}
+                radius={radius.feature}
+                style={[
+                  flatMeCardStyle,
+                  { paddingHorizontal: space.md, borderWidth: 0 },
+                ]}
+              >
+                <SettingsRow
+                  theme={theme}
+                  icon="user"
+                  label={t("account.security.pageTitle")}
+                  detail={profile.email || t("account.security.notBound")}
+                  onPress={() => push({ type: "accountSecurity" })}
+                  last
+                />
               </AppCard>
 
-              <AppSectionHeader theme={theme} text={t('me.appearance')} marginTop={layout.sectionGap} />
-              <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <AppearanceRow ref={themeRowRef} theme={theme} label={t('me.theme')} value={modeLabel} leading={<Icon name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sun' : 'system'} color={theme.text2} size={19} />} open={appearancePopup === 'theme'} onPress={() => openAppearancePopup('theme', themeRowRef)} />
-                <AppearanceRow ref={accentRowRef} theme={theme} label={t('me.accent')} value={accentName} leading={<ColorDot theme={theme} color={curAccent} size={20} dashed={!curPreset} />} open={appearancePopup === 'accent'} onPress={() => openAppearancePopup('accent', accentRowRef)} />
-                <AppearanceRow ref={languageRowRef} theme={theme} label={t('me.language')} value={langLabel} leading={<Icon name="globe" color={theme.text2} size={19} />} open={appearancePopup === 'language'} onPress={() => openAppearancePopup('language', languageRowRef)} last />
+              <AppSectionHeader
+                theme={theme}
+                text={t("me.appearance")}
+                marginTop={layout.sectionGap}
+              />
+              <AppCard
+                theme={theme}
+                radius={radius.feature}
+                style={[
+                  flatMeCardStyle,
+                  { paddingHorizontal: space.md, borderWidth: 0 },
+                ]}
+              >
+                <AppearanceRow
+                  ref={themeRowRef}
+                  theme={theme}
+                  label={t("me.theme")}
+                  value={modeLabel}
+                  leading={
+                    <Icon
+                      name={
+                        mode === "dark"
+                          ? "moon"
+                          : mode === "light"
+                            ? "sun"
+                            : "system"
+                      }
+                      color={theme.text2}
+                      size={19}
+                    />
+                  }
+                  open={appearancePopup === "theme"}
+                  onPress={() => openAppearancePopup("theme", themeRowRef)}
+                />
+                <AppearanceRow
+                  ref={accentRowRef}
+                  theme={theme}
+                  label={t("me.accent")}
+                  value={accentName}
+                  leading={
+                    <ColorDot
+                      theme={theme}
+                      color={curAccent}
+                      size={20}
+                      dashed={!curPreset}
+                    />
+                  }
+                  open={appearancePopup === "accent"}
+                  onPress={() => openAppearancePopup("accent", accentRowRef)}
+                />
+                <AppearanceRow
+                  ref={languageRowRef}
+                  theme={theme}
+                  label={t("me.language")}
+                  value={langLabel}
+                  leading={<Icon name="globe" color={theme.text2} size={19} />}
+                  open={appearancePopup === "language"}
+                  onPress={() =>
+                    openAppearancePopup("language", languageRowRef)
+                  }
+                  last
+                />
               </AppCard>
 
-              <AppSectionHeader theme={theme} text={t('me.preferences')} marginTop={layout.sectionGap} />
-              <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="bell" label={t('me.notifications')} detail={notif.push ? t('common.on') : t('common.off')} onPress={() => push({ type: 'notif' })} />
-                <AppearanceRow ref={weightRowRef} theme={theme} label={t('me.gearWeightUnit')} value={data.profile.gearWeightUnit} leading={<Icon name="gearSettings" color={theme.text2} size={19} />} open={appearancePopup === 'weight'} onPress={() => openAppearancePopup('weight', weightRowRef)} last />
+              <AppSectionHeader
+                theme={theme}
+                text={t("me.preferences")}
+                marginTop={layout.sectionGap}
+              />
+              <AppCard
+                theme={theme}
+                radius={radius.feature}
+                style={[
+                  flatMeCardStyle,
+                  { paddingHorizontal: space.md, borderWidth: 0 },
+                ]}
+              >
+                <SettingsRow
+                  theme={theme}
+                  icon="bell"
+                  label={t("me.notifications")}
+                  detail={notif.push ? t("common.on") : t("common.off")}
+                  onPress={() => push({ type: "notif" })}
+                  last
+                />
               </AppCard>
 
-              <AppSectionHeader theme={theme} text={t('me.support')} marginTop={layout.sectionGap} />
-              <AppCard theme={theme} radius={radius.feature} style={[flatMeCardStyle, { paddingHorizontal: space.md, borderWidth: 0 }]}>
-                <SettingsRow theme={theme} icon="send" label={t('me.helpFeedback')} onPress={() => push({ type: 'feedback' })} />
-                <SettingsRow theme={theme} icon="compass" label={t('me.about')} detail="v1.0.2" onPress={() => push({ type: 'about' })} last />
+              <AppSectionHeader
+                theme={theme}
+                text={t("me.support")}
+                marginTop={layout.sectionGap}
+              />
+              <AppCard
+                theme={theme}
+                radius={radius.feature}
+                style={[
+                  flatMeCardStyle,
+                  { paddingHorizontal: space.md, borderWidth: 0 },
+                ]}
+              >
+                <SettingsRow
+                  theme={theme}
+                  icon="send"
+                  label={t("me.helpFeedback")}
+                  onPress={() => push({ type: "feedback" })}
+                />
+                <SettingsRow
+                  theme={theme}
+                  icon="compass"
+                  label={t("me.about")}
+                  detail={appVersionLabel}
+                  onPress={() => push({ type: "about" })}
+                  last
+                />
               </AppCard>
             </ScrollView>
 
             <View
               pointerEvents="box-none"
-              style={{ position: 'absolute', top: insets.top, left: layout.pagePadding, right: layout.pagePadding, height: layout.topBarHeight, justifyContent: 'center' }}
+              style={{
+                position: "absolute",
+                top: insets.top,
+                left: layout.pagePadding,
+                right: layout.pagePadding,
+                height: layout.topBarHeight,
+                justifyContent: "center",
+              }}
             >
               <Press
                 onPress={pop}
                 accessibilityRole="button"
-                accessibilityLabel={t('common.back')}
+                accessibilityLabel={t("common.back")}
                 scaleTo={0.96}
-                style={{ width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' }}
+                style={{
+                  width: layout.iconButton,
+                  height: layout.iconButton,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
                 <ChevronLeft color={theme.text} size={25} strokeWidth={2.2} />
               </Press>
               <Text
                 pointerEvents="none"
                 numberOfLines={1}
-                style={[type.navTitle, { position: 'absolute', left: layout.iconButton + space.sm, right: layout.iconButton + space.sm, textAlign: 'center', color: theme.text }]}
+                style={[
+                  type.navTitle,
+                  {
+                    position: "absolute",
+                    left: layout.iconButton + space.sm,
+                    right: layout.iconButton + space.sm,
+                    textAlign: "center",
+                    color: theme.text,
+                  },
+                ]}
               >
-                {t('me.settingsPageTitle')}
+                {t("me.settingsPageTitle")}
               </Text>
             </View>
           </View>
         );
-      case 'journeys':
+      case "journeys":
         return (
           <JourneysPage
             theme={theme}
@@ -1008,222 +2125,678 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             onBack={pop}
             onCreateJourney={() => nav.openNewJourney()}
             onDeleteJourney={(journey) => data.deleteJourney(journey.id)}
-            onInviteJourney={(journey) => nav.openManageCompanions(journey, 'invite')}
+            onInviteJourney={(journey) =>
+              nav.openManageCompanions(journey, "invite")
+            }
             onOpenJourney={(journey) => {
-              nav.setSubTab('memory');
+              nav.setSubTab("memory");
               nav.openPoint(journey);
             }}
           />
         );
-      case 'favorites':
+      case "footprints":
+        return (
+          <FootprintsPage
+            theme={theme}
+            footprints={footprints}
+            journeys={data.journeys}
+            onBack={pop}
+            onOpenJourney={(journey) => {
+              nav.setSubTab("memory");
+              nav.openPoint(journey);
+            }}
+            onOpenRoute={(route) => {
+              nav.setSubTab("explore");
+              nav.openPoint(route);
+            }}
+            onAllJourneys={() => push({ type: "journeys" })}
+          />
+        );
+      case "favorites":
         return (
           <FavoritesPage
             theme={theme}
             routes={savedRoutes}
             onBack={pop}
             onOpenRoute={(route) => {
-              nav.setSubTab('explore');
+              nav.setSubTab("explore");
               nav.openPoint(route);
             }}
           />
         );
-      case 'tracks':
+      case "routeGuides":
+        return (
+          <MyRouteGuidesPage
+            theme={theme}
+            showToast={showToast}
+            guides={myRouteGuides.guides}
+            loading={myRouteGuides.loading}
+            onBack={pop}
+            onRefresh={() => void myRouteGuides.refresh()}
+            routes={new Map(data.routes.map((route) => [route.id, route]))}
+            onOpen={(guide) => {
+              if (guide.status !== "approved") {
+                showToast(
+                  guide.status === "rejected"
+                    ? "请从原旅程修改后重新提交攻略"
+                    : "攻略正在审核中",
+                );
+                return;
+              }
+              const route = data.routes.find(
+                (candidate) => candidate.id === guide.routeId,
+              );
+              if (route) {
+                pop();
+                nav.setSubTab("explore");
+                nav.openRouteGuide({ route, view: "guide", guideId: guide.id });
+              } else showToast("关联路线暂不可用");
+            }}
+            onUpdate={async (guide, values) => {
+              await updateRouteGuide({ id: guide.id, ...values });
+              await myRouteGuides.refresh();
+              showToast("攻略已保存，等待重新审核");
+            }}
+            onDelete={async (guide) => {
+              await deleteRouteGuide(guide.id);
+              await myRouteGuides.refresh();
+              showToast("攻略已删除");
+            }}
+          />
+        );
+      case "routeRequests":
+        return (
+          <MyRouteRequestsPage
+            theme={theme}
+            requests={data.routeRequests}
+            onBack={pop}
+            onDelete={async (request) => {
+              try {
+                await data.deleteRouteRequest(request.id);
+                showToast(t("routeRequest.delete"));
+              } catch {
+                showToast(t("routeRequest.deleteFailed"));
+              }
+            }}
+            onOpen={(request) => {
+              const route = data.routes.find(
+                (item) => item.id === request.routeId,
+              );
+              if (route) {
+                pop();
+                nav.setSubTab("explore");
+                nav.openPoint(route);
+              } else showToast(t("routeRequest.routeUnavailable"));
+            }}
+          />
+        );
+      case "tracks":
         return (
           <TracksPage
             theme={theme}
             onBack={pop}
-            onOpenTrack={(track) => push({ type: 'trackDetail', trackId: track.id })}
+            onOpenTrack={(track) =>
+              push({ type: "trackDetail", trackId: track.id })
+            }
           />
         );
-      case 'trackDetail': {
+      case "trackDetail": {
         const track = data.tracks.find((item) => item.id === pg.trackId);
         // A track can disappear (deleted on another device) between the list and
         // here, and a blank layer would trap the user, so say so with a way back.
         if (!track) {
           return (
-            <DetailPage theme={theme} onBack={pop} backgroundColor={theme.groupedBg} flatChrome>
-              <KPState theme={theme} icon="route" title={t('tracks.empty.title')} body={t('tracks.empty.body')} style={{ marginTop: 60 }} />
+            <DetailPage
+              theme={theme}
+              onBack={pop}
+              backgroundColor={theme.groupedBg}
+              flatChrome
+            >
+              <KPState
+                theme={theme}
+                icon="route"
+                title={t("tracks.empty.title")}
+                body={t("tracks.empty.body")}
+                style={{ marginTop: 60 }}
+              />
             </DetailPage>
           );
         }
         return <TrackDetailPage theme={theme} track={track} onBack={pop} />;
       }
-      case 'trash':
+      case "trash":
         return <JourneyTrashPage theme={theme} onBack={pop} />;
-      case 'profile':
+      case "profile":
         return (
           <AccountPage
             theme={theme}
             profile={profile}
             section="profile"
             onBack={pop}
-            onEdit={(f) => push({ type: 'edit', field: f })}
-            onDeleteAccount={() => push({ type: 'deleteAccountReasons' })}
+            onEdit={(f) => push({ type: "edit", field: f })}
+            onDeleteAccount={() => push({ type: "deleteAccountReasons" })}
             showToast={showToast}
           />
         );
-      case 'accountSecurity':
+      case "accountSecurity":
         return (
           <AccountPage
             theme={theme}
             profile={profile}
             section="security"
             onBack={pop}
-            onEdit={(f) => push({ type: 'edit', field: f })}
-            onDeleteAccount={() => push({ type: 'deleteAccountReasons' })}
+            onEdit={(f) => push({ type: "edit", field: f })}
+            onDeleteAccount={() => push({ type: "deleteAccountReasons" })}
             showToast={showToast}
           />
         );
-      case 'deleteAccountReasons':
+      case "deleteAccountReasons":
         return <DeleteAccountReasonsPage theme={theme} onBack={pop} />;
-      case 'planningProfile':
+      case "planningProfile":
         return <PlanningProfilePage theme={theme} onBack={pop} />;
-      case 'edit':
-        return <EditFieldPage theme={theme} field={pg.field} onBack={pop} onSave={(v) => saveEdit(pg.field, v)} />;
-      case 'notif':
-        return <NotifSettingsPage theme={theme} notif={notif} setNotif={setNotif} onBack={pop} />;
-      case 'inbox':
-        return <NotifInboxPage theme={theme} onBack={pop} showToast={showToast} onOpenTarget={openNotificationTarget} />;
-      case 'feedback':
+      case "edit":
+        return (
+          <EditFieldPage
+            theme={theme}
+            field={pg.field}
+            onBack={pop}
+            onSave={(v) => saveEdit(pg.field, v)}
+          />
+        );
+      case "notif":
+        return (
+          <NotifSettingsPage
+            theme={theme}
+            notif={notif}
+            setNotif={setNotif}
+            onBack={pop}
+          />
+        );
+      case "inbox":
+        return (
+          <NotifInboxPage
+            theme={theme}
+            onBack={pop}
+            showToast={showToast}
+            onOpenTarget={openNotificationTarget}
+          />
+        );
+      case "feedback":
         return (
           <FeedbackPage
             theme={theme}
             onBack={pop}
             onSubmit={() => {
               pop();
-              showToast(t('me.feedbackThanks'));
+              showToast(t("me.feedbackThanks"));
             }}
           />
         );
-      case 'about':
-        return <AboutPage theme={theme} onBack={pop} onOpenDocument={(document) => push({ type: 'legalDocument', document })} showToast={showToast} />;
-      case 'legalDocument':
-        return <LegalDocumentPage theme={theme} document={pg.document} onBack={pop} />;
+      case "about":
+        return (
+          <AboutPage
+            theme={theme}
+            onBack={pop}
+            onOpenDocument={(document) =>
+              push({ type: "legalDocument", document })
+            }
+            showToast={showToast}
+          />
+        );
+      case "picker": {
+        const picker = pg.picker;
+        if (picker === "language") {
+          return (
+            <LanguagePickerPage
+              theme={theme}
+              lang={lang}
+              t={t}
+              onSelect={(next) => setLang(next)}
+              onBack={pop}
+            />
+          );
+        }
+        const navTitle =
+          picker === "theme" ? t("me.theme") : t("me.accent");
+        const options: CardPickerOption[] =
+          picker === "theme"
+            ? themeModes.map((item) => ({
+                id: item.id,
+                title:
+                  item.id === "system"
+                    ? t("me.themeSystemDefault")
+                    : item.label,
+                description: t(
+                  item.id === "system"
+                    ? "me.themeSystemDesc"
+                    : item.id === "light"
+                      ? "me.themeLightDesc"
+                      : "me.themeDarkDesc"
+                ),
+              }))
+            : ACCENT_PRESETS.map((preset) => ({
+                id: preset.id,
+                title: accentLabel(preset.id),
+                description: t("me.accentDesc"),
+                leading: (
+                  <ColorDot theme={theme} color={preset.color} size={26} />
+                ),
+              }));
+        const selectedId =
+          picker === "theme"
+            ? mode
+            : ACCENT_PRESETS.find(
+                (p) => p.color.toLowerCase() === curAccent.toLowerCase(),
+              )?.id ?? "";
+        return (
+          <CardPickerPage
+            theme={theme}
+            navTitle={navTitle}
+            options={options}
+            selectedId={selectedId}
+            onSelect={(key) => {
+              if (picker === "theme") {
+                setMode(key as "system" | "light" | "dark");
+              } else {
+                const preset = ACCENT_PRESETS.find((p) => p.id === key);
+                if (preset) setAccent(preset.color);
+              }
+            }}
+            onBack={pop}
+          />
+        );
+      }
+      case "legalDocument":
+        return (
+          <LegalDocumentPage
+            theme={theme}
+            document={pg.document}
+            onBack={pop}
+          />
+        );
     }
   };
   const popupWidth = Math.min(260, windowWidth - space.xl * 2);
-  const popupHeight = appearancePopup === 'accent' ? ACCENT_PRESETS.length * 54 + space.xs * 2 : appearancePopup === 'weight' ? 232 : 178;
+  const popupHeight =
+    appearancePopup === "accent"
+      ? ACCENT_PRESETS.length * 54 + space.xs * 2
+      : 178;
   const popupCollapsedHeight = 16;
-  const popupLeft = popupAnchor ? Math.max(space.xl, Math.min(popupAnchor.x + popupAnchor.width - popupWidth, windowWidth - popupWidth - space.xl)) : space.xl;
+  const popupLeft = popupAnchor
+    ? Math.max(
+        space.xl,
+        Math.min(
+          popupAnchor.x + popupAnchor.width - popupWidth,
+          windowWidth - popupWidth - space.xl,
+        ),
+      )
+    : space.xl;
   const popupTop = popupAnchor
-    ? Math.max(insets.top + space.xs, Math.min(popupAnchor.y + popupAnchor.height + space.xs, windowHeight - insets.bottom - popupHeight - space.md))
+    ? Math.max(
+        insets.top + space.xs,
+        Math.min(
+          popupAnchor.y + popupAnchor.height + space.xs,
+          windowHeight - insets.bottom - popupHeight - space.md,
+        ),
+      )
     : insets.top + space.xl;
   const popupMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(appearanceProgress.value, [0, 1], [popupCollapsedHeight, popupHeight]),
+    height: interpolate(
+      appearanceProgress.value,
+      [0, 1],
+      [popupCollapsedHeight, popupHeight],
+    ),
   }));
   const popupContentStyle = useAnimatedStyle(() => ({
     opacity: appearanceProgress.value,
-    transform: [{ translateY: interpolate(appearanceProgress.value, [0, 1], [-8, 0]) }],
+    transform: [
+      { translateY: interpolate(appearanceProgress.value, [0, 1], [-8, 0]) },
+    ],
   }));
+
+  type MeDrawerItem = {
+    key: string;
+    icon?: IconName;
+    dot?: boolean;
+    label: string;
+    value?: string;
+    go?: () => void;
+  };
+  const drawerItems: MeDrawerItem[] = [
+    { key: "account", icon: "userCircle", label: t("account.security.pageTitle"), go: () => push({ type: "accountSecurity" }) },
+    { key: "membership", icon: "star", label: t("membership.entryTitle"), go: () => push({ type: "membership" }) },
+    { key: "planning", icon: "compass", label: t("planningProfile.title"), go: () => push({ type: "planningProfile" }) },
+    { key: "requests", icon: "flag", label: t("routeRequest.drawerTitle"), go: () => push({ type: "routeRequests" }) },
+    { key: "trash", icon: "trash", label: t("journeyHome.trash.title"), go: () => push({ type: "trash" }) },
+    { key: "notif", icon: "bell", label: t("me.notifications"), value: notif.push ? t("common.on") : t("common.off"), go: () => push({ type: "notif" }) },
+    { key: "theme", icon: mode === "dark" ? "moon" : mode === "light" ? "sun" : "system", label: t("me.theme"), value: modeLabel, go: () => push({ type: "picker", picker: "theme" }) },
+    { key: "accent", dot: true, label: t("me.accent"), value: accentName, go: () => push({ type: "picker", picker: "accent" }) },
+    { key: "language", icon: "globe", label: t("me.language"), value: langLabel, go: () => push({ type: "picker", picker: "language" }) },
+    { key: "feedback", icon: "send", label: t("me.helpFeedback"), go: () => push({ type: "feedback" }) },
+    { key: "about", icon: "info", label: t("me.about"), value: appVersionLabel, go: () => push({ type: "about" }) },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.featureSurface }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: insets.top + space.xs, paddingBottom: insets.bottom + 120, width: '100%', maxWidth: 600, alignSelf: 'center' }}
+        contentContainerStyle={{
+          paddingTop: insets.top + space.xs + layout.iconButton + space.xs,
+          paddingBottom: insets.bottom + 120,
+          width: "100%",
+          maxWidth: 600,
+          alignSelf: "center",
+        }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: layout.pagePadding }}>
-          <Press onPress={() => push({ type: 'scanLogin' })} accessibilityRole="button" accessibilityLabel={t('me.scan')} style={headerButtonStyle}>
+        <ProfileIdentity
+          theme={theme}
+          avatarUri={data.profile.avatarUrl}
+          nick={profile.nick || t("me.unnamed")}
+          username={profile.username}
+          bio={profile.bio}
+          label={t("account.profile.pageTitle")}
+          onPress={() => push({ type: "profile" })}
+        />
+
+        <View style={{ paddingHorizontal: layout.pagePadding, gap: space.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "stretch", gap: space.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <FootprintShortcut
+                theme={theme}
+                points={footprints.litItems.map((item) => item.route)}
+                title={t("me.myFootprints")}
+                detail={t("me.footprintSummary", { count: footprints.litCount })}
+                onPress={() => push({ type: "footprints" })}
+              />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut
+                variant="tracks"
+                theme={theme}
+                icon="route"
+                title={t("me.myTracks")}
+                detail={t("me.tracksSummary", { count: data.tracks.length })}
+                items={[]}
+                trackItems={data.tracks}
+                previewRows={tracksPreviewRows}
+                onPress={() => push({ type: "tracks" })}
+              />
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "stretch", gap: space.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut
+                variant="gear"
+                theme={theme}
+                icon="bag"
+                title={t("gear.home.myGear")}
+                detail={t("me.gearSummary", { count: data.items.length })}
+                items={data.items.map((item, index) => ({ id: String(item.id ?? index), photoUris: item.photos }))}
+                stats={[
+                  { label: t("gear.stat.totalWeight"), value: fmtWeight(gearWeight, data.profile.gearWeightUnit || "kg") },
+                  { label: t("gear.stat.totalValue"), value: `¥${Math.round(gearValue)}` },
+                ]}
+                onPress={() => nav.openGearPage("items")}
+              />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ProfileShortcut
+                variant="checklist"
+                theme={theme}
+                icon="list"
+                title={t("me.myChecklist")}
+                detail={t("me.checklistSummary", { count: data.sets.length })}
+                items={[]}
+                previewRows={checklistPreviewRows}
+                onPress={() => nav.openGearPage("sets")}
+              />
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "nowrap", alignItems: "stretch", gap: space.sm }}>
+            <View style={{ flex: 1, flexBasis: 0, minWidth: 0 }}>
+              <ProfileShortcut variant="guide" theme={theme} icon="compass" title="我的攻略" detail={guideSummary} items={[]} onPress={() => push({ type: "routeGuides" })} />
+            </View>
+            <View style={{ flex: 1, flexBasis: 0, minWidth: 0 }}>
+              <ProfileShortcut variant="favorites" theme={theme} icon="heart" title={t("me.myFavorites")} detail={t("me.savedSummary", { count: favoriteRoutes })} items={savedRoutes} onPress={() => push({ type: "favorites" })} />
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+        }}
+      >
+        <View
+          pointerEvents="box-none"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            width: "100%",
+            maxWidth: 600,
+            alignSelf: "center",
+            paddingTop: insets.top + space.xs,
+            paddingBottom: space.xs,
+            paddingHorizontal: layout.pagePadding,
+          }}
+        >
+          <Press
+            onPress={() => push({ type: "scanLogin" })}
+            accessibilityRole="button"
+            accessibilityLabel={t("me.scan")}
+            style={headerButtonStyle}
+          >
             <ScanLine color={theme.text} size={25} strokeWidth={2.2} />
           </Press>
           <View style={{ flex: 1 }} />
           <View style={{ width: layout.iconButton, height: layout.iconButton }}>
-            <Press onPress={() => push({ type: 'inbox' })} accessibilityRole="button" accessibilityLabel={t('me.inbox')} style={headerButtonStyle}>
+            <Press
+              onPress={() => push({ type: "inbox" })}
+              accessibilityRole="button"
+              accessibilityLabel={t("me.inbox")}
+              style={headerButtonStyle}
+            >
               <Bell color={theme.text} size={25} strokeWidth={2.2} />
             </Press>
             {unread > 0 ? (
-              <View pointerEvents="none" style={{ position: 'absolute', top: 1, right: 1, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: theme.danger, borderWidth: 2, borderColor: theme.groupedBg, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#fff' }}>{unread}</Text>
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: 1,
+                  right: 1,
+                  minWidth: 17,
+                  height: 17,
+                  borderRadius: 9,
+                  paddingHorizontal: 4,
+                  backgroundColor: theme.danger,
+                  borderWidth: 2,
+                  borderColor: theme.groupedBg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text
+                  style={{ fontSize: 9.5, fontWeight: "800", color: "#fff" }}
+                >
+                  {unread}
+                </Text>
               </View>
             ) : null}
           </View>
           <View style={{ marginLeft: space.xs }}>
-            <Press onPress={() => push({ type: 'settings' })} accessibilityRole="button" accessibilityLabel={t('me.settingsPageTitle')} style={headerButtonStyle}>
+            <Press
+              onPress={() => setSettingsDrawerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t("me.settingsPageTitle")}
+              style={headerButtonStyle}
+            >
               <Settings color={theme.text} size={25} strokeWidth={2.2} />
             </Press>
           </View>
         </View>
+      </View>
 
-        <ProfileIdentity theme={theme} avatarUri={data.profile.avatarUrl} nick={profile.nick || t('me.unnamed')}
-          username={profile.username} bio={profile.bio} label={t('account.profile.pageTitle')} onPress={() => push({ type: 'profile' })} />
-
-        <View style={{ paddingHorizontal: layout.pagePadding, gap: space.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <FootprintShortcut theme={theme} points={data.journeys} title={t('me.myFootprints')} detail={t('me.footprintSummary', { count: data.journeys.length })} onPress={() => push({ type: 'journeys' })} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut variant="tracks" theme={theme} icon="route" title={t('me.myTracks')} detail={t('me.tracksSummary', { count: data.tracks.length })}
-                items={[]}
-                trackItems={data.tracks}
-                previewRows={tracksPreviewRows}
-                onPress={() => push({ type: 'tracks' })} />
-            </View>
+      <View
+        pointerEvents={settingsDrawerOpen ? "auto" : "none"}
+        accessibilityViewIsModal={settingsDrawerOpen}
+        style={[StyleSheet.absoluteFill, { zIndex: 55 }]}
+      >
+        <ReAnimated.View style={[StyleSheet.absoluteFill, drawerFadeStyle]}>
+          <View
+            style={{
+              flex: 1,
+              flexDirection: "row",
+              backgroundColor: "rgba(30,32,31,0.32)",
+            }}
+          >
+            <Press
+              accessibilityLabel={t("common.close")}
+              onPress={() => setSettingsDrawerOpen(false)}
+              style={{ flex: 1 }}
+            >
+              <View />
+            </Press>
+            {/* The slide transform lives on an outer wrapper: on Android a
+                transform on the same view as borderRadius + overflow:hidden
+                makes the rounded corners disappear. */}
+            <ReAnimated.View style={[drawerPanelStyle, { width: "80%", height: "100%" }]}>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.featureSurface,
+                  borderTopLeftRadius: radius.showcase,
+                  borderBottomLeftRadius: radius.showcase,
+                  paddingTop: insets.top + space.xl,
+                  overflow: "hidden",
+                }}
+              >
+              <ScrollView
+                contentContainerStyle={{
+                  paddingBottom: insets.bottom + space.xl,
+                }}
+              >
+                {drawerItems.map((item, index) => (
+                  <Press
+                    key={item.key}
+                    onPress={() => item.go?.()}
+                    accessibilityRole="button"
+                    style={{
+                      minHeight: layout.listRowMinHeight,
+                      paddingVertical: space.lg,
+                      paddingHorizontal: space.lg,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: space.md,
+                      borderBottomWidth:
+                        index === drawerItems.length - 1
+                          ? 0
+                          : StyleSheet.hairlineWidth,
+                      borderBottomColor: theme.fieldBorder,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 44,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {item.dot ? (
+                        <ColorDot theme={theme} color={curAccent} size={22} dashed={!curPreset} />
+                      ) : (
+                        <Icon
+                          name={item.icon as IconName}
+                          color={theme.text}
+                          size={24}
+                          strokeWidth={1.7}
+                        />
+                      )}
+                    </View>
+                    <Text style={[type.navTitle, { flex: 1, color: theme.text }]}>
+                      {item.label}
+                    </Text>
+                    {item.value ? (
+                      <Text style={[type.body, { color: theme.text3 }]}>
+                        {item.value}
+                      </Text>
+                    ) : null}
+                    <Icon
+                      name="chevronR"
+                      color={theme.text3}
+                      size={20}
+                      strokeWidth={1.7}
+                    />
+                  </Press>
+                ))}
+              </ScrollView>
+              </View>
+            </ReAnimated.View>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut variant="gear" theme={theme} icon="bag" title={t('gear.home.myGear')} detail={t('me.gearSummary', { count: data.items.length })}
-                items={data.items.map((item, index) => ({ id: String(item.id ?? index), photoUris: item.photos }))}
-                stats={[
-                  { label: t('gear.stat.totalWeight'), value: fmtWeight(gearWeight, data.profile.gearWeightUnit || 'kg') },
-                  { label: t('gear.stat.totalValue'), value: `¥${Math.round(gearValue)}` },
-                ]}
-                onPress={() => nav.openGearPage('items')} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut variant="checklist" theme={theme} icon="list" title={t('me.myChecklist')} detail={t('me.checklistSummary', { count: data.sets.length })}
-                items={[]}
-                previewRows={checklistPreviewRows}
-                onPress={() => nav.openGearPage('sets')} />
-            </View>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: space.sm }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <ProfileShortcut variant="favorites" theme={theme} icon="heart" title={t('me.myFavorites')} detail={t('me.savedSummary', { count: favoriteRoutes })}
-                items={savedRoutes} onPress={() => push({ type: 'favorites' })} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <PlanningProfileCard theme={theme} profile={data.planningProfile} loading={data.planningProfileLoading} onPress={() => push({ type: 'planningProfile' })} />
-            </View>
-          </View>
-          <ProfileShortcut variant="trash" theme={theme} icon="trash" title={t('journeyHome.trash.title')}
-            detail={t('me.trashSummary', { count: data.trashedJourneys.length })}
-            badge={data.trashedJourneys.length ? String(data.trashedJourneys.length) : undefined}
-            items={[]}
-            onPress={() => push({ type: 'trash' })} />
-        </View>
-      </ScrollView>
+        </ReAnimated.View>
+      </View>
 
       {appearancePopup && popupAnchor ? (
-        <Modal visible transparent statusBarTranslucent animationType="none" onRequestClose={() => setAppearancePopup(null)}>
+        <Modal
+          visible
+          transparent
+          statusBarTranslucent
+          animationType="none"
+          onRequestClose={() => setAppearancePopup(null)}
+        >
           <View style={StyleSheet.absoluteFill}>
             <Pressable
-              style={[StyleSheet.absoluteFill, { backgroundColor: theme.dark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.055)' }]}
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  backgroundColor: theme.dark
+                    ? "rgba(0,0,0,0.20)"
+                    : "rgba(0,0,0,0.055)",
+                },
+              ]}
               onPress={() => setAppearancePopup(null)}
             />
             <ReAnimated.View
               style={[
                 {
-                  position: 'absolute',
+                  position: "absolute",
                   top: popupTop,
                   left: popupLeft,
                   width: popupWidth,
                   borderRadius: 26,
-                  overflow: 'hidden',
-                  boxShadow: theme.dark ? '0px 18px 46px rgba(0,0,0,0.52)' : '0px 18px 46px rgba(0,0,0,0.18)',
+                  overflow: "hidden",
+                  boxShadow: theme.dark
+                    ? "0px 18px 46px rgba(0,0,0,0.52)"
+                    : "0px 18px 46px rgba(0,0,0,0.18)",
                 },
                 popupMenuStyle,
               ]}
             >
               <Glass solidOnAndroid theme={theme} radius={26} intensity={76}>
-                <View style={{ paddingVertical: space.xs, backgroundColor: theme.dark ? 'rgba(32,32,35,0.58)' : 'rgba(255,255,255,0.64)' }}>
+                <View
+                  style={{
+                    paddingVertical: space.xs,
+                    backgroundColor: theme.dark
+                      ? "rgba(32,32,35,0.58)"
+                      : "rgba(255,255,255,0.64)",
+                  }}
+                >
                   <ReAnimated.View style={popupContentStyle}>
-                    {appearancePopup === 'theme'
+                    {appearancePopup === "theme"
                       ? themeModes.map((item, index) => (
                           <PopupOption
                             key={item.id}
                             theme={theme}
-                            label={item.id === 'system' ? t('me.themeSystemDefault') : item.label}
+                            label={
+                              item.id === "system"
+                                ? t("me.themeSystemDefault")
+                                : item.label
+                            }
                             selected={mode === item.id}
                             onPress={() => {
                               setMode(item.id);
@@ -1232,7 +2805,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
                             last={index === themeModes.length - 1}
                           />
                         ))
-                      : appearancePopup === 'language'
+                      : appearancePopup === "language"
                         ? langs.map((item, index) => (
                             <PopupOption
                               key={item.id}
@@ -1246,36 +2819,30 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
                               last={index === langs.length - 1}
                             />
                           ))
-                        : appearancePopup === 'weight'
-                          ? WEIGHT_UNITS.map((unit, index) => (
-                              <PopupOption
-                                key={unit}
-                                theme={theme}
-                                label={unit}
-                                selected={data.profile.gearWeightUnit === unit}
-                                onPress={() => {
-                                  setGearWeightUnit(unit);
-                                  setAppearancePopup(null);
-                                }}
-                                last={index === WEIGHT_UNITS.length - 1}
-                              />
-                            ))
                         : ACCENT_PRESETS.map((preset) => {
-                            const selected = curAccent.toLowerCase() === preset.color.toLowerCase();
-                            return (
-                              <PopupOption
-                                key={preset.id}
-                                theme={theme}
-                                label={accentLabel(preset.id)}
-                                leading={<ColorDot theme={theme} color={preset.color} size={20} />}
-                                selected={selected}
-                                onPress={() => {
-                                  setAccent(preset.color);
-                                  setAppearancePopup(null);
-                                }}
-                              />
-                            );
-                          })}
+                              const selected =
+                                curAccent.toLowerCase() ===
+                                preset.color.toLowerCase();
+                              return (
+                                <PopupOption
+                                  key={preset.id}
+                                  theme={theme}
+                                  label={accentLabel(preset.id)}
+                                  leading={
+                                    <ColorDot
+                                      theme={theme}
+                                      color={preset.color}
+                                      size={20}
+                                    />
+                                  }
+                                  selected={selected}
+                                  onPress={() => {
+                                    setAccent(preset.color);
+                                    setAppearancePopup(null);
+                                  }}
+                                />
+                              );
+                            })}
                   </ReAnimated.View>
                 </View>
               </Glass>
@@ -1286,7 +2853,10 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
 
       {/* pushed full-screen pages */}
       {stack.map((pg, i) => (
-        <View key={i + '-' + pg.type} style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}>
+        <View
+          key={i + "-" + pg.type}
+          style={[StyleSheet.absoluteFill, { zIndex: 60 + i }]}
+        >
           {renderPage(pg)}
         </View>
       ))}

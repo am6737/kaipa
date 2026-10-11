@@ -1,16 +1,19 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import type { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
-import { radius, space } from '../../design-system';
+import { AppMeasurementPanel, AppQuestionHeader, AppReadout, radius, space } from '../../design-system';
 import { Press } from '../Press';
 import { MePushPage } from './MePushPage';
+import { createRulerHaptics } from './rulerHaptics';
 
 // Integer tenths keep scrolling and fine adjustments free of floating-point drift.
 const MIN = 250;
 const MAX = 3000;
 const TICK_WIDTH = 10;
 const WEIGHTS = Array.from({ length: MAX - MIN + 1 }, (_, index) => MIN + index);
+// Detents in tenths of a kilogram: the 0.5 kg mid tick, and the 1 kg mark that carries a label.
+const WEIGHT_DETENTS = { minor: 5, major: 10 };
 const clamp = (value: number) => Math.max(MIN, Math.min(MAX, value));
 
 export function PlanningWeightPage({ theme, value, onBack }: {
@@ -27,11 +30,14 @@ export function PlanningWeightPage({ theme, value, onBack }: {
   const ruler = useRef<FlatList<number>>(null);
   const initialized = useRef(false);
   const interacted = useRef(false);
+  const lastTick = useRef(selected);
+  const rulerHaptics = useMemo(() => createRulerHaptics(WEIGHT_DETENTS), []);
   const initialOffset = useRef((selected - MIN) * TICK_WIDTH).current;
   const effectiveWidth = rulerWidth || 320;
   const padding = Math.max(0, (effectiveWidth - TICK_WIDTH) / 2);
   const adjust = (delta: number) => {
     const next = clamp(selected + delta);
+    lastTick.current = next;
     setSelected(next);
     ruler.current?.scrollToOffset({ offset: (next - MIN) * TICK_WIDTH, animated: false });
   };
@@ -39,14 +45,9 @@ export function PlanningWeightPage({ theme, value, onBack }: {
   return (
     <MePushPage theme={theme} title={t('planningProfile.weightTitle')} onBack={() => onBack(String(selected / 10))}>
       <View style={styles.content}>
-        <Text accessibilityRole="header" style={[styles.question, { color: theme.text }]}>{t('planningProfile.weightQuestion')}</Text>
-        <Text style={[styles.description, { color: theme.text2 }]}>{t('planningProfile.weightDetail')}</Text>
-        <View style={[styles.measurementCard, { backgroundColor: theme.dark ? theme.surface : '#F7F7F8', borderColor: theme.dark ? 'rgba(255,255,255,0.16)' : '#FFFFFF', boxShadow: theme.dark ? '0px 8px 24px rgba(0,0,0,0.18)' : '0px 8px 24px rgba(0,0,0,0.025)' }]}>
-          <Text style={[styles.label, { color: theme.text2 }]}>{t('planningProfile.weight')}</Text>
-          <View style={styles.readout}>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={[styles.number, { color: theme.text }]}>{(selected / 10).toFixed(1)}</Text>
-            <Text style={[styles.unit, { color: theme.text2 }]}>kg</Text>
-          </View>
+        <AppQuestionHeader theme={theme} question={t('planningProfile.weightQuestion')} description={t('planningProfile.weightDetail')} />
+        <AppMeasurementPanel theme={theme} style={styles.measurementCard}>
+          <AppReadout theme={theme} variant="inline" label={t('planningProfile.weight')} value={(selected / 10).toFixed(1)} unit="kg" />
           <View
             onLayout={({ nativeEvent }) => setRulerWidth(nativeEvent.layout.width)}
             accessible
@@ -79,9 +80,16 @@ export function PlanningWeightPage({ theme, value, onBack }: {
               snapToInterval={TICK_WIDTH}
               decelerationRate="fast"
               scrollEventThrottle={16}
-              onScrollBeginDrag={() => { interacted.current = true; }}
+              onScrollBeginDrag={() => { interacted.current = true; rulerHaptics.grab(); }}
+              onMomentumScrollEnd={() => rulerHaptics.release()}
               onScroll={({ nativeEvent }) => {
-                if (initialized.current && interacted.current) setSelected(clamp(MIN + Math.round(nativeEvent.contentOffset.x / TICK_WIDTH)));
+                if (!(initialized.current && interacted.current)) return;
+                const raw = MIN + Math.round(nativeEvent.contentOffset.x / TICK_WIDTH);
+                const next = clamp(raw);
+                rulerHaptics.edge(raw !== next);
+                rulerHaptics.move(lastTick.current, next);
+                lastTick.current = next;
+                setSelected(next);
               }}
               renderItem={({ item }) => {
                 const whole = item % 10 === 0;
@@ -93,8 +101,7 @@ export function PlanningWeightPage({ theme, value, onBack }: {
             />
             <View pointerEvents="none" style={[styles.indicator, { backgroundColor: theme.accent }]} />
           </View>
-
-        </View>
+        </AppMeasurementPanel>
       </View>
     </MePushPage>
   );
@@ -102,13 +109,7 @@ export function PlanningWeightPage({ theme, value, onBack }: {
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.lg },
-  question: { fontSize: 27, fontWeight: '700', lineHeight: 38 },
-  description: { fontSize: 14, lineHeight: 23, marginTop: space.md },
-  measurementCard: { borderRadius: radius.showcase, borderWidth: 2, paddingVertical: space.xxl, marginTop: space.xxl, alignItems: 'center' },
-  label: { fontSize: 14, fontWeight: '500' },
-  readout: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.lg, marginTop: space.sm },
-  number: { fontSize: 76, fontWeight: '600', letterSpacing: -3, fontVariant: ['tabular-nums'], flexShrink: 1 },
-  unit: { fontSize: 20, fontWeight: '600' },
+  measurementCard: { paddingVertical: space.xxl, marginTop: space.xxl, alignItems: 'center' },
   ruler: { alignSelf: 'stretch', height: 100, marginTop: space.xxxl, overflow: 'hidden' },
   tickCell: { width: TICK_WIDTH, height: 100, alignItems: 'center', paddingTop: space.sm },
   tickLabel: { position: 'absolute', top: 58, width: 48, fontSize: 12, textAlign: 'center', fontVariant: ['tabular-nums'] },

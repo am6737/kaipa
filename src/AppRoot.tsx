@@ -22,6 +22,7 @@ import { BottomTabs } from './components/BottomTabs';
 import { MapPresentationProvider } from './components/maps/MapPresentationContext';
 import { ActionSheet } from './components/overlays/ActionSheet';
 import { AddRouteSheet } from './components/overlays/AddRouteSheet';
+import { RouteRequestSheet } from './components/discover/RouteRequestSheet';
 import { NewJourneySheet, NJSharePanel } from './components/overlays/NewJourneySheet';
 import { ElevationFull } from './components/overlays/ElevationFull';
 import { PhotoWall } from './components/overlays/PhotoWall';
@@ -159,6 +160,7 @@ function AppShell() {
           theme={theme}
           loading={trackLoading}
           onClose={() => { if (!trackLoading) nav.closeAddRoute(); }}
+          onRequest={() => { nav.closeAddRoute(); nav.openRouteRequest(); }}
           onUpload={async () => {
             try {
               const result = await FSFile.pickFileAsync({ mimeTypes: '*/*' });
@@ -193,6 +195,7 @@ function AppShell() {
           }}
         />
       )}
+      {nav.routeRequestOpen && <RouteRequestSheet theme={theme} prefill={nav.routeRequestPrefill} onClose={nav.closeRouteRequest} onDone={nav.showToast} />}
       {nav.routeGuide && (
         <RouteGuidePage key={nav.routeGuide.route.id} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} />
       )}
@@ -447,6 +450,7 @@ function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAcco
         updateRoute: data.updateRoute,
         deleteJourney: data.deleteJourney,
         toggleFav: data.toggleFav,
+        toggleRouteFavorite: data.toggleRouteFavorite,
         createJourney: data.createJourney,
       }}
     >

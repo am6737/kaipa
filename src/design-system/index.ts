@@ -1,4 +1,10 @@
 export { AppCard } from './components/AppCard';
+export { AppChoiceChip } from './components/AppChoiceChip';
+export { AppFieldCard } from './components/AppFieldCard';
+export { AppMeasurementPanel } from './components/AppMeasurementPanel';
+export { AppQuestionHeader } from './components/AppQuestionHeader';
+export { AppReadout } from './components/AppReadout';
+export { AppTextArea } from './components/AppTextArea';
 export { AppActionDialog } from './components/AppActionDialog';
 export { AppIconButton } from './components/AppIconButton';
 export { AppMetricStrip } from './components/AppMetricStrip';

@@ -210,6 +210,22 @@ Deno.test('a failed itinerary write stops the endpoints that depend on it', asyn
   } finally { h.dispose(); }
 });
 
+Deno.test('an endpoint day feasibility blocker prevents the ambiguous boundary write', async () => {
+  const h = saveHarness();
+  try {
+    const artifact = await runSaveStage(h.client as never, h.context, plan({
+      itineraryItems: [{ day: 'Day 3', title: '党岭徒步', routeId: 'trk008', kind: 'activity' }],
+      endpoints: [{ day: 'Day 4', routeId: 'trk008', trackFinish: true }],
+      feasibility: {
+        issues: [{ code: 'endpoint_day_alignment', severity: 'blocker', day: 'Day 4', message: '终点日与徒步活动日不一致。' }],
+        checkedAt: new Date().toISOString(),
+      },
+    }));
+    assert(!h.executed.includes('set_itinerary_group_endpoints'), 'an alignment blocker must prevent the boundary tool call');
+    assert(artifact.skipped.some(entry => entry.tool === 'set_itinerary_group_endpoints' && entry.reason === 'endpoint_day_alignment'), `unexpected skips: ${JSON.stringify(artifact.skipped)}`);
+  } finally { h.dispose(); }
+});
+
 Deno.test('a failed creation stops the save instead of writing to nothing', async () => {
   const h = saveHarness({ fail: ['create_journey'] });
   try {

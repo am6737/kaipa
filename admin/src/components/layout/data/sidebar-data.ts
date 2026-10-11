@@ -14,6 +14,7 @@ export const sidebarData: SidebarData = {
         { title: '装备库', url: '/gear', icon: Backpack },
         { title: '路线目录', url: '/routes', icon: Route },
         { title: '线路资料', url: '/route-facts', icon: BookMarked },
+        { title: '路线知识库', url: '/route-knowledge', icon: BookMarked },
         { title: '路线近期实况', url: '/route-observations', icon: Waypoints },
         { title: '路线攻略审核', url: '/route-guides', icon: BookMarked },
         { title: '轨迹库', url: '/tracks', icon: Waypoints },

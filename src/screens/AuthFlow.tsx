@@ -35,10 +35,11 @@ import { elevAccent, shadow } from '../theme/shadow';
 import { MONO } from '../theme/fonts';
 import { layout, motion, radius, space, type } from '../design-system';
 import { useI18n, TKey } from '../i18n';
-import { signInWithEmail, signUpWithEmail, signInAnonymously, signInWithApple, isAppleSignInAvailable, isAppleSignInCanceled } from '../lib/auth';
+import { signInWithEmail, signUpWithEmail, signInAnonymously, signInWithApple, isAppleSignInAvailable, isAppleSignInCanceled, sendPhoneOtp, verifyPhoneOtp } from '../lib/auth';
 import { WeChatIcon } from '../components/WeChatIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload, getQrLoginStatus } from '../lib/qrLogin';
+import { LEGAL_UPDATED_LABEL } from '../components/me/legalMeta';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -493,7 +494,7 @@ function StepTitle({ t, title, sub }: { t: Theme; title: string; sub: string }) 
 const AUTH_DOCS: Record<DocId, { titleKey: TKey; updated: string; intro: string; sections: { h: string; p: string[] }[] }> = {
   agreement: {
     titleKey: 'auth.docs.agreementTitle',
-    updated: '更新日期：2026 年 4 月 1 日',
+    updated: LEGAL_UPDATED_LABEL,
     intro:
       '欢迎使用「开爬 kaipa」徒步记录服务。在注册或使用本服务前，请仔细阅读并充分理解本协议各条款。当你勾选同意或开始使用本服务，即表示你已接受本协议的全部内容。',
     sections: [
@@ -508,7 +509,7 @@ const AUTH_DOCS: Record<DocId, { titleKey: TKey; updated: string; intro: string;
   },
   privacy: {
     titleKey: 'auth.docs.privacyTitle',
-    updated: '更新日期：2026 年 4 月 1 日',
+    updated: LEGAL_UPDATED_LABEL,
     intro: '开爬 kaipa 高度重视你的隐私。本政策说明我们如何收集、使用、存储和保护你的个人信息。请你在使用服务前认真阅读。',
     sections: [
       { h: '一、我们收集的信息', p: ['账号信息：手机号、邮箱、昵称与头像等你主动提供的资料。', '轨迹与位置信息：你上传或记录的徒步轨迹、海拔、里程等地理数据。', '内容信息：你在行程中添加的照片、文字与装备清单。', '设备信息：用于保障服务稳定与安全的设备型号、系统版本等基础信息。'] },
@@ -674,7 +675,7 @@ function AuthSocialOverlay({ t, kind }: { t: Theme; kind: SocialId }) {
 }
 
 // ── OTP step (phone) ──────────────────────────────────────────────────────────
-function AuthOtp({ t, phone, busy, onBack, onVerify }: { t: Theme; phone: string; busy: boolean; onBack: () => void; onVerify: (code: string) => void }) {
+function AuthOtp({ t, phone, busy, error, onBack, onVerify }: { t: Theme; phone: string; busy: boolean; error?: string; onBack: () => void; onVerify: (code: string) => void }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   const x = useSlideIn();
@@ -702,6 +703,7 @@ function AuthOtp({ t, phone, busy, onBack, onVerify }: { t: Theme; phone: string
         </Text>
         <OtpInput t={t} code={code} setCode={setCode} />
         <ResendRow t={t} left={left} onResend={() => { setLeft(60); setCode(''); }} />
+        {error ? <Text style={{ marginTop: space.md, color: t.danger, fontSize: 13, textAlign: 'center' }}>{error}</Text> : null}
         {busy && (
           <View style={{ marginTop: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <Spinner size={16} color={t.accent} track={t.hairline} width={2} />
@@ -724,6 +726,8 @@ function AuthPhoneStep({
   flashAgree,
   onBack,
   onNext,
+  busy,
+  error,
   onOpenDoc,
 }: {
   t: Theme;
@@ -735,6 +739,8 @@ function AuthPhoneStep({
   flashAgree: () => void;
   onBack: () => void;
   onNext: () => void;
+  busy: boolean;
+  error?: string;
   onOpenDoc: (id: DocId) => void;
 }) {
   const { t: tr } = useI18n();
@@ -789,7 +795,9 @@ function AuthPhoneStep({
             }
             onNext();
           }}
+          busy={busy}
         />
+        {error ? <Text style={{ marginTop: space.md, color: t.danger, fontSize: 13, textAlign: 'center' }}>{error}</Text> : null}
         <View style={{ marginTop: space.lg }}>
           <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={onOpenDoc} />
         </View>
@@ -1278,7 +1286,25 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
     setBusy(false);
     if (error) { setAuthError(friendlyError(error.message)); return; }
   };
-  const onVerify = () => { setBusy(true); setTimeout(() => onSuccess(), 700); };
+  const onPhoneNext = async () => {
+    if (busy) return;
+    setBusy(true);
+    setAuthError('');
+    const normalized = `+86${phone}`;
+    const { error } = await sendPhoneOtp(normalized);
+    setBusy(false);
+    if (error) { setAuthError(friendlyError(error.message)); return; }
+    setStep('otp');
+  };
+  const onVerify = async (code: string) => {
+    if (busy) return;
+    setBusy(true);
+    setAuthError('');
+    const { error } = await verifyPhoneOtp(`+86${phone}`, code);
+    setBusy(false);
+    if (error) { setAuthError(friendlyError(error.message)); return; }
+    onSuccess();
+  };
   const onSocial = async (id: SocialId) => {
     if (!agree) { flashAgree(); return; }
     if (busy) return;
@@ -1333,11 +1359,13 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
         flash={flash}
         flashAgree={flashAgree}
         onBack={() => setStep('entry')}
-        onNext={() => setStep('otp')}
+        onNext={() => void onPhoneNext()}
+        busy={busy}
+        error={authError}
         onOpenDoc={setDoc}
       />
     );
-  if (step === 'otp') return <AuthOtp t={t} phone={phone} busy={busy} onBack={() => setStep('phone')} onVerify={onVerify} />;
+  if (step === 'otp') return <AuthOtp t={t} phone={phone} busy={busy} error={authError} onBack={() => setStep('phone')} onVerify={(code) => void onVerify(code)} />;
   if (step === 'recover') return <AuthRecover t={t} onBack={() => setStep('entry')} onDone={() => setStep('entry')} onOpenDoc={setDoc} />;
   if (step === 'qr') return <AuthQrLogin t={t} onBack={() => setStep('entry')} />;
 

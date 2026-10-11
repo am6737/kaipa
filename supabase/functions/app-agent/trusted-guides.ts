@@ -1,6 +1,7 @@
-import { getRouteGuide, GUIDE_SECTIONS, guideSourcesFor, missingGuideSections, type GuideSource, type RouteGuide } from '../_shared/route-guides.ts';
+import { getRouteGuide, GUIDE_SECTIONS, guideSourcesFor, missingGuideSections, lookupRouteKnowledge, type GuideSource, type RouteGuide } from '../_shared/route-guides.ts';
 
-export type GuideLookup = (routeId: string) => RouteGuide | null;
+export type GuideLookup = (routeId: string) => Promise<RouteGuide | null>;
+type GuideLookupAny = (routeId: string) => RouteGuide | null | Promise<RouteGuide | null>;
 export { getRouteGuide, missingGuideSections };
 export type GuideEvidence = {
   routeName: string;
@@ -9,24 +10,33 @@ export type GuideEvidence = {
   asOf: string | null;
   sources: GuideSource[];
   missingSections: string[];
+  knowledgeReadFailed?: boolean;
 };
 
-export function guideDisclosure(name: string, missing: string[]): string | null {
+export function guideDisclosure(name: string, missing: string[], knowledgeReadFailed = false): string | null {
+  if (knowledgeReadFailed) return `${name}的路线知识库暂时无法读取，不能据此估算或编造。`;
   if (!missing.length) return null;
   const headings = missing.map(key => GUIDE_SECTIONS.find(section => section.key === key)?.heading || key);
   return missing.includes('*') ? `${name}的路线指南尚未覆盖该路线，不能据此估算或编造。`
     : `${name}的路线指南尚未覆盖：${headings.join('、')}，不能据此估算或编造。`;
 }
 
-export function guideEvidence(name: string, routeId: string | null, lookup: GuideLookup = getRouteGuide): GuideEvidence {
-  const guide = routeId ? lookup(routeId) : null;
-  return {
+export function guideEvidence(name: string, routeId: string | null, lookup: (routeId: string) => RouteGuide | null): GuideEvidence;
+export function guideEvidence(name: string, routeId: string | null, lookup?: GuideLookup): Promise<GuideEvidence>;
+export function guideEvidence(name: string, routeId: string | null, lookup: GuideLookupAny = getRouteGuide): GuideEvidence | Promise<GuideEvidence> {
+  const value = routeId ? lookup(routeId) : null;
+  const build = (guide: RouteGuide | null): GuideEvidence => ({
     routeName: name, routeId, asOf: guide?.asOf ?? null,
     // Preserve the original body and make section-specific citations explicit.
     markdown: guide ? `${guide.markdown}\n\n章节引用：\n${guide.sections.map(section =>
       `${section.heading}：${JSON.stringify(guideSourcesFor(guide, [section.key]))}`).join('\n')}` : '',
     sources: guide?.sources ?? [], missingSections: missingGuideSections(guide),
-  };
+  });
+  return value instanceof Promise ? value.then(build) : build(value);
+}
+
+export function dbGuideLookup(client: any): GuideLookup {
+  return (routeId: string) => lookupRouteKnowledge(client, routeId);
 }
 
 export async function guidesFingerprint(evidence: GuideEvidence[]): Promise<string> {

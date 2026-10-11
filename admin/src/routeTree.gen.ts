@@ -40,6 +40,7 @@ import { Route as AuthenticatedNotificationsIndexRouteImport } from './routes/_a
 import { Route as AuthenticatedOperationsFeaturesRouteImport } from './routes/_authenticated/operations/features'
 import { Route as AuthenticatedOperationsResourcesRouteImport } from './routes/_authenticated/operations/resources'
 import { Route as AuthenticatedRouteFactsIndexRouteImport } from './routes/_authenticated/route-facts/index'
+import { Route as AuthenticatedRouteKnowledgeIndexRouteImport } from './routes/_authenticated/route-knowledge/index'
 import { Route as AuthenticatedRoutesIndexRouteImport } from './routes/_authenticated/routes/index'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
 import { Route as AuthenticatedSettingsAccountRouteImport } from './routes/_authenticated/settings/account'
@@ -218,6 +219,12 @@ const AuthenticatedRouteFactsIndexRoute =
     path: '/route-facts/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRouteKnowledgeIndexRoute =
+  AuthenticatedRouteKnowledgeIndexRouteImport.update({
+    id: '/route-knowledge/',
+    path: '/route-knowledge/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRoutesIndexRoute =
   AuthenticatedRoutesIndexRouteImport.update({
     id: '/routes/',
@@ -330,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/journeys/': typeof AuthenticatedJourneysIndexRoute
   '/notifications/': typeof AuthenticatedNotificationsIndexRoute
   '/route-facts/': typeof AuthenticatedRouteFactsIndexRoute
+  '/route-knowledge/': typeof AuthenticatedRouteKnowledgeIndexRoute
   '/routes/': typeof AuthenticatedRoutesIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
   '/tasks/': typeof AuthenticatedTasksIndexRoute
@@ -372,6 +380,7 @@ export interface FileRoutesByTo {
   '/journeys': typeof AuthenticatedJourneysIndexRoute
   '/notifications': typeof AuthenticatedNotificationsIndexRoute
   '/route-facts': typeof AuthenticatedRouteFactsIndexRoute
+  '/route-knowledge': typeof AuthenticatedRouteKnowledgeIndexRoute
   '/routes': typeof AuthenticatedRoutesIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
   '/tasks': typeof AuthenticatedTasksIndexRoute
@@ -419,6 +428,7 @@ export interface FileRoutesById {
   '/_authenticated/journeys/': typeof AuthenticatedJourneysIndexRoute
   '/_authenticated/notifications/': typeof AuthenticatedNotificationsIndexRoute
   '/_authenticated/route-facts/': typeof AuthenticatedRouteFactsIndexRoute
+  '/_authenticated/route-knowledge/': typeof AuthenticatedRouteKnowledgeIndexRoute
   '/_authenticated/routes/': typeof AuthenticatedRoutesIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
   '/_authenticated/tasks/': typeof AuthenticatedTasksIndexRoute
@@ -464,6 +474,7 @@ export interface FileRouteTypes {
     | '/journeys/'
     | '/notifications/'
     | '/route-facts/'
+    | '/route-knowledge/'
     | '/routes/'
     | '/settings/'
     | '/tasks/'
@@ -506,6 +517,7 @@ export interface FileRouteTypes {
     | '/journeys'
     | '/notifications'
     | '/route-facts'
+    | '/route-knowledge'
     | '/routes'
     | '/settings'
     | '/tasks'
@@ -552,6 +564,7 @@ export interface FileRouteTypes {
     | '/_authenticated/journeys/'
     | '/_authenticated/notifications/'
     | '/_authenticated/route-facts/'
+    | '/_authenticated/route-knowledge/'
     | '/_authenticated/routes/'
     | '/_authenticated/settings/'
     | '/_authenticated/tasks/'
@@ -793,6 +806,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteFactsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/route-knowledge/': {
+      id: '/_authenticated/route-knowledge/'
+      path: '/route-knowledge'
+      fullPath: '/route-knowledge/'
+      preLoaderRoute: typeof AuthenticatedRouteKnowledgeIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/routes/': {
       id: '/_authenticated/routes/'
       path: '/routes'
@@ -930,6 +950,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedJourneysIndexRoute: typeof AuthenticatedJourneysIndexRoute
   AuthenticatedNotificationsIndexRoute: typeof AuthenticatedNotificationsIndexRoute
   AuthenticatedRouteFactsIndexRoute: typeof AuthenticatedRouteFactsIndexRoute
+  AuthenticatedRouteKnowledgeIndexRoute: typeof AuthenticatedRouteKnowledgeIndexRoute
   AuthenticatedRoutesIndexRoute: typeof AuthenticatedRoutesIndexRoute
   AuthenticatedTasksIndexRoute: typeof AuthenticatedTasksIndexRoute
   AuthenticatedTracksIndexRoute: typeof AuthenticatedTracksIndexRoute
@@ -954,6 +975,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedJourneysIndexRoute: AuthenticatedJourneysIndexRoute,
   AuthenticatedNotificationsIndexRoute: AuthenticatedNotificationsIndexRoute,
   AuthenticatedRouteFactsIndexRoute: AuthenticatedRouteFactsIndexRoute,
+  AuthenticatedRouteKnowledgeIndexRoute: AuthenticatedRouteKnowledgeIndexRoute,
   AuthenticatedRoutesIndexRoute: AuthenticatedRoutesIndexRoute,
   AuthenticatedTasksIndexRoute: AuthenticatedTasksIndexRoute,
   AuthenticatedTracksIndexRoute: AuthenticatedTracksIndexRoute,

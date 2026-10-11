@@ -1,5 +1,3 @@
-import { ROUTE_GUIDES } from './route-guides.generated.ts';
-
 export const GUIDE_SECTIONS = [
   { key: 'overview', heading: '概览' },
   { key: 'itinerary', heading: '行程' },
@@ -44,8 +42,59 @@ export type RouteGuide = {
   markdown: string;
 };
 
-export function getRouteGuide(routeId: string): RouteGuide | null {
-  return Object.hasOwn(ROUTE_GUIDES, routeId) ? ROUTE_GUIDES[routeId] : null;
+export type KnowledgeRow = {
+  id: string;
+  route_id: string | null;
+  region: string | null;
+  section: RouteGuide['sections'][number]['key'];
+  title: string;
+  body: string;
+  sources: GuideSource[];
+  as_of: string;
+  status?: string;
+};
+
+function assembleKnowledge(routeId: string, rows: KnowledgeRow[]): RouteGuide | null {
+  if (!rows.length) return null;
+  const byKey = new Map<string, KnowledgeRow>();
+  for (const row of rows) if (!byKey.has(row.section)) byKey.set(row.section, row);
+  const sections = GUIDE_SECTIONS.flatMap(({ key, heading }) => {
+    const row = byKey.get(key);
+    if (!row) return [];
+    return [{ key, heading, sourceIds: (Array.isArray(row.sources) ? row.sources : []).map(source => source.id), body: row.route_id ? row.body : `区域知识（${row.region}）\n\n${row.body}` }];
+  });
+  const sourceMap = new Map<string, GuideSource>();
+  for (const row of rows) for (const source of Array.isArray(row.sources) ? row.sources : []) {
+    if (source?.id && !sourceMap.has(source.id)) sourceMap.set(source.id, source);
+  }
+  const sources = [...sourceMap.values()];
+  const asOf = rows.map(row => row.as_of).filter(Boolean).sort().at(-1) || '';
+  const markdown = sections.map(section => {
+    const row = byKey.get(section.key)!;
+    const label = row.route_id ? row.title : `${row.title}（区域知识：${row.region}）`;
+    return `## ${label} [${section.sourceIds.join(',')}]\n\n${row.body}`;
+  }).join('\n\n');
+  return { routeId, title: rows.find(row => row.route_id)?.title || rows[0].title, variant: null, asOf, sources, sections, markdown };
+}
+
+/** Build a guide from rows returned by get_route_knowledge. */
+export function routeGuideFromKnowledge(routeId: string, rows: KnowledgeRow[]): RouteGuide | null {
+  return assembleKnowledge(routeId, rows);
+}
+
+/** Database-backed lookup. The client is intentionally injected for tests and for the service-role pipeline client. */
+export async function lookupRouteKnowledge(client: any, routeId: string): Promise<RouteGuide | null> {
+  if (!client?.rpc) return null;
+  const result = await client.rpc('get_route_knowledge', { p_route_id: routeId });
+  if (result.error) throw result.error;
+  return assembleKnowledge(routeId, (result.data || []) as KnowledgeRow[]);
+}
+
+/** Compatibility default for callers that inject fixtures. Runtime callers pass lookupRouteKnowledge with their client. */
+export async function getRouteGuide(_routeId: string): Promise<RouteGuide | null> {
+  // The runtime supplies a service-role client through lookupRouteKnowledge.
+  // This zero-client fallback keeps shared helpers safe when called outside a run.
+  return null;
 }
 
 export function missingGuideSections(guide: RouteGuide | null): string[] {

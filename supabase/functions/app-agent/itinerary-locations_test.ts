@@ -18,7 +18,7 @@ Deno.test('local transfer expands into two separate places and next day repeats 
 
 Deno.test('overnight train arrival belongs to the actual next day and retains both stations', () => {
   const rows = providerItinerary({ direction: 'outbound', mode: 'rail', origin: '南宁东', destination: '成都东', departureDate: '2026-10-09', earliestHour: null },
-    { available: true, status: 'results', offers: [{ from: '南宁东', to: '成都东', trainNumber: 'D1', departure: '2026-10-09T20:00:00+08:00', arrival: '2026-10-10T07:30:00+08:00', seats: [{ availability: '有' }] }] }, '2026-10-09');
+    { available: true, status: 'results', offers: [{ from: '南宁东', to: '成都东', trainNumber: 'D1', departure: '2026-10-09T20:00:00+08:00', arrival: '2026-10-10T07:30:00+08:00', seats: [{ availability: '有' }] }] }, '2026-10-09', Date.parse('2026-10-08T00:00:00+08:00'));
   assert(rows.length === 2 && rows[0].location?.name === '南宁东' && rows[1].location?.name === '成都东');
   assert(rows[1].day === 'Day 2' && rows[1].timeStart === '07:30' && rows[1].location?.incomingMode === 'rail');
 });

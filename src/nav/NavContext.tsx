@@ -98,6 +98,10 @@ export interface NavValue {
   addRouteOpen: boolean;
   openAddRoute: () => void;
   closeAddRoute: () => void;
+  routeRequestOpen: boolean;
+  routeRequestPrefill?: string;
+  openRouteRequest: (prefill?: string) => void;
+  closeRouteRequest: () => void;
 
   // 新增旅程 flow (旅程 tab "+")
   newJourneyOpen: boolean;
@@ -174,6 +178,8 @@ export interface NavValue {
   searchOpen: boolean;
   openSearch: () => void;
   closeSearch: () => void;
+  discoverRegion: string;
+  setDiscoverRegion: (region: string) => void;
 
   // Global in-app agent. Feature pages may provide a prompt and current journey.
   assistantOpen: boolean;
@@ -212,6 +218,7 @@ export interface NavDB {
   updateRoute?: (id: string, patch: Partial<Poi>) => Promise<void>;
   deleteJourney?: (id: string) => Promise<void>;
   toggleFav?: (id: string, current: boolean) => Promise<void>;
+  toggleRouteFavorite?: (id: string, current: boolean) => Promise<void>;
   createJourney?: (poi: Partial<Poi>) => Promise<Poi | null>;
 }
 
@@ -235,6 +242,8 @@ export function NavProvider({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [actionSheet, setActionSheet] = useState<ActionSheetConfig | null>(null);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const [routeRequestOpen, setRouteRequestOpen] = useState(false);
+  const [routeRequestPrefill, setRouteRequestPrefill] = useState<string>();
   const [routeGuide, setRouteGuide] = useState<RouteGuideRequest | null>(null);
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
@@ -254,6 +263,7 @@ export function NavProvider({
   const [extraJourneys, setExtraJourneys] = useState<Poi[]>([]);
   const [sharePanel, setSharePanel] = useState<Poi | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [discoverRegion, setDiscoverRegion] = useState('全国');
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantPrompt, setAssistantPrompt] = useState<string>();
   const [assistantDisplayPrompt, setAssistantDisplayPrompt] = useState<string>();
@@ -278,6 +288,7 @@ export function NavProvider({
     routeGuide ||
     actionSheet ||
     addRouteOpen ||
+    routeRequestOpen ||
     newJourneyOpen ||
     journeyInviteScannerOpen ||
     journeyCodeEntryOpen ||
@@ -436,7 +447,12 @@ export function NavProvider({
         const cur = pointInfo;
         const newFav = !(cur && cur.fav);
         patchCurrent({ fav: newFav });
-        if (cur?.id) db?.toggleFav?.(cur.id, cur.fav ?? false);
+        if (cur?.id) {
+          const operation = cur.kind === 'route'
+            ? db?.toggleRouteFavorite?.(cur.id, cur.fav ?? false)
+            : db?.toggleFav?.(cur.id, cur.fav ?? false);
+          void operation;
+        }
       },
       merged,
       blockingOverlayOpen,
@@ -449,6 +465,10 @@ export function NavProvider({
       addRouteOpen,
       openAddRoute: () => setAddRouteOpen(true),
       closeAddRoute: () => setAddRouteOpen(false),
+      routeRequestOpen,
+      routeRequestPrefill,
+      openRouteRequest: (prefill?: string) => { setRouteRequestPrefill(prefill); setRouteRequestOpen(true); },
+      closeRouteRequest: () => { setRouteRequestOpen(false); setRouteRequestPrefill(undefined); },
       newJourneyOpen,
       newJourneyPreset,
       openNewJourney: (preset?: Poi) => {
@@ -536,6 +556,8 @@ export function NavProvider({
       searchOpen,
       openSearch: () => setSearchOpen(true),
       closeSearch: () => setSearchOpen(false),
+      discoverRegion,
+      setDiscoverRegion,
       assistantOpen,
       assistantPrompt,
       assistantDisplayPrompt,
@@ -611,6 +633,7 @@ export function NavProvider({
       manageCompanions,
       sharePanel,
       searchOpen,
+      discoverRegion,
       assistantOpen,
       assistantPrompt,
       assistantDisplayPrompt,
