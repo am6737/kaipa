@@ -1083,7 +1083,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
               <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={{ fontSize: 21, fontWeight: '800', color: t.text, letterSpacing: -0.4 }}>{filter.self ? tr('journey.photoWall.myMoments') : filter.name}</Text>
-                  {filter.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>{tr('journey.companions.host')}</Text></View> : null}
+                  {filter.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>{tr('journey.companions.host')}</Text></View> : null}
                 </View>
                 <Text style={{ fontSize: 12.5, color: t.text2, marginTop: 2 }}>{tr('journey.moments.countPhotos', { count: visible.length })}</Text>
               </View>
@@ -1274,7 +1274,7 @@ export function PhotoWall({ theme, info, onClose }: { theme: Theme; info: Poi; o
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                             <Text style={{ fontSize: 15, fontWeight: '600', color: t.text }}>{c.name}</Text>
-                            {c.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.accent }}>{tr('journey.companions.host')}</Text></View> : null}
+                            {c.host ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>{tr('journey.companions.host')}</Text></View> : null}
                             {c.self ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}><Text style={{ fontSize: 9.5, fontWeight: '700', color: t.text2 }}>{tr('journey.companions.you')}</Text></View> : null}
                           </View>
                           <Text style={{ fontSize: 12, color: t.text2, marginTop: 2 }}>

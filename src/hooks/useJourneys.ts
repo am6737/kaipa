@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { toJourneyPoi, toTrack, trackProjection } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
 import { MAX_JOURNEY_PARTICIPANTS, type Poi } from "../data/pois";
+import type { UserProfile } from "./useProfile";
 
 const has = (obj: object, key: keyof Poi) =>
   Object.prototype.hasOwnProperty.call(obj, key);
@@ -19,7 +20,7 @@ async function embeddedTrack(trackId: string | undefined) {
   return data ?? null;
 }
 
-export function useJourneys(userId: string | undefined) {
+export function useJourneys(userId: string | undefined, profile?: UserProfile) {
   const [journeys, setJourneys] = useState<Poi[]>([]);
   const [trashedJourneys, setTrashedJourneys] = useState<Poi[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,8 +81,29 @@ export function useJourneys(userId: string | undefined) {
     }
 
     if (error) console.warn("[useJourneys] fetch error:", error.message);
+    // Older journeys may have a placeholder self companion (for example the
+    // prototype's 陈泽宇) and no avatar URL. Resolve the current user's
+    // profile here so every journey card can render the same identity.
+    const { data: viewerProfile } = await supabase
+      .from("profiles")
+      .select("nick, display_name, avatar_url")
+      .eq("id", userId)
+      .maybeSingle();
+    const viewerName = viewerProfile?.nick || viewerProfile?.display_name || undefined;
+    const normalizeCompanions = (companions: any[] | null | undefined, owned: boolean) =>
+      (companions ?? []).map((companion) =>
+        companion.user_id === userId || (owned && !companion.user_id && companion.is_self)
+          ? {
+              ...companion,
+              name: viewerName || companion.name,
+              ini: viewerName?.slice(0, 1) || companion.ini,
+              avatar_url: viewerProfile ? viewerProfile.avatar_url : companion.avatar_url,
+            }
+          : companion,
+      );
     const ownedRows = (data ?? []).map((journey: any) => ({
       ...journey,
+      companions: normalizeCompanions(journey.companions, true),
       mine: true,
     }));
     let joinedRows: any[] = [];
@@ -130,6 +152,7 @@ export function useJourneys(userId: string | undefined) {
         if (!joinedRes.error)
           joinedRows = (joinedRes.data ?? []).map((journey: any) => ({
             ...journey,
+            companions: normalizeCompanions(journey.companions, false),
             mine: false,
           }));
       }
@@ -171,14 +194,14 @@ export function useJourneys(userId: string | undefined) {
     } else {
       setTrashedJourneys(
         (trashedResult.data ?? []).map((journey: any) =>
-          toJourneyPoi({ ...journey, asc: journey.asc_, mine: true }, undefined, userId),
+          toJourneyPoi({ ...journey, asc: journey.asc_, mine: true, companions: normalizeCompanions(journey.companions, true) }, undefined, userId),
         ),
       );
     }
     setJourneys(nextJourneys);
     setLoading(false);
     return nextJourneys;
-  }, [userId]);
+  }, [userId, profile?.nick, profile?.avatarUrl]);
 
   useEffect(() => {
     fetchJourneys();

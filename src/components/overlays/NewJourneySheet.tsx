@@ -436,6 +436,7 @@ function NJStepDetails({
   onOpenTimePicker: () => void;
 }) {
   const { t } = useI18n();
+  const { profile } = useData();
   const now = useMemo(() => njRoundedNow(), []);
   const endDt = njAddMinutes(startDt, durationMins);
   const nameMissing = !tripName.trim();
@@ -496,8 +497,8 @@ function NJStepDetails({
       <NJSection theme={theme} label={t('journeyEdit.details.companionsLabel')} hint={t('journeyEdit.details.companionsHint')}>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-              <Avatar size={32} />
-              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>{SELF.name}</Text>
+              <Avatar uri={profile.avatarUrl} size={32} />
+              <Text style={{ fontSize: 13.5, fontWeight: '600', color: theme.text }}>{profile.nick || profile.username || t('journeyEdit.details.self')}</Text>
               <Text style={{ fontSize: 11.5, color: theme.text3, fontWeight: '500' }}>{t('journeyEdit.details.self')}</Text>
             </View>
             <Press onPress={onInvite} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 12, paddingRight: 14, height: 40, borderRadius: 20, backgroundColor: theme.accent }}>
@@ -556,7 +557,7 @@ function NJStepSuccess({ theme, route, tripName, durationMins }: { theme: Theme;
 // ──────────────────────────────────────────────────────────────
 // Build the journey Poi created by the flow
 // ──────────────────────────────────────────────────────────────
-function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number | undefined, flexibleDates: boolean, t: TFn): Poi {
+function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationMins: number | undefined, flexibleDates: boolean, t: TFn, self: Companion): Poi {
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.ceil(durationMins / (60 * 24)));
   const lng = route.lng ?? 104.0;
   const lat = route.lat ?? 35.0;
@@ -574,7 +575,7 @@ function buildJourney(route: NJRoute, tripName: string, startDt: Date, durationM
     tone: (route.tone as Poi['tone']) || 'rock',
     ...journeySchedulePatch({ start: startDt, totalDays, flexible: flexibleDates }, totalDays == null ? '' : t('journeyEdit.meta.days', { count: totalDays })),
     companions: 0,
-    companionList: [SELF],
+    companionList: [self],
     mine: true,
     fav: false,
     desc: '',
@@ -927,7 +928,14 @@ function journeyDateSummary(start: Date, durationMins: number | undefined, local
 // ──────────────────────────────────────────────────────────────
 export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onSmartPlan: (poi: Poi, prompt: string) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
   const { t, resolved } = useI18n();
-  const { userId, createTrack } = useData();
+  const { userId, profile, createTrack } = useData();
+  const selfCompanion = useMemo<Companion>(() => ({
+    ...SELF,
+    ini: profile.nick?.trim()?.slice(0, 1) || SELF.ini,
+    name: profile.nick?.trim() || profile.username?.trim() || SELF.name,
+    avatarUrl: profile.avatarUrl || undefined,
+    userId,
+  }), [profile.avatarUrl, profile.nick, profile.username, userId]);
   const routeSuggestions = useRouteSuggestions();
   const insets = useSafeAreaInsets();
   const presetRoute = useMemo(() => (preset ? presetToRoute(preset) : null), [preset]);
@@ -945,6 +953,10 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const [route, setRoute] = useState<NJRoute>(() => presetRoute || blankRoute);
   const [tripName, setTripName] = useState('');
   const [startDt, setStartDt] = useState<Date>(() => preset ? njInitialPlannedStart() : njRoundedNow());
+  // The initial start is only a picker convenience. It is not a date the user
+  // supplied, including for route presets, which currently carry route data
+  // rather than an existing journey schedule.
+  const [hasExplicitStart, setHasExplicitStart] = useState(false);
   const [durationMins, setDurationMins] = useState<number | undefined>(() => preset?.planningTemplate ? preset.planningTemplate.days.length * 24 * 60 : undefined);
   // Start with a concrete date range; users can switch to duration-only planning
   // from the "什么时候出发" picker when the trip dates are not decided yet.
@@ -1044,7 +1056,10 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       : route.custom && !selectedLocation
       ? { ...route, region: tripName.trim() }
       : route;
-    const poi = buildJourney(effectiveRoute, destinationNames, startDt, durationMins, flexibleDates, t);
+    // Smart planning must preserve an undecided date in both the prompt and
+    // the saved journey. Manual creation keeps the existing concrete default.
+    const journeyFlexibleDates = flexibleDates || (mode === 'smart' && !hasExplicitStart);
+    const poi = buildJourney(effectiveRoute, destinationNames, startDt, durationMins, journeyFlexibleDates, t, selfCompanion);
     if (preset?.planningTemplate) {
       if (effectiveRoute.routeId !== preset.planningTemplate.routeId || selectedLocations.length !== 1) {
         onToast(routeGuideCopy[resolved].templateMismatch);
@@ -1106,7 +1121,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
       : t('journeyEdit.form.noTrack');
     const prompt = t('journeyEdit.form.smartPrompt', {
       name: destinationNames,
-      dates: flexibleDates ? t('journeyHome.dateUnset') : journeyDateSummary(startDt, durationMins, resolved),
+      dates: journeyFlexibleDates ? t('journeyHome.dateUnset') : journeyDateSummary(startDt, durationMins, resolved),
       duration: totalDays == null ? t('journeyEdit.form.durationUnknownPrompt') : t('journeyEdit.form.durationDays', { count: totalDays }),
       track: selectedLocations.length > 1
         ? `${selectedLocations.map((location, index) => `${index + 1}. ${location.name}`).join('；')}；${trackLabel}`
@@ -1275,6 +1290,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
               setStartDt(start);
               setDurationMins(totalDays == null ? undefined : totalDays * 24 * 60);
               setFlexibleDates(flexible);
+              setHasExplicitStart(!flexible);
             }}
             onClose={() => setTimeOpen(false)}
           />
@@ -1475,6 +1491,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
             setStartDt(start);
             setDurationMins(nextTotalDays == null ? undefined : nextTotalDays * 24 * 60);
             setFlexibleDates(flexible);
+            setHasExplicitStart(!flexible);
           }}
           onClose={() => setTimeOpen(false)}
         />

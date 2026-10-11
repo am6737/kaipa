@@ -917,14 +917,15 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const momentFilterAnchorRef = useRef<View>(null);
   const isMine = isJourney && !readOnly;
   const momentAuthor = useMemo(() => {
-    const host = isJourney ? poi.companionList?.find((c) => c.self) || poi.companionList?.find((c) => c.host) : undefined;
+    const host = isJourney ? poi.companionList?.find((c) => c.userId === userId || c.self) : undefined;
     if (host) return { ini: host.ini, name: host.name, color: host.color, avatarUrl: host.avatarUrl };
     return {
       ini: profile.nick?.charAt(0) || '?',
       name: profile.nick || t('me.unnamed'),
       color: theme.accent,
+      avatarUrl: profile.avatarUrl || undefined,
     };
-  }, [isJourney, poi.companionList, profile.nick, theme.accent, t]);
+  }, [isJourney, poi.companionList, profile.avatarUrl, profile.nick, theme.accent, t, userId]);
   const embeddedSurface = embedded && !theme.dark ? theme.featureSurface : theme.fieldSurface;
   const hasTrack = (poi.trackCoords?.length ?? 0) >= 2;
 
@@ -1075,7 +1076,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
               author: { ini: '?', name: '', color: '#888' },
             }))
           : [],
-    [isJourney, poi.name, poi.photoUris, poi.tone, poi.routeShowPhotos],
+    [isJourney, poi.name, poi.photoUris, poi.tone, poi.routeShowPhotos, poi.companionList],
   );
   const companionsByUserId = useMemo(() => {
     const map = new Map<string, Companion>();

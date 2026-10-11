@@ -50,7 +50,9 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
       avatarUrl: c.avatar_url ?? undefined,
       trips: c.trips ?? undefined,
       host: c.is_host ?? false,
-      self: c.user_id && viewerUserId ? c.user_id === viewerUserId : c.is_self ?? false,
+      self: c.user_id && viewerUserId
+        ? c.user_id === viewerUserId
+        : viewerUserId && j.mine === false ? false : c.is_self ?? false,
     }),
   );
 

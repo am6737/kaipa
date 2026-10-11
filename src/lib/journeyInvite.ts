@@ -35,10 +35,25 @@ export async function fetchJourneyPoiById(journeyId: string): Promise<Poi> {
     .single();
   if (error || !data) throw error || new Error('JOURNEY_INVITE_INVALID');
   const { data: { session } } = await supabase.auth.getSession();
+  const viewerId = session?.user.id;
+  const { data: profile } = viewerId
+    ? await supabase.from('profiles').select('nick, display_name, avatar_url').eq('id', viewerId).maybeSingle()
+    : { data: null };
+  const viewerName = profile?.nick || profile?.display_name;
+  const companions = (data.companions ?? []).map((companion: any) => (
+    Boolean(viewerId) && (companion.user_id === viewerId || (data.user_id === viewerId && companion.is_self && !companion.user_id))
+      ? {
+          ...companion,
+          name: viewerName || companion.name,
+          ini: viewerName?.slice(0, 1) || companion.ini,
+          avatar_url: profile ? profile.avatar_url : companion.avatar_url,
+        }
+      : companion
+  ));
   return toJourneyPoi(
-    { ...data, mine: data.user_id === session?.user.id },
+    { ...data, companions, mine: data.user_id === viewerId },
     undefined,
-    session?.user.id,
+    viewerId,
   );
 }
 

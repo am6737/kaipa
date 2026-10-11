@@ -31,6 +31,14 @@ import { AppIconButton, DetailPage, radius, space, type } from '../../design-sys
 const PALETTE = ['#FF5C3A', '#0A84FF', '#34C759', '#FF9F0A', '#BF5AF2', '#FF375F', '#64D2FF', '#5E5CE6'];
 const PRESET_ROLES = ['领队', '向导', '医疗', '后勤', '摄影'];
 
+function parseRoles(value: string): string[] {
+  return [...new Set(value.split(/[、,/，\s]+/).map((item) => item.trim()).filter(Boolean))];
+}
+
+function formatRoles(roles: string[]): string {
+  return [...new Set(roles.map((item) => item.trim()).filter(Boolean))].join('、');
+}
+
 // 2 letters for a latin name, 1 glyph for CJK; '友' as a last resort.
 function iniOf(name: string): string {
   const n = (name || '').trim();
@@ -72,7 +80,7 @@ function CompanionEditor({
 
   const save = () => {
     if (!valid) return;
-    onSave({ ...draft, name: name.trim(), role: role.trim(), ini: iniOf(name), color });
+    onSave({ ...draft, name: name.trim(), role: formatRoles(parseRoles(role)), ini: iniOf(name), color });
   };
 
   const fieldStyle = {
@@ -118,18 +126,19 @@ function CompanionEditor({
           onChangeText={setRole}
           placeholder={t('journey.manage.rolePlaceholder')}
           placeholderTextColor={theme.text3}
-          maxLength={12}
+          maxLength={32}
           returnKeyType="done"
           onSubmitEditing={save}
           style={fieldStyle}
         />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.sm }}>
           {PRESET_ROLES.map((preset) => {
-            const selectedRole = preset === role.trim();
+            const selectedRoles = parseRoles(role);
+            const selectedRole = selectedRoles.includes(preset);
             return (
               <Press
                 key={preset}
-                onPress={() => setRole(selectedRole ? '' : preset)}
+                onPress={() => setRole(formatRoles(selectedRole ? selectedRoles.filter((item) => item !== preset) : [...selectedRoles, preset]))}
                 style={{
                   height: 32,
                   paddingHorizontal: space.sm,
@@ -396,8 +405,8 @@ export function ManageCompanions({
 
 
   const MemberBadge = ({ label, accent = false }: { label: string; accent?: boolean }) => (
-    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: accent ? theme.accentSoft : theme.fieldSurface }}>
-      <Text style={{ fontSize: 9.5, lineHeight: 12, fontWeight: '700', color: accent ? theme.accent : theme.text2 }}>{label}</Text>
+    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: theme.fieldSurface }}>
+      <Text style={{ fontSize: 9.5, lineHeight: 12, fontWeight: '700', color: theme.text2 }}>{label}</Text>
     </View>
   );
 

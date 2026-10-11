@@ -28,7 +28,9 @@ import { radius, space, type } from '../../design-system';
 
 type TFn = (key: TKey, vars?: TVars) => string;
 
-export const SELF: Companion = { ini: '陈', name: '陈泽宇', color: '#FF7A55', self: true, host: true };
+// Used only while the profile is still loading. The real name/avatar is
+// supplied by NewJourneySheet from the signed-in user's profile.
+export const SELF: Companion = { ini: '我', name: '我', color: '#0A84FF', self: true, host: true };
 
 export function NJSection({ theme, label, hint, children, style }: { theme: Theme; label: string; hint?: React.ReactNode; children: React.ReactNode; style?: any }) {
   return (
