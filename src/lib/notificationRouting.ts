@@ -13,14 +13,12 @@ export async function openNotificationTargetById(
 
   const journey = journeys.find((candidate) => candidate.id === targetId);
   if (journey) {
-    nav.setSubTab('memory');
     nav.openPoint(journey);
     return true;
   }
 
   const route = routes.find((candidate) => candidate.id === targetId);
   if (route) {
-    nav.setSubTab('explore');
     nav.openPoint(route);
     return true;
   }
@@ -35,7 +33,6 @@ export async function openNotificationTargetById(
   if (targetId.startsWith('j_')) {
     try {
       const poi = await fetchJourneyPoiById(targetId);
-      nav.setSubTab('memory');
       nav.openPoint(poi);
       return true;
     } catch {

@@ -44,12 +44,12 @@ function Glyph({ theme, item }: { theme: Theme; item: Notif }) {
         width: 42,
         height: 42,
         borderRadius: 21,
-        backgroundColor: danger ? theme.dangerSoft : theme.accentSoft,
+        backgroundColor: danger ? theme.dangerSoft : 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
-      <Icon name={danger ? 'flag' : 'bell'} color={danger ? theme.danger : theme.accent} size={21} />
+      <Icon name={danger ? 'flag' : 'bell'} color={danger ? theme.danger : theme.text2} size={21} />
     </View>
   );
 }
@@ -89,7 +89,7 @@ function Row({
         style={{
           minHeight: 96,
           overflow: 'hidden',
-          backgroundColor: unread ? theme.accentSofter : theme.featureSurface,
+          backgroundColor: theme.featureSurface,
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md }}>

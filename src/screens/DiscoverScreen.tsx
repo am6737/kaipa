@@ -794,6 +794,34 @@ export function DiscoverScreen({
     sheetRef.current?.dismiss();
   };
 
+  // Opening a card from outside the map (旅程 tab、我的、通知、助手) never captured
+  // the discover camera, so closing it left the map framed on the journey and the
+  // list sheet dismissed — the page read as reset on the way out. Take the same
+  // snapshot the in-map open does, and re-apply it whenever a detail closes.
+  // The detail's own framing fires camera events that overwrite mapCameraRef with
+  // the journey view, so on the way out the snapshot must also replace it: the
+  // thaw restore (and any remount) reads mapCameraRef and would otherwise put the
+  // map wherever the detail left it instead of where it was before the open.
+  const pointOpenRef = React.useRef(false);
+  const prePointSheetOpenRef = React.useRef(false);
+  const entryCameraRef = React.useRef<{ center: [number, number]; zoom: number } | null>(null);
+  React.useEffect(() => {
+    const open = !!nav.pointInfo;
+    const was = pointOpenRef.current;
+    if (open && !was) {
+      entryCameraRef.current = mapBeforePointRef.current ?? mapCameraRef.current;
+      if (!mapBeforePointRef.current) mapBeforePointRef.current = mapCameraRef.current;
+    }
+    if (!open && was) {
+      restoreMapAfterPoint();
+      if (entryCameraRef.current) mapCameraRef.current = entryCameraRef.current;
+      entryCameraRef.current = null;
+      if (prePointSheetOpenRef.current) nav.openSheet();
+    }
+    pointOpenRef.current = open;
+    if (!open) prePointSheetOpenRef.current = nav.sheetOpen;
+  }, [nav.pointInfo, nav.sheetOpen]);
+
   const planRouteJourney = React.useCallback((route: Poi) => {
     routeJourneyTransitionRef.current = true;
     // hide is an imperative animation and does not emit the sheet's index

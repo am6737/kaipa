@@ -421,7 +421,6 @@ function AppShell() {
           }
           setAssistantReturnJourneyId(journeyId);
           nav.closeAssistant();
-          nav.setSubTab('memory');
           nav.openPoint(journey);
         }}
         onOpenGear={(page) => {

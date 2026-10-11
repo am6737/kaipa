@@ -155,7 +155,6 @@ export function TrackDetailPage({
                 accessibilityRole="button"
                 accessibilityLabel={journey.name}
                 onPress={() => {
-                  nav.setSubTab('memory');
                   onBack();
                   nav.openPoint(journey);
                 }}

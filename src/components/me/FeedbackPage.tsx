@@ -84,7 +84,7 @@ export function FeedbackPage({
           </View>
         </View>
         <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
-          {t('account.feedback.helper', { email: 'hi@kaipa.app' })}
+          {t('account.feedback.helper', { email: 'service@hitosea.com' })}
         </Text>
       </View>
     </MePushPage>

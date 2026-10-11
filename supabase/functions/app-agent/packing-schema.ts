@@ -6,7 +6,7 @@ export const packingItem = z.object({
     name: z.string().min(1).max(24).describe('字段名，例如容量、接口、单份净重、温标或 R 值'),
     value: z.string().min(1).max(60).describe('字段值'),
   })).max(6).nullable().default(null).describe('仅填写会改变购买选择或安全性能的关键自定义字段；不要填写可调亮度、带帽檐、防紫外线、独立包装、中号等常识或非必要细节'),
-  categoryName: z.string().max(60).nullable().default(null).describe('物品所属类别，例如饮水、食物、医疗或电子'),
+  categoryName: z.string().max(60).nullable().default(null).describe('物品所属类别。优先归入内置分类：背负系统、庇护系统、睡眠系统、服饰系统、饮食系统、电子导航、安全急救、其他；确实无法归入时才可以自拟简短分类名，不要为同一类物品发明多个近义分类'),
   quantity: z.number().int().min(1).max(99).default(1).describe('需要携带的实际件数；相同规格物品用此字段表示数量'),
   weightKg: z.number().min(0).max(100).describe('单件实际携带重量（千克），必须写入重量字段；离线地图、证件等无重量的物品写 0；食品包装克重等购买规格可同时保留在 attributes 中'),
   weightEstimated: z.boolean().describe('没有确切型号或实测重量时为 true，有真实重量依据时为 false'),

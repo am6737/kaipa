@@ -66,10 +66,19 @@ for function_name in "${functions[@]}"; do
   echo "Synced $function_name"
 done
 
+# The functions service gets env vars from the query/guard overlays; recreating
+# it from docker-compose.yml alone silently drops them (e.g. TOPIC_GUARD_*),
+# which fails every app-agent run. Layer every overlay that exists, as the
+# sibling deploy scripts do.
+compose=(-f "$RUNTIME_DIR/docker-compose.yml")
+for overlay in rail-query flyai-query topic-guard; do
+  if [[ -f "$RUNTIME_DIR/$overlay.compose.yml" ]]; then compose+=(-f "$RUNTIME_DIR/$overlay.compose.yml"); fi
+done
 if docker inspect "$FUNCTIONS_CONTAINER" >/dev/null 2>&1; then
+  docker compose --project-directory "$RUNTIME_DIR" "${compose[@]}" up -d functions >/dev/null
   docker restart "$FUNCTIONS_CONTAINER" >/dev/null
 else
-  (cd "$RUNTIME_DIR" && docker compose up -d functions)
+  docker compose --project-directory "$RUNTIME_DIR" "${compose[@]}" up -d functions
 fi
 
 for _ in $(seq 1 60); do

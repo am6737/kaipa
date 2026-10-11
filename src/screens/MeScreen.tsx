@@ -1909,7 +1909,6 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               const journey = await joinJourneyByInvite(invite);
               await data.refetchJourneys();
               pop();
-              nav.setSubTab("memory");
               nav.openPoint(journey);
               showToast(t("qrLogin.journeyJoined", { name: journey.name }));
             }}
@@ -2129,7 +2128,6 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               nav.openManageCompanions(journey, "invite")
             }
             onOpenJourney={(journey) => {
-              nav.setSubTab("memory");
               nav.openPoint(journey);
             }}
           />
@@ -2142,11 +2140,9 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             journeys={data.journeys}
             onBack={pop}
             onOpenJourney={(journey) => {
-              nav.setSubTab("memory");
               nav.openPoint(journey);
             }}
             onOpenRoute={(route) => {
-              nav.setSubTab("explore");
               nav.openPoint(route);
             }}
             onAllJourneys={() => push({ type: "journeys" })}
@@ -2159,7 +2155,6 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             routes={savedRoutes}
             onBack={pop}
             onOpenRoute={(route) => {
-              nav.setSubTab("explore");
               nav.openPoint(route);
             }}
           />
@@ -2188,7 +2183,6 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               );
               if (route) {
                 pop();
-                nav.setSubTab("explore");
                 nav.openRouteGuide({ route, view: "guide", guideId: guide.id });
               } else showToast("关联路线暂不可用");
             }}
@@ -2224,7 +2218,6 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               );
               if (route) {
                 pop();
-                nav.setSubTab("explore");
                 nav.openPoint(route);
               } else showToast(t("routeRequest.routeUnavailable"));
             }}
