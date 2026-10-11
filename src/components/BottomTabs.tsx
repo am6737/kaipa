@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
@@ -11,6 +13,17 @@ import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
 
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
+
+const IS_IOS = Platform.OS === 'ios';
+// requireNativeModule throws in Expo Go; keep the BlurView fallback there.
+const LIQUID_GLASS = (() => {
+  if (!IS_IOS) return false;
+  try {
+    return isLiquidGlassAvailable();
+  } catch {
+    return false;
+  }
+})();
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
@@ -31,14 +44,16 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 120] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
-  const barSurface = theme.dark
+  // Glass/blur cannot render inside a partially transparent view, so on iOS
+  // the bar only slides out (opacity stays 1) and fades on other platforms.
+  const barOpacity = IS_IOS ? 1 : opacity;
+
+  const barFrame = theme.dark
     ? {
-        backgroundColor: '#242426',
         borderColor: 'rgba(255,255,255,0.10)',
         boxShadow: '0px 6px 16px rgba(0,0,0,0.30), 0px 1px 4px rgba(0,0,0,0.16)',
       }
     : {
-        backgroundColor: '#FCFCFA',
         borderColor: 'rgba(255,255,255,0.98)',
         boxShadow: '0px 7px 18px rgba(34,34,28,0.08), 0px 1px 5px rgba(34,34,28,0.03)',
       };
@@ -50,13 +65,32 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
         styles.position,
         {
           bottom: Math.max(insets.bottom, space.sm),
-          opacity,
+          opacity: barOpacity,
           transform: [{ translateY }],
         },
       ]}
     >
       <View style={styles.row}>
-        <View style={[styles.bar, barSurface]}>
+        <View style={[styles.bar, barFrame, !IS_IOS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
+          {IS_IOS ? (
+            LIQUID_GLASS ? (
+              <GlassView
+                pointerEvents="none"
+                glassEffectStyle="regular"
+                colorScheme={theme.dark ? 'dark' : 'light'}
+                style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
+              />
+            ) : (
+              <View style={styles.blurClip}>
+                <BlurView
+                  pointerEvents="none"
+                  intensity={80}
+                  tint={theme.dark ? 'systemMaterialDark' : 'systemMaterialLight'}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+            )
+          ) : null}
           {TABS.map((tab) => {
             // Gear is reached from the Me shortcuts now, so keep Me as the
             // selected section while its list/detail surface is open.
@@ -122,6 +156,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     borderRadius: radius.pill,
     borderWidth: 1.5,
+  },
+  blurClip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
   },
   row: {
     width: '100%',
