@@ -508,7 +508,8 @@ services:
       JD_ACCESS_TOKEN: "${JD_ACCESS_TOKEN:-}"
       JD_API_METHOD: "${JD_API_METHOD:-}"
       GEAR_LINK_ALLOWED_HOSTS: "${GEAR_LINK_ALLOWED_HOSTS:-}"
-      # 宠物通知 send-pet-notifications 调 DooPush 服务端 API 用，值与 app 的 EXPO_PUBLIC_DOOPUSH_* 一致
+      # 推送 send-push-notifications 调 DooPush 服务端 API 用；服务端密钥 dp_sk_*，
+      # X-Notify-Secret 共享密钥存 DB push_runtime_config，不在 env。
       DOOPUSH_APP_ID: "${DOOPUSH_APP_ID:-}"
       DOOPUSH_API_KEY: "${DOOPUSH_API_KEY:-}"
       DOOPUSH_BASE_URL: "${DOOPUSH_BASE_URL:-https://doopush.com/api/v1}"

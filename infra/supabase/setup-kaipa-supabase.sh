@@ -216,7 +216,12 @@ transport_env='''      # Production-only flight offers; never expose these to th
       AMADEUS_CLIENT_SECRET: "${AMADEUS_CLIENT_SECRET:-}"
       AMADEUS_ENVIRONMENT: "${AMADEUS_ENVIRONMENT:-}"
 '''
-if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'TAVILY_API_KEYS:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s or 'AMADEUS_CLIENT_ID:' not in s:
+push_env='''      # send-push-notifications: DooPush 服务端凭据（API key 是 dp_sk_* 服务端密钥）
+      DOOPUSH_APP_ID: "${DOOPUSH_APP_ID:-}"
+      DOOPUSH_API_KEY: "${DOOPUSH_API_KEY:-}"
+      DOOPUSH_BASE_URL: "${DOOPUSH_BASE_URL:-https://doopush.com/api/v1}"
+'''
+if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:' not in s or 'TAVILY_API_KEYS:' not in s or 'MEDIACRAWLER_SEARCH_URL:' not in s or 'TAOBAO_APP_KEY:' not in s or 'AMADEUS_CLIENT_ID:' not in s or 'DOOPUSH_APP_ID:' not in s:
     marker='      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"\n'
     if marker not in s:
         raise SystemExit('Could not find Edge Functions environment marker in docker-compose.yml')
@@ -241,6 +246,8 @@ if 'AMAP_WEB_KEY:' not in s or 'KAIPA_AI_API_KEY:' not in s or 'TAVILY_API_KEY:'
         missing+=gear_env
     if 'AMADEUS_CLIENT_ID:' not in s:
         missing+=transport_env
+    if 'DOOPUSH_APP_ID:' not in s:
+        missing+=push_env
     s=s.replace(marker, marker+missing, 1)
 s='\n'.join(line for line in s.splitlines() if 'SMART_PLAN_PROVIDERS:' not in line and 'SMART_PLAN_DEFAULT_PROVIDER:' not in line)+'\n'
 compose.write_text(s)
@@ -309,6 +316,9 @@ agent_env={
  'AMADEUS_CLIENT_ID': configured('AMADEUS_CLIENT_ID'),
  'AMADEUS_CLIENT_SECRET': configured('AMADEUS_CLIENT_SECRET'),
  'AMADEUS_ENVIRONMENT': configured('AMADEUS_ENVIRONMENT'),
+ 'DOOPUSH_APP_ID': configured('DOOPUSH_APP_ID'),
+ 'DOOPUSH_API_KEY': configured('DOOPUSH_API_KEY'),
+ 'DOOPUSH_BASE_URL': configured('DOOPUSH_BASE_URL', 'https://doopush.com/api/v1'),
 }
 out=[]; seen=set()
 for line in env.read_text().splitlines():

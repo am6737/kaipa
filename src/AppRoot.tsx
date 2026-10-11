@@ -46,6 +46,7 @@ import { routeGuideCopy } from './components/discover/routeGuideCopy';
 import { AppAssistant } from './components/assistant/AppAssistant';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { joinJourneyByInvite } from './lib/journeyInvite';
+import { PushBootstrap, PushNavigator } from './push/PushBootstrap';
 
 function AppShell() {
   countRender('AppShell');
@@ -450,6 +451,7 @@ function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAcco
       }}
     >
       <MapPresentationProvider>
+        <PushNavigator />
         <AppShell />
       </MapPresentationProvider>
     </NavProvider>
@@ -502,6 +504,7 @@ export function AppRoot() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <PushBootstrap userId={userId} />
       {session === undefined ? null : session && userId ? (
         <DataProvider userId={userId}>
           <MembershipProvider userId={userId}>

@@ -19,13 +19,32 @@ async function rpc(name, body) {
     body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Queue ${name}: HTTP ${response.status}`);
-  return response.json();
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 let stopping = false;
 process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });
 console.log('Kaipa planning worker started');
+
+// 推送链路兜底（独立并发循环）：出发提醒扫描 + drain kick（免打扰顺延与即时 kick
+// 失败都由这里补偿）。不能排在主循环里——app-agent 一次规划可跑 700s，会把兜底
+// 推迟十几分钟。密钥同源在 DB（kick_push_drain 读 push_runtime_config），worker 无需新凭据。
+async function pushFallbackLoop() {
+  while (!stopping) {
+    try {
+      const reminded = await rpc('scan_departure_reminders', {});
+      if (Number(reminded) > 0) console.log(`Departure reminders created: ${reminded}`);
+    } catch (error) { console.warn(`Departure reminder scan failed: ${String(error).slice(0, 160)}`); }
+    try {
+      await rpc('kick_push_drain', {});
+    } catch (error) { console.warn(`Push drain kick failed: ${String(error).slice(0, 160)}`); }
+    await sleep(60_000);
+  }
+}
+void pushFallbackLoop();
+
 let nextMaintenance = 0;
 while (!stopping) {
   if (Date.now() >= nextMaintenance) {

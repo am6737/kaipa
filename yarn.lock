@@ -2007,6 +2007,13 @@ domutils@^3.0.1:
     domelementtype "^2.3.0"
     domhandler "^5.0.3"
 
+doopush-react-native-sdk@0.6.6:
+  version "0.6.6"
+  resolved "https://registry.yarnpkg.com/doopush-react-native-sdk/-/doopush-react-native-sdk-0.6.6.tgz#d0631e88b4eb9e7da577fa651300a3d3c87906f1"
+  integrity sha512-hrMzCQoOAk7wlLK/LxE3crs96ncbR4hkIq63WbDp2mTMAgNizd7F6XuSGZB9mOyPGQfeBwfp1cuIYvoOC64dZQ==
+  dependencies:
+    zod "^3.22.0"
+
 dunder-proto@^1.0.1:
   version "1.0.1"
   resolved "https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz"
@@ -2296,6 +2303,11 @@ expo-modules-jsi@~56.0.13:
   version "56.0.13"
   resolved "https://registry.yarnpkg.com/expo-modules-jsi/-/expo-modules-jsi-56.0.13.tgz#7fbf903ec4d8a8c3ef458d22c059273f4aff35e1"
   integrity sha512-If9W5Me4aSaBSgLD6MPUm6YDVB0KNsK2gIEaTeLEO9dnTqmRcJ3WM206S8iix+4GSvXMOyE8mLlmqE1cQMUuyQ==
+
+expo-network@~56.0.5:
+  version "56.0.5"
+  resolved "https://registry.yarnpkg.com/expo-network/-/expo-network-56.0.5.tgz#cc6b42c1d9e190b860d00d0201eacbdeb4fb1b96"
+  integrity sha512-zmuyO95jayDY9jyUfOAlNp9XXJrJaAOkBXXLy0TS/nh2kppj7CHirRPkQ/tf0rsxhIL3AEd9nsRTiPtNsGT9Lw==
 
 expo-server@^56.0.6:
   version "56.0.6"
@@ -4723,7 +4735,7 @@ yargs@^17.6.2:
     y18n "^5.0.5"
     yargs-parser "^21.1.1"
 
-zod@^3.25.76:
+zod@^3.22.0, zod@^3.25.76:
   version "3.25.76"
   resolved "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
