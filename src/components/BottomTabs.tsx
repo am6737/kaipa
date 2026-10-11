@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
@@ -18,15 +17,6 @@ const BAR_HEIGHT = 52;
 const FADE_ABOVE = 64;
 
 const IS_IOS = Platform.OS === 'ios';
-// requireNativeModule throws in Expo Go; keep the plain solid bar there.
-const LIQUID_GLASS = (() => {
-  if (!IS_IOS) return false;
-  try {
-    return isLiquidGlassAvailable();
-  } catch {
-    return false;
-  }
-})();
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
@@ -53,12 +43,14 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
 
   const bottomGap = Math.max(insets.bottom, space.sm);
 
-  const barFrame = theme.dark
+  const barSurface = theme.dark
     ? {
+        backgroundColor: '#242426',
         borderColor: 'rgba(255,255,255,0.10)',
         boxShadow: '0px 6px 16px rgba(0,0,0,0.30), 0px 1px 4px rgba(0,0,0,0.16)',
       }
     : {
+        backgroundColor: '#FCFCFA',
         borderColor: 'rgba(255,255,255,0.98)',
         boxShadow: '0px 7px 18px rgba(34,34,28,0.08), 0px 1px 5px rgba(34,34,28,0.03)',
       };
@@ -87,15 +79,7 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
           />
         ) : null}
         <View style={styles.row}>
-          <View style={[styles.bar, barFrame, !LIQUID_GLASS && { backgroundColor: theme.dark ? '#242426' : '#FCFCFA' }]}>
-            {LIQUID_GLASS ? (
-              <GlassView
-                pointerEvents="none"
-                glassEffectStyle="regular"
-                colorScheme={theme.dark ? 'dark' : 'light'}
-                style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]}
-              />
-            ) : null}
+          <View style={[styles.bar, barSurface]}>
           {TABS.map((tab) => {
             // Gear is reached from the Me shortcuts now, so keep Me as the
             // selected section while its list/detail surface is open.

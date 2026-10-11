@@ -36,7 +36,6 @@
     "expo-file-system": "~56.0.11",
     "expo-font": "~56.0.7",
     "expo-gaode-map": "^2.3.0",
-    "expo-glass-effect": "~56.0.4",
     "expo-haptics": "~56.0.3",
     "expo-image": "~56.0.12",
     "expo-image-manipulator": "~56.0.26",

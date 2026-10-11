@@ -2203,11 +2203,6 @@ expo-gaode-map@^2.3.0:
   resolved "https://registry.yarnpkg.com/expo-gaode-map/-/expo-gaode-map-2.3.0.tgz#708029b23db629d860ac28c72c5672718c88a993"
   integrity sha512-pw2JjuTCQRa0afPty/VdvQkpBvuLiHEK9qZ0mkRup+r9sU9gbEL6NKDkAXglm52mAR7Oq8rDBnDJzxkiddl2hw==
 
-expo-glass-effect@~56.0.4:
-  version "56.0.4"
-  resolved "https://registry.yarnpkg.com/expo-glass-effect/-/expo-glass-effect-56.0.4.tgz#4549a8c84058fb88619ecb2e818be36f2fe003ee"
-  integrity sha512-xI9rXtDwi7RW82uAlfyaXO6+k21ApWJ2tHAWYqPr/FjfmZbKsgNJ4Q0iZzGPCwboqjTGxaRZ61SZxBl8hDt5iA==
-
 expo-haptics@~56.0.3:
   version "56.0.3"
   resolved "https://registry.npmjs.org/expo-haptics/-/expo-haptics-56.0.3.tgz"
