@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { DooPush } from 'doopush-react-native-sdk';
 import { useI18n } from '../i18n';
 import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { supabase } from '../lib/supabase';
 import { openNotificationTargetById } from '../lib/notificationRouting';
+import { getDooPush } from '../lib/doopushNative';
 import {
   formatDooPushError,
   markDooPushConfigured,
@@ -89,18 +89,26 @@ export function PushBootstrap({ userId }: { userId?: string }) {
   const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const doopush = (Constants.expoConfig?.extra?.doopush ?? {}) as {
+    // 门槛一：原生模块在不在安装包里面。缺了就整条推送链路停用（Expo Go、或二进制早于
+    // 推送原生依赖的旧 dev 包），App 照常启动。SDK 顶层会 requireNativeModule，所以只能
+    // 靠 getDooPush() 的惰性加载越过，见 src/lib/doopushNative.ts。
+    const DooPush = getDooPush();
+    if (!DooPush) {
+      console.warn('[DooPush] 安装包不含推送原生模块，跳过推送初始化；若刚加过推送依赖，请重装 dev 变体');
+      return;
+    }
+    const creds = (Constants.expoConfig?.extra?.doopush ?? {}) as {
       appId?: string;
       appKey?: string;
     };
-    // 缺凭据（如本地 Expo Go 或未注入 EXPO_PUBLIC_DOOPUSH_*）时跳过推送初始化，
+    // 门槛二：缺凭据（如未注入 EXPO_PUBLIC_DOOPUSH_*）时跳过推送初始化，
     // 否则原生 configure 同步抛错会把整个 App 拖进 ErrorBoundary 白屏。
-    if (!doopush.appId || !doopush.appKey) {
+    if (!creds.appId || !creds.appKey) {
       console.warn('[DooPush] 缺少 appId/appKey，跳过推送初始化（检查 .env 的 EXPO_PUBLIC_DOOPUSH_* 是否齐全）');
       return;
     }
     try {
-      DooPush.configure({ appId: doopush.appId, appKey: doopush.appKey });
+      DooPush.configure({ appId: creds.appId, appKey: creds.appKey });
       markDooPushConfigured();
     } catch (e) {
       markDooPushUnconfigured();

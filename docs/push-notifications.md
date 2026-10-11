@@ -76,6 +76,15 @@ docker exec -i kaipa-supabase-db psql -U postgres -d postgres -c \
 `EXPO_PUBLIC_DOOPUSH_APP_ID / EXPO_PUBLIC_DOOPUSH_API_KEY`（`dp_ak_*` app key）；
 dev build 变体走 `*_DEV`。Android 厂商标配置（oppo/vivo/hms/honor）见 `app.config.js`。
 
+## 缺原生模块时（旧安装包 / Expo Go）
+
+SDK 入口在模块顶层就 `requireNativeModule('DooPushReactNativeSDK')`，缺模块会在 JS **求值阶段**抛
+`Cannot find native module`，比任何 useEffect 门槛都早，整个 App 以 `[runtime not ready]` 红屏起不来。
+因此应用侧一律通过 `src/lib/doopushNative.ts` 的 `getDooPush()` 惰性取 SDK：探测不到就整条推送链路
+停用（不注册、不入队），App 照常启动，只留一条 `console.error`。
+代价是「JS 比安装包新」这种版本错配不再红屏——验证推送前先看那行日志，别把「App 起来了」当成
+「设备注册成功」。回归由 `scripts/test-push-native-lazy.cjs` 守（禁止 src 里出现顶层 import 该 SDK）。
+
 ## 待办（需要 owner 操作）
 
 1. 在 DooPush 控制台为 kaipa（包名 `com.hitosea.letsgo` / `.dev`，iOS bundle 同）建应用，

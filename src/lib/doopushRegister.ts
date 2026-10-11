@@ -1,7 +1,7 @@
 import * as Network from 'expo-network';
-import { DooPush } from 'doopush-react-native-sdk';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { getDooPush, hasDooPushNative } from './doopushNative';
 
 type PushRegistration = { token: string; deviceId: string; vendor?: string };
 
@@ -55,6 +55,7 @@ function logDooPushRuntimeState(stage: string) {
     stage,
     platform: Platform.OS,
     configured,
+    nativeAvailable: hasDooPushNative(),
     hasAppId: Boolean(cfg.appId),
     appId: cfg.appId,
     hasAppKey: Boolean(cfg.appKey),
@@ -62,6 +63,8 @@ function logDooPushRuntimeState(stage: string) {
 }
 
 async function getCachedRegistration(): Promise<PushRegistration | null> {
+  const DooPush = getDooPush();
+  if (!DooPush) return null;
   const [token, deviceId] = await Promise.all([
     DooPush.getDeviceToken().catch(() => null),
     DooPush.getDeviceId().catch(() => null),
@@ -92,6 +95,11 @@ async function assertNetworkAvailable() {
  */
 export async function safeDooPushRegister(): Promise<PushRegistration> {
   logDooPushRuntimeState('safeDooPushRegister:start');
+  const DooPush = getDooPush();
+  if (!DooPush) {
+    // 上层（PushBootstrap）已先门槛过；走到这里说明调用方绕过了门槛，宁可失败得清楚。
+    throw new Error('当前安装包不含 DooPush 原生模块，已跳过注册：JS 比安装包新，重装 dev 变体后再验证推送');
+  }
   if (!configured) {
     const cfg = getRuntimeDooPushConfig();
     if (!cfg.appId || !cfg.appKey) {
