@@ -12,6 +12,9 @@ final class GradientBlurView: UIView {
   var blurTint: String = "light" {
     didSet { updateEffect() }
   }
+  var material: String = "regular" {
+    didSet { updateEffect() }
+  }
   var startFraction: Double = 0 {
     didSet { setNeedsLayout() }
   }
@@ -19,7 +22,7 @@ final class GradientBlurView: UIView {
     didSet { setNeedsLayout() }
   }
   var endAlpha: Double = 1 {
-    didSet { updateMaskColors() }
+    didSet { setNeedsLayout() }
   }
 
   override init(frame: CGRect) {
@@ -29,7 +32,6 @@ final class GradientBlurView: UIView {
     effectView.effect = UIBlurEffect(style: .systemMaterialLight)
     effectView.layer.mask = maskLayer
     addSubview(effectView)
-    updateMaskColors()
   }
 
   required init?(coder: NSCoder) {
@@ -40,19 +42,43 @@ final class GradientBlurView: UIView {
     super.layoutSubviews()
     effectView.frame = bounds
     maskLayer.frame = bounds
+    updateMaskStops()
+  }
+
+  /// Smoothstep across the fade band: a linear alpha ramp reads as a hard on/off switch,
+  /// while easing in and out of the plateau is what the system bars' falloff looks like.
+  private func updateMaskStops() {
     let s = CGFloat(min(max(startFraction, 0), 1))
     let e = CGFloat(min(max(endFraction, s), 1))
-    maskLayer.locations = [NSNumber(value: s), NSNumber(value: e), NSNumber(value: 1)]
+    let steps = 10
+    var locations: [NSNumber] = [NSNumber(value: 0.0)]
+    var colors: [CGColor] = [UIColor.clear.cgColor]
+    for i in 1...steps {
+      let t = Double(i) / Double(steps)
+      let eased = t * t * (3.0 - 2.0 * t)
+      let x = Double(s) + (Double(e) - Double(s)) * t
+      let alpha = min(max(endAlpha * eased, 0), 1)
+      locations.append(NSNumber(value: x))
+      colors.append(UIColor(white: 1, alpha: CGFloat(alpha)).cgColor)
+    }
+    locations.append(NSNumber(value: 1.0))
+    colors.append(UIColor(white: 1, alpha: CGFloat(min(max(endAlpha, 0), 1))).cgColor)
+    maskLayer.locations = locations
+    maskLayer.colors = colors
   }
 
   private func updateEffect() {
-    effectView.effect = UIBlurEffect(style: blurTint == "dark" ? .systemMaterialDark : .systemMaterialLight)
-  }
-
-  private func updateMaskColors() {
-    let a = CGFloat(min(max(endAlpha, 0), 1))
-    let full = UIColor(white: 1, alpha: a).cgColor
-    maskLayer.colors = [UIColor.clear.cgColor, full, full]
+    let dark = blurTint == "dark"
+    let style: UIBlurEffect.Style
+    switch material {
+    case "ultra":
+      style = dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
+    case "thin":
+      style = dark ? .systemThinMaterialDark : .systemThinMaterialLight
+    default:
+      style = dark ? .systemMaterialDark : .systemMaterialLight
+    }
+    effectView.effect = UIBlurEffect(style: style)
   }
 }
 
@@ -63,6 +89,9 @@ public class GradientBlurModule: Module {
     View(GradientBlurView.self) {
       Prop("tint") { (view: GradientBlurView, value: String) in
         view.blurTint = value
+      }
+      Prop("material") { (view: GradientBlurView, value: String) in
+        view.material = value
       }
       Prop("startFraction") { (view: GradientBlurView, value: Double) in
         view.startFraction = value

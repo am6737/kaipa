@@ -15,7 +15,7 @@ import { GradientBlur } from '../../modules/gradient-blur';
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
 const BAR_HEIGHT = 52;
 // Room above the pill for the blur to fade in through, like the system bars.
-const FADE_ABOVE = space.xl;
+const FADE_ABOVE = 64;
 
 const IS_IOS = Platform.OS === 'ios';
 // requireNativeModule throws in Expo Go; keep the plain solid bar there.
@@ -79,8 +79,10 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
         {IS_IOS ? (
           <GradientBlur
             tint={theme.dark ? 'dark' : 'light'}
+            material="thin"
             startFraction={0}
             endFraction={(FADE_ABOVE + BAR_HEIGHT) / (FADE_ABOVE + BAR_HEIGHT + bottomGap)}
+            endAlpha={0.9}
             style={StyleSheet.absoluteFill}
           />
         ) : null}
