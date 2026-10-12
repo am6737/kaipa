@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { Backpack, Check, ChevronRight, CloudSun, Heart, ThumbsUp } from 'lucide-react-native';
+import { Backpack, Check, ChevronRight, CloudSun, Heart } from 'lucide-react-native';
 import type { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
@@ -65,7 +65,7 @@ export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false 
           <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>
         </View>
         <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text>
-        <View style={styles.label}><ThumbsUp color={theme.text3} size={12} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
+        <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
       </View>}
     </View>
   </Press>;

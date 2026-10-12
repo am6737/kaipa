@@ -13,9 +13,19 @@ const mapRow = (row: Row): RouteCommunityGuide => ({
   helpful: row.helpful_count || 0, helpfulMarked: Boolean(row.route_guide_helpful_votes?.length), plan: row.plan, review: text(row.reflection || row.intro || ''),
 });
 
+type GuideHelpfulPatch = Pick<RouteCommunityGuide, 'id' | 'helpful' | 'helpfulMarked'>;
+const subscribers = new Map<string, Set<(patch: GuideHelpfulPatch) => void>>();
+
 export function useRouteGuides(routeId: string) {
   const [guides, setGuides] = useState<RouteCommunityGuide[]>([]);
   const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const listeners = subscribers.get(routeId) ?? new Set();
+    subscribers.set(routeId, listeners);
+    const receive = (patch: GuideHelpfulPatch) => setGuides((old) => old.map((item) => item.id === patch.id ? { ...item, helpful: patch.helpful, helpfulMarked: patch.helpfulMarked } : item));
+    listeners.add(receive);
+    return () => { listeners.delete(receive); if (!listeners.size) subscribers.delete(routeId); };
+  }, [routeId]);
   const refresh = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase.from('route_guides').select(guideSelect).eq('route_id', routeId).eq('status', 'approved').order('updated_at', { ascending: false });
@@ -43,12 +53,14 @@ export function useRouteGuides(routeId: string) {
       if (error) throw error;
       const { data, error: readError } = await supabase.from('route_guides').select('helpful_count,route_guide_helpful_votes(user_id)').eq('id', guideId).single();
       if (readError) throw readError;
-      setGuides((old) => old.map((item) => item.id === guideId ? { ...item, helpful: data.helpful_count || 0, helpfulMarked: Boolean((data as { route_guide_helpful_votes?: unknown[] }).route_guide_helpful_votes?.length) } : item));
+      const patch: GuideHelpfulPatch = { id: guideId, helpful: data.helpful_count || 0, helpfulMarked: Boolean((data as { route_guide_helpful_votes?: unknown[] }).route_guide_helpful_votes?.length) };
+      setGuides((old) => old.map((item) => item.id === guideId ? { ...item, helpful: patch.helpful, helpfulMarked: patch.helpfulMarked } : item));
+      for (const receive of subscribers.get(routeId) ?? []) receive(patch);
     } catch (error) {
       flip();
       throw error;
     }
-  }, []);
+  }, [routeId]);
   return { guides, loading, refresh, toggleHelpful };
 }
 
