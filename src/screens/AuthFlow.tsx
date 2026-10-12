@@ -40,6 +40,7 @@ import { WeChatIcon } from '../components/WeChatIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { createQrLoginRequest, consumeQrLoginRequest, encodeQrLoginPayload, getQrLoginStatus } from '../lib/qrLogin';
 import { LEGAL_UPDATED_LABEL } from '../components/me/legalMeta';
+import { usePublicRuntimeFlags } from '../hooks/usePublicRuntimeFlags';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -168,11 +169,27 @@ function LandingBrand({ t }: { t: Theme }) {
   );
 }
 
-function LandingButton({ t, label, icon, onPress }: { t: Theme; label: string; icon: React.ReactNode; onPress: () => void }) {
+function LandingButton({
+  t,
+  label,
+  icon,
+  onPress,
+  disabled = false,
+}: {
+  t: Theme;
+  label: string;
+  icon: React.ReactNode;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Press
       onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
       style={{
+        opacity: disabled ? 0.4 : 1,
         height: 54,
         borderRadius: radius.pill,
         borderWidth: 1.5,
@@ -498,7 +515,7 @@ const AUTH_DOCS: Record<DocId, { titleKey: TKey; updated: string; intro: string;
     intro:
       '欢迎使用「开爬 kaipa」徒步记录服务。在注册或使用本服务前，请仔细阅读并充分理解本协议各条款。当你勾选同意或开始使用本服务，即表示你已接受本协议的全部内容。',
     sections: [
-      { h: '一、服务内容', p: ['开爬为徒步、登山等户外活动提供轨迹记录、路线规划、装备清单、行程相册与同行者协作等功能。', '本服务当前处于不含实时 GPS 后台定位的体验阶段，部分功能依赖你主动上传的轨迹文件。'] },
+      { h: '一、服务内容', p: ['开爬为徒步、登山等户外活动提供轨迹记录、路线规划、装备清单、旅程相册与同行者协作等功能。', '本服务当前处于不含实时 GPS 后台定位的体验阶段，部分功能依赖你主动上传的轨迹文件。'] },
       { h: '二、账号注册与安全', p: ['你可使用手机号、邮箱或第三方账号注册。你应对账号下的所有活动负责，并妥善保管登录凭证。', '如发现账号被未经授权使用，请立即通过应用内反馈联系我们。'] },
       { h: '三、用户行为规范', p: ['你承诺不利用本服务从事违反法律法规或公序良俗的行为，不上传含有违法、侵权或虚假地理信息的内容。', '你发布的轨迹、照片与文字应拥有合法权利，不得侵犯他人隐私或知识产权。'] },
       { h: '四、内容与知识产权', p: ['你对自己创作并上传的内容保留权利，同时授予开爬为提供和改进服务所必需的、非独占的使用许可。', '开爬的软件、界面、商标及相关素材的知识产权归开爬所有。'] },
@@ -512,9 +529,9 @@ const AUTH_DOCS: Record<DocId, { titleKey: TKey; updated: string; intro: string;
     updated: LEGAL_UPDATED_LABEL,
     intro: '开爬 kaipa 高度重视你的隐私。本政策说明我们如何收集、使用、存储和保护你的个人信息。请你在使用服务前认真阅读。',
     sections: [
-      { h: '一、我们收集的信息', p: ['账号信息：手机号、邮箱、昵称与头像等你主动提供的资料。', '轨迹与位置信息：你上传或记录的徒步轨迹、海拔、里程等地理数据。', '内容信息：你在行程中添加的照片、文字与装备清单。', '设备信息：用于保障服务稳定与安全的设备型号、系统版本等基础信息。'] },
-      { h: '二、信息的使用', p: ['用于实现轨迹记录、路线展示、行程相册与同行协作等核心功能。', '用于改进产品体验、保障账号与数据安全，以及在你同意范围内的功能优化。'] },
-      { h: '三、信息的共享', p: ['当你将行程分享给同行者或公开发布时，相应内容会按你的设置被对应用户看到。', '除法律要求或获得你的明确同意外，我们不会向第三方出售或出租你的个人信息。'] },
+      { h: '一、我们收集的信息', p: ['账号信息：手机号、邮箱、昵称与头像等你主动提供的资料。', '轨迹与位置信息：你上传或记录的徒步轨迹、海拔、里程等地理数据。', '内容信息：你在旅程中添加的照片、文字与装备清单。', '设备信息：用于保障服务稳定与安全的设备型号、系统版本等基础信息。'] },
+      { h: '二、信息的使用', p: ['用于实现轨迹记录、路线展示、旅程相册与同行协作等核心功能。', '用于改进产品体验、保障账号与数据安全，以及在你同意范围内的功能优化。'] },
+      { h: '三、信息的共享', p: ['当你将旅程分享给同行者或公开发布时，相应内容会按你的设置被对应用户看到。', '除法律要求或获得你的明确同意外，我们不会向第三方出售或出租你的个人信息。'] },
       { h: '四、信息的存储与安全', p: ['我们采用加密传输与访问控制等措施保护你的数据，存储期限不超过实现目的所必需的时间。', '尽管我们尽力保护，但任何方式的传输与存储都无法保证绝对安全。'] },
       { h: '五、你的权利', p: ['你有权查询、更正或删除你的个人信息，也可注销账号。', '你可随时关闭或撤回相关授权，部分功能可能因此无法使用。'] },
       { h: '六、第三方服务', p: ['登录或地图等功能可能由第三方提供，其对信息的处理适用其各自的隐私政策。'] },
@@ -586,6 +603,7 @@ function AuthMoreSheet({ t, appleAvailable, onPick, onClose }: { t: Theme; apple
 
   // 微信 / Google 登录入口暂时隐藏（尚未接入，恢复时把对应项加回列表即可）；
   // Apple 走系统原生面板，仅在 iOS 且系统支持时出现。
+  // 邮箱入口保留：登录可用；注册受 email_register 开关控制（见下方切换行）。
   const items: { id: 'email' | SocialId; label: string; icon: React.ReactNode }[] = [
     { id: 'email', label: tr('auth.emailHint'), icon: <Mail c={t.text} /> },
     ...(appleAvailable ? [{ id: 'apple' as const, label: 'Apple', icon: <AppleGlyph c={t.text} /> }] : []),
@@ -1243,6 +1261,9 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
   const [moreOpen, setMoreOpen] = useState(false);
   const [doc, setDoc] = useState<DocId | null>(null);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  // 手机号登录由运营开关控制；默认（含拉取失败）为冻结。
+  const { flags } = usePublicRuntimeFlags();
+  const phoneLoginEnabled = flags.phoneLogin === 'enabled';
 
   useEffect(() => {
     let alive = true;
@@ -1394,6 +1415,7 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
               label={tr('auth.more.phoneLogin')}
               icon={<PhoneGlyph c={t.text} />}
               onPress={() => setStep('phone')}
+              disabled={!phoneLoginEnabled}
             />
             <LandingButton
               t={t}
@@ -1537,22 +1559,24 @@ export function AuthFlow({ theme, onSuccess }: { theme: Theme; onSuccess: () => 
             <AuthAgree t={t} value={agree} onChange={setAgree} flash={flash} onOpenDoc={setDoc} />
           </View>
 
-          <View style={{ marginTop: space.xxl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
-            <Text style={{ fontSize: 13, color: t.text2 }}>
-              {intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}
-            </Text>
-            <Press
-              onPress={() => {
-                setIntent(intent === 'login' ? 'register' : 'login');
-                setAuthError('');
-              }}
-              hitSlop={8}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
-                {intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}
+          {flags.emailRegister === 'enabled' ? (
+            <View style={{ marginTop: space.xxl, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs }}>
+              <Text style={{ fontSize: 13, color: t.text2 }}>
+                {intent === 'login' ? tr('auth.switch.noAccount') : tr('auth.switch.hasAccount')}
               </Text>
-            </Press>
-          </View>
+              <Press
+                onPress={() => {
+                  setIntent(intent === 'login' ? 'register' : 'login');
+                  setAuthError('');
+                }}
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: t.text }}>
+                  {intent === 'login' ? tr('auth.switch.toRegister') : tr('auth.switch.toLogin')}
+                </Text>
+              </Press>
+            </View>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
