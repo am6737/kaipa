@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
@@ -9,14 +9,8 @@ import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
-import { GradientBlur } from '../../modules/gradient-blur';
 
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
-const BAR_HEIGHT = 52;
-// Room above the pill for the blur to fade in through, like the system bars.
-const FADE_ABOVE = 64;
-
-const IS_IOS = Platform.OS === 'ios';
 
 export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
   const nav = useNav();
@@ -34,14 +28,8 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       useNativeDriver: true,
     }).start();
   }, [hidden, anim]);
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 160] });
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 120] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-
-  // A UIVisualEffectView ignores any animated alpha on its ancestors, so on iOS
-  // the bar only slides out; the plain bar fades as before elsewhere.
-  const barOpacity = IS_IOS ? 1 : opacity;
-
-  const bottomGap = Math.max(insets.bottom, space.sm);
 
   const barSurface = theme.dark
     ? {
@@ -61,25 +49,14 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       style={[
         styles.position,
         {
-          bottom: 0,
-          opacity: barOpacity,
+          bottom: Math.max(insets.bottom, space.sm),
+          opacity,
           transform: [{ translateY }],
         },
       ]}
     >
-      <View pointerEvents="box-none" style={[styles.footer, { paddingTop: FADE_ABOVE, paddingBottom: bottomGap }]}>
-        {IS_IOS ? (
-          <GradientBlur
-            tint={theme.dark ? 'dark' : 'light'}
-            material="thin"
-            startFraction={0}
-            endFraction={(FADE_ABOVE + BAR_HEIGHT) / (FADE_ABOVE + BAR_HEIGHT + bottomGap)}
-            endAlpha={0.9}
-            style={StyleSheet.absoluteFill}
-          />
-        ) : null}
-        <View style={styles.row}>
-          <View style={[styles.bar, barSurface]}>
+      <View style={styles.row}>
+        <View style={[styles.bar, barSurface]}>
           {TABS.map((tab) => {
             // Gear is reached from the Me shortcuts now, so keep Me as the
             // selected section while its list/detail surface is open.
@@ -121,7 +98,6 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
             <Text numberOfLines={1} style={styles.assistantLabel}>{t('agent.open')}</Text>
           </Press>
         ) : null}
-        </View>
       </View>
     </Animated.View>
   );
@@ -136,14 +112,11 @@ const styles = StyleSheet.create({
     zIndex: 400,
     elevation: 30,
   },
-  footer: {
-    width: '100%',
-  },
   bar: {
     flexGrow: 0,
     flexShrink: 1,
     flexBasis: 210,
-    height: BAR_HEIGHT,
+    height: 52,
     flexDirection: 'row',
     paddingVertical: space.xxs,
     paddingHorizontal: space.sm,

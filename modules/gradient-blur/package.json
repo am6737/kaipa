@@ -1,7 +1,0 @@
-{
-  "name": "gradient-blur",
-  "version": "1.0.0",
-  "description": "App-local gradient-masked blur for Kaipa's bottom bar fade, matching the system bars.",
-  "main": "src/index.tsx",
-  "private": true
-}
