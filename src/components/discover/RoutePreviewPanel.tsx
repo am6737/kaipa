@@ -70,7 +70,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.conditions} tight action={c.allConditions} onAction={() => nav.openRouteGuide({ route, view: 'conditions' })} />
-        {reportsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : reports.length ? reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text, textAlign: 'center' }}>{c.noReports}</Text></View>}
+        {reportsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : reports.length ? reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noReports}</Text></View>}
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
