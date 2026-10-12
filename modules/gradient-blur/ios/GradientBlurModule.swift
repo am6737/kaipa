@@ -4,7 +4,10 @@ import UIKit
 /// Blur whose strength ramps in from the top edge down, the way the system bars fade their
 /// backdrop toward the screen edge. A `mask` is the supported way to vary a UIVisualEffectView's
 /// presence; alpha on the effect view or its ancestors is not.
-/// Liquid Glass (`UIGlassEffect`) cannot be masked, so this deliberately stays on UIBlurEffect.
+/// `material: "clearGlass"` swaps the effect for iOS 26's clear Liquid Glass, which frosts
+/// without the light system material's white wash. An earlier note here claimed glass cannot be
+/// masked; that was never checked on a device, so the mask is left in place and `clearGlass` is
+/// offered as the arm to test — a hard-edged band on device means the mask really is ignored.
 final class GradientBlurView: UIView {
   private let effectView = UIVisualEffectView()
   private let maskLayer = CAGradientLayer()
@@ -69,6 +72,17 @@ final class GradientBlurView: UIView {
 
   private func updateEffect() {
     let dark = blurTint == "dark"
+    if material == "clearGlass" {
+      if #available(iOS 26.0, *) {
+        let glass = UIGlassEffect(style: .clear)
+        glass.isInteractive = false
+        effectView.effect = glass
+        return
+      }
+      // Pre-26 has no clear glass; the thinnest system material is the closest match.
+      effectView.effect = UIBlurEffect(style: dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight)
+      return
+    }
     let style: UIBlurEffect.Style
     switch material {
     case "ultra":

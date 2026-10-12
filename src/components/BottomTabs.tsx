@@ -4,17 +4,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
 import { Press } from './Press';
+import { BottomBackdrop } from './BottomBackdrop';
 import { useNav, MainTab } from '../nav/NavContext';
 import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { AssistantMark } from './assistant/AssistantMark';
-import { GradientBlur } from '../../modules/gradient-blur';
+import { GradientBlur, isGradientBlurAvailable } from '../../modules/gradient-blur';
 
 const TABS: MainTab[] = ['discover', 'journey', 'me'];
 const BAR_HEIGHT = 52;
 // Room above the pill for the blur to fade in through, like the system bars.
-const FADE_ABOVE = 64;
+const FADE_ABOVE = 44;
+// A UIBlurEffect always composites its material colour on top of the blur, and the
+// mask scales both together, so on a light page this number *is* the whiteness.
+const VEIL_ALPHA = 0.45;
+const VEIL_MATERIAL = 'clearGlass' as const;
 
 const IS_IOS = Platform.OS === 'ios';
 
@@ -37,11 +42,15 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 160] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
-  // A UIVisualEffectView ignores any animated alpha on its ancestors, so on iOS
-  // the bar only slides out; the plain bar fades as before elsewhere.
-  const barOpacity = IS_IOS ? 1 : opacity;
+  // A UIVisualEffectView ignores any animated alpha on its ancestors, so when the
+  // native veil is really there the bar only slides out; the JS veil fades as before.
+  const useNativeVeil = IS_IOS && isGradientBlurAvailable;
+  const barOpacity = useNativeVeil ? 1 : opacity;
 
   const bottomGap = Math.max(insets.bottom, space.sm);
+  // Height fraction where the veil is fully formed; it holds uniform from there to
+  // the screen edge, so the home-indicator strip stays clean.
+  const veilPlateau = (FADE_ABOVE + BAR_HEIGHT) / (FADE_ABOVE + BAR_HEIGHT + bottomGap);
 
   const barSurface = theme.dark
     ? {
@@ -68,16 +77,18 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       ]}
     >
       <View pointerEvents="box-none" style={[styles.footer, { paddingTop: FADE_ABOVE, paddingBottom: bottomGap }]}>
-        {IS_IOS ? (
+        {useNativeVeil ? (
           <GradientBlur
             tint={theme.dark ? 'dark' : 'light'}
-            material="thin"
+            material={VEIL_MATERIAL}
             startFraction={0}
-            endFraction={(FADE_ABOVE + BAR_HEIGHT) / (FADE_ABOVE + BAR_HEIGHT + bottomGap)}
-            endAlpha={0.9}
+            endFraction={veilPlateau}
+            endAlpha={VEIL_ALPHA}
             style={StyleSheet.absoluteFill}
           />
-        ) : null}
+        ) : (
+          <BottomBackdrop theme={theme} plateauAt={veilPlateau} alpha={VEIL_ALPHA} />
+        )}
         <View style={styles.row}>
           <View style={[styles.bar, barSurface]}>
           {TABS.map((tab) => {

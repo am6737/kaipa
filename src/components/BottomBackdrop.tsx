@@ -1,45 +1,43 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { layout } from '../design-system';
 import { Theme, rgba } from '../theme/theme';
 
 interface BottomBackdropProps {
   theme: Theme;
-  insetBottom: number;
+  /** Height fraction where the veil reaches full strength — the same value the iOS mask uses. */
+  plateauAt: number;
+  /** Peak veil alpha over the controls; keep it equal to GradientBlur's endAlpha. */
+  alpha: number;
 }
 
-// Slytherin uses a private variable-blur filter. Keep the public Expo version
-// visually equivalent with two static blur bands and a gradient mask; the
-// gradient hides the lower content while the stacked bands increase blur near
-// the controls without animating BlurView intensity.
-export function BottomBackdrop({ theme, insetBottom }: BottomBackdropProps) {
-  const tint = theme.dark ? 'systemMaterialDark' : 'systemMaterialLight';
-  const hasNativeBlur = Platform.OS === 'ios' || Platform.OS === 'web';
+// Stand-in for modules/gradient-blur off iOS. iOS masks a real UIBlurEffect natively;
+// here the same falloff is composed out of a page-colour gradient (plus a CSS
+// backdrop-filter frost on web). Android gets the gradient alone, following Glass's
+// solidOnAndroid convention: every expo-blur layer there re-samples the whole screen
+// on each scroll frame, and the pill itself is already solid.
+// It fills whatever band its parent gives it and never eats touches.
+export function BottomBackdrop({ theme, plateauAt, alpha }: BottomBackdropProps) {
   const backdropColor = theme.dark ? theme.bg : theme.featureSurface;
-  const solid = rgba(backdropColor, 0.78);
-  const gradientStops = theme.dark ? [0, 0.14, 0.72] : [0, 0.12, 0.78];
+  // Ease into the plateau the way the native mask's smoothstep does. Endpoints share
+  // the backdrop's RGB so Core Animation never interpolates through grey.
+  const ease = (stop: number) => alpha * stop * stop * (3 - 2 * stop);
 
   return (
-    <View pointerEvents="none" style={[styles.backdrop, { height: layout.bottomNavBackdropHeight + insetBottom }]}>
-      {hasNativeBlur ? (
-        <>
-          <BlurView intensity={24} tint={tint} style={StyleSheet.absoluteFill} />
-          <BlurView intensity={52} tint={tint} style={[styles.strongBlur, { height: layout.bottomNavStrongBlurHeight + insetBottom }]} />
-        </>
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: solid }]} />
-      )}
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {Platform.OS === 'web' ? (
+        <BlurView intensity={18} tint={theme.dark ? 'systemMaterialDark' : 'systemMaterialLight'} style={StyleSheet.absoluteFill} />
+      ) : null}
       <LinearGradient
-        pointerEvents="none"
         colors={[
-          rgba(backdropColor, gradientStops[0]),
-          rgba(backdropColor, gradientStops[1]),
-          rgba(backdropColor, gradientStops[2]),
-          backdropColor,
+          rgba(backdropColor, 0),
+          rgba(backdropColor, ease(0.25)),
+          rgba(backdropColor, ease(0.5)),
+          rgba(backdropColor, alpha),
+          rgba(backdropColor, alpha),
         ]}
-        locations={[0, 0.38, 0.76, 1]}
+        locations={[0, plateauAt * 0.3, plateauAt * 0.65, plateauAt, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -47,19 +45,3 @@ export function BottomBackdrop({ theme, insetBottom }: BottomBackdropProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: 'hidden',
-  },
-  strongBlur: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-});
