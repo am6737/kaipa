@@ -941,7 +941,10 @@ Deno.serve(async (req) => {
     }
     let agentOutput: unknown;
     try {
-      const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns, signal: AbortSignal.timeout(210000) });
+      // A regenerate turn (read, estimate, delete, full draft, commit) needs
+      // more than one draft model call; 210s aborted exactly as durable drafts
+      // finished writing. Keep well under the worker's 700s fetch timeout.
+      const result = await runtime.runner.run(runtime.agent, agentInput, { context, session, maxTurns, signal: AbortSignal.timeout(420000) });
       agentOutput = result.finalOutput;
     } catch (error) {
       // The configured provider sometimes answers in prose instead of the

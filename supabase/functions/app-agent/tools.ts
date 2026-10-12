@@ -1157,7 +1157,7 @@ export const runCommitPackingDraftBestEffort = (args: z.infer<typeof commitPacki
 });
 export const commitPackingDraft = tool({
   name: 'commit_packing_draft',
-  description: 'Atomically save the current validated packing draft to the personal checklist. Supply only its revision, never repeat items. Rechecks current data and uses version-checked writes. Existing successful commit receipts are reused after recovery.',
+  description: 'Atomically save the current validated packing draft to the personal checklist. Supply only its revision, never repeat items. Rechecks current data and uses version-checked writes. Existing successful commit receipts are reused after recovery. When the task also authorizes delete_packing_items (a regeneration request), first delete the current personal checklist items with delete_packing_items so the committed draft replaces the old list instead of appending to it.',
   parameters: commitPackingDraftParams,
   execute: runCommitPackingDraft,
 });
