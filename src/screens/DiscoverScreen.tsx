@@ -2597,19 +2597,21 @@ export function DiscoverScreen({
           else setRouteSheetIndex(index);
           if (index !== 0) setMapStylePickerOpen(false);
         } : undefined}
-        header={
-          nav.pointInfo?.kind === 'route' ? (
-            <View pointerEvents="box-none" style={{ height: 44, marginTop: -14, paddingHorizontal: space.md, alignItems: 'flex-end', justifyContent: 'center' }}>
-              <Press onPress={dismissPointSheet} accessibilityRole="button" accessibilityLabel={t('common.close')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="close" color={theme.text} size={23} />
-              </Press>
-            </View>
-          ) : nav.pointInfo ? <View /> : header
-        }
+        header={nav.pointInfo ? <View /> : header}
         compact={false}
         backgroundColor={nav.newJourneyOpen ? 'transparent' : nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
         containerStyle={{ opacity: nav.newJourneyOpen ? 0 : 1 }}
         borderless={nav.pointInfo?.kind === 'route'}
+        bodyOverlay={
+          nav.pointInfo?.kind === 'route' && !nav.routeGuide ? (
+            <View style={{ paddingTop: space.xs, paddingHorizontal: space.md, backgroundColor: theme.featureSurface, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <Text numberOfLines={2} style={[type.pageTitle, { flex: 1, color: theme.text, fontSize: 28, lineHeight: 34 }]}>{nav.merged(nav.pointInfo).name}</Text>
+              <Press onPress={dismissPointSheet} accessibilityRole="button" accessibilityLabel={t('common.close')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="close" color={theme.text} size={23} />
+              </Press>
+            </View>
+          ) : undefined
+        }
         bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
         animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : undefined}
         bottomOffset={0}
@@ -2630,7 +2632,7 @@ export function DiscoverScreen({
         {nav.newJourneyOpen ? null : nav.pointInfo ? (
           <View style={{ paddingHorizontal: space.md, paddingBottom: detailBottomInset }}>
             {nav.pointInfo.kind === 'route' ? (
-              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
+              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
                 onNavigate={navigateToRoute}
                 navigationActive={routeNavigationRouteId === nav.pointInfo.id}
               />

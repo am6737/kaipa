@@ -40,6 +40,9 @@ interface Props {
   backgroundColor?: string;
   /** remove the translucent-looking edge on fully opaque detail sheets */
   borderless?: boolean;
+  /** Non-compact only: opaque row pinned over the top of the scroll body. It takes
+      no layout space, so the body keeps its natural position and scrolls beneath it. */
+  bodyOverlay?: React.ReactNode;
   /** Optional animated value mirroring the sheet body's vertical scroll offset. */
   bodyScrollY?: Animated.Value;
   /** Optional control row rendered immediately above the sheet surface. */
@@ -81,6 +84,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
     compact = false,
     backgroundColor,
     borderless = false,
+    bodyOverlay,
     bodyScrollY,
     topAccessory,
     topAccessoryHeight = 0,
@@ -478,6 +482,7 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
                 <SheetInteractionContext.Provider value={setInteractionBlocked}>{children}</SheetInteractionContext.Provider>
               </AnimatedGHScrollView>
             </GestureDetector>
+            {bodyOverlay ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>{bodyOverlay}</View> : null}
           </View>
         </View>
       )}
