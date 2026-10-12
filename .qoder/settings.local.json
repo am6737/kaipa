@@ -12,7 +12,8 @@
       "Bash(ls /home/coder/workspaces/yibai && grep -ri \"doopush\" /home/coder/workspaces/yibai --include=\"*.json\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" -l | head -50)",
       "Bash(git -C /tmp ls-remote --heads https://github.com/hitosea/happy-next.git 2>&1 | head -5)",
       "Bash(wc:*)",
-      "Bash(grep -n \"create table\" /home/coder/workspaces/kaipa/supabase/schema.sql | head -30)"
+      "Bash(grep -n \"create table\" /home/coder/workspaces/kaipa/supabase/schema.sql | head -30)",
+      "Bash(grep -rliE 'email|sign.?in' /home/coder/workspaces/kaipa/docs/*.md | head -20; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/functions 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/migrations 2>/dev/null | tail -20; echo ---; ls /home/coder/workspaces/kaipa/supabase 2>/dev/null)"
     ]
   }
 }
