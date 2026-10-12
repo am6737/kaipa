@@ -69,6 +69,7 @@ export interface Poi {
   companions?: number;
   companionList?: Companion[];
   participantPermissions?: JourneyParticipantPermissions;
+  inviteEnabled?: boolean;
   fav?: boolean;
   plannedDate?: string;
   /** Last server-side edit time, used for journey list sorting. */

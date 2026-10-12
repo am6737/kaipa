@@ -20,7 +20,8 @@ select set_config('request.jwt.claim.sub',current_setting('test.guest'),true);
 do $$ begin perform public.ensure_journey_share('v2-test-journey'); raise exception 'non-member check failed'; exception when others then if sqlerrm not like '%FORBIDDEN%' then raise; end if; end $$;
 select set_config('request.jwt.claim.sub',current_setting('test.owner'),true);
 select pg_temp.check((public.rotate_journey_share('v2-test-journey')->>'code') is not null,'rotate owner');
-select pg_temp.check((public.stop_journey_share('v2-test-journey')->>'status')='stopped','stop owner');
+select pg_temp.check((public.set_journey_invite_enabled('v2-test-journey',false)->>'invite_enabled')='false','disable invites');
+select pg_temp.check((public.set_journey_invite_enabled('v2-test-journey',true)->>'invite_enabled')='true','enable invites');
 do $$ declare c text; first text; i int; offset1 int; offset2 int; begin
  if not ('AB9Z' ~ '^[0-9A-Z]{4}$') then raise exception 'code check failed'; end if;
  first:=public._share_code();
@@ -68,6 +69,5 @@ do $$ begin
  if has_function_privilege('authenticated','public._share_code()','execute') then raise exception 'share_code privilege'; end if;
  if has_function_privilege('anon','public.ensure_journey_share(text)','execute') then raise exception 'anon ensure privilege'; end if;
  if has_function_privilege('anon','public.rotate_journey_share(text)','execute') then raise exception 'anon rotate privilege'; end if;
- if has_function_privilege('anon','public.stop_journey_share(text)','execute') then raise exception 'anon stop privilege'; end if;
 end $$;
 rollback;

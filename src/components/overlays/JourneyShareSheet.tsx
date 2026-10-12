@@ -97,7 +97,7 @@ export function JourneyShareSheet({
     let cancelled = false;
     void (async () => {
       const info = await ensureJourneyShare(poi.id);
-      if (!cancelled && info) setShare(info);
+      if (!cancelled && info?.status === 'active') setShare(info);
     })();
     return () => {
       cancelled = true;

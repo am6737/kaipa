@@ -530,7 +530,11 @@ export function NJSharePanel({
     if (!journeyId) return null;
     setShareFailed(false);
     const info = await ensureJourneyShare(journeyId);
-    if (info) setShare(info); else setShareFailed(true);
+    if (info?.status !== 'active') {
+      setShareFailed(true);
+      return null;
+    }
+    setShare(info);
     return info;
   };
 

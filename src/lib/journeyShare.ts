@@ -10,6 +10,10 @@ export type JourneyShareInfo = {
   code: string;
   expiresAt: string;
 };
+export type JourneyShareResult =
+  | { status: 'active'; code: string; expiresAt: string }
+  | { status: 'disabled' }
+  | { status: 'no_permission' };
 
 export function normalizeJourneyCode(value: string): string {
   return value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 4);
@@ -21,16 +25,18 @@ export function journeyShareUrl(share: JourneyShareInfo): string {
 }
 
 type ShareRpcRow = {
+  status?: string;
   code?: string;
   expires_at?: string;
 } | null;
-function mapShare(data: unknown): JourneyShareInfo | null {
+function mapShare(data: unknown): JourneyShareResult | null {
   const row = data as ShareRpcRow;
+  if (row?.status === 'disabled' || row?.status === 'no_permission') return { status: row.status };
   if (!row?.code || !row.expires_at) return null;
-  return { code: normalizeJourneyCode(row.code), expiresAt: row.expires_at };
+  return { status: 'active', code: normalizeJourneyCode(row.code), expiresAt: row.expires_at };
 }
 
-export async function ensureJourneyShare(journeyId: string): Promise<JourneyShareInfo | null> {
+export async function ensureJourneyShare(journeyId: string): Promise<JourneyShareResult | null> {
   const { data, error } = await supabase.rpc('ensure_journey_share', { p_journey_id: journeyId });
   if (error) {
     console.warn('[journeyShare] ensure share error:', error);
@@ -39,7 +45,7 @@ export async function ensureJourneyShare(journeyId: string): Promise<JourneyShar
   return mapShare(data);
 }
 
-export async function rotateJourneyShare(journeyId: string): Promise<JourneyShareInfo | null> {
+export async function rotateJourneyShare(journeyId: string): Promise<JourneyShareResult | null> {
   const { data, error } = await supabase.rpc('rotate_journey_share', { p_journey_id: journeyId });
   if (error) {
     console.warn('[journeyShare] rotate share error:', error);
@@ -48,9 +54,9 @@ export async function rotateJourneyShare(journeyId: string): Promise<JourneyShar
   return mapShare(data);
 }
 
-export async function stopJourneyShare(journeyId: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc('stop_journey_share', { p_journey_id: journeyId });
-  return !error && (data as { status?: string } | null)?.status === 'stopped';
+export async function setJourneyInviteEnabled(journeyId: string, enabled: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc('set_journey_invite_enabled', { p_journey_id: journeyId, p_enabled: enabled });
+  return !error && (data as { invite_enabled?: boolean } | null)?.invite_enabled === enabled;
 }
 
 const DEVICE_KEY = 'kaipa_journey_join_device_id_v1';

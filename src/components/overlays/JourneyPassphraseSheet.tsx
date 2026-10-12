@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Poi } from '../../data/pois';
 import { AppProgressBar, motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
-import { ensureJourneyShare, rotateJourneyShare, stopJourneyShare, type JourneyShareInfo } from '../../lib/journeyShare';
+import { ensureJourneyShare, type JourneyShareInfo, type JourneyShareResult } from '../../lib/journeyShare';
 import { MONO } from '../../theme/fonts';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
@@ -35,9 +35,8 @@ export function JourneyPassphraseSheet({
   onCloseRef.current = onClose;
 
   const [share, setShare] = useState<JourneyShareInfo | null>(null);
+  const [shareStatus, setShareStatus] = useState<JourneyShareResult['status'] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [rotating, setRotating] = useState(false);
-  const [stopped, setStopped] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
 
   const joined = Math.max(0, Math.min(10, poi.companionList?.length ?? poi.companions ?? 0));
@@ -53,7 +52,8 @@ export function JourneyPassphraseSheet({
     void (async () => {
       const info = await ensureJourneyShare(poi.id);
       if (cancelled) return;
-      if (info) setShare(info);
+      if (info?.status === 'active') setShare(info);
+      else if (info) setShareStatus(info.status);
       else setFailed(true);
     })();
     return () => {
@@ -92,19 +92,6 @@ export function JourneyPassphraseSheet({
     onToast(t('passphrase.codeCopied'));
   }, [onToast, share, t]);
 
-  const rotate = useCallback(async () => {
-    if (!poi.id || rotating) return;
-    setRotating(true);
-    const next = await rotateJourneyShare(poi.id);
-    setRotating(false);
-    if (next) {
-      setShare(next);
-      onToast(t('passphrase.rotated'));
-    } else {
-      onToast(t('passphrase.rotateFailed'));
-    }
-  }, [onToast, poi.id, rotating, t]);
-  const stop = useCallback(async () => { if (!poi.id) return; if (await stopJourneyShare(poi.id)) { setStopped(true); onToast(t('passphrase.stopped')); } else onToast(t('passphrase.busy')); }, [onToast, poi.id, t]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 70 }]}>
@@ -124,25 +111,6 @@ export function JourneyPassphraseSheet({
           <View style={[styles.grabber, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }]} />
         </View>
 
-        {poi.mine ? (
-          <Press
-            accessibilityRole="button"
-            accessibilityLabel={t('passphrase.rotate')}
-            disabled={rotating || !share}
-            onPress={() => void rotate()}
-            style={[
-              styles.rotateButton,
-              { backgroundColor: theme.fieldSurface, borderColor: theme.fieldBorder, opacity: share ? 1 : 0.45 },
-            ]}
-          >
-            {rotating ? (
-              <ActivityIndicator size="small" color={theme.text2} />
-            ) : (
-              <RefreshCw color={theme.text2} size={16} strokeWidth={2} />
-            )}
-          </Press>
-        ) : null}
-
         <View style={styles.body}>
           <Text numberOfLines={1} style={[type.caption, styles.journeyName, { color: theme.text2 }]}>{poi.name}</Text>
 
@@ -150,9 +118,11 @@ export function JourneyPassphraseSheet({
             {share ? (
               <>
                 <Text style={[styles.code, { color: theme.text, fontFamily: MONO }]}>{share.code}</Text>
-              <Text style={[type.caption, { color: theme.text3 }]}>{stopped ? t('passphrase.stopped') : t('passphrase.expiresIn')}</Text>
+              <Text style={[type.caption, { color: theme.text3 }]}>{t('passphrase.expiresIn')}</Text>
               </>
-            ) : failed ? (
+            ) : shareStatus === 'disabled' ? <Text style={[type.body, { color: theme.text2 }]}>{t('passphrase.inviteDisabled')}</Text>
+            : shareStatus === 'no_permission' ? <Text style={[type.body, { color: theme.text2 }]}>{t('passphrase.noPermission')}</Text>
+            : failed ? (
               <>
                 <Text style={[styles.code, styles.codePlaceholder, { color: theme.text3 }]}>----</Text>
                 <Press
@@ -175,8 +145,6 @@ export function JourneyPassphraseSheet({
               </Text>
             </View>
           </View>
-          {poi.mine ? <Press accessibilityRole="button" accessibilityLabel={t('passphrase.stopSharing')} onPress={() => void stop()} disabled={stopped} style={styles.stopButton}><Text style={[type.body, { color: theme.danger }]}>{stopped ? t('passphrase.stopped') : t('passphrase.stopSharing')}</Text></Press> : null}
-
           <View style={styles.actionsRow}>
             <Press
               accessibilityRole="button"
@@ -226,18 +194,6 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: radius.pill,
   },
-  rotateButton: {
-    position: 'absolute',
-    top: 10,
-    right: space.lg,
-    zIndex: 5,
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   body: {
     paddingHorizontal: space.xl,
     paddingTop: space.xs,
@@ -270,11 +226,6 @@ const styles = StyleSheet.create({
   },
   codeLoading: {
     height: 68,
-  },
-  stopButton: {
-    alignSelf: 'center',
-    marginTop: space.md,
-    padding: space.sm,
   },
   retryButton: {
     minHeight: 36,

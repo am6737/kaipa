@@ -85,6 +85,7 @@ export function toJourneyPoi(j: any, companions?: any[], viewerUserId?: string):
       ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
       ...(j.participant_permissions ?? {}),
     },
+    inviteEnabled: j.invite_enabled !== false,
     trackId: j.track_id ?? undefined,
     ...trackProjection(j.tracks ? toTrack(j.tracks) : null),
     heroMode:

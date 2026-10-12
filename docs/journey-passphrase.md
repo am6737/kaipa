@@ -2,7 +2,9 @@
 
 口令为大写 `[0-9A-Z]{4}`，链接格式 `${EXPO_PUBLIC_WEB_URL}/j/<CODE>`。口令默认 7 天有效；active code 全局唯一且每个旅程只能有一个。
 
-`ensure_journey_share(p_journey_id)`（主人或同行伙伴）和 `rotate_journey_share(p_journey_id)`（仅主人）返回 `{code, expires_at}`；`stop_journey_share(p_journey_id)`（仅主人）停用当前口令并返回 `{status:"stopped"}`。
+每个旅程有 `invite_enabled` 总开关，默认开启。主人可关闭邀请；关闭会立即停用全部 active 口令，访客会话随之失效，重新开启不会复活旧口令。
+
+`ensure_journey_share(p_journey_id)` 仅允许主人或同行伙伴调用。伙伴还必须拥有 `participant_permissions.inviteParticipants=true`。返回 `{status:"active", code, expires_at}`、`{status:"disabled"}` 或 `{status:"no_permission"}`；未登录/匿名和无权访问仍分别报 `JOURNEY_INVITE_AUTH_REQUIRED`、`JOURNEY_SHARE_FORBIDDEN`。`rotate_journey_share(p_journey_id)` 仅主人可调用，关闭时报 `JOURNEY_INVITE_DISABLED`。`stop_journey_share` 已移除。
 
 `journey-join` POST `{code}`，认证用户必须携带 `x-device-id`。响应始终 200：`joined`、`already_joined`、`full`、`auth_required`、`busy`，成功时另有 `journeyId`。用户 15 分钟 5 次或 24 小时 20 次失败、IP 1 小时 30 次、设备 15 分钟 10 次会锁定；成功加入每 10 分钟最多 3 次。Edge 限流为用户 20/600 秒、请求对端 60/600 秒。
 

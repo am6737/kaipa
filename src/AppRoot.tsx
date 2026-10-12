@@ -348,6 +348,7 @@ function AppShell() {
           onToast={(m) => nav.showToast(m)}
           onChange={(list) => nav.patchCurrent({ companionList: list, companions: list.length })}
           onPermissionsChange={(participantPermissions) => nav.patchCurrent({ participantPermissions })}
+          onInviteEnabledChange={(inviteEnabled) => nav.patchCurrent({ inviteEnabled })}
           onLeave={async () => {
             try {
               await data.leaveJourney(managedPoi!.id);

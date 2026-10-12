@@ -25,7 +25,7 @@ import { Press } from '../Press';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
 import { useI18n, TKey } from '../../i18n';
 import { AppIconButton, DetailPage, radius, space, type } from '../../design-system';
-import { rotateJourneyShare } from '../../lib/journeyShare';
+import { rotateJourneyShare, setJourneyInviteEnabled } from '../../lib/journeyShare';
 
 // New companions cycle through this palette; 分工 quick-fills + the two roles
 // that get the accent-coloured badge mirror the prototype.
@@ -194,6 +194,7 @@ export function ManageCompanions({
   initialAction,
   onChange,
   onPermissionsChange,
+  onInviteEnabledChange,
   onClose,
   onToast,
   onLeave,
@@ -203,6 +204,7 @@ export function ManageCompanions({
   initialAction?: 'invite';
   onChange: (list: Companion[]) => void;
   onPermissionsChange: (permissions: JourneyParticipantPermissions) => void;
+  onInviteEnabledChange: (enabled: boolean) => void;
   onClose: () => void;
   onToast: (m: string) => void;
   onLeave?: () => Promise<void>;
@@ -235,8 +237,28 @@ export function ManageCompanions({
     ...DEFAULT_JOURNEY_PARTICIPANT_PERMISSIONS,
     ...(poi.participantPermissions || {}),
   }));
+  const [inviteEnabled, setInviteEnabled] = useState(poi.inviteEnabled !== false);
   const canManageRoster = poi.mine === true;
-  const canInvite = canManageRoster || Boolean(poi.participantPermissions?.inviteParticipants);
+  const canInvite = inviteEnabled && (canManageRoster || Boolean(poi.participantPermissions?.inviteParticipants));
+  const toggleInvite = () => {
+    const next = !inviteEnabled;
+    if (!next) {
+      Alert.alert(t('journey.manage.inviteDisableTitle'), t('journey.manage.inviteDisableBody'), [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('journey.manage.inviteDisableAction'), style: 'destructive', onPress: () => { void applyInvite(next); } },
+      ]);
+      return;
+    }
+    void applyInvite(next);
+  };
+  const applyInvite = async (enabled: boolean) => {
+    if (!(await setJourneyInviteEnabled(poi.id, enabled))) {
+      onToast(t('journey.manage.inviteToggleFailed'));
+      return;
+    }
+    setInviteEnabled(enabled);
+    onInviteEnabledChange(enabled);
+  };
   const confirmLeave = () => {
     if (!onLeave || canManageRoster) return;
     Alert.alert(
@@ -333,7 +355,7 @@ export function ManageCompanions({
     persist(others.filter((_, itemIndex) => itemIndex !== index));
   };
   const offerRotateShare = (hasAccount: boolean) => {
-    if (!canManageRoster || !hasAccount) return;
+    if (!canManageRoster || !hasAccount || !inviteEnabled) return;
     Alert.alert(t('journey.manage.rotateAfterRemoveTitle'), t('journey.manage.rotateAfterRemoveBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('journey.manage.rotateAfterRemoveAction'), onPress: () => { void rotateJourneyShare(poi.id).then((share) => onToast(share ? t('journey.manage.rotateAfterRemoveSuccess') : t('journey.manage.rotateAfterRemoveFailed'))); } },
@@ -511,7 +533,8 @@ export function ManageCompanions({
               <Text style={[type.caption, { color: theme.text3, lineHeight: 17, marginTop: space.xxs }]}>{t(subKey)}</Text>
             </View>
             <Switch
-              value={permissions[key]}
+              value={permissions[key] && (key !== 'inviteParticipants' || inviteEnabled)}
+              disabled={key === 'inviteParticipants' && !inviteEnabled}
               onValueChange={(value) => updatePermission(key, value)}
               trackColor={{ false: theme.progressTrack, true: theme.accent }}
               thumbColor="#FFFFFF"
@@ -643,6 +666,20 @@ export function ManageCompanions({
               <Icon name="chevronR" color={theme.text3} size={15} />
             </View>
           </Press> : null}
+          {canManageRoster ? (
+            <View style={{ marginTop: space.xl, paddingVertical: space.md, flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[type.body, { color: theme.text, fontWeight: '600' }]}>{t('journey.manage.inviteEnabled')}</Text>
+                <Text style={[type.caption, { color: theme.text3, lineHeight: 17, marginTop: space.xxs }]}>{t('journey.manage.inviteEnabledSub')}</Text>
+              </View>
+              <Switch value={inviteEnabled} onValueChange={toggleInvite} trackColor={{ false: theme.progressTrack, true: theme.accent }} thumbColor="#FFFFFF" ios_backgroundColor={theme.progressTrack} />
+            </View>
+          ) : null}
+          {canManageRoster && inviteEnabled ? (
+            <Press onPress={() => void rotateJourneyShare(poi.id).then((share) => onToast(share?.status === 'active' ? t('journey.manage.rotateAfterRemoveSuccess') : t('journey.manage.rotateAfterRemoveFailed')))} style={{ paddingVertical: space.md }}>
+              <Text style={[type.body, { color: theme.accent, fontWeight: '700' }]}>{t('journey.manage.rotateCode')}</Text>
+            </Press>
+          ) : null}
           {!canManageRoster && onLeave ? (
             <Press
               onPress={confirmLeave}
