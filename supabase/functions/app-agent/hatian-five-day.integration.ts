@@ -61,7 +61,7 @@ try {
     planned_date: '2026-10-10', date: '2026-10-10', dist: track.dist, asc_: track.asc, track_id: trackId }));
   const thread = await checked(client.from('agent_threads').insert({ user_id: userId, current_journey_id: journeyId, title: '五日规划隔离验证' }).select('id').single());
   await checked(client.from('agent_runs').insert({ id: runId, thread_id: thread.id, user_id: userId, status: 'running', agent_version: 'hatian-five-day-local-test' }));
-  const message = '请按当前绑定的哈天线轨迹，帮我规划并保存五天重装帐篷露营行程，写清每天走多少公里、在哪里扎营和补水，并标在地图上。保留五天目标，无法合理安排时明确告诉我；装备和往返交通不用安排。';
+  const message = '请按当前绑定的哈天线轨迹，帮我规划并保存五天重装帐篷露营旅程，写清每天走多少公里、在哪里扎营和补水，并标在地图上。保留五天目标，无法合理安排时明确告诉我；装备和往返交通不用安排。';
   const first = createAgentRuntime(config, true);
   const decision = writeOnly ? taskDecisionSchema.parse({ objective: 'Isolated endpoint write test', mode: 'execute', continuation: false,
     authorizationQuote: message, operations: ['set_itinerary_group_endpoints'], requiredOperations: ['set_itinerary_group_endpoints'],

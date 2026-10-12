@@ -829,7 +829,7 @@ async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, res
   const agent = pipeline.stageAgent({
     name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
     tools: [], outputType: transportEndpointsSchema,
-    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或行程文本。每个用户选择的 mode 输出一组往返枢纽。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName、returnOriginDisplayName、returnDestinationDisplayName 四个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端行程骨架使用，不能把 IATA 码当作行程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、城市往返耗时、进出山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案，方便先查询建议返程日期；明确标为估算，不得只复制 GPX 徒步天数，也不要因未给返程日期直接停止规划。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
+    instructions: '你是独立大交通查询步骤，只确定实际查询所需的枢纽，不生成班次、时间、票价、余票或旅程文本。每个用户选择的 mode 输出一组往返枢纽。rail 使用准确中文车站名（站名不加站字），flight 查询字段使用真实 IATA 三字码，同时必须填写 outboundOriginDisplayName、outboundDestinationDisplayName、returnOriginDisplayName、returnDestinationDisplayName 四个中文机场显示名（例如南宁吴圩国际机场、成都天府国际机场），显示名只供服务端旅程骨架使用，不能把 IATA 码当作旅程地点名；self_drive 使用出发城市和实际进/出山道路起终点地名。依据默认当前位置或用户指定的出发/返回城市与路线起终点选择合理枢纽。每组端点都填写 outboundOriginCity、outboundDestinationCity、returnOriginCity、returnDestinationCity（各枢纽所在地级市或直辖市），以及 outboundUserCity、returnUserCity（用户出发地、返回地所在城市：市辖区填所属地级市或直辖市，如南宁良庆区填南宁市；县或县级市填其本身，如凌云县填凌云县）；服务端据此判断是否需要出发地到枢纽的地面接驳。rail 是精确车站查询，城市名不能代表全市车站；成都与成都东是不同站，去成都地区优先考虑高铁主枢纽成都东，不要直接把城市名成都填成到达站。若用户未指定具体车站，可给每个方向最多一个同城备选车站组合（railAlternatives），只在主组合结果为空时查询；用户明确指定车站时不得给替换该站的备选。总天数待定时，根据路线资料、城市往返耗时、进出山接驳和必要缓冲，给出 suggestedDays 和 durationBasis 作为候选全程方案，方便先查询建议返程日期；明确标为估算，不得只复制 GPX 徒步天数，也不要因未给返程日期直接停止规划。确实缺少依据时留空并写 unresolved。禁止编造技术代码。',
   });
   let endpoints;
   try {
@@ -930,7 +930,7 @@ function checkPlanFeasibility(plan: PlanDocument, pipeline: PipelineDeps, resear
     transportPlan,
   });
   plan.feasibility = { issues, checkedAt: new Date(now).toISOString() };
-  if (issues.some(issue => issue.severity === 'blocker')) plan.blocker ||= '行程存在可行性冲突，需调整后才能完成规划。';
+  if (issues.some(issue => issue.severity === 'blocker')) plan.blocker ||= '旅程存在可行性冲突，需调整后才能完成规划。';
   plan.unverified = [...new Set([...plan.unverified, ...issues.map(issue => issue.message.slice(0, 300))])].slice(0, 30);
   return plan;
 }
@@ -1132,7 +1132,7 @@ export function finalizePlan(candidate: unknown, pipeline: PipelineDeps, researc
     } else if (strictJourney) {
       throw { issues: [{ path: ['journey'], message: '不能为 null：任务事实已确认时填写旅程，确有缺漏则写入 blocker 或 pendingQuestion 说明原因' }] };
     } else {
-      plan.pendingQuestion = '旅程结构未能确定，已保留本轮生成的行程内容；请在补充信息后重试。';
+      plan.pendingQuestion = '旅程结构未能确定，已保留本轮生成的旅程内容；请在补充信息后重试。';
     }
   }
   if (options.endpointGap === false) return plan;
@@ -1235,7 +1235,7 @@ async function chunkedPlan(pipeline: PipelineDeps, signal: AbortSignal, research
     endpoints: collected.flatMap(chunk => chunk.endpoints).slice(0, 30),
   }, pipeline, research, transportPlan, effectiveDays, { strictJourney: false });
   if (gapDays.length) {
-    merged.unverified = [...merged.unverified, `${gapDays.join('、')} 的行程细节未能在本轮生成，其余天数已保留；请补充信息或继续规划。`].slice(0, 30);
+    merged.unverified = [...merged.unverified, `${gapDays.join('、')} 的旅程细节未能在本轮生成，其余天数已保留；请补充信息或继续规划。`].slice(0, 30);
   }
   return checkPlanFeasibility(merged, pipeline, research, transportPlan);
 }
@@ -1426,8 +1426,8 @@ export async function runRespond(pipeline: PipelineDeps, signal: AbortSignal, re
   const complete = saved.length > 0 && requiredSaved && boundariesComplete && failed.length === 0 && !results.plan.blocker && !results.plan.pendingQuestion && !packingFailed;
   const packingPartial = results.packing?.status === 'committed' && results.packing.issues.length > 0;
   const text = complete ? (results.plan.unverified.length || packingPartial || (pipeline.task.decision.days == null && results.plan.journey)
-      ? '候选行程已保存，以下事项出发前仍需确认。' : '行程规划已完成并保存。')
-    : packingPartial ? '行程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
+      ? '候选旅程已保存，以下事项出发前仍需确认。' : '旅程规划已完成并保存。')
+    : packingPartial ? '旅程主体已保存，装备清单已保存可用条目；少数条目或完整性检查未通过，已保留为待补齐项。'
     : '已保留本轮能够确认的规划结果，未完成部分可以继续补齐。';
   const packingNote = packingPartial ? `装备清单已部分保存：${results.packing?.issues.slice(0, 3).map(issue => issue.message).join('；')}` : null;
   const guideDates = (results.research?.guideEvidence ?? []).flatMap(guide => guide.asOf ? [`${guide.routeName}（${guide.asOf}）`] : []);
@@ -1453,7 +1453,7 @@ facts 逐条记录事实与其来源链接；无法核实的写入 unresolved。
 当用户没有提供总天数时，必须包含出发地往返大交通、进出山接驳、徒步、必要住宿和缓冲，输出 suggestedDays（1-30 的整数）以及 durationBasis；只能基于指南覆盖的证据估算；证据不足时两者留空，并把缺口写入 unresolved。
 指南可信，可直接使用，必须引用来源（无链接也保留）；费用、交通、封闭情况说明 asOf 日期。指南未覆盖时如实说明，禁止估算或编造。factSuggestions 必须为空数组。\n输出只包含 ResearchBrief 结构化结果。`;
 
-const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查询并输出方案，不保存任何数据，也不向用户提问。
+const planInstructions = `你是 Kaipa 的旅程编排阶段，只做只读查询并输出方案，不保存任何数据，也不向用户提问。
 工具调用轮次有限，最后一轮必须直接输出 PlanDocument JSON，不允许用文字代替。
 上面的 ResearchBrief 与已确认事实就是本轮的主要依据，直接据此编排即可。只有确实需要当前旅程或轨迹数据时才调用只读工具，且最多调用一次；未绑定旅程、轨迹已在 ResearchBrief 里时不要调用工具，更不要用工具结果缺失当作没有证据的理由。
 硬性约束：
@@ -1462,14 +1462,14 @@ const planInstructions = `你是 Kaipa 的行程编排阶段，只做只读查�
 - 默认安排出发地→交通枢纽→徒步起点、徒步终点→返程枢纽→返回地的完整往返链路及必要住宿，用户明确不用时尊重该约束。复用已确认出发地，缺少时用 pendingQuestion 简短询问，不能猜测或声称完整规划已完成。
 - days 是从出发到返回的全程天数，包含路上时间；交通日也占 Day 序号。先评估交通耗时与缓冲，再分配徒步日，不得把全部天数用于徒步后把交通追加到日期范围之外。时间装不下时说明冲突并询问调整选择，不得静默改天数或压缩成不合理徒步。
 - 交通和休整 item 的 kind 必须为 custom，具体住宿为 stay，徒步为 activity；交通即使与徒步同一天也不绑定 routeId，不设置徒步终点。全程天数与徒步天数分别写入 assumptions。
-- 完整旅程的大交通已在独立 transport 阶段处理。服务端根据 mainTravel.hubs 为去程 Day 1 与返程最后一天插入固定的“出发枢纽→到达枢纽”链路；起点与枢纽在同一城市时不插入回家→枢纽或枢纽→回家行程。没有日期或供应商班次时保留标为车次待查/航班待查的未定时枢纽行；若交通端点明确为 ground-only，则只保留高德地面交通安排。不要输出出发地→枢纽、枢纽→出发地或重复的枢纽行程项。你的后续接驳必须从 mainTravel.hubs 中精确的到达枢纽名称开始，最后一天的本地返程必须结束在 returnOrigin 的精确名称；只编排必要的进出山接驳与徒步。禁止新增或改写铁路/航班班次和精确时间；查询不可用时如实说明，不能用一句文本代替已查询大交通。交通域补充任务仍可调用 search_transport。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
-- 普通城市住宿由用户自行决定，不创建“成都住宿”“车站附近住宿”“酒店待定”等独立行程项或地点，也不添加虚构的酒店接驳；当天摘要可简短交代停留城市。仅用户已指定的具体酒店或徒步路线必要的真实过夜地点保留为地点，徒步日终点仍须保留。
-- 每个行程日必须有 groupNotes 摘要，通常30—80字，1—2句交代当天怎么走、主要做什么、在哪里结束即可。不要逐项复述地点、车次时刻和查询票价，不解释资料来源，不堆叠常识、建议、免责声明或“待核实”说明。只有已确定且影响当天执行的关键限制才简短提一次；未解决问题写入 unverified、blocker 或 pendingQuestion，不在摘要反复写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不把计划住宿表述成已预订。示例：“南宁东乘高铁到成都东，抵达后入住成都。”“从党岭村出发，徒步至飞机坪，晚上在附近住宿。”摘要使用普通中文和路线名称，禁止出现 ResearchBrief、TransportPlan、mainTravel、trk 编号或字段名等内部实现信息。itineraryItems.title 只写简洁地点名称或必要可单独执行的事项，通常20字以内；禁止把整天摘要、长段路线介绍、费用和提醒塞入标题。起终点和沿途重要地点仍要有带 location 的独立行程项，不能只写在备注中。保留必要的 kind、routeId、时间、真实坐标和 endpoints，不因精简标题而丢失地图或徒步结构。
-- planProfile 之外的行程与装备判断分别写入 groupNotes、itineraryItems 与 endpoints。
+- 完整旅程的大交通已在独立 transport 阶段处理。服务端根据 mainTravel.hubs 为去程 Day 1 与返程最后一天插入固定的“出发枢纽→到达枢纽”链路；起点与枢纽在同一城市时不插入回家→枢纽或枢纽→回家旅程。没有日期或供应商班次时保留标为车次待查/航班待查的未定时枢纽行；若交通端点明确为 ground-only，则只保留高德地面交通安排。不要输出出发地→枢纽、枢纽→出发地或重复的枢纽旅程项。你的后续接驳必须从 mainTravel.hubs 中精确的到达枢纽名称开始，最后一天的本地返程必须结束在 returnOrigin 的精确名称；只编排必要的进出山接驳与徒步。禁止新增或改写铁路/航班班次和精确时间；查询不可用时如实说明，不能用一句文本代替已查询大交通。交通域补充任务仍可调用 search_transport。编排完成后调用 review_transport_plan 核对拟定的徒步窗口与交通链路。
+- 普通城市住宿由用户自行决定，不创建“成都住宿”“车站附近住宿”“酒店待定”等独立旅程项或地点，也不添加虚构的酒店接驳；当天摘要可简短交代停留城市。仅用户已指定的具体酒店或徒步路线必要的真实过夜地点保留为地点，徒步日终点仍须保留。
+- 每个旅程日必须有 groupNotes 摘要，通常30—80字，1—2句交代当天怎么走、主要做什么、在哪里结束即可。不要逐项复述地点、车次时刻和查询票价，不解释资料来源，不堆叠常识、建议、免责声明或“待核实”说明。只有已确定且影响当天执行的关键限制才简短提一次；未解决问题写入 unverified、blocker 或 pendingQuestion，不在摘要反复写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不把计划住宿表述成已预订。示例：“南宁东乘高铁到成都东，抵达后入住成都。”“从党岭村出发，徒步至飞机坪，晚上在附近住宿。”摘要使用普通中文和路线名称，禁止出现 ResearchBrief、TransportPlan、mainTravel、trk 编号或字段名等内部实现信息。itineraryItems.title 只写简洁地点名称或必要可单独执行的事项，通常20字以内；禁止把整天摘要、长段路线介绍、费用和提醒塞入标题。起终点和沿途重要地点仍要有带 location 的独立旅程项，不能只写在备注中。保留必要的 kind、routeId、时间、真实坐标和 endpoints，不因精简标题而丢失地图或徒步结构。
+- planProfile 之外的旅程与装备判断分别写入 groupNotes、itineraryItems 与 endpoints。
 - 多日徒步：先确定真实轨迹上的过夜点，再据此推导当日里程；禁止按天数或时长平均分配；每天一个终点。
 - 多路线旅程中，每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，确保每条已有 GPX 独立绑定；普通接驳安排不绑定 routeId。
 - ResearchBrief.routes.hikingDays 是 GPX 录制时长参考，不是用户指定徒步天数，更不是全程天数。实际徒步天数根据用户单独指定的徒步约束、路线努力程度和全程时间安排；不能机械复制记录天数或用“待核实”项凑天数。
-- ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，每日终点的标注点名称与累计里程保留在 endpoints 和地点数据中，摘要不必重复，行程项标题只保留简洁地点或路线段；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
+- ResearchBrief.routes.waypoints 是该路线 GPX 上的真实标注点（按轨迹顺序，含累计里程 distanceKm 与原始序号 index）。过夜点与每日终点只能从这些标注点中选择，每日终点的标注点名称与累计里程保留在 endpoints 和地点数据中，摘要不必重复，旅程项标题只保留简洁地点或路线段；禁止按天数或时长平均分配，也不要编造标注点里没有的地名或里程。
 - endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一；无法定位的日期不要为它输出空条目（只有 day 的条目会被拒绝），改为把缺口写入 unverified。
 - 一次出行可以走多条路线（走完 A 再走 B）。每个徒步日的终点必须填写 routeId，指向该天所属路线的目录 ID；该天的 waypointIndex 与累计里程按**这条路线自己的轨迹**解析，不同路线各自从 0 开始，不需要跨路线递增。
 - 纯接驳、住宿或休整日不属于任何路线：不要为它们输出终点条目，把地点与安排写在 itineraryItems 里。
@@ -1484,20 +1484,20 @@ const planRepairInstructions = `这是同一次任务的修复轮。上一轮保
 工具调用最多 6 轮，最后一轮必须直接输出修补后的 PlanDocument JSON，不允许用文字代替。
 已经被校验拒绝的字段必须换成真实数据或删除该操作；不要用重复调用绕过校验，不要改动已经成功保存的操作。`;
 
-const planSkeletonInstructions = `你是 Kaipa 的行程编排骨架轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，直接依据上面已核验的事实输出。
-先输出不含 itineraryItems 与 endpoints 的 PlanSkeleton 骨架：确定 journey、mapLocation、schedule、transport、packingProfile、assumptions、unverified、blocker、pendingQuestion，并给出 dayNames（按顺序列出全部行程日，如 Day 1、Day 2，必须与 journey.days 一致）。
+const planSkeletonInstructions = `你是 Kaipa 的旅程编排骨架轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，直接依据上面已核验的事实输出。
+先输出不含 itineraryItems 与 endpoints 的 PlanSkeleton 骨架：确定 journey、mapLocation、schedule、transport、packingProfile、assumptions、unverified、blocker、pendingQuestion，并给出 dayNames（按顺序列出全部旅程日，如 Day 1、Day 2，必须与 journey.days 一致）。
 硬性约束与完整编排轮相同：journey 字段只能填写任务状态里已确认的事实（目的地、日期、天数、轨迹文件名），多路线旅程绑定第一条路线的目录 ID；用户未填写天数时，若 ResearchBrief 提供了有依据的 suggestedDays，则使用系统推算天数并在 assumptions 中说明依据，不要追问；没有证据的内容写入 unverified，不要编造；无法完成的部分用 blocker 说明具体原因，需要用户决定时用 pendingQuestion。
 dayNames 无法确定时留空并写入 blocker 或 pendingQuestion。只输出 PlanSkeleton 结构化结果。`;
 
-const planChunkInstructions = `你是 Kaipa 的行程编排逐日细化轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，只依据本轮提供的 ResearchBrief、TransportPlan、整体框架与已核验事实编排。
+const planChunkInstructions = `你是 Kaipa 的旅程编排逐日细化轮，只做只读编排并输出方案，不保存任何数据，也不向用户提问。不要调用工具，只依据本轮提供的 ResearchBrief、TransportPlan、整体框架与已核验事实编排。
 系统把全部天数分成若干组，你只负责其中一组：只输出该组覆盖天数的 groupNotes、itineraryItems 与 endpoints，不要输出其他天，也不要输出旅程、交通或装备框架字段。
 硬性约束与完整编排轮相同：多日徒步只能从 ResearchBrief.routes.waypoints（该路线 GPX 的真实标注点，含累计里程）中选择过夜点与每日终点，禁止按天数或时长平均分配，禁止编造标注点里没有的地名或里程，每天一个终点，endpoints 只填本组徒步日；每个徒步日终点必须填 routeId（该天所属路线），waypointIndex 与里程按该路线自己的轨迹解析、各自从 0 开始；endpoints 每项必须给出 waypointIndex、trackFinish=true 或明确的 endDistanceKm 之一，无法定位的日期不要输出空条目，改为写入 unverified；纯接驳/住宿日不设终点；多路线旅程中每个徒步 activity itineraryItem 必须填写对应 ResearchBrief.routes 的 routeId，所有移动安排填写具体 startLocation 与 location，分别为单一出发/到达地点，次日起点承接前一日落脚点，不能用 A→B 作为地点名；交通接驳段作为普通 itineraryItem，地点写入 location，交通方式简写在 title，摘要仅保留必要的安排信息；没有证据的时间、价格、水源或营地不要编造，缺少证据的条目宁可省略。
 普通城市住宿由用户自行决定，不创建泛泛住宿项、待定酒店地点或酒店接驳；未指定酒店时，城市日终点与次日起点使用已知车站/机场。仅用户指定的具体酒店或徒步必要的真实过夜点保留。
-摘要只用普通中文和真实路线名，不输出内部字段名或 trk 编号。每一天都要输出 groupNotes 摘要：通常30—80字，用1—2句概括当天怎么走、做什么、在哪里结束；不逐项复述地点和交通数据，不解释资料来源或堆叠常识提醒，已确定的关键限制只简短提一次，可行性问题写入 unverified，不在摘要写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不声称住宿已预订；行程项标题只保留简洁地点和必要可执行事项，不重复整段摘要。
+摘要只用普通中文和真实路线名，不输出内部字段名或 trk 编号。每一天都要输出 groupNotes 摘要：通常30—80字，用1—2句概括当天怎么走、做什么、在哪里结束；不逐项复述地点和交通数据，不解释资料来源或堆叠常识提醒，已确定的关键限制只简短提一次，可行性问题写入 unverified，不在摘要写“尚未核实”“未纳入查询”“需自行预留”等过程解释。直接写计划安排，不声称住宿已预订；旅程项标题只保留简洁地点和必要可执行事项，不重复整段摘要。
 只输出 PlanChunk 结构化结果。`;
 
 const packingInstructions = `你是 Kaipa 的装备清单阶段，只输出一份完整的个人清单草稿，不保存任何数据。
-依据行程、攻略事实与个人需求估算判断住宿、补水、餐食与天气条件；未知项填 unknown。
+依据旅程、攻略事实与个人需求估算判断住宿、补水、餐食与天气条件；未知项填 unknown。
 清单中路餐与补给的总热量（estimatedEnergyKcalPerUnit × quantity）必须落在个人需求估算的 carriedFoodEnergyKcal 区间内，不要明显超出；mealPreparation 为 provided 时清单不含正餐，只带少量补给零食。
 只输出结构化结果，不要解释计算过程，也不要输出用户可见的说明文字。`;
 

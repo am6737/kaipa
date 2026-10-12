@@ -509,7 +509,7 @@ export function validatePlanFeasibility(plan: PlanDocument, ctx: {
         total > DAILY_LOAD_BLOCKER_HOURS ? "blocker" : "warning",
         `当天徒步和交通合计${
           Math.round(total * 10) / 10
-        }小时，安排过重，请减少行程。`,
+        }小时，安排过重，请减少旅程。`,
         {
           hikingHours,
           transferHours,

@@ -5,7 +5,7 @@ import { journeyDayOrdinal } from './journey-days.ts';
 
 type Item = z.infer<typeof itineraryItem>;
 type GroupNote = { day: string; note: string };
-const readable = (text: string) => text.replace(/ResearchBrief/g, '路线资料').replace(/TransportPlan/g, '交通资料').replace(/mainTravel/g, '交通查询结果').replace(/PlanDocument/g, '行程方案').replace(/\btrk\d+\b/g, '该路线');
+const readable = (text: string) => text.replace(/ResearchBrief/g, '路线资料').replace(/TransportPlan/g, '交通资料').replace(/mainTravel/g, '交通查询结果').replace(/PlanDocument/g, '旅程方案').replace(/\btrk\d+\b/g, '该路线');
 // Remove standalone generation/query bookkeeping, not route facts or known constraints.
 // Feasibility issues remain in the plan/task metadata and the final planning response.
 const briefSummary = (text: string) => text.split(/(?<=[。；;])/).filter((sentence, index) => index === 0
@@ -24,7 +24,7 @@ export function presentItinerary(items: Item[], groupNotes: GroupNote[] = [], to
   items = removeOutOfRangeArrivals(omitGenericLodging(items), totalDays);
   const notes = new Map<string, string>();
   for (const entry of groupNotes) {
-    if (notes.has(entry.day)) throw new Error('同一个行程日只能输出一份摘要');
+    if (notes.has(entry.day)) throw new Error('同一个旅程日只能输出一份摘要');
     notes.set(entry.day, briefSummary(readable(entry.note.trim())));
   }
   const additions = new Map<string, string[]>();

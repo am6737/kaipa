@@ -89,8 +89,8 @@ Deno.test('exploration never requires a creation date, duration or track', async
   try {
     for (const search of [searchRoutes]) {
       for (const [message, journeyId, allowed] of [
-        ['请重新规划行程和装备清单。', 'existing-journey', true],
-        ['帮我规划行程', 'existing-journey', true],
+        ['请重新规划旅程和装备清单。', 'existing-journey', true],
+        ['帮我规划旅程', 'existing-journey', true],
         ['帮我规划漓江徒步', undefined, true],
         ['帮我规划明天的漓江徒步', undefined, true],
         ['帮我规划漓江一日徒步', undefined, true],
@@ -114,7 +114,7 @@ Deno.test('exploration never requires a creation date, duration or track', async
 
 Deno.test('create_journey still rejects missing basics and duplicate creation in journey mode', async () => {
   for (const journeyId of [undefined, 'existing-journey']) {
-    const h = planningHarness('请重新规划行程和装备清单。', journeyId);
+    const h = planningHarness('请重新规划旅程和装备清单。', journeyId);
     h.context.task = { runId: h.context.runId, journeyId: journeyId || null, outcome: null, decision: {
       objective: 'Create', mode: 'execute', domain: null, domainQuote: null, authorizationUnconfirmed: false, fullHikingPlan: false, activeHoursPerDay: null, continuation: false, authorizationQuote: 'create',
       operations: ['create_journey'], requiredOperations: ['create_journey'], destination: null,

@@ -450,7 +450,7 @@ export const itineraryLocation = z.object({
 });
 
 export const itineraryItem = z.object({
-  day: z.string().min(1).max(40).describe('行程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
+  day: z.string().min(1).max(40).describe('旅程日序，标准日期使用 Day 1、Day 2；只有用户明确使用自定义分组时才填写其他名称'),
   title: z.string().min(1).max(120).describe('地点、路线段、活动或交通安排，不包含解释、提醒或注意事项'),
   routeId: z.string().max(100).nullable().default(null).describe('徒步活动对应的 routes 目录 ID；普通地点或接驳安排留空'),
   timeStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null).describe('24 小时制开始时间，必须使用 HH:mm，例如 04:00、13:30'),
@@ -467,7 +467,7 @@ export const itineraryItem = z.object({
     longitude: z.number().min(-180).max(180).nullable().default(null),
     latitude: z.number().min(-90).max(90).nullable().default(null),
     address: z.string().max(300).nullable().default(null),
-  }).nullable().default(null).describe('行程发生地点；有地图坐标时填写，交通安排也作为普通地点行程项保存'),
+  }).nullable().default(null).describe('旅程发生地点；有地图坐标时填写，交通安排也作为普通地点旅程项保存'),
 });
 
 
@@ -496,7 +496,7 @@ const packingDeletionTarget = z.object({
 });
 
 export const itineraryGroupEndpoint = z.object({
-  day: z.string().min(1).max(40).describe('要设置终点的行程组，标准日序使用 Day 1、Day 2'),
+  day: z.string().min(1).max(40).describe('要设置终点的旅程组，标准日序使用 Day 1、Day 2'),
   waypointIndex: z.number().int().min(0).nullable().default(null).describe('优先使用 trackSummary.waypoints 中返回的 waypointIndex 选择真实标注点。系统读取名称和累计距离，无需抄写；此时省略 endDistanceKm 和 locationName'),
   trackFinish: z.boolean().nullable().default(null).describe('最后一天到达整条轨迹终点时设 true，并省略 waypointIndex、endDistanceKm 和 locationName'),
   endDistanceKm: z.number().positive().max(10000).nullable().default(null).describe('兼容手动累计公里数，不是当天距离。优先选择 waypointIndex 或 trackFinish 避免抄错名字/数值；禁止按天数或时长分配'),
@@ -854,8 +854,8 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
     const notes = new Map<string, string>();
     for (const entry of presentation.groupNotes) {
       const day = resolveJourneyDay(entry.day, existingNames);
-      if (notes.has(day)) throw new Error('同一个行程组只能提交一份摘要');
-      if (!normalizedItems.some(item => item.day === day)) throw new Error(`找不到摘要对应的行程组「${day}」`);
+      if (notes.has(day)) throw new Error('同一个旅程组只能提交一份摘要');
+      if (!normalizedItems.some(item => item.day === day)) throw new Error(`找不到摘要对应的旅程组「${day}」`);
       const existing = (existingGroups.data || []).find((group: { name: string }) => group.name === day);
       if (!existing?.note?.trim() && !existing?.deleted) notes.set(day, entry.note);
     }
@@ -1236,10 +1236,10 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       };
     });
     if (new Set(normalized.map((endpoint) => endpoint.day)).size !== normalized.length) {
-      throw new Error('同一个行程组只能设置一个终点');
+      throw new Error('同一个旅程组只能设置一个终点');
     }
     const unknown = normalized.find((endpoint) => !existingNames.includes(endpoint.day));
-    if (unknown) throw new Error(`找不到行程组「${unknown.day}」`);
+    if (unknown) throw new Error(`找不到旅程组「${unknown.day}」`);
 
     const effectiveMeters = new Map<string, number>();
     const effectiveTrack = new Map<string, string | null>();
@@ -1264,7 +1264,7 @@ export const runSetItineraryGroupEndpoints = async (args: z.infer<typeof setItin
       if (meters == null) continue;
       const track = effectiveTrack.get(name) ?? null;
       if (track !== previousTrack) { previousMeters = -1; previousTrack = track; }
-      if (meters <= previousMeters + 1) throw new Error('同一路线上的行程组终点必须按照行程顺序递增');
+      if (meters <= previousMeters + 1) throw new Error('同一路线上的旅程组终点必须按照旅程顺序递增');
       previousMeters = meters;
     }
 
@@ -1360,7 +1360,7 @@ export const deleteItineraryItems = tool({
     const requestedIds = requested.map((item) => item.id);
     const found = await client.from('timeline_rows').select('id,title').eq('journey_id', args.journeyId).in('id', requestedIds);
     if (found.error) throw found.error;
-    const ids = validateDeletionTargets(requested, (found.data || []).map((item: { id: string; title: string }) => ({ id: item.id, label: item.title })), '行程项目已发生变化，请重新读取后再删除');
+    const ids = validateDeletionTargets(requested, (found.data || []).map((item: { id: string; title: string }) => ({ id: item.id, label: item.title })), '旅程项目已发生变化，请重新读取后再删除');
 
     return commitJourneyChange(client, context, args.journeyId, {}, { journeyId: args.journeyId, deleted: ids.length, items: args.items });
   }),

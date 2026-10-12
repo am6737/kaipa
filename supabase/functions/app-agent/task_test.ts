@@ -219,7 +219,7 @@ Deno.test('an authorization quote differing only in punctuation or spacing still
   assert(kept.operations.includes('create_journey'), 'the authorized writes survive');
 
   // A paraphrase is not the user's authorization and must still degrade.
-  const paraphrased = constrainTaskDecision({ ...planned, authorizationQuote: '帮我规划徒步行程' }, message, null, null, { hasBoundTrack: false });
+  const paraphrased = constrainTaskDecision({ ...planned, authorizationQuote: '帮我规划徒步旅程' }, message, null, null, { hasBoundTrack: false });
   assert(paraphrased.mode === 'discuss', 'a paraphrase must stay a discussion');
   assert(paraphrased.operations.length === 0, 'a discussion carries no authorized writes');
   const absent = constrainTaskDecision({ ...planned, authorizationQuote: '' }, message, null, null, { hasBoundTrack: false });
@@ -229,7 +229,7 @@ Deno.test('an authorization quote differing only in punctuation or spacing still
 Deno.test('a paraphrased authorization is flagged for confirmation instead of silently discussing', () => {
   const message = '我准备去党岭三湖连穿徒步，天数还没确定，帮我规划一下';
   const planned = {
-    objective: '规划徒步', mode: 'execute', continuation: false, authorizationQuote: '帮我规划徒步行程',
+    objective: '规划徒步', mode: 'execute', continuation: false, authorizationQuote: '帮我规划徒步旅程',
     operations: ['create_journey', 'add_itinerary_items'], requiredOperations: ['add_itinerary_items'],
     fullHikingPlan: true, destination: '党岭三湖连穿', plannedDate: null, dateUndecided: false,
     days: null, derivedDays: null, trackAttachmentName: null, packingMode: 'none', constraints: [],

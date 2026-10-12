@@ -280,7 +280,7 @@ Deno.test('a fresh six-day plan satisfies its schedule after saving actual group
     assert(h.executed.join() === 'create_journey,add_itinerary_items', 'an already applied schedule needs no RPC');
     assert(h.reads.length === 2, 'schedule must check groups after the item write invalidates the snapshot');
     const reply = await runRespond({ context: h.context, task: h.context.task } as PipelineDeps, new AbortController().signal, { plan: document, save: artifact, packing: null }) as { text: string };
-    assert(reply.text.startsWith('行程规划已完成并保存'), 'satisfied schedule must count in the response');
+    assert(reply.text.startsWith('旅程规划已完成并保存'), 'satisfied schedule must count in the response');
   } finally { h.dispose(); }
 });
 
@@ -325,7 +325,7 @@ Deno.test('save repair timeout retains concrete failed operations and partial re
     const artifact = await runSave(pipeline, controller.signal, document, null);
     assert(artifact.failed[0]?.error.includes('校验失败'), 'original write failure must survive repair timeout');
     const reply = await runRespond(pipeline, new AbortController().signal, { plan: document, save: artifact, packing: null }) as { text: string; blocker: string };
-    assert(!reply.text.startsWith('行程规划已完成并保存') && reply.blocker === '部分规划内容保存失败。', 'timeout cannot become a completion claim');
+    assert(!reply.text.startsWith('旅程规划已完成并保存') && reply.blocker === '部分规划内容保存失败。', 'timeout cannot become a completion claim');
   } finally { h.dispose(); }
 });
 
@@ -352,7 +352,7 @@ Deno.test('required schedule with no changes is satisfied only when saved durati
       const artifact = await runSaveStage(h.client, h.context, document);
       assert(Boolean(artifact.satisfied?.includes('update_journey_schedule')) === (days === 5), 'duration mismatch must remain incomplete');
       const reply = await runRespond({ context: h.context, task: h.context.task } as PipelineDeps, new AbortController().signal, { plan: document, save: artifact, packing: null }) as { text: string };
-      assert(reply.text.startsWith('行程规划已完成并保存') === (days === 5), 'response must reflect the verified schedule');
+      assert(reply.text.startsWith('旅程规划已完成并保存') === (days === 5), 'response must reflect the verified schedule');
     } finally { h.dispose(); }
   }
   const h = saveHarness({ operations: ['update_journey_schedule'], existing: true });

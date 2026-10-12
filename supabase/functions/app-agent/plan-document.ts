@@ -169,7 +169,7 @@ export const planDocumentSchema = z.object({
   // Exactly the add_itinerary_items items; transport legs are ordinary
   // itinerary items and have no separate write.
   itineraryItems: z.array(itineraryItem).max(80).default([]).describe('按顺序列出简洁地点和必要可执行事项；描述信息放到 groupNotes，不要为凑数编造条目'),
-  groupNotes: z.array(itineraryGroupNote).max(30).default([]).describe('每个行程日简短摘要，通常30—80字、1—2句，与地点顺序一致；概括当天安排，不重复交通数据、资料解释或常识提醒'),
+  groupNotes: z.array(itineraryGroupNote).max(30).default([]).describe('每个旅程日简短摘要，通常30—80字、1—2句，与地点顺序一致；概括当天安排，不重复交通数据、资料解释或常识提醒'),
   // Exactly the set_itinerary_group_endpoints endpoints.
   endpoints: z.array(itineraryGroupEndpoint).max(30).default([]).describe('没有可用轨迹终点时留空数组'),
   // Full review_transport_plan input for the transport domain, with every field
@@ -268,14 +268,14 @@ export const planSkeletonSchema = planDocumentSchema.pick({
   pendingQuestion: true,
 }).extend({
   dayNames: z.array(z.string().min(1).max(40)).max(40).default([])
-    .describe('按顺序列出的全部行程日，如 Day 1、Day 2；与 journey.days 一致，无法确定时留空并写入 blocker 或 pendingQuestion'),
+    .describe('按顺序列出的全部旅程日，如 Day 1、Day 2；与 journey.days 一致，无法确定时留空并写入 blocker 或 pendingQuestion'),
 });
 export type PlanSkeleton = z.infer<typeof planSkeletonSchema>;
 
 export const planChunkSchema = z.object({
   groupNotes: z.array(itineraryGroupNote).max(15).default([]).describe('仅本组天数的每日摘要，不能遗漏或写其他天'),
   itineraryItems: z.array(itineraryItem).max(30).default([])
-    .describe('仅本组覆盖天数的行程条目；其他天留给后续轮次，不要重复前序天'),
+    .describe('仅本组覆盖天数的旅程条目；其他天留给后续轮次，不要重复前序天'),
   endpoints: z.array(itineraryGroupEndpoint).max(15).default([])
     .describe('仅本组徒步日的终点'),
 });
@@ -314,7 +314,7 @@ export function planDraftFrom(plan: PlanDocument): PlanDraft {
   for (const item of plan.unverified) lines.push(`待核实：${item}`);
   if (plan.blocker) lines.push(`阻塞：${plan.blocker}`);
   return {
-    title: plan.journey?.name || (plan.transport ? '出行接驳方案' : '行程方案'),
+    title: plan.journey?.name || (plan.transport ? '出行接驳方案' : '旅程方案'),
     body: lines.join('\n').slice(0, 16000) || '（暂无可用内容）',
     assumptions: plan.assumptions,
     unverified: plan.unverified,

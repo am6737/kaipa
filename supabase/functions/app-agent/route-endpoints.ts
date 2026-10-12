@@ -84,5 +84,5 @@ export function endpointAtDistance(coordinates: TrackCoordinate[], requestedMete
     cumulativeMeters += segmentMeters;
   }
 
-  throw new Error('无法在轨迹上定位行程终点');
+  throw new Error('无法在轨迹上定位旅程终点');
 }

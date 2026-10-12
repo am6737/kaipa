@@ -77,8 +77,8 @@ Deno.test('a brief supplied note does not erase a separate actionable clause', (
 
 Deno.test('standalone query explanations are removed while known route constraints remain', () => {
   const result = presentItinerary([itineraryItem.parse({ day: 'Day 1', title: '成都东' })],
-    [{ day: 'Day 1', note: '从成都东乘高铁返回南宁东，抵达后结束行程。返程班次为查询参考，未构成预订。' }]);
-  assert(result.groupNotes[0].note === '从成都东乘高铁返回南宁东，抵达后结束行程。');
+    [{ day: 'Day 1', note: '从成都东乘高铁返回南宁东，抵达后结束旅程。返程班次为查询参考，未构成预订。' }]);
+  assert(result.groupNotes[0].note === '从成都东乘高铁返回南宁东，抵达后结束旅程。');
   const constrained = presentItinerary([itineraryItem.parse({ day: 'Day 2', title: '徒步至营地' })],
     [{ day: 'Day 2', note: '徒步至营地。垭口道路封闭，需绕行。' }]);
   assert(constrained.groupNotes[0].note.includes('道路封闭'));

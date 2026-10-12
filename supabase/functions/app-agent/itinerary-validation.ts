@@ -16,7 +16,7 @@ export type ItineraryValidationIssue = {
   message: string;
 };
 
-const VAGUE_TITLE = /^(?:出发|集合|早餐|午餐|晚餐|用餐|徒步|登山|游览|游玩|活动|休息|住宿|入住|返程|返回|前往目的地|抵达目的地|自由活动|交通|行程安排)$/i;
+const VAGUE_TITLE = /^(?:出发|集合|早餐|午餐|晚餐|用餐|徒步|登山|游览|游玩|活动|休息|住宿|入住|返程|返回|前往目的地|抵达目的地|自由活动|交通|(?:行程|旅程)安排)$/i;
 const VAGUE_TRANSPORT = /(公共交通|交通工具)/;
 const OVERNIGHT_TITLE = /(过夜|通宵|夜行|卧铺|次日)/;
 
@@ -87,7 +87,7 @@ export function validateItineraryConflicts(items: ItineraryItemDraft[], existing
         const previous = interval(other);
         return previous && previous.scope === current.scope && current.start < previous.end && previous.start < current.end;
       });
-      if (overlap) issues.push({ index, title: item.title, message: `时间与“${overlap.title}”重叠，请调整安排或先明确修改原行程` });
+      if (overlap) issues.push({ index, title: item.title, message: `时间与“${overlap.title}”重叠，请调整安排或先明确修改原旅程` });
     }
     seen.push(item);
   });
@@ -95,7 +95,7 @@ export function validateItineraryConflicts(items: ItineraryItemDraft[], existing
 }
 
 export function itineraryValidationError(issues: ItineraryValidationIssue[]) {
-  return `行程安排未达到可执行标准，请修正所有问题后重新调用 add_itinerary_items：\n${issues
+  return `旅程安排未达到可执行标准，请修正所有问题后重新调用 add_itinerary_items：\n${issues
     .slice(0, 12)
     .map((issue) => `${issue.index + 1}. ${issue.title}：${issue.message}`)
     .join('\n')}${issues.length > 12 ? `\n另有 ${issues.length - 12} 项不合格。` : ''}`;

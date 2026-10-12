@@ -326,7 +326,7 @@ Deno.test('past departure is re-asked once then disclosed with persisted feasibi
 });
 
 Deno.test('warning-only plan is disclosed without blocker, duplicates or a repair', async () => {
-  const message = '当天徒步和交通合计11小时，安排过重，请减少行程。';
+  const message = '当天徒步和交通合计11小时，安排过重，请减少旅程。';
   const h = plannerHarness([{
     journey: journeyStub(1), unverified: [message],
     itineraryItems: [{ day: 'Day 1', title: '徒步', kind: 'activity', timeStart: '06:00', timeEnd: '17:00' }],
@@ -523,17 +523,17 @@ Deno.test('fully saved candidate completes with caveats and follow-up last; miss
     { tool: 'set_itinerary_group_endpoints', output: { coverage } }], satisfied: ['update_journey_schedule' as const], failed: [], skipped: [] };
   const packing = { status: 'committed' as const, issues: [], revision: 1, itemCount: 10 };
   const reply = await runRespond(pipeline, new AbortController().signal, { plan, save, packing }) as { text: string; blocker: string | null; pendingQuestion: string | null; followUpSuggestion: string };
-  assert(reply.text.startsWith('候选行程已保存') && reply.text.endsWith('请确认是否接受候选安排。'), 'candidate lead and follow-up order');
+  assert(reply.text.startsWith('候选旅程已保存') && reply.text.endsWith('请确认是否接受候选安排。'), 'candidate lead and follow-up order');
   assert(reply.blocker === null && reply.pendingQuestion === null, 'follow-up must not be a blocker or pending question');
   const calls = [...save.saved.map(entry => ({ toolName: entry.tool, status: 'completed', output: entry.output })),
     { toolName: 'add_packing_items', status: 'completed' }];
   const task = { runId: 'run', journeyId: 'j', outcome: null, decision };
   const outcome = taskOutcome(task, { ...reply, draft: null }, calls, save.satisfied);
-  assert(outcome.status === 'completed' && renderTaskResponse({ ...reply, draft: null }, outcome, 'zh').startsWith('候选行程已保存'), 'saved candidate must render through completion');
+  assert(outcome.status === 'completed' && renderTaskResponse({ ...reply, draft: null }, outcome, 'zh').startsWith('候选旅程已保存'), 'saved candidate must render through completion');
   const incompleteSave = { ...save, saved: save.saved.map(entry => entry.tool === 'set_itinerary_group_endpoints'
     ? { ...entry, output: { coverage: { ...coverage, groupCount: 1 } } } : entry) };
   const incomplete = await runRespond(pipeline, new AbortController().signal, { plan, save: incompleteSave, packing }) as typeof reply;
-  assert(!incomplete.text.startsWith('候选行程已保存'), 'incomplete boundaries must not claim completion');
+  assert(!incomplete.text.startsWith('候选旅程已保存'), 'incomplete boundaries must not claim completion');
   const partialCalls = [...incompleteSave.saved.map(entry => ({ toolName: entry.tool, status: 'completed', output: entry.output })), calls.at(-1)!];
   const partial = taskOutcome(task, { ...incomplete, draft: null }, partialCalls, save.satisfied);
   assert(partial.status === 'partial' && renderTaskResponse({ ...incomplete, draft: null }, partial, 'zh', '党岭').endsWith('请确认是否接受候选安排。'), 'incomplete boundaries remain partial with follow-up');

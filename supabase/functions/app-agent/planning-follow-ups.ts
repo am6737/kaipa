@@ -25,8 +25,8 @@ export function planningFollowUpReplies(
         ['Arrange accommodation', 'Help me add accommodation around the hike just planned. Ask only for missing accommodation details and preserve my existing itinerary.'],
       ]
     : [
-        ['安排往返交通', '帮我安排完整往返交通，包含到徒步起点和从终点离开的接驳。复用已确认地点；缺少出发地时可建议本次定位，并确认是否往返这里。先分析可行方案，只问关键问题，保留已有徒步行程。'],
-        ['安排住宿', '帮我为刚规划的旅程补充徒步前后的住宿，只询问缺失的住宿需求，保留已有行程。'],
+        ['安排往返交通', '帮我安排完整往返交通，包含到徒步起点和从终点离开的接驳。复用已确认地点；缺少出发地时可建议本次定位，并确认是否往返这里。先分析可行方案，只问关键问题，保留已有徒步旅程。'],
+        ['安排住宿', '帮我为刚规划的旅程补充徒步前后的住宿，只询问缺失的住宿需求，保留已有旅程。'],
       ];
   return options.map(([label, message]) => ({ label, message, action: 'supplement_plan' }));
 }

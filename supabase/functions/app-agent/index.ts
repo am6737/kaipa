@@ -851,7 +851,7 @@ Deno.serve(async (req) => {
     const previousCalls = await client.from('agent_tool_calls').select('id').eq('run_id', runId).eq('status', 'completed').limit(1);
     if (previousCalls.error) throw previousCalls.error;
     const recoveryContext = previousCalls.data?.length || jobAttempt > 1
-      ? '\n这是同一任务的恢复执行。先读取当前旅程及已保存的数据，只补齐尚未完成的内容，不要重复创建旅程或重复添加已存在的行程和装备。复用本任务已有的攻略搜索结果和已读取正文，不要换近义关键词重新检索；恢复执行不会重置搜索额度。'
+      ? '\n这是同一任务的恢复执行。先读取当前旅程及已保存的数据，只补齐尚未完成的内容，不要重复创建旅程或重复添加已存在的旅程和装备。复用本任务已有的攻略搜索结果和已读取正文，不要换近义关键词重新检索；恢复执行不会重置搜索额度。'
         + (jobAttempt > 1 ? '上一次执行没有产出符合结构要求的结果：本轮必须以结构化结果结束。写入被拒绝时把原因写进 blocker 并在正文说明，不要只输出一段解释性文字。' : '')
       : '';
     const savedPackingDraft = task.decision.packingMode === 'full' ? await readPackingDraft(client, runId) : null;
