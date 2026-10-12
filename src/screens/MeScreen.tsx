@@ -2335,6 +2335,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
     <View style={{ flex: 1, backgroundColor: theme.featureSurface }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!settingsDrawerOpen}
         contentContainerStyle={{
           paddingTop: insets.top + space.xs + layout.iconButton + space.xs,
           paddingBottom: insets.bottom + 120,

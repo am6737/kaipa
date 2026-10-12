@@ -40,6 +40,15 @@ infra/supabase/deploy-functions.sh sms-gateway
 `SMS_GATEWAY_SECRET` 和 Hook 请求携带的 secret 必须一致。生产环境不要启用
 `SMS_TEST_OTP` 或 `GOTRUE_SMS_AUTOCONFIRM`。
 
+`docker-compose.yml` 里的 `GOTRUE_HOOK_SEND_SMS_URI` 没有默认值：Gotrue 加载配置时会拒绝
+非 localhost 的 http 地址（`only localhost, 127.0.0.1, and ::1 are supported with http`）并
+fatal，auth 容器直接起不来。接线时必须在 `.env` 显式写 `SMS_HOOK_URI`，并重建 auth 容器
+（`docker compose -f infra/supabase/docker/docker-compose.yml --project-directory infra/supabase/docker up -d --no-deps auth`）才会生效。
+
+`phone_login` 功能开关（见 `feature_controls`）在 `sms-gateway` 里也读一次：关掉时函数在扣
+限流额度之前直接抛错，不发码。它只在 Hook 已接线的前提下才有服务端效果；Hook 未接线的开发
+环境靠 `ENABLE_PHONE_SIGNUP=false` 关掉 provider 才真正拦停。
+
 供应商公开单价会随套餐和量级变化，采购前应以企业控制台报价为准；应同时比较到达率、失败
 率、审核周期和最低消费，而不是只比较单条价格。
 

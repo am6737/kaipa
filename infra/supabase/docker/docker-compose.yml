@@ -185,8 +185,10 @@ services:
       GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
       GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}
       # Kaipa SMS hook. The edge-runtime service routes to the configured providers.
+      # Gotrue 校验 hook URI 时只允许 http 指向 localhost，所以不能给 http://functions:9000
+      # 这种内部默认值——未配置时留空，接发码通道时在 .env 显式写 SMS_HOOK_URI。
       GOTRUE_HOOK_SEND_SMS_ENABLED: ${SMS_HOOK_ENABLED:-false}
-      GOTRUE_HOOK_SEND_SMS_URI: ${SMS_HOOK_URI:-http://functions:9000/functions/v1/sms-gateway}
+      GOTRUE_HOOK_SEND_SMS_URI: ${SMS_HOOK_URI:-}
       GOTRUE_HOOK_SEND_SMS_SECRETS: ${SMS_HOOK_SECRETS:-}
 
       # Apple Sign In (native ID token flow — no client secret needed)

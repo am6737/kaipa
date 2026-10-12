@@ -26,8 +26,19 @@ async function hashSecret(value: string) {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function reserveSend(req: Request, message: SmsMessage, body: Record<string, unknown>) {
-  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+function adminClient() {
+  return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+}
+
+// Auth 关掉手机号登录后仍会回调到这里：不发码，登录流程就停在验证码一步。
+// 读不到开关时同样不发码，和下面的限流器保持一致的 fail-closed 取向。
+async function assertPhoneLoginOpen(db: ReturnType<typeof adminClient>) {
+  const { data, error } = await db.rpc('feature_control_state', { p_key: 'phone_login' });
+  if (error) throw new Error('phone login control unavailable');
+  if (data !== 'enabled') throw new Error('phone login disabled by operations');
+}
+
+async function reserveSend(db: ReturnType<typeof adminClient>, req: Request, message: SmsMessage, body: Record<string, unknown>) {
   const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '';
   const device = typeof body.device_id === 'string' ? body.device_id : '';
   const { data, error } = await db.rpc('consume_sms_send', {
@@ -75,7 +86,9 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json() as Record<string, unknown>;
     const message = messageFromBody(body);
-    await reserveSend(req, message, body);
+    const db = adminClient();
+    await assertPhoneLoginOpen(db);
+    await reserveSend(db, req, message, body);
     const result = await sendWithFailover(message, providers());
     return Response.json({ ok: true, provider: result.provider });
   } catch (error) {
