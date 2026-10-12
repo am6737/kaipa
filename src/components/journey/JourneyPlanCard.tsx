@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { CalendarDays, Pin, Plus, Route, TrendingUp } from 'lucide-react-native';
+import { CalendarDays, Ellipsis, Pin, Plus, Route, TrendingUp } from 'lucide-react-native';
 import { orderCompanionsForDisplay, type Poi } from '../../data/pois';
 import { radius, space } from '../../design-system';
 import { useI18n } from '../../i18n';
@@ -74,7 +74,9 @@ function JourneyPlanCardView({
   countRender('JourneyPlanCard');
   const status = journeyStatus(journey);
   const coverUri = journey.photoUris?.[0];
-  const companions = orderCompanionsForDisplay(journey.companionList || []).slice(0, 2);
+  const allCompanions = orderCompanionsForDisplay(journey.companionList || []);
+  const hasCompanionOverflow = allCompanions.length > 2;
+  const companions = allCompanions.slice(0, 2);
   const date = journey.plannedDate || journey.date || t('journeyEdit.time.datePending');
   const duration = journey.totalDays ? t('journeyEdit.meta.days', { count: journey.totalDays }) : journey.days || undefined;
   const statusVisible = showStatus && (status === 'planned' || status === 'active');
@@ -138,7 +140,13 @@ function JourneyPlanCardView({
         {(companions.length ? companions : [{ avatarUrl: undefined }]).map((person, index) => (
           <View key={`${person.avatarUrl || 'participant'}-${index}`} style={[styles.participantAvatar, index > 0 && { marginLeft: -11 }]}>
             {index > 0 ? <View pointerEvents="none" style={[styles.avatarSeparator, { backgroundColor: journeyCardBackground(theme, status) }]} /> : null}
-            <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={36} backgroundColor={theme.controlSurface} />
+            {index === 1 && hasCompanionOverflow ? (
+              <View style={[styles.participantAvatar, { borderRadius: radius.pill, backgroundColor: theme.controlSurface, alignItems: 'center', justifyContent: 'center' }]}>
+                <Ellipsis color={theme.text3} size={16} strokeWidth={2.2} />
+              </View>
+            ) : (
+              <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={36} backgroundColor={theme.controlSurface} />
+            )}
           </View>
         ))}
         {onInvite ? (
