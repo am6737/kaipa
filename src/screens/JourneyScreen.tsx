@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Copy, CornerDownLeft, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
+import { Check, Copy, CornerDownLeft, LogOut, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -32,6 +32,7 @@ function JourneySwipeActions({
   progress,
   theme,
   pinned,
+  mine,
   deleting,
   disabled,
   onPin,
@@ -41,6 +42,7 @@ function JourneySwipeActions({
   progress: SharedValue<number>;
   theme: Theme;
   pinned: boolean;
+  mine: boolean;
   deleting: boolean;
   disabled: boolean;
   onPin: () => void;
@@ -48,6 +50,7 @@ function JourneySwipeActions({
   onDelete: () => void;
 }) {
   const { t } = useI18n();
+  const dangerLabel = t(mine ? 'journeyHome.action.delete' : 'journey.manage.leaveAction');
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0, 0.18, 1], [0, 0.62, 1], Extrapolation.CLAMP),
     transform: [{ translateX: interpolate(progress.value, [0, 1], [32, 0], Extrapolation.CLAMP) }],
@@ -69,11 +72,11 @@ function JourneySwipeActions({
           {t(pinned ? 'journeyHome.action.unpin' : 'journeyHome.action.pin')}
         </Text>
       </Press>
-      <Press disabled={disabled} accessibilityRole="button" accessibilityLabel={t('journeyHome.action.delete')} onPress={onDelete} style={styles.swipeAction}>
+      <Press disabled={disabled} accessibilityRole="button" accessibilityLabel={dangerLabel} onPress={onDelete} style={styles.swipeAction}>
         <View style={styles.swipeIconCircle}>
-          {deleting ? <ActivityIndicator color={theme.danger} /> : <Trash2 size={23} color={theme.danger} strokeWidth={2.1} />}
+          {deleting ? <ActivityIndicator color={theme.danger} /> : mine ? <Trash2 size={23} color={theme.danger} strokeWidth={2.1} /> : <LogOut size={23} color={theme.danger} strokeWidth={2.1} />}
         </View>
-        <Text numberOfLines={1} style={[styles.swipeActionLabel, { color: theme.danger }]}>{t('journeyHome.action.delete')}</Text>
+        <Text numberOfLines={1} style={[styles.swipeActionLabel, { color: theme.danger }]}>{dangerLabel}</Text>
       </Press>
     </ReAnimated.View>
   );
@@ -336,6 +339,7 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
                     progress={progress}
                     theme={theme}
                     pinned={pinnedIds.has(journey.id)}
+                    mine={journey.mine !== false}
                     deleting={deletingId === journey.id}
                     disabled={Boolean(deletingId || duplicatingId)}
                     onPin={() => {
@@ -417,24 +421,31 @@ export function JourneyScreen({ theme }: { theme: Theme }) {
       <AppActionDialog
         theme={theme}
         visible={Boolean(deleteCandidate)}
-        title={t('journeyHome.action.deleteTitle')}
-        message={t('journeyHome.action.deleteMessage', { name: deleteCandidate?.name || '' })}
-        confirmLabel={t('journeyHome.action.delete')}
+        title={t(deleteCandidate?.mine === false ? 'journey.manage.leaveTitle' : 'journeyHome.action.deleteTitle')}
+        message={deleteCandidate?.mine === false
+          ? t('journey.manage.leaveBody')
+          : t('journeyHome.action.deleteMessage', { name: deleteCandidate?.name || '' })}
+        confirmLabel={t(deleteCandidate?.mine === false ? 'journey.manage.leaveAction' : 'journeyHome.action.delete')}
         cancelLabel={t('common.cancel')}
         destructive
         confirming={deletingId === deleteCandidate?.id}
-        confirmIcon="trash"
+        confirmIcon={deleteCandidate?.mine === false ? undefined : 'trash'}
         onCancel={() => {
           setDeleteCandidate(null);
         }}
         onConfirm={() => {
           if (!deleteCandidate || deletingId) return;
           const candidate = deleteCandidate;
+          const joined = candidate.mine === false;
           setDeletingId(candidate.id);
-          void data.deleteJourney(candidate.id).then(() => {
+          const task = joined
+            ? data.leaveJourney(candidate.id).then(() => data.refetchJourneys())
+            : data.deleteJourney(candidate.id);
+          void task.then(() => {
             setPinned([candidate.id], false);
             setDeleteCandidate(null);
-          }).catch(() => nav.showToast(t('journeyHome.action.deleteFailed'))).finally(() => setDeletingId(undefined));
+            if (joined) nav.showToast(t('journey.manage.leaveSuccess'));
+          }).catch(() => nav.showToast(t(joined ? 'journey.manage.leaveFailed' : 'journeyHome.action.deleteFailed'))).finally(() => setDeletingId(undefined));
         }}
       />
       <JourneyCreateMenu

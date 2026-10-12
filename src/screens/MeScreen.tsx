@@ -1494,6 +1494,7 @@ function JourneysPage({
   onInviteJourney,
   onCreateJourney,
   onDeleteJourney,
+  onLeaveJourney,
 }: {
   theme: Theme;
   journeys: Poi[];
@@ -1502,6 +1503,7 @@ function JourneysPage({
   onInviteJourney: (journey: Poi) => void;
   onCreateJourney: () => void;
   onDeleteJourney: (journey: Poi) => Promise<void>;
+  onLeaveJourney: (journey: Poi) => Promise<void>;
 }) {
   const { t } = useI18n();
   const [deleteCandidate, setDeleteCandidate] = useState<Poi | null>(null);
@@ -1605,7 +1607,12 @@ function JourneysPage({
                     <JourneySwipeDeleteAction
                       progress={progress}
                       theme={theme}
-                      label={t("journey.settings.deleteJourney")}
+                      variant={journey.mine === false ? "leave" : "delete"}
+                      label={t(
+                        journey.mine === false
+                          ? "journey.manage.leaveAction"
+                          : "journey.settings.deleteJourney",
+                      )}
                       onPress={() => {
                         methods.close();
                         setDeleteCandidate(journey);
@@ -1663,13 +1670,25 @@ function JourneysPage({
       <AppActionDialog
         theme={theme}
         visible={Boolean(deleteCandidate)}
-        title={t("journey.settings.deleteConfirmTitle")}
-        message={t("journey.remove.confirmMessage")}
-        confirmLabel={t("journey.settings.deleteJourney")}
+        title={t(
+          deleteCandidate?.mine === false
+            ? "journey.manage.leaveTitle"
+            : "journey.settings.deleteConfirmTitle",
+        )}
+        message={t(
+          deleteCandidate?.mine === false
+            ? "journey.manage.leaveBody"
+            : "journey.remove.confirmMessage",
+        )}
+        confirmLabel={t(
+          deleteCandidate?.mine === false
+            ? "journey.manage.leaveAction"
+            : "journey.settings.deleteJourney",
+        )}
         cancelLabel={t("common.cancel")}
         destructive
         confirming={deletingId === deleteCandidate?.id}
-        confirmIcon="trash"
+        confirmIcon={deleteCandidate?.mine === false ? undefined : "trash"}
         onCancel={() => {
           pendingSwipeCloseRef.current?.();
           pendingSwipeCloseRef.current = null;
@@ -1680,7 +1699,7 @@ function JourneysPage({
           const candidate = deleteCandidate;
           pendingSwipeCloseRef.current = null;
           setDeletingId(candidate.id);
-          void onDeleteJourney(candidate).finally(() => {
+          void (candidate.mine === false ? onLeaveJourney(candidate) : onDeleteJourney(candidate)).finally(() => {
             setDeletingId(undefined);
             setDeleteCandidate(null);
           });
@@ -2124,6 +2143,10 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
             onBack={pop}
             onCreateJourney={() => nav.openNewJourney()}
             onDeleteJourney={(journey) => data.deleteJourney(journey.id)}
+            onLeaveJourney={async (journey) => {
+              await data.leaveJourney(journey.id);
+              await data.refetchJourneys();
+            }}
             onInviteJourney={(journey) =>
               nav.openManageCompanions(journey, "invite")
             }

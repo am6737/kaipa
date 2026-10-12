@@ -1,6 +1,6 @@
 // Swipe-to-delete action shared by the 我的旅程 and 我的攻略 lists.
 import React from 'react';
-import { Trash2 } from 'lucide-react-native';
+import { LogOut, Trash2 } from 'lucide-react-native';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import type { Theme } from '../../theme/theme';
 import { Press } from '../Press';
@@ -11,11 +11,13 @@ export function JourneySwipeDeleteAction({
   progress,
   theme,
   label,
+  variant = 'delete',
   onPress,
 }: {
   progress: SharedValue<number>;
   theme: Theme;
   label: string;
+  variant?: 'delete' | 'leave';
   onPress: () => void;
 }) {
   const animatedStyle = useAnimatedStyle(() => ({
@@ -31,7 +33,7 @@ export function JourneySwipeDeleteAction({
         accessibilityLabel={label}
         style={{ flex: 1, width: 76, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Trash2 size={28} color={theme.danger} strokeWidth={2.1} />
+        {variant === 'leave' ? <LogOut size={28} color={theme.danger} strokeWidth={2.1} /> : <Trash2 size={28} color={theme.danger} strokeWidth={2.1} />}
       </Press>
     </ReAnimated.View>
   );
