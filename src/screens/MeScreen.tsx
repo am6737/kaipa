@@ -39,6 +39,7 @@ import {
 import { Glass } from "../components/Glass";
 import { TwoStageSwipeable } from "../components/TwoStageSwipeable";
 import { Globe } from "../components/globe";
+import { STAGGER_MAX_DELAY_MS } from "../components/StaggerIn";
 import { TrailSheet } from "../components/Sheet";
 import { useAppearance } from "../theme/AppearanceContext";
 import { useI18n, Lang, TKey } from "../i18n";
@@ -67,7 +68,6 @@ import { AboutPage } from "../components/me/AboutPage";
 import { LegalDocumentPage } from "../components/me/LegalDocumentPage";
 import { PlanningProfilePage } from "../components/me/PlanningProfilePage";
 import { MembershipPage } from "../components/me/MembershipPage";
-import { MembershipEntryCard } from "../components/me/MembershipEntryCard";
 import type { UserPlanningProfile } from "../hooks/usePlanningProfile";
 import { JourneyTrashPage } from "../components/journey/JourneyTrashPage";
 import { TracksPage } from "../components/tracks/TracksPage";
@@ -87,7 +87,8 @@ import {
   type AppMetric,
 } from "../design-system";
 import { QrLoginScannerPage } from "../components/auth/QrLoginScannerPage";
-import { joinJourneyByInvite } from "../lib/journeyInvite";
+import { fetchJourneyPoiById } from "../lib/journeyInvite";
+import { joinJourneyByCode } from "../lib/journeyShare";
 import { orderCompanionsForDisplay, type Poi } from "../data/pois";
 import { buildRouteFootprints, type RouteFootprints } from "../data/footprints";
 import { ParticipantAvatar } from "../components/overlays/ParticipantAvatar";
@@ -105,6 +106,7 @@ import {
 import { MyRouteRequestsPage } from "../components/me/MyRouteRequestsPage";
 import { CardPickerPage, type CardPickerOption } from "../components/me/CardPickerPage";
 import { LanguagePickerPage } from "../components/me/LanguagePickerPage";
+import { removeMedia } from "../lib/storage";
 
 const appVersionLabel = Constants.expoConfig?.version
   ? `v${Constants.expoConfig.version}`
@@ -112,7 +114,6 @@ const appVersionLabel = Constants.expoConfig?.version
 
 type MePage =
   | { type: "scanLogin" }
-  | { type: "settings" }
   | { type: "journeys" }
   | { type: "footprints" }
   | { type: "favorites" }
@@ -340,6 +341,9 @@ function groupMapPoints(points: Poi[]) {
   points.forEach((point) => {
     const [lng, lat] = mapCoordinate(point);
     if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    // Routes created without coordinates store the (0,0) placeholder, which is
+    // null island in the Gulf of Guinea, not a place anyone walked.
+    if (lng === 0 && lat === 0) return;
     const key = `${lng.toFixed(4)},${lat.toFixed(4)}`;
     groups.set(key, [...(groups.get(key) || []), point]);
   });
@@ -354,6 +358,7 @@ function CollectionMap({
   frameCoords,
   coverUriById,
   focusBottomPadding,
+  staggerPins = false,
 }: {
   theme: Theme;
   points: Poi[];
@@ -362,9 +367,23 @@ function CollectionMap({
   frameCoords?: [number, number][];
   coverUriById?: Record<string, string | undefined>;
   focusBottomPadding?: number;
+  staggerPins?: boolean;
 }) {
   const { resolved } = useI18n();
   const { width } = useWindowDimensions();
+  // The caller asks for a one-shot entrance; the timer lives here rather than
+  // in the page so flipping it only re-renders this wrapper. The page holds the
+  // sheet's header/accessory/list as inline JSX, and rebuilding that subtree
+  // mid-drag lands in the same frames as the snap spring.
+  const [entrancePending, setEntrancePending] = useState(staggerPins);
+  useEffect(() => {
+    if (!staggerPins || !entrancePending || !points.length) return;
+    const timer = setTimeout(
+      () => setEntrancePending(false),
+      STAGGER_MAX_DELAY_MS + 400,
+    );
+    return () => clearTimeout(timer);
+  }, [staggerPins, entrancePending, points.length]);
   // Some native map implementations retain removed custom markers when their
   // marker collection is updated in place. Remount only when the point set
   // changes so a deleted journey cannot remain visible, while camera state is
@@ -428,6 +447,7 @@ function CollectionMap({
         mapStyle="standard"
         frameCoords={frameCoords}
         focusBottomPadding={focusBottomPadding}
+        staggerPins={staggerPins && entrancePending}
         showMapLabels
         onPoiPress={
           onPointPress
@@ -681,6 +701,7 @@ function MapCollectionPage({
   mutedIds,
   frameCoords,
   coverUriById,
+  staggerPins = false,
   children,
 }: {
   theme: Theme;
@@ -693,6 +714,7 @@ function MapCollectionPage({
   mutedIds?: Set<string>;
   frameCoords?: [number, number][];
   coverUriById?: Record<string, string | undefined>;
+  staggerPins?: boolean;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -715,6 +737,7 @@ function MapCollectionPage({
         frameCoords={frameCoords}
         focusBottomPadding={middleHeight}
         coverUriById={coverUriById}
+        staggerPins={staggerPins}
       />
       <View style={{ position: "absolute", left: 14, top: insets.top + 5 }}>
         <Press
@@ -1357,9 +1380,15 @@ function FootprintsPage({
         items.filter((item) => !item.lit).map((item) => item.route.id),
       ),
       // Frame what the user has walked; with nothing lit yet, the whole catalog.
-      frameCoords: (litItems.length ? litItems : items).map(
-        (item): [number, number] => [item.route.lng, item.route.lat],
-      ),
+      // Same coordinate source as the markers, minus the (0,0) placeholders: a
+      // single zero point would stretch the fit box to the Gulf of Guinea and
+      // drop the camera on Africa.
+      frameCoords: (litItems.length ? litItems : items)
+        .map((item) => mapCoordinate(item.route))
+        .filter(
+          ([lng, lat]) =>
+            Number.isFinite(lng) && Number.isFinite(lat) && (lng !== 0 || lat !== 0),
+        ),
       coverUriById: Object.fromEntries(
         litItems.map((item) => [item.route.id, item.journey?.photoUris?.[0]]),
       ),
@@ -1392,6 +1421,7 @@ function FootprintsPage({
       mutedIds={map.mutedIds}
       frameCoords={map.frameCoords}
       coverUriById={map.coverUriById}
+      staggerPins
       onBack={onBack}
       onPointPress={(route) => {
         const item = items.find((entry) => entry.route.id === route.id);
@@ -1909,12 +1939,18 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
   });
   const renderPage = (pg: MePage) => {
     const theme =
-      pg.type === "settings" || pg.type === "membership"
+      pg.type === "membership"
         ? makeMeTheme(baseTheme)
         : baseTheme;
     switch (pg.type) {
       case "membership":
-        return <MembershipPage theme={theme} onBack={pop} view={pg.view} />;
+        return (
+          <MembershipPage
+            theme={theme}
+            onBack={pop}
+            view={pg.view}
+          />
+        );
       case "scanLogin":
         return (
           <QrLoginScannerPage
@@ -1925,215 +1961,15 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
               showToast(t("qrLogin.approvedToast"));
             }}
             onJourneyInvite={async (invite) => {
-              const journey = await joinJourneyByInvite(invite);
+              const result = await joinJourneyByCode(invite.code);
+              if (!result.journeyId || (result.status !== 'joined' && result.status !== 'already_joined')) throw new Error(result.status);
+              const journey = await fetchJourneyPoiById(result.journeyId);
               await data.refetchJourneys();
               pop();
               nav.openPoint(journey);
               showToast(t("qrLogin.journeyJoined", { name: journey.name }));
             }}
           />
-        );
-      case "settings":
-        return (
-          <View style={{ flex: 1, backgroundColor: theme.groupedBg }}>
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{
-                paddingHorizontal: layout.pagePadding,
-                paddingTop: insets.top + space.xs + layout.topBarHeight,
-                paddingBottom: insets.bottom + space.xxl,
-              }}
-            >
-              <View style={{ marginTop: space.lg }}>
-                <MembershipEntryCard
-                  theme={theme}
-                  onPress={() => push({ type: "membership" })}
-                  onUsage={() => push({ type: "membership", view: "usage" })}
-                />
-              </View>
-              <AppSectionHeader
-                theme={theme}
-                text={t("account.security.pageTitle")}
-                marginTop={layout.sectionGap}
-              />
-              <AppCard
-                theme={theme}
-                radius={radius.feature}
-                style={[
-                  flatMeCardStyle,
-                  { paddingHorizontal: space.md, borderWidth: 0 },
-                ]}
-              >
-                <SettingsRow
-                  theme={theme}
-                  icon="user"
-                  label={t("account.security.pageTitle")}
-                  detail={profile.email || t("account.security.notBound")}
-                  onPress={() => push({ type: "accountSecurity" })}
-                  last
-                />
-              </AppCard>
-
-              <AppSectionHeader
-                theme={theme}
-                text={t("me.appearance")}
-                marginTop={layout.sectionGap}
-              />
-              <AppCard
-                theme={theme}
-                radius={radius.feature}
-                style={[
-                  flatMeCardStyle,
-                  { paddingHorizontal: space.md, borderWidth: 0 },
-                ]}
-              >
-                <AppearanceRow
-                  ref={themeRowRef}
-                  theme={theme}
-                  label={t("me.theme")}
-                  value={modeLabel}
-                  leading={
-                    <Icon
-                      name={
-                        mode === "dark"
-                          ? "moon"
-                          : mode === "light"
-                            ? "sun"
-                            : "system"
-                      }
-                      color={theme.text2}
-                      size={19}
-                    />
-                  }
-                  open={appearancePopup === "theme"}
-                  onPress={() => openAppearancePopup("theme", themeRowRef)}
-                />
-                <AppearanceRow
-                  ref={accentRowRef}
-                  theme={theme}
-                  label={t("me.accent")}
-                  value={accentName}
-                  leading={
-                    <ColorDot
-                      theme={theme}
-                      color={curAccent}
-                      size={20}
-                      dashed={!curPreset}
-                    />
-                  }
-                  open={appearancePopup === "accent"}
-                  onPress={() => openAppearancePopup("accent", accentRowRef)}
-                />
-                <AppearanceRow
-                  ref={languageRowRef}
-                  theme={theme}
-                  label={t("me.language")}
-                  value={langLabel}
-                  leading={<Icon name="globe" color={theme.text2} size={19} />}
-                  open={appearancePopup === "language"}
-                  onPress={() =>
-                    openAppearancePopup("language", languageRowRef)
-                  }
-                  last
-                />
-              </AppCard>
-
-              <AppSectionHeader
-                theme={theme}
-                text={t("me.preferences")}
-                marginTop={layout.sectionGap}
-              />
-              <AppCard
-                theme={theme}
-                radius={radius.feature}
-                style={[
-                  flatMeCardStyle,
-                  { paddingHorizontal: space.md, borderWidth: 0 },
-                ]}
-              >
-                <SettingsRow
-                  theme={theme}
-                  icon="bell"
-                  label={t("me.notifications")}
-                  detail={notif.push ? t("common.on") : t("common.off")}
-                  onPress={() => push({ type: "notif" })}
-                  last
-                />
-              </AppCard>
-
-              <AppSectionHeader
-                theme={theme}
-                text={t("me.support")}
-                marginTop={layout.sectionGap}
-              />
-              <AppCard
-                theme={theme}
-                radius={radius.feature}
-                style={[
-                  flatMeCardStyle,
-                  { paddingHorizontal: space.md, borderWidth: 0 },
-                ]}
-              >
-                <SettingsRow
-                  theme={theme}
-                  icon="send"
-                  label={t("me.helpFeedback")}
-                  onPress={() => push({ type: "feedback" })}
-                />
-                <SettingsRow
-                  theme={theme}
-                  icon="compass"
-                  label={t("me.about")}
-                  detail={appVersionLabel}
-                  onPress={() => push({ type: "about" })}
-                  last
-                />
-              </AppCard>
-            </ScrollView>
-
-            <View
-              pointerEvents="box-none"
-              style={{
-                position: "absolute",
-                top: insets.top,
-                left: layout.pagePadding,
-                right: layout.pagePadding,
-                height: layout.topBarHeight,
-                justifyContent: "center",
-              }}
-            >
-              <Press
-                onPress={pop}
-                accessibilityRole="button"
-                accessibilityLabel={t("common.back")}
-                scaleTo={0.96}
-                style={{
-                  width: layout.iconButton,
-                  height: layout.iconButton,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <ChevronLeft color={theme.text} size={25} strokeWidth={2.2} />
-              </Press>
-              <Text
-                pointerEvents="none"
-                numberOfLines={1}
-                style={[
-                  type.navTitle,
-                  {
-                    position: "absolute",
-                    left: layout.iconButton + space.sm,
-                    right: layout.iconButton + space.sm,
-                    textAlign: "center",
-                    color: theme.text,
-                  },
-                ]}
-              >
-                {t("me.settingsPageTitle")}
-              </Text>
-            </View>
-          </View>
         );
       case "journeys":
         return (
@@ -2226,10 +2062,14 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
           <MyRouteRequestsPage
             theme={theme}
             requests={data.routeRequests}
+            loading={data.routeRequestsLoading}
             onBack={pop}
+            onRefresh={() => void data.refetchRouteRequests()}
             onDelete={async (request) => {
               try {
                 await data.deleteRouteRequest(request.id);
+                const urls = (request.attachments || []).map((a) => a.url);
+                if (urls.length) void removeMedia(urls).catch(() => {});
                 showToast(t("routeRequest.delete"));
               } catch {
                 showToast(t("routeRequest.deleteFailed"));
@@ -2480,8 +2320,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
   };
   const drawerItems: MeDrawerItem[] = [
     { key: "account", icon: "userCircle", label: t("account.security.pageTitle"), go: () => push({ type: "accountSecurity" }) },
-    { key: "membership", icon: "star", label: t("membership.entryTitle"), go: () => push({ type: "membership" }) },
-    { key: "planning", icon: "compass", label: t("planningProfile.title"), go: () => push({ type: "planningProfile" }) },
+    { key: "planning", icon: "user", label: t("planningProfile.title"), go: () => push({ type: "planningProfile" }) },
     { key: "requests", icon: "flag", label: t("routeRequest.drawerTitle"), go: () => push({ type: "routeRequests" }) },
     { key: "trash", icon: "trash", label: t("journeyHome.trash.title"), go: () => push({ type: "trash" }) },
     { key: "notif", icon: "bell", label: t("me.notifications"), value: notif.push ? t("common.on") : t("common.off"), go: () => push({ type: "notif" }) },

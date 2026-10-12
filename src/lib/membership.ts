@@ -26,7 +26,12 @@ export interface MembershipStatus {
   resources: ResourceUsage[];
   serverTime: string;
   meteringStartedAt: string;
-  products: {id: 'monthly' | 'yearly' | 'lifetime';term_months:number|null;is_lifetime:boolean}[];
+  // price/compareAtAmountMinor/recommended are display-only slots the store
+  // layer will fill later; the RPC omits them until purchases open.
+  products: {id: 'monthly' | 'yearly' | 'lifetime';term_months:number|null;is_lifetime:boolean;
+    price?: { amountMinor: number; currency: string } | null;
+    compareAtAmountMinor?: number | null;
+    recommended?: boolean;}[];
   transitionEndsAt: string | null;
 }
 
