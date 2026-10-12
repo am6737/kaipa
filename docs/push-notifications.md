@@ -16,6 +16,8 @@ notifications INSERT 之后的 outbox 上，因此凡是能进消息中心的事
 | `companion_leave` | 旅伴离开旅程 → 通知房主（跳过房主自己） | 同上 |
 | `guest_moment` | Web 访客留言/上传瞬间 → 通知房主 | 同上 |
 | `departure` | 出发提醒：前 1 天 20:00、当天 08:00（Asia/Shanghai）；按 (旅程, bucket, planned_date) 幂等，改期后会按新日期重新提醒 | `scan_departure_reminders()` |
+| `observation_like` | 近期实况被点「有用」→ 通知作者（跳过自赞；同人同路线 24h 内只提醒一次） | 20261013040000 `route_observation_helpful()` |
+| `guide_like` | 路书被点「有用」→ 通知作者（同上，`target` 为路书标题） | 20261013040000 `route_guide_helpful()` |
 
 ## 发送链路
 

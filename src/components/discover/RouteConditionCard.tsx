@@ -204,7 +204,7 @@ function formatObservationDate(value: string, locale: 'zh' | 'en') {
 }
 
 function formatObservationClock(date: Date) {
-  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+  return [date.getHours(), date.getMinutes()]
     .map((part) => String(part).padStart(2, '0'))
     .join(':');
 }

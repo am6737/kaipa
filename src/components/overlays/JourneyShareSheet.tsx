@@ -17,20 +17,23 @@ function FeatureAction({
   icon,
   title,
   subtitle,
+  disabled = false,
   onPress,
 }: {
   theme: Theme;
   icon: IconName;
   title: string;
   subtitle: string;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   return (
     <Press
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       accessibilityLabel={`${title}，${subtitle}`}
-      style={[styles.featureAction, { backgroundColor: theme.surfaceTop }]}
+      style={[styles.featureAction, { backgroundColor: theme.surfaceTop, opacity: disabled ? 0.48 : 1 }]}
     >
       <View style={styles.featureCopy}>
         <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text }]}>{title}</Text>
@@ -43,9 +46,15 @@ function FeatureAction({
   );
 }
 
-function QuickAction({ theme, icon, label, onPress }: { theme: Theme; icon: IconName | 'keyRound' | 'wechat'; label: string; onPress: () => void }) {
+function QuickAction({ theme, icon, label, disabled = false, onPress }: { theme: Theme; icon: IconName | 'keyRound' | 'wechat'; label: string; disabled?: boolean; onPress: () => void }) {
   return (
-    <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.quickAction}>
+    <Press
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      accessibilityLabel={label}
+      style={[styles.quickAction, { opacity: disabled ? 0.48 : 1 }]}
+    >
       <View style={[styles.quickIcon, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder }]}>
         {icon === 'keyRound' ? (
           <KeyRound color={theme.text} size={24} strokeWidth={1.9} />
@@ -87,6 +96,15 @@ export function JourneyShareSheet({
 
   const [share, setShare] = useState<JourneyShareInfo | null>(null);
   const shareUrl = useMemo(() => (share ? journeyShareUrl(share) : null), [share]);
+  const inviteEnabled = poi.inviteEnabled !== false;
+  const inviteDisabledMessage = t('poster.menu.inviteDisabled');
+  const onInviteAction = useCallback((action: () => void) => {
+    if (!inviteEnabled) {
+      onToast(inviteDisabledMessage);
+      return;
+    }
+    action();
+  }, [inviteDisabledMessage, inviteEnabled, onToast]);
 
   useEffect(() => {
     Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...motion.pageSpring }).start();
@@ -121,21 +139,36 @@ export function JourneyShareSheet({
   ).current;
 
   const shareJourney = useCallback(async (message: string) => {
-    if (!shareUrl) return;
+    if (!inviteEnabled) {
+      onToast(inviteDisabledMessage);
+      return;
+    }
+    if (!shareUrl) {
+      onToast(t('poster.menu.shareUnavailable'));
+      return;
+    }
     try {
       await Share.share({ title: poi.name, message: `${message}\n${shareUrl}`, url: shareUrl });
     } catch (error: any) {
       if (error?.message !== 'User did not share') console.warn('[JourneyShareSheet] share error:', error);
     }
-  }, [poi.name, shareUrl]);
+  }, [inviteDisabledMessage, inviteEnabled, onToast, poi.name, shareUrl, t]);
 
   const copyLink = useCallback(async () => {
-    if (!shareUrl) return;
+    if (!inviteEnabled) {
+      onToast(inviteDisabledMessage);
+      return;
+    }
+    if (!shareUrl) {
+      onToast(t('poster.menu.shareUnavailable'));
+      return;
+    }
     await Clipboard.setStringAsync(shareUrl);
     onToast(t('poster.menu.linkCopied'));
-  }, [onToast, shareUrl, t]);
+  }, [inviteDisabledMessage, inviteEnabled, onToast, shareUrl, t]);
 
   const regularMessage = t('poster.menu.shareMessage', { tripName: poi.name });
+
   return (
     <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 60 }]}>
       <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
@@ -160,7 +193,8 @@ export function JourneyShareSheet({
             icon="people"
             title={t('poster.menu.collaborate')}
             subtitle={t('poster.menu.collaborateHint')}
-            onPress={onCollaborate}
+            disabled={!inviteEnabled}
+            onPress={() => onInviteAction(onCollaborate)}
           />
           <FeatureAction
             theme={theme}
@@ -172,10 +206,34 @@ export function JourneyShareSheet({
         </View>
 
         <View style={styles.quickActions}>
-          <QuickAction theme={theme} icon="link" label={t('poster.menu.copyLink')} onPress={() => void copyLink()} />
-          <QuickAction theme={theme} icon="keyRound" label={t('poster.menu.passphrase')} onPress={onPassphrase} />
-          <QuickAction theme={theme} icon="share" label={t('poster.menu.shareTo')} onPress={() => void shareJourney(regularMessage)} />
-          <QuickAction theme={theme} icon="wechat" label={t('poster.menu.wechat')} onPress={() => void shareJourney(regularMessage)} />
+          <QuickAction
+            theme={theme}
+            icon="link"
+            label={t('poster.menu.copyLink')}
+            disabled={!inviteEnabled}
+            onPress={() => void copyLink()}
+          />
+          <QuickAction
+            theme={theme}
+            icon="keyRound"
+            label={t('poster.menu.passphrase')}
+            disabled={!inviteEnabled}
+            onPress={() => onInviteAction(onPassphrase)}
+          />
+          <QuickAction
+            theme={theme}
+            icon="share"
+            label={t('poster.menu.shareTo')}
+            disabled={!inviteEnabled}
+            onPress={() => void shareJourney(regularMessage)}
+          />
+          <QuickAction
+            theme={theme}
+            icon="wechat"
+            label={t('poster.menu.wechat')}
+            disabled={!inviteEnabled}
+            onPress={() => void shareJourney(regularMessage)}
+          />
         </View>
       </Animated.View>
     </View>

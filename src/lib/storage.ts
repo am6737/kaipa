@@ -56,7 +56,13 @@ async function ticketUpload(uri: string, purpose: string, scope: string, content
     const {error} = await supabase.storage.from(ticket.bucket).upload(ticket.path,buffer,{contentType:mime,upsert:false});
     if (error) throw error;
   } catch (error) {
-    try { await resourceRequest({action:'upload_cancel',id:ticket.id}); } catch { /* server maintenance retries expiry */ }
+    // The failure moment is exactly when the network is least reliable, so a
+    // dropped cancel would strand the ticket (and its admission slot) until
+    // expiry. Retry once before giving up to the maintenance sweep.
+    try { await resourceRequest({action:'upload_cancel',id:ticket.id}); }
+    catch {
+      try { await new Promise((resolve) => setTimeout(resolve,2000)); await resourceRequest({action:'upload_cancel',id:ticket.id}); } catch { /* maintenance reclaims expired tickets */ }
+    }
     throw error;
   }
   await checkAccount();
