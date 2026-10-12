@@ -4,6 +4,7 @@ export interface RouteCondition {
   id: string;
   routeId: string;
   author: GuideText;
+  authorAvatarUrl?: string | null;
   source: 'user' | 'official';
   visitedAt: string;
   publishedAt: string;

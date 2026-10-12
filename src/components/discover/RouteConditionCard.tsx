@@ -37,7 +37,7 @@ export function RouteConditionCard({ theme, report, compact = false, onPress }: 
   }
   const content = <>
     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm }}>
-      <Avatar size={28} />
+      <Avatar size={28} uri={report.authorAvatarUrl || undefined} />
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{guideText(report.author, resolved)}</Text>
     </View>
     <Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 20, marginTop: space.xs }}>{formatObservationDate(report.publishedAt, resolved)}</Text>

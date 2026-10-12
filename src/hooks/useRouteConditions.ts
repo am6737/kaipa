@@ -4,12 +4,29 @@ import { removeMedia, uploadMedia } from '../lib/storage';
 import type { RouteCondition } from '../data/routeConditions';
 
 type Row = { id: string; route_id: string; user_id: string; author_name: string; visited_at: string; section: string; body: string; media: unknown; helpful_count: number; created_at: string; route_observation_helpful_votes?: { user_id: string }[] };
+type ProfileRow = { id: string; display_name?: string | null; nick?: string | null; avatar_url?: string | null };
 const observationSelect = '*,route_observation_helpful_votes(user_id)';
+const profileSelect = 'id,display_name,nick,avatar_url';
 const text = (value: string) => ({ zh: value, en: value });
+const ANONYMOUS_AUTHOR = '匿名用户';
+// Rows written before the fix persisted a hard-coded '我'/'Me' as author_name.
+const LEGACY_AUTHOR_NAMES = new Set(['我', 'Me', 'me']);
+function resolveAuthorName(profile: ProfileRow | undefined, storedName: string | null | undefined): string {
+  const fromProfile = profile?.display_name?.trim() || profile?.nick?.trim();
+  if (fromProfile) return fromProfile;
+  if (storedName && !LEGACY_AUTHOR_NAMES.has(storedName)) return storedName;
+  return ANONYMOUS_AUTHOR;
+}
+async function fetchProfilesByIds(userIds: (string | null | undefined)[]): Promise<Map<string, ProfileRow>> {
+  const ids = [...new Set(userIds.filter((value): value is string => Boolean(value)))];
+  if (!ids.length) return new Map();
+  const { data } = await supabase.from('profiles').select(profileSelect).in('id', ids);
+  return new Map((data as ProfileRow[] | null)?.map((profile) => [profile.id, profile]) ?? []);
+}
 const subscribers = new Map<string, Set<(report: RouteCondition) => void>>();
-function mapRow(row: Row): RouteCondition {
+function mapRow(row: Row, profile?: ProfileRow): RouteCondition {
   const media = Array.isArray(row.media) ? row.media as RouteCondition['media'] : [];
-  return { id: row.id, routeId: row.route_id, author: text(row.author_name), source: 'user', visitedAt: row.visited_at, publishedAt: row.created_at, section: text(row.section), body: text(row.body), photos: media?.map((item) => item.thumbnail || item.uri) ?? [], media, helpful: row.helpful_count, helpfulMarked: Boolean(row.route_observation_helpful_votes?.length) };
+  return { id: row.id, routeId: row.route_id, author: text(resolveAuthorName(profile, row.author_name)), authorAvatarUrl: profile?.avatar_url || null, source: 'user', visitedAt: row.visited_at, publishedAt: row.created_at, section: text(row.section), body: text(row.body), photos: media?.map((item) => item.thumbnail || item.uri) ?? [], media, helpful: row.helpful_count, helpfulMarked: Boolean(row.route_observation_helpful_votes?.length) };
 }
 
 export function useRouteConditions(routeId: string) {
@@ -22,7 +39,12 @@ export function useRouteConditions(routeId: string) {
     setLoading(true);
     const result = await supabase.from('route_observations').select(observationSelect).eq('route_id', routeId).order('created_at', { ascending: false });
     if (version !== requestVersion.current) return;
-    if (result.error) setError(result.error); else { setError(null); setReports((result.data as Row[]).map(mapRow)); }
+    if (result.error) { setError(result.error); setLoading(false); return; }
+    const rows = result.data as Row[];
+    const profileById = await fetchProfilesByIds(rows.map((row) => row.user_id));
+    if (version !== requestVersion.current) return;
+    setError(null);
+    setReports(rows.map((row) => mapRow(row, profileById.get(row.user_id))));
     setLoading(false);
   }, [routeId]);
   useEffect(() => {
@@ -46,10 +68,12 @@ export function useRouteConditions(routeId: string) {
   return { reports, loading, error, refresh };
 }
 
-export async function submitRouteCondition(args: { routeId: string; body: string; visitedAt: Date; media: { uri: string; kind: 'image' | 'video' | 'livePhoto'; thumbnail?: string; pairedVideoUri?: string }[]; authorName: string }) {
+export async function submitRouteCondition(args: { routeId: string; body: string; visitedAt: Date; media: { uri: string; kind: 'image' | 'video' | 'livePhoto'; thumbnail?: string; pairedVideoUri?: string }[] }) {
   const { data: session } = await supabase.auth.getSession();
   const user = session.session?.user;
   if (!user) throw new Error('请先登录后发布实况');
+  const authorProfile = (await fetchProfilesByIds([user.id])).get(user.id);
+  const authorName = resolveAuthorName(authorProfile, null);
   const uploaded: NonNullable<RouteCondition['media']> = [];
   const cloudUris = new Map<string, string>();
   const cloudPromises = new Map<string, Promise<string>>();
@@ -85,9 +109,9 @@ export async function submitRouteCondition(args: { routeId: string; body: string
     await removeMedia(newUris).catch(() => {});
     throw error;
   }
-  const { data, error } = await supabase.from('route_observations').insert({ route_id: args.routeId, user_id: user.id, author_name: args.authorName, visited_at: args.visitedAt.toISOString(), body: args.body.trim(), media: uploaded }).select('*').single();
+  const { data, error } = await supabase.from('route_observations').insert({ route_id: args.routeId, user_id: user.id, author_name: authorName, visited_at: args.visitedAt.toISOString(), body: args.body.trim(), media: uploaded }).select('*').single();
   if (error) throw error;
-  const report = mapRow(data as Row);
+  const report = mapRow(data as Row, authorProfile);
   for (const receive of subscribers.get(args.routeId) ?? []) receive(report);
   return report;
 }
@@ -97,7 +121,9 @@ export async function markRouteConditionHelpful(id: string) {
   if (error) throw error;
   const result = await supabase.from('route_observations').select(observationSelect).eq('id', id).single();
   if (result.error) throw result.error;
-  const report = mapRow(result.data as Row);
+  const row = result.data as Row;
+  const profileById = await fetchProfilesByIds([row.user_id]);
+  const report = mapRow(row, profileById.get(row.user_id));
   for (const receive of subscribers.get(report.routeId) ?? []) receive(report);
   return report;
 }
