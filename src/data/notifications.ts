@@ -10,6 +10,7 @@ export interface Notif {
   bucket: 'today' | 'earlier';
   time: string;
   who?: string;
+  actorUserId?: string;
   avatar?: string;
   color?: string;
   verb: string;

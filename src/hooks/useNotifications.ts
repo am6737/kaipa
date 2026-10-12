@@ -3,6 +3,24 @@ import { supabase } from '../lib/supabase';
 import { toNotif } from '../lib/mappers';
 import type { Notif } from '../data/notifications';
 
+// notifications.avatar is a snapshot taken when the row was written, and avatar
+// uploads always mint a new storage path, so it goes stale the moment someone
+// changes their picture. Resolve the actor's current one and keep the snapshot
+// only for rows whose profile no longer exists.
+async function withLiveAvatars(rows: Notif[]): Promise<Notif[]> {
+  const ids = Array.from(new Set(rows.map((r) => r.actorUserId).filter((id): id is string => !!id)));
+  if (!ids.length) return rows;
+  const { data, error } = await supabase.from('profiles').select('id, avatar_url').in('id', ids);
+  if (error) {
+    console.warn('[useNotifications] avatar lookup failed:', error.message);
+    return rows;
+  }
+  const urls = new Map((data ?? []).map((p) => [p.id as string, p.avatar_url as string | null]));
+  return rows.map((r) => (r.actorUserId && urls.has(r.actorUserId)
+    ? { ...r, avatar: urls.get(r.actorUserId) || undefined }
+    : r));
+}
+
 export function useNotifications(userId: string | undefined) {
   const [list, setList] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +40,7 @@ export function useNotifications(userId: string | undefined) {
     if (error) {
       console.warn('[useNotifications] fetch error:', error.message);
     } else if (data) {
-      setList(data.map(toNotif));
+      setList(await withLiveAvatars(data.map(toNotif)));
     }
     setLoading(false);
   }, [userId]);
@@ -38,11 +56,13 @@ export function useNotifications(userId: string | undefined) {
         { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            const next = toNotif(payload.new);
-            setList((current) => current.some((item) => item.id === next.id) ? current : [next, ...current]);
+            void withLiveAvatars([toNotif(payload.new)]).then(([next]) => {
+              setList((current) => current.some((item) => item.id === next.id) ? current : [next, ...current]);
+            });
           } else if (payload.eventType === 'UPDATE') {
-            const next = toNotif(payload.new);
-            setList((current) => current.map((item) => item.id === next.id ? next : item));
+            void withLiveAvatars([toNotif(payload.new)]).then(([next]) => {
+              setList((current) => current.map((item) => item.id === next.id ? next : item));
+            });
           } else if (payload.eventType === 'DELETE') {
             setList((current) => current.filter((item) => item.id !== payload.old.id));
           }

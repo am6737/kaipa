@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { InteractionManager, View, Text } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
+import { Avatar } from '../Avatar';
 import { Press } from '../Press';
 import { PhotoTile } from '../PhotoTile';
 import { KPState } from '../State';
@@ -21,21 +22,9 @@ const FILTERS: { id: 'all' | 'social' | 'system'; labelKey: TKey }[] = [
 ];
 
 function Glyph({ theme, item }: { theme: Theme; item: Notif }) {
-  if (item.avatar) {
-    return (
-      <View
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 21,
-          backgroundColor: item.color || theme.accent,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Text style={{ fontSize: 16, fontWeight: '600', color: '#fff' }}>{item.avatar}</Text>
-      </View>
-    );
+  if (item.cat === 'social') {
+    const uri = /^https?:\/\//.test(item.avatar ?? '') ? item.avatar : undefined;
+    return <Avatar uri={uri} size={42} />;
   }
   const danger = item.kind === 'safety';
   return (

@@ -192,6 +192,7 @@ export function toNotif(r: any): Notif {
     bucket,
     time: r.time,
     who: r.who,
+    actorUserId: r.actor_user_id ?? undefined,
     avatar: r.avatar,
     color: r.color,
     verb: r.verb,

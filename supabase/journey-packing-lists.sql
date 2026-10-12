@@ -155,9 +155,10 @@ begin
   end if;
   select * into target_journey from journeys where id = target_companion.journey_id;
   select * into source_companion from companions where journey_id = target_companion.journey_id and user_id = auth.uid() limit 1;
-  insert into notifications (user_id, kind, cat, bucket, time, who, avatar, color, verb, target, target_id, action)
+  insert into notifications (user_id, actor_user_id, kind, cat, bucket, time, who, avatar, color, verb, target, target_id, action)
   values (
     target_companion.user_id,
+    source_companion.user_id,
     'trip',
     'social',
     'today',
