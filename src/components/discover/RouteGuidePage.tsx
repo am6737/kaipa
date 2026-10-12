@@ -31,10 +31,9 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   const insets = useSafeAreaInsets();
   const plans = useMemo(() => getRouteGuidePlans(request.route), [request.route.id, request.route.name]);
   const { reports, loading: reportsLoading, refresh: refreshReports } = useRouteConditions(request.route.id);
-  const { guides, loading: guidesLoading } = useRouteGuides(request.route.id);
+  const { guides, loading: guidesLoading, toggleHelpful } = useRouteGuides(request.route.id);
   const [stack, setStack] = useState<Page[]>([{ view: request.view, planId: request.planId, guideId: request.guideId }]);
   const page = stack[stack.length - 1];
-  const [helpful, setHelpful] = useState<Set<string>>(() => new Set());
   const [conditionDraft, setConditionDraft] = useState('');
   const [conditionMedia, setConditionMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [conditionMediaPreview, setConditionMediaPreview] = useState<Record<string, string>>({});
@@ -46,7 +45,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   const canPublishCondition = Boolean(conditionDraft.trim()) || conditionMedia.length > 0;
   const guide = guides.find((item) => item.id === page.guideId) ?? guides[0] ?? {
     id: 'missing-guide', title: { zh: '攻略暂不可用', en: 'Guide unavailable' }, author: { zh: 'Kaipa', en: 'Kaipa' },
-    season: 'autumn' as const, travelDate: '', publishedDate: '', updatedDate: '', helpful: 0, plan: plans[0], review: { zh: '这篇攻略已下架或尚未通过审核。', en: 'This guide is unavailable or is still under review.' },
+    season: 'autumn' as const, travelDate: '', publishedDate: '', updatedDate: '', helpful: 0, helpfulMarked: false, plan: plans[0], review: { zh: '这篇攻略已下架或尚未通过审核。', en: 'This guide is unavailable or is still under review.' },
   };
   const plan = page.view === 'guide' ? guide.plan : plans.find((item) => item.id === page.planId) ?? plans[0];
   const exportShot = useRef<any>(null);
@@ -93,14 +92,14 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
     <View style={{ flex: 1, backgroundColor: pageBackgroundColor }}>
       <DetailPage scrollable={false} theme={theme} backgroundColor={pageBackgroundColor} title={title} onBack={goBack} right={page.view === 'conditions' ? <Press accessibilityRole="button" onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])} style={styles.headerAdd} accessibilityLabel={c.shareCondition}><Plus color={theme.text} size={22} /></Press> : page.view === 'guide' ? <Press accessibilityRole="button" onPress={() => setShareOpen(true)} style={styles.headerAdd} accessibilityLabel={c.shareGuide}><Share2 color={theme.text} size={20} /></Press> : undefined} flatChrome entryVariant="continuationX" overlay={hasCreate ? <View pointerEvents="box-none" style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.md) }]}> 
         <View style={styles.footerRow}>
-          {page.view === 'guide' ? <Press accessibilityRole="button" accessibilityState={{ selected: helpful.has(guide.id) }} onPress={() => { setHelpful((old) => { const next = new Set(old); if (next.has(guide.id)) next.delete(guide.id); else next.add(guide.id); return next; }); }} style={[styles.footerHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><Heart color={helpful.has(guide.id) ? theme.like : theme.text2} fill={helpful.has(guide.id) ? theme.like : 'transparent'} size={18} /><Text numberOfLines={1} style={[type.note, { color: theme.text2 }]}>{guide.helpful + Number(helpful.has(guide.id))}</Text></Press> : null}
+          {page.view === 'guide' ? <Press accessibilityRole="button" accessibilityState={{ selected: guide.helpfulMarked }} onPress={() => { if (guide.id === 'missing-guide') return; void toggleHelpful(guide.id).catch((error: unknown) => { const authRequired = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase().includes('authentication'); nav.showToast(resolved === 'zh' ? (authRequired ? '请先登录后再点赞' : '点赞失败，请稍后重试') : (authRequired ? 'Sign in to like this guide' : 'Could not save your like')); }); }} style={[styles.footerHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><Heart color={guide.helpfulMarked ? theme.like : theme.text2} fill={guide.helpfulMarked ? theme.like : 'transparent'} size={18} /><Text numberOfLines={1} style={[type.note, { color: theme.text2 }]}>{guide.helpful}</Text></Press> : null}
           <Press onPress={create} accessibilityRole="button" style={[styles.create, page.view === 'guide' && styles.createWithHelpful, { backgroundColor: theme.controlSurface, borderColor: theme.hairline }]}><CalendarDays color={theme.text} size={18} /><Text numberOfLines={1} style={[type.labelStrong, { flexShrink: 1, textAlign: 'center', color: theme.text }]}>{page.view === 'guide' ? c.createGuide : c.createPlan}</Text></Press>
         </View>
       </View> : undefined}>
         <ScrollView key={`${page.view}:${plan.id}`} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}>
         <View style={styles.content}>
           {page.view === 'guides' ? <>
-            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended').map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} helpful={item.helpful + Number(helpful.has(item.id))} onPress={() => openGuide(item.id)} /></View>)}{!guidesLoading && guides.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
+            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended').map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} onPress={() => openGuide(item.id)} /></View>)}{!guidesLoading && guides.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
           </> : page.view === 'condition-compose' ? <>
             <View style={{ marginTop: space.xl }}>
               <TextInput autoFocus value={conditionDraft} onChangeText={setConditionDraft} placeholder={c.shareConditionPlaceholder} placeholderTextColor={theme.text3} multiline maxLength={200} style={[styles.composerInput, styles.composerPageInput, { color: theme.text, backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]} />
@@ -114,7 +113,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
                 setPublishingCondition(true);
                 setConditionPublishError(null);
                 try {
-                  await submitRouteCondition({ routeId: request.route.id, body: conditionDraft, visitedAt: now, authorName: resolved === 'zh' ? '我' : 'Me', media: conditionMedia.map((asset) => ({ uri: asset.uri, kind: asset.type === 'video' ? 'video' as const : asset.type === 'livePhoto' ? 'livePhoto' as const : 'image' as const, thumbnail: conditionMediaPreview[asset.uri], pairedVideoUri: asset.pairedVideoAsset?.uri })) });
+                  await submitRouteCondition({ routeId: request.route.id, body: conditionDraft, visitedAt: now, media: conditionMedia.map((asset) => ({ uri: asset.uri, kind: asset.type === 'video' ? 'video' as const : asset.type === 'livePhoto' ? 'livePhoto' as const : 'image' as const, thumbnail: conditionMediaPreview[asset.uri], pairedVideoUri: asset.pairedVideoAsset?.uri })) });
                   if (conditionModerationEnabled) nav.showToast(c.pendingCondition);
                   setConditionDraft(''); setConditionMedia([]); setConditionMediaPreview({}); setStack((old) => old.slice(0, -1));
                 } catch (error) {
@@ -127,7 +126,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
               </View>
             </View>
           </> : page.view === 'conditions' ? <>
-            <View style={{ marginTop: space.sm }}>{reportsLoading ? <ActivityIndicator color={theme.accent} /> : reports.map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} />)}{!reportsLoading && reports.length === 0 ? <View style={styles.emptyConditions}><Press accessibilityRole="button" accessibilityLabel={c.shareCondition} onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])}><Text style={[styles.body, { color: theme.text, textAlign: 'center' }]}>{c.noReports}</Text></Press></View> : null}</View>
+            <View style={{ marginTop: space.sm }}>{reportsLoading ? <ActivityIndicator color={theme.accent} /> : reports.map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} />)}{!reportsLoading && reports.length === 0 ? <View style={styles.emptyConditions}><Press accessibilityRole="button" accessibilityLabel={c.shareCondition} onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])}><Text style={[styles.body, { color: theme.text2, textAlign: 'center' }]}>{c.noReports}</Text></Press></View> : null}</View>
           </> : page.view === 'weather' ? <>
             {weather.loading ? <View style={styles.weatherState}><ActivityIndicator color={theme.accent} /><Text style={[styles.caption, { color: theme.text2 }]}>{c.weather}</Text></View> : weather.forecast ? <RouteWeatherDetails theme={theme} forecast={weather.forecast} routeName={request.route.name} /> : <View style={styles.weatherState}><Text style={{ color: theme.text2 }}>{c.weatherUnavailable}</Text><Press accessibilityRole="button" onPress={weather.retry} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.accent }}>{c.retry}</Text></Press></View>}
           </> : <>

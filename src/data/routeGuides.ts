@@ -40,6 +40,7 @@ export interface RouteCommunityGuide {
   publishedDate: string;
   updatedDate: string;
   helpful: number;
+  helpfulMarked: boolean;
   plan: RouteGuidePlan;
   review: GuideText;
 }

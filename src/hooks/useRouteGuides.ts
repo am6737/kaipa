@@ -2,14 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { RouteCommunityGuide, RouteGuidePlan, GuideText } from '../data/routeGuides';
 
-type Row = { id: string; title: string; intro: string | null; reflection: string | null; plan: RouteGuidePlan; author_id: string; submitted_at: string; updated_at: string; helpful_count: number; profile?: { display_name?: string | null; nick?: string | null; avatar_url?: string | null } | null };
+type Row = { id: string; title: string; intro: string | null; reflection: string | null; plan: RouteGuidePlan; author_id: string; submitted_at: string; updated_at: string; helpful_count: number; route_guide_helpful_votes?: { user_id: string }[]; profile?: { display_name?: string | null; nick?: string | null; avatar_url?: string | null } | null };
+const guideSelect = 'id,title,intro,reflection,plan,author_id,submitted_at,updated_at,helpful_count,route_guide_helpful_votes(user_id)';
 export type MyRouteGuideStatus = { id: string; status: 'pending' | 'approved' | 'rejected'; rejectionReason: string | null; updatedAt: string; title: string; intro: string; reflection: string; plan: RouteGuidePlan | null };
 export type MyRouteGuide = MyRouteGuideStatus & { routeId: string; submittedAt: string; helpfulCount: number };
 const text = (value: string): GuideText => ({ zh: value, en: value });
 const mapRow = (row: Row): RouteCommunityGuide => ({
   id: row.id, title: text(row.title), description: text(row.intro || ''), author: text(row.profile?.display_name || row.profile?.nick || 'Kaipa 用户'), authorAvatarUrl: row.profile?.avatar_url || null,
   season: 'autumn', travelDate: row.submitted_at.slice(0, 10), publishedDate: row.submitted_at.slice(0, 10), updatedDate: row.updated_at.slice(0, 10),
-  helpful: row.helpful_count || 0, plan: row.plan, review: text(row.reflection || row.intro || ''),
+  helpful: row.helpful_count || 0, helpfulMarked: Boolean(row.route_guide_helpful_votes?.length), plan: row.plan, review: text(row.reflection || row.intro || ''),
 });
 
 export function useRouteGuides(routeId: string) {
@@ -17,7 +18,7 @@ export function useRouteGuides(routeId: string) {
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('route_guides').select('id,title,intro,reflection,plan,author_id,submitted_at,updated_at,helpful_count').eq('route_id', routeId).eq('status', 'approved').order('updated_at', { ascending: false });
+    const { data, error } = await supabase.from('route_guides').select(guideSelect).eq('route_id', routeId).eq('status', 'approved').order('updated_at', { ascending: false });
     if (!error) {
       const rows = data || [];
       const authorIds = [...new Set(rows.map((row) => row.author_id).filter(Boolean))];
@@ -28,7 +29,27 @@ export function useRouteGuides(routeId: string) {
     setLoading(false);
   }, [routeId]);
   useEffect(() => { void refresh(); }, [refresh]);
-  return { guides, loading, refresh };
+  useEffect(() => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') void refresh();
+    });
+    return () => authListener.subscription.unsubscribe();
+  }, [refresh]);
+  const toggleHelpful = useCallback(async (guideId: string) => {
+    const flip = () => setGuides((old) => old.map((item) => item.id === guideId ? { ...item, helpfulMarked: !item.helpfulMarked, helpful: item.helpful + (item.helpfulMarked ? -1 : 1) } : item));
+    flip();
+    try {
+      const { error } = await supabase.rpc('route_guide_helpful', { p_id: guideId });
+      if (error) throw error;
+      const { data, error: readError } = await supabase.from('route_guides').select('helpful_count,route_guide_helpful_votes(user_id)').eq('id', guideId).single();
+      if (readError) throw readError;
+      setGuides((old) => old.map((item) => item.id === guideId ? { ...item, helpful: data.helpful_count || 0, helpfulMarked: Boolean((data as { route_guide_helpful_votes?: unknown[] }).route_guide_helpful_votes?.length) } : item));
+    } catch (error) {
+      flip();
+      throw error;
+    }
+  }, []);
+  return { guides, loading, refresh, toggleHelpful };
 }
 
 export async function submitRouteGuide(input: { routeId: string; authorId: string; title: string; intro: string; reflection: string; plan: RouteGuidePlan }) {
