@@ -168,7 +168,7 @@ export function FactFormDialog({ open, categories, routes, entries, initial, onO
     <DialogContent className='flex h-[min(880px,92vh)] w-[min(1120px,94vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1120px,94vw)]'>
       <DialogHeader className='shrink-0 border-b px-8 py-6'>
         <DialogTitle className='text-xl'>{editing ? '编辑线路资料' : '新增线路资料'}</DialogTitle>
-        <DialogDescription className='sr-only'>人工核实的线路地面信息，供 AI 行程规划优先引用。</DialogDescription>
+        <DialogDescription className='sr-only'>人工核实的线路地面信息，供 AI 旅程规划优先引用。</DialogDescription>
       </DialogHeader>
       <form className='flex min-h-0 flex-1 flex-col' onSubmit={submit}>
         <div className='grid flex-1 content-start gap-5 overflow-y-auto px-8 py-6'>

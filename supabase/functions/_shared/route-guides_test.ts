@@ -35,7 +35,7 @@ function fixture(): RouteGuide {
 
 Deno.test('section keys, headings and required sections follow the contract', () => {
   equal(GUIDE_SECTIONS.map(({ key, heading }) => [key, heading]), [
-    ['overview', '概览'], ['itinerary', '行程'], ['access', '交通'], ['overnight', '住宿与营地'],
+    ['overview', '概览'], ['itinerary', '旅程'], ['access', '交通'], ['overnight', '住宿与营地'],
     ['costs', '费用'], ['water_supply', '补给与水源'], ['season_risk', '季节与风险'],
     ['gear', '装备建议'], ['tips', '注意事项'],
   ]);

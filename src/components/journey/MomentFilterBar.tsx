@@ -20,7 +20,7 @@ export type MomentFilterAuthor = {
 };
 
 const AVATAR = 32;
-// Matches the day capsules in the 行程 tab (JourneyTimeline DayChips): same
+// Matches the day capsules in the 旅程 tab (JourneyTimeline DayChips): same
 // height, padding and type size, so the two tabs don't show two chip scales.
 const CHIP = 34;
 const OVERLAP = -10;

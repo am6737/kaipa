@@ -207,7 +207,7 @@ function GuideDetailPage({ theme, guide, onClose, onSave, onOpenOnline }: {
 
           {plan?.days?.length || plan?.gear?.length ? (
             <View style={{ marginTop: space.xl }}>
-              <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.md }]}>行程</Text>
+              <Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.md }]}>旅程</Text>
               <RouteGuideItinerary theme={theme} plan={plan} />
               <View style={{ marginTop: space.xxl }}>
                 <RouteGuideEquipment theme={theme} plan={plan} />

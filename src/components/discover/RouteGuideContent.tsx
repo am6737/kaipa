@@ -1,5 +1,4 @@
 import React from 'react';
-import { Image } from 'expo-image';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Backpack, Check, ChevronRight, CloudSun, Heart, ThumbsUp } from 'lucide-react-native';
 import type { Theme } from '../../theme/theme';
@@ -11,7 +10,6 @@ import { weatherDescription } from '../../lib/routeWeather';
 import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { Press } from '../Press';
 import { Avatar } from '../Avatar';
-import { PhotoTile } from '../PhotoTile';
 import { routeGuideCopy } from './routeGuideCopy';
 import { GuideEquipmentColumns } from './GuideEquipmentColumns';
 
@@ -52,30 +50,26 @@ export function RouteReferencePlanCard({ theme, plans, selectedId, onSelect, onO
   </View>;
 }
 
-export function RouteGuideRow({ theme, guide, onPress, photoUri, helpful, compact = false }: { theme: Theme; guide: RouteCommunityGuide; onPress: () => void; photoUri?: string; helpful?: number; compact?: boolean }) {
+export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false }: { theme: Theme; guide: RouteCommunityGuide; onPress: () => void; helpful?: number; compact?: boolean }) {
   const { resolved } = useI18n();
-  const c = routeGuideCopy[resolved];
   return <Press onPress={onPress} accessibilityRole="button" style={[styles.guide, compact && styles.compactGuide]}>
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: compact ? space.lg : space.md }}>
-      <View style={[{ flex: 1, minWidth: 0 }, compact && styles.compactTextColumn]}>
-        <Text numberOfLines={2} style={[compact ? type.guideTitleCompact : type.guideTitle, { color: theme.text }]}>{guideText(guide.title, resolved)}</Text>
-        {!compact ? <Text style={[styles.caption, { color: theme.text2, marginTop: space.xs }]}>{guide.plan.days.length}{resolved === 'zh' ? '天' : ' days'}  {c[guide.plan.stay]}  {c[guide.season]}</Text> : null}
-        {!compact ? <Text style={[styles.caption, { color: theme.text2, marginTop: space.xxs }]}>{c.includes}</Text> : null}
-        {compact ? <View style={styles.compactAuthorRow}>
+    <View>
+      <Text numberOfLines={2} style={[compact ? type.guideTitleCompact : type.guideTitle, { color: theme.text }]}>{guideText(guide.title, resolved)}</Text>
+      {compact ? <View style={styles.compactAuthorRow}>
+        <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
+        <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{guideText(guide.author, resolved)}</Text>
+        <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
+      </View> : <View style={styles.authorRow}>
+        <View style={styles.authorGroup}>
           <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
-          <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{guideText(guide.author, resolved)}</Text>
-          <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
-        </View> : <Text style={[styles.caption, { color: theme.text2, marginTop: space.sm }]}>{guideText(guide.author, resolved)}</Text>}
-      </View>
-      <PhotoTile tone={guide.plan.stay === 'camp' ? 'ridge' : 'forest'} seed={guide.id} radius={radius.card} style={{ width: compact ? 64 : 80, height: compact ? 64 : 84, alignSelf: compact ? 'flex-end' : 'auto' }} resWidth={240}>
-        {photoUri ? <RouteGuideThumb uri={photoUri} /> : null}
-      </PhotoTile>
+          <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>
+        </View>
+        <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text>
+        <View style={styles.label}><ThumbsUp color={theme.text3} size={12} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
+      </View>}
     </View>
-    {!compact ? <View style={styles.guideFooter}><Text style={[styles.caption, { color: theme.text2 }]}>{c.travelDate} {guide.travelDate}</Text><View style={styles.label}><ThumbsUp color={theme.text2} size={12} /><Text style={[styles.caption, { color: theme.text2 }]}>{helpful ?? guide.helpful}</Text></View></View> : null}
   </Press>;
 }
-
-function RouteGuideThumb({ uri }: { uri: string }) { return <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} />; }
 
 function formatGuideWeight(weightKg: number) {
   if (!Number.isFinite(weightKg) || weightKg <= 0) return '';
@@ -162,7 +156,7 @@ const styles = StyleSheet.create({
   gearPeek: { marginTop: space.xl, paddingTop: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.xs, borderTopWidth: StyleSheet.hairlineWidth },
   gearTitleRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: space.xl }, gearCategoryHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm, marginBottom: space.xs }, gearCategoryTitle: { flex: 1, minWidth: 0, ...type.gearCategory }, gearCategorySummary: { flexShrink: 0, textAlign: 'right', ...type.gearSummary },
   openPlan: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
-  guide: { paddingVertical: space.xl }, compactGuide: { paddingVertical: space.md, paddingTop: space.sm }, compactTextColumn: { minHeight: 64, justifyContent: 'space-between' }, compactAuthorRow: { marginTop: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm }, guideFooter: { marginTop: space.md, flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: space.xs },
+  guide: { paddingVertical: space.xl }, compactGuide: { paddingVertical: space.lg, paddingTop: space.md }, compactAuthorRow: { marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }, authorRow: { marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.lg }, authorGroup: { flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1 }, metaAuthor: { flexShrink: 1 },
   gearItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 1 },
   gearName: { flex: 1, minWidth: 0, ...type.tableName },
   gearWeight: { width: 42, marginLeft: space.xs, ...type.tableNumber, textAlign: 'right' },

@@ -1,4 +1,4 @@
-// timeline.ts — the unified 行程 model. ONE concept: a checkable, user-grouped
+// timeline.ts — the unified 旅程 model. ONE concept: a checkable, user-grouped
 // list of rich records. Groups are user-defined strings (e.g. "徒步", "住宿" —
 // whatever the user wants). Progress = how many rows are checked off.
 // Checks are purely manual. Gear checklist stays separate.

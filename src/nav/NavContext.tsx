@@ -124,7 +124,7 @@ export interface NavValue {
   openPhotoWall: (c: OverlayCfg & { mode?: string }) => void;
   closePhotoWall: () => void;
 
-  // direct 行程 entry editor (journey detail → 行程 → 添加/编辑) — pops the editor straight up
+  // direct 旅程 entry editor (journey detail → 旅程 → 添加/编辑) — pops the editor straight up
   timelineAdd: { poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null;
   openTimelineAdd: (p: Poi, day?: string, groups?: string[]) => void;
   openTimelineEdit: (p: Poi, row: TLRow, groups?: string[]) => void;
@@ -319,6 +319,8 @@ export function NavProvider({
     setRouteGuide(null);
     setActionSheet(null);
     setAddRouteOpen(false);
+    setRouteRequestOpen(false);
+    setRouteRequestPrefill(undefined);
     setNewJourneyOpen(false);
     setNewJourneyPreset(null);
     setJourneyInviteScannerOpen(false);
@@ -616,6 +618,8 @@ export function NavProvider({
       removedIds,
       actionSheet,
       addRouteOpen,
+      routeRequestOpen,
+      routeRequestPrefill,
       newJourneyOpen,
       newJourneyPreset,
       routeGuide,

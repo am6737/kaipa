@@ -13,7 +13,7 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 
-const sections = [['overview','概览'],['itinerary','行程'],['access','交通'],['overnight','住宿与营地'],['costs','费用'],['water_supply','补给与水源'],['season_risk','季节与风险'],['gear','装备建议'],['tips','注意事项']] as const
+const sections = [['overview','概览'],['itinerary','旅程'],['access','交通'],['overnight','住宿与营地'],['costs','费用'],['water_supply','补给与水源'],['season_risk','季节与风险'],['gear','装备建议'],['tips','注意事项']] as const
 type Entry = { id: string; route_id: string | null; region: string | null; section: string; title: string; body: string; sources: unknown[]; as_of: string; status: 'draft'|'published'|'archived'; origin: string; route?: { name?: string } | null }
 type Form = { id?: string; route_id: string; region: string; section: string; title: string; body: string; sources: string; as_of: string; status: string }
 const blank: Form = { route_id: '', region: '', section: 'overview', title: '', body: '', sources: '[]', as_of: new Date().toISOString().slice(0, 10), status: 'draft' }

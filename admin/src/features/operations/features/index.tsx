@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 
 type FeatureState = 'enabled' | 'limited' | 'disabled'
 type Snapshot = { role:string; runtimeControls:{features:{key:string;state:FeatureState}[];registrationPolicy:{daily_global_limit:number};registrationToday:{accepted?:number}} }
-const names:Record<string,string> = { registration:'开放注册', guest_account:'游客转正', smart_planning:'智能规划', purchase:'会员购买', route_condition_moderation:'路线实况审核' }
+const names:Record<string,string> = { registration:'开放注册', guest_account:'游客转正', smart_planning:'智能规划', purchase:'会员购买', route_condition_moderation:'路线实况审核', phone_login:'手机号登录', email_register:'邮箱注册' }
 
 export function OperationsFeatures() {
   const client=useQueryClient()

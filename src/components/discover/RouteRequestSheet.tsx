@@ -1,32 +1,41 @@
-import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Text, View } from "react-native";
-import * as Location from "expo-location";
+import React, { useEffect, useRef, useState } from "react";
+import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { File as FSFile } from "expo-file-system";
+import { Image as ExpoImage } from "expo-image";
+import { Paperclip, Trash2 } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Theme } from "../../theme/theme";
 import { useI18n } from "../../i18n";
 import { useData } from "../../data/DataContext";
-import {
-  DetailPage,
-  AppCard,
-  AppFieldCard,
-  AppTextArea,
-  radius,
-  space,
-  type,
-} from "../../design-system";
+import { DetailPage, radius, space, type } from "../../design-system";
 import { Press } from "../Press";
-import { JourneyLocationPicker } from "../overlays/JourneyLocationPicker";
 import {
-  locationFromPoi,
-  reverseJourneyLocation,
-  type JourneyLocationValue,
-} from "../../lib/amapGeocoding";
-import { buildTrackDraft, parseTrackFile } from "../../lib/trackImport";
-import type { Track } from "../../data/tracks";
+  buildTrackDraft,
+  parseTrackFile,
+  type TrackFile,
+} from "../../lib/trackImport";
+import { trackFormatFromName, type Track } from "../../data/tracks";
+import { reverseJourneyLocation } from "../../lib/amapGeocoding";
+import { uploadAgentAttachment, removeMedia } from "../../lib/storage";
+import type { RouteRequestAttachment } from "../../hooks/useRouteRequests";
 
-const NAME_MAX = 60;
-const REGION_MAX = 60;
-const NOTE_MAX = 500;
+const TEXT_MAX = 200;
+const IMAGE_MAX = 6;
+const IMAGE_MAX_BYTES = 15 * 1024 * 1024;
+const TRACK_MAX_BYTES = 20 * 1024 * 1024;
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"];
+const IMAGE_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  heic: "image/heic",
+};
+
+function extOf(name: string) {
+  return (name.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
+}
 
 export function RouteRequestSheet({
   theme,
@@ -41,267 +50,271 @@ export function RouteRequestSheet({
 }) {
   const { t } = useI18n();
   const data = useData();
-  const [name, setName] = useState((prefill || "").slice(0, NAME_MAX));
-  const [region, setRegion] = useState("");
-  const [note, setNote] = useState("");
+  const insets = useSafeAreaInsets();
+  const [text, setText] = useState((prefill || "").slice(0, TEXT_MAX));
   const [track, setTrack] = useState<Track | null>(null);
-  const fallbackLocation = useMemo(() => {
-    const route = data.routes[0];
-    return route
-      ? locationFromPoi(
-          route.region || t("routeRequest.locationUnnamed"),
-          route.lng || 0,
-          route.lat || 0,
-        )
-      : null;
-  }, [data.routes, t]);
-  const [location, setLocation] = useState<JourneyLocationValue | null>(null);
-  const [pickerInitial, setPickerInitial] =
-    useState<JourneyLocationValue | null>(null);
-  const [hasManualLocation, setHasManualLocation] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [images, setImages] = useState<RouteRequestAttachment[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submittedRef = useRef(false);
+  const imagesRef = useRef<RouteRequestAttachment[]>([]);
+  imagesRef.current = images;
 
-  const uploadTrack = async () => {
-    const result = await FSFile.pickFileAsync({ mimeTypes: "*/*" });
-    if (result.canceled || !result.result) return;
-    setBusy(true);
+  // Picking uploads immediately, so a sheet closed without submitting would
+  // otherwise strand its images in the private bucket.
+  useEffect(() => {
+    return () => {
+      if (submittedRef.current) return;
+      const urls = imagesRef.current.map((x) => x.url);
+      if (urls.length) void removeMedia(urls).catch(() => {});
+    };
+  }, []);
+
+  const pickFile = async () => {
+    if (busy) return;
+    let file: TrackFile | undefined;
     try {
-      const file = result.result;
-      const parsed = await parseTrackFile(file, t);
-      const draft = await buildTrackDraft(parsed, {
-        userId: data.userId,
-        sourceUri: file.uri,
-        fileSize: file.size,
-      });
-      const created = await data.createTrack(draft);
-      if (created) {
-        setTrack(created);
-        if (!hasManualLocation && created.coords?.[0]) {
-          const [lng, lat] = created.coords[0];
-          try {
-            const resolved = await reverseJourneyLocation(lng, lat, "zh");
-            setLocation(resolved);
-            if (!region) setRegion(resolved.region.slice(0, REGION_MAX));
-          } catch {
-            setLocation(
-              locationFromPoi(t("routeRequest.locationUnnamed"), lng, lat),
-            );
-          }
+      const result = await FSFile.pickFileAsync({ mimeTypes: "*/*" });
+      if (!result || result.canceled || !result.result) return;
+      file = result.result;
+    } catch {
+      return;
+    }
+    const ext = extOf(file.name || "");
+    setBusy(true);
+    setError(null);
+    try {
+      if (trackFormatFromName(file.name || "")) {
+        if ((file.size ?? 0) > TRACK_MAX_BYTES) {
+          setError(t("routeRequest.trackTooLarge"));
+          return;
         }
+        const parsed = await parseTrackFile(file, t);
+        const draft = await buildTrackDraft(parsed, {
+          userId: data.userId,
+          sourceUri: file.uri,
+          fileSize: file.size,
+        });
+        const created = await data.createTrack(draft);
+        if (!created) throw new Error("TRACK_INSERT_FAILED");
+        setTrack(created);
+      } else if (IMAGE_EXTENSIONS.includes(ext)) {
+        if (images.length >= IMAGE_MAX) {
+          setError(t("routeRequest.imageLimit", { count: IMAGE_MAX }));
+          return;
+        }
+        if ((file.size ?? 0) > IMAGE_MAX_BYTES) {
+          setError(t("routeRequest.imageTooLarge"));
+          return;
+        }
+        const mime = IMAGE_MIME[ext] || "image/jpeg";
+        const url = await uploadAgentAttachment(file.uri, data.userId, file.name || `image.${ext}`, mime);
+        setImages((v) => [...v, { url, name: file.name || `image.${ext}`, mime }]);
+      } else {
+        setError(t("routeRequest.fileUnsupported"));
       }
     } catch {
-      onDone?.(t("routeRequest.trackUploadFailed"));
+      setError(t("routeRequest.fileFailed"));
     } finally {
       setBusy(false);
     }
+  };
+
+  const removeImage = (url: string) => {
+    setImages((v) => v.filter((x) => x.url !== url));
+    // The signed URL is one-shot for us, so drop the object instead of stranding it.
+    void removeMedia([url]).catch(() => {});
   };
 
   const submit = async () => {
-    if (!name.trim() || !location || busy) return;
+    const name = text.trim();
+    if (!name || busy) return;
     setBusy(true);
+    setError(null);
     try {
-      await data.createRouteRequest({
-        name,
-        region,
-        note,
-        lng: location.lng,
-        lat: location.lat,
-        address: location.address,
-        track,
-      });
+      // A track gives the request a real position; a plain ask ships without one.
+      let lng: number | null = null;
+      let lat: number | null = null;
+      let region = "";
+      if (track?.coords?.[0]) {
+        [lng, lat] = track.coords[0];
+        try {
+          const resolved = await reverseJourneyLocation(lng, lat, "zh");
+          region = resolved.region;
+        } catch {
+          region = "";
+        }
+      }
+      await data.createRouteRequest({ name, region, note: "", lng, lat, track, attachments: images });
+      submittedRef.current = true;
       onDone?.(t("routeRequest.submitted"));
       onClose();
     } catch {
-      onDone?.(t("routeRequest.submitFailed"));
-    } finally {
       setBusy(false);
+      setError(t("routeRequest.submitFailed"));
     }
   };
 
+  const canSubmit = Boolean(text.trim()) && !busy;
+  const tiles = (track ? 1 : 0) + images.length;
+
+  // Same full-screen Modal shell as 发布实况 (RouteGuidePage). The search screen
+  // that opens us is unmounted before we present, so nothing is mid-transition.
   return (
-    <>
+    <Modal visible presentationStyle="fullScreen" animationType="slide" onRequestClose={onClose}>
       <DetailPage
+        scrollable={false}
+        flatChrome
+        entryVariant="continuationX"
         theme={theme}
         title={t("routeRequest.title")}
         onBack={onClose}
         backgroundColor={theme.groupedBg}
       >
-        <View style={{ padding: space.xl, gap: space.md }}>
-          <Text style={[type.lead, { color: theme.text2 }]}>
-            {t("routeRequest.description")}
-          </Text>
-          <AppFieldCard
-            theme={theme}
-            label={t("routeRequest.location")}
-            value={location?.address || location?.name || ""}
-            unit=""
-            description={location?.region || t("routeRequest.locationRequired")}
-            onOpen={async () => {
-              if (!location) {
-                try {
-                  const permission =
-                    await Location.requestForegroundPermissionsAsync();
-                  if (permission.granted) {
-                    const current = await Location.getCurrentPositionAsync({
-                      accuracy: Location.Accuracy.Balanced,
-                    });
-                    setLocation(
-                      locationFromPoi(
-                        t("routeRequest.locationUnnamed"),
-                        current.coords.longitude,
-                        current.coords.latitude,
-                      ),
-                    );
-                  } else if (fallbackLocation)
-                    setPickerInitial(fallbackLocation);
-                } catch {
-                  if (fallbackLocation) setPickerInitial(fallbackLocation);
-                }
-              }
-              setPickerInitial(location || pickerInitial || fallbackLocation);
-              setPickerOpen(true);
-            }}
-          />
-          <AppFieldCard
-            theme={theme}
-            label={t("routeRequest.name")}
-            value={name}
-            unit={`${name.length}/${NAME_MAX}`}
-            onChange={(value) => setName(value.slice(0, NAME_MAX))}
-          />
-          <AppFieldCard
-            theme={theme}
-            label={t("routeRequest.region")}
-            value={region}
-            unit={`${region.length}/${REGION_MAX}`}
-            onChange={(value) => setRegion(value.slice(0, REGION_MAX))}
-          />
-          <AppCard
-            theme={theme}
-            radius={radius.feature}
-            style={{ padding: space.sm }}
-          >
-            <AppTextArea
-              theme={theme}
-              value={note}
-              onChangeText={(value) => setNote(value.slice(0, NOTE_MAX))}
-              placeholder={t("routeRequest.notePlaceholder")}
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        >
+          <View style={styles.content}>
+            <TextInput
+              autoFocus
+              value={text}
+              onChangeText={(value) => setText(value.slice(0, TEXT_MAX))}
+              placeholder={t("routeRequest.textPlaceholder")}
+              placeholderTextColor={theme.text3}
+              multiline
+              maxLength={TEXT_MAX}
+              style={[styles.composerInput, { color: theme.text, backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}
             />
-            <Text
-              style={[type.hint, { color: theme.text3, textAlign: "right" }]}
+            <Text style={[styles.counter, { color: theme.text3 }]}>{text.length}/{TEXT_MAX}</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[styles.mediaGrid, { height: tiles ? 84 : 0 }]}
+              contentContainerStyle={styles.mediaGridContent}
             >
-              {note.length}/{NOTE_MAX}
-            </Text>
-          </AppCard>
-          <AppCard
-            theme={theme}
-            radius={radius.feature}
-            style={{ padding: space.md, gap: space.sm }}
-          >
-            <Text style={[type.cardTitle, { color: theme.text }]}>
-              {t("routeRequest.track")}
-            </Text>
-            {data.tracks.map((item) => (
-              <Press
-                key={item.id}
-                onPress={async () => {
-                  const next = track?.id === item.id ? null : item;
-                  setTrack(next);
-                  if (next?.coords?.[0] && !hasManualLocation) {
-                    const [lng, lat] = next.coords[0];
-                    try {
-                      const resolved = await reverseJourneyLocation(
-                        lng,
-                        lat,
-                        "zh",
-                      );
-                      setLocation(resolved);
-                      if (!region)
-                        setRegion(resolved.region.slice(0, REGION_MAX));
-                    } catch {
-                      setLocation(
-                        locationFromPoi(
-                          t("routeRequest.locationUnnamed"),
-                          lng,
-                          lat,
-                        ),
-                      );
-                    }
-                  }
-                }}
-              >
-                <Text
-                  style={[
-                    type.body,
-                    {
-                      color: track?.id === item.id ? theme.accent : theme.text,
-                    },
-                  ]}
+              {track ? (
+                <View style={styles.mediaTile}>
+                  <Text style={styles.trackTileText}>{track.name}</Text>
+                  <View style={styles.mediaBadge}>
+                    <Text style={styles.mediaBadgeText}>{t("routeRequest.trackBadge")}</Text>
+                  </View>
+                  <Press onPress={() => setTrack(null)} style={styles.mediaRemove}>
+                    <Trash2 color="#fff" size={13} />
+                  </Press>
+                </View>
+              ) : null}
+              {images.map((item) => (
+                <View key={item.url} style={styles.mediaTile}>
+                  <ExpoImage source={{ uri: item.url }} contentFit="cover" style={StyleSheet.absoluteFill} />
+                  <View style={styles.mediaBadge}>
+                    <Text style={styles.mediaBadgeText}>{t("routeRequest.imageBadge")}</Text>
+                  </View>
+                  <Press onPress={() => removeImage(item.url)} style={styles.mediaRemove}>
+                    <Trash2 color="#fff" size={13} />
+                  </Press>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.composerActions}>
+              <View style={styles.addMediaGroup}>
+                <Press
+                  accessibilityRole="button"
+                  accessibilityLabel={t("routeRequest.pickFile")}
+                  accessibilityState={{ disabled: busy }}
+                  disabled={busy}
+                  onPress={() => void pickFile()}
+                  style={styles.addMediaAction}
                 >
-                  {item.name}
+                  <Paperclip color={busy ? theme.text3 : theme.text2} size={18} />
+                  <Text style={[type.small, { color: busy ? theme.text3 : theme.text2 }]}>
+                    {t("routeRequest.pickFile")}
+                  </Text>
+                </Press>
+                <Text style={[styles.mediaHintInline, { color: theme.text3 }]}>{t("routeRequest.fileHint")}</Text>
+              </View>
+              <Press
+                accessibilityRole="button"
+                disabled={!canSubmit}
+                onPress={() => void submit()}
+                style={[styles.publishButton, { backgroundColor: canSubmit ? theme.accent : theme.fieldSurface }]}
+              >
+                <Text style={[type.labelStrong, { color: canSubmit ? "#fff" : theme.text3 }]}>
+                  {busy ? t("routeRequest.submitting") : t("routeRequest.submit")}
                 </Text>
               </Press>
-            ))}
-            <Press onPress={() => void uploadTrack()}>
-              <Text style={[type.body, { color: theme.accent }]}>
-                {t("routeRequest.uploadTrack")}
-              </Text>
-            </Press>
-            <Text style={[type.caption, { color: theme.text2 }]}>
-              {track
-                ? t("routeRequest.trackSelected", { name: track.name })
-                : t("routeRequest.trackOptional")}
-            </Text>
-          </AppCard>
-          <Press
-            onPress={() => void submit()}
-            disabled={busy || !name.trim() || !location}
-            style={{
-              minHeight: 48,
-              borderRadius: radius.pill,
-              backgroundColor: theme.accent,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: busy || !name.trim() || !location ? 0.5 : 1,
-            }}
-          >
-            {busy ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={[type.chip, { color: "#FFFFFF" }]}>
-                {t("routeRequest.submit")}
-              </Text>
-            )}
-          </Press>
-        </View>
+              {error ? <Text style={[styles.publishError, { color: theme.danger }]}>{error}</Text> : null}
+            </View>
+          </View>
+        </ScrollView>
       </DetailPage>
-      <Modal
-        visible={pickerOpen}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setPickerOpen(false)}
-      >
-        <JourneyLocationPicker
-          theme={theme}
-          initialLocation={
-            pickerInitial ||
-            location ||
-            fallbackLocation ||
-            locationFromPoi(t("routeRequest.locationUnnamed"), 0, 0)
-          }
-          trackCoords={track?.coords}
-          trackStart={track?.coords?.[0]}
-          onCancel={() => setPickerOpen(false)}
-          onConfirm={(next) => {
-            setHasManualLocation(true);
-            setLocation(next);
-            setRegion(next.region.slice(0, REGION_MAX));
-            setPickerOpen(false);
-          }}
-          onToast={(message) => onDone?.(message)}
-        />
-      </Modal>
-    </>
+    </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  content: { paddingHorizontal: space.xl, paddingTop: space.md },
+  composerInput: {
+    marginTop: space.xl,
+    minHeight: 180,
+    padding: space.md,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    ...type.textInput,
+    textAlignVertical: "top",
+  },
+  counter: { textAlign: "right", marginTop: space.xs, ...type.micro },
+  mediaGrid: { width: "100%", alignSelf: "stretch", marginTop: space.md },
+  mediaGridContent: { flexDirection: "row", gap: space.sm },
+  mediaTile: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.control,
+    overflow: "hidden",
+    backgroundColor: "#222",
+    padding: space.xs,
+    justifyContent: "center",
+  },
+  trackTileText: { color: "#fff", fontSize: 11, lineHeight: 14 },
+  mediaBadge: {
+    position: "absolute",
+    left: 4,
+    bottom: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  mediaBadgeText: { color: "#fff", ...type.tiny },
+  mediaRemove: {
+    position: "absolute",
+    right: 3,
+    top: 3,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  composerActions: {
+    width: "100%",
+    minHeight: 48,
+    marginTop: space.xs,
+    paddingTop: space.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.md,
+    position: "relative",
+    zIndex: 2,
+    flexWrap: "wrap",
+  },
+  addMediaGroup: { flexDirection: "row", alignItems: "center", gap: space.sm, flexShrink: 1 },
+  addMediaAction: { minHeight: 40, paddingHorizontal: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs },
+  mediaHintInline: { flexShrink: 1, ...type.tiny },
+  publishButton: { minHeight: 40, borderRadius: radius.pill, paddingHorizontal: space.md, alignItems: "center", justifyContent: "center" },
+  publishError: { marginTop: space.xs, maxWidth: 240, textAlign: "right", ...type.microNote },
+});

@@ -145,7 +145,7 @@ export function RouteFacts() {
       <Main className='flex flex-1 flex-col gap-4 sm:gap-6'>
         <div>
           <h2 className='text-2xl font-bold tracking-tight'>线路资料</h2>
-          <p className='text-muted-foreground'>人工核实的进出交通、费用、住宿、营地等地面信息；AI 规划行程时优先引用这里的数据。{pendingCount > 0 && <span className='text-amber-600'> 有 {pendingCount} 条待确认草稿。</span>}{revisionCount > 0 && <span className='text-amber-600'> 有 {revisionCount} 条修订待审。</span>}{expiredCount > 0 && <span className='text-destructive'> 有 {expiredCount} 条已过期，请复核。</span>}</p>
+          <p className='text-muted-foreground'>人工核实的进出交通、费用、住宿、营地等地面信息；AI 规划旅程时优先引用这里的数据。{pendingCount > 0 && <span className='text-amber-600'> 有 {pendingCount} 条待确认草稿。</span>}{revisionCount > 0 && <span className='text-amber-600'> 有 {revisionCount} 条修订待审。</span>}{expiredCount > 0 && <span className='text-destructive'> 有 {expiredCount} 条已过期，请复核。</span>}</p>
         </div>
         <Card className='gap-4 rounded-none border-0 bg-transparent py-0 shadow-none'>
           <CardHeader className='px-0'>

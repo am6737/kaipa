@@ -33,11 +33,15 @@ Deno.serve(async (req, info) => {
     if (action === 'guest_open') {
       // Never trust X-Forwarded-For from a client. Bound both direct peer and
       // share attempts; the peer limit remains useful behind a shared gateway.
-      const peer = 'hostname' in info.remoteAddr ? info.remoteAddr.hostname : 'gateway';
-      await rate(db,'guest_session','peer:'+peer);
-      await rate(db,'guest_session','share:'+String(body.slug).slice(0,120));
+      const peer = 'hostname' in info.remoteAddr ? info.remoteAddr.hostname : '';
+      const privatePeer = !peer || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|::1$|fc|fd)/i.test(peer);
+      if (!privatePeer) await rate(db,'guest_session','peer:'+peer);
+      await rate(db,'guest_session','code:'+String(body.code).slice(0,40));
       await rpc(db,'reserve_service_budget',{p_service:'guest_requests',p_run_key:crypto.randomUUID(),p_units:1});
-      return json(await rpc(db,'open_resource_guest_session',{p_slug:body.slug,p_code:body.code,p_token:guestToken || null}));
+      const ipHash = privatePeer ? null : Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(peer)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+      const result = await rpc<any>(db,'open_resource_guest_session',{p_code:body.code,p_token:guestToken || null,p_ip_hash:ipHash});
+      if (result?.status === 'busy') throw new ResourceError('service_unavailable',503);
+      return json(result);
     }
     if (action?.startsWith('guest_')) {
       if (!guestToken || guestToken.length > 128) throw new ResourceError('forbidden',403);

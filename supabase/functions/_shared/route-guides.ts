@@ -1,6 +1,6 @@
 export const GUIDE_SECTIONS = [
   { key: 'overview', heading: '概览' },
-  { key: 'itinerary', heading: '行程' },
+  { key: 'itinerary', heading: '旅程' },
   { key: 'access', heading: '交通' },
   { key: 'overnight', heading: '住宿与营地' },
   { key: 'costs', heading: '费用' },

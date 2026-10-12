@@ -248,10 +248,10 @@ function researchStepTitle(step: ResearchStep) {
   if (key.includes('get_journey_details')) return '读取旅程详情';
   if (key.includes('get_app_context')) return '分析当前上下文';
   if (key.includes('list_gear')) return '匹配已有装备';
-  if (key.includes('create_journey')) return '创建行程';
-  if (key.includes('add_itinerary_items')) return '写入行程安排';
-  if (key.includes('update_journey_schedule')) return '更新行程安排';
-  if (key.includes('set_journey_map_location') || key.includes('set_itinerary_group_endpoints')) return '设置行程信息';
+  if (key.includes('create_journey')) return '创建旅程';
+  if (key.includes('add_itinerary_items')) return '写入旅程安排';
+  if (key.includes('update_journey_schedule')) return '更新旅程安排';
+  if (key.includes('set_journey_map_location') || key.includes('set_itinerary_group_endpoints')) return '设置旅程信息';
   if (key.includes('packing')) return '整理装备清单';
   if (key.includes('read_travel_guide')) return '读取攻略内容';
   // `active_phase` is a synthetic row added while the worker is between

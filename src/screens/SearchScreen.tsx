@@ -126,6 +126,10 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
     close();
   };
 
+  // The request page sits on top of the search result, so 返回 lands back here
+  // with the query still filled in — which is now also the prefilled ask.
+  const requestRoute = () => nav.openRouteRequest(query.trim() || undefined);
+
   const resultCount = (tab: SearchTab) => {
     if (tab === 'route') return matchingRoutes.length;
     if (tab === 'journey') return matchingJourneys.length;
@@ -186,6 +190,16 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
     if (activeTab === 'guide') return matchingGuides.map(renderGuide);
     return null;
   };
+
+  const renderEmpty = () => (
+    <View style={styles.empty}>
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>没有找到相关内容</Text>
+      <Text style={[styles.emptySub, { color: theme.text3 }]}>换个关键词试试</Text>
+      <Press onPress={requestRoute} accessibilityRole="button" style={styles.emptyLinkPress}>
+        <Text style={[styles.emptyLink, { color: theme.accent }]}>没有找到想走的路线？告诉我们</Text>
+      </Press>
+    </View>
+  );
 
   const renderTabs = () => (
     <View style={styles.tabBar}>
@@ -260,19 +274,9 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
               {renderSection('路线', 'route', matchingRoutes.slice(0, 3).map((route) => renderPoi(route, 'route')), () => setActiveTab('route'))}
               {renderSection('旅程', 'journey', matchingJourneys.slice(0, 3).map((journey) => renderPoi(journey, 'journey')), () => setActiveTab('journey'))}
               {renderSection('攻略', 'guide', matchingGuides.slice(0, 3).map(renderGuide), () => setActiveTab('guide'))}
-              {resultCount('all') === 0 ? (
-                <View style={styles.empty}>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>没有找到相关内容</Text>
-                  <Text style={[styles.emptySub, { color: theme.text3 }]}>换个关键词试试</Text>
-                </View>
-              ) : null}
+              {resultCount('all') === 0 ? renderEmpty() : null}
             </>
-          ) : listForTab()?.length ? listForTab() : (
-            <View style={styles.empty}>
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>没有找到相关内容</Text>
-              <Text style={[styles.emptySub, { color: theme.text3 }]}>换个关键词试试</Text>
-            </View>
-          )}
+          ) : listForTab()?.length ? listForTab() : renderEmpty()}
         </ScrollView>
       </View>
     </Animated.View>
@@ -309,4 +313,6 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingVertical: 80 },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
   emptySub: { marginTop: space.xs, fontSize: 14 },
+  emptyLinkPress: { marginTop: space.lg, paddingVertical: 6, paddingHorizontal: space.sm },
+  emptyLink: { fontSize: 14 },
 });

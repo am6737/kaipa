@@ -8,7 +8,7 @@ import { CalendarDays, Heart, ImagePlus, Plus, Share2, Trash2 } from 'lucide-rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { DetailPage, radius, space, type } from '../../design-system';
-import { getRouteGuidePlans, guideText, sortRouteGuides, toRouteGuideTemplate, type GuideStay } from '../../data/routeGuides';
+import { getRouteGuidePlans, guideText, sortRouteGuides, toRouteGuideTemplate } from '../../data/routeGuides';
 import { buildGuideDocument } from '../../lib/routeGuideExport';
 import { useI18n } from '../../i18n';
 import { useRouteWeather } from '../../hooks/useRouteWeather';
@@ -34,7 +34,6 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   const { guides, loading: guidesLoading } = useRouteGuides(request.route.id);
   const [stack, setStack] = useState<Page[]>([{ view: request.view, planId: request.planId, guideId: request.guideId }]);
   const page = stack[stack.length - 1];
-  const [stay, setStay] = useState<GuideStay | undefined>();
   const [helpful, setHelpful] = useState<Set<string>>(() => new Set());
   const [conditionDraft, setConditionDraft] = useState('');
   const [conditionMedia, setConditionMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -88,7 +87,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   };
   const title = page.view === 'guides' ? `${request.route.name}${resolved === 'zh' ? '攻略' : ' guides'}` : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : page.view === 'conditions' ? `${request.route.name}${c.conditions}` : page.view === 'condition-compose' ? c.shareCondition : c.referencePlan;
   const hasCreate = page.view === 'guide' || page.view === 'plan';
-  const pageBackgroundColor = page.view === 'guide' ? theme.featureSurface : theme.groupedBg;
+  const pageBackgroundColor = page.view === 'guide' || page.view === 'guides' ? theme.featureSurface : theme.groupedBg;
   return <>
   <Modal visible={!exportOpen} presentationStyle="fullScreen" animationType="slide" onRequestClose={goBack}>
     <View style={{ flex: 1, backgroundColor: pageBackgroundColor }}>
@@ -101,8 +100,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
         <ScrollView key={`${page.view}:${plan.id}`} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}>
         <View style={styles.content}>
           {page.view === 'guides' ? <>
-            <View style={styles.filters}>{([{ id: undefined, label: c.all }, { id: 'camp', label: c.camp }, { id: 'stay', label: c.stay }, { id: 'day', label: c.day }] as { id: GuideStay | undefined; label: string }[]).map((filter) => <Press key={filter.id ?? 'all'} accessibilityRole="button" accessibilityState={{ selected: stay === filter.id }} onPress={() => setStay(filter.id)} style={[styles.filter, { backgroundColor: stay === filter.id ? theme.featureSurface : theme.fieldSurface }]}><Text style={[type.note, { color: stay === filter.id ? theme.text : theme.text2 }]}>{filter.label}</Text></Press>)}</View>
-            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended', stay).map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} helpful={item.helpful + Number(helpful.has(item.id))} onPress={() => openGuide(item.id)} photoUri={request.route.photoUris?.[0]} /></View>)}{!guidesLoading && sortRouteGuides(guides, 'recommended', stay).length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{resolved === 'zh' ? '这个走法还没有审核通过的攻略' : 'No approved guides for this style yet.'}</Text> : null}</View>
+            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended').map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} helpful={item.helpful + Number(helpful.has(item.id))} onPress={() => openGuide(item.id)} /></View>)}{!guidesLoading && guides.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
           </> : page.view === 'condition-compose' ? <>
             <View style={{ marginTop: space.xl }}>
               <TextInput autoFocus value={conditionDraft} onChangeText={setConditionDraft} placeholder={c.shareConditionPlaceholder} placeholderTextColor={theme.text3} multiline maxLength={200} style={[styles.composerInput, styles.composerPageInput, { color: theme.text, backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]} />
@@ -180,8 +178,6 @@ const styles = StyleSheet.create({
   footerHelpful: { flex: 1, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.pill, minHeight: 44, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   create: { flex: 1, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, minHeight: 44, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   createWithHelpful: { flex: 1.45 },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.lg },
-  filter: { borderRadius: radius.pill, minHeight: 36, paddingHorizontal: space.md, alignItems: 'center', justifyContent: 'center' },
   headerAdd: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   composerInput: { minHeight: 96, padding: space.md, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, ...type.textInput, textAlignVertical: 'top' },
   composerPageInput: { minHeight: 180 },

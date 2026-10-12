@@ -74,7 +74,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
-        {guidesLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guides.length ? guides.slice(0, 2).map((guide, index) => <RouteGuideRow key={guide.id} theme={theme} guide={guide} compact photoUri={route.photoUris?.[index] ?? route.photoUris?.[0]} onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
+        {guidesLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guides.length ? guides.slice(0, 2).map((guide) => <RouteGuideRow key={guide.id} theme={theme} guide={guide} compact onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
       </View>
       {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} onNavigate={onNavigate} navigationActive={navigationActive} /> : null}
       {onFeedback ? (

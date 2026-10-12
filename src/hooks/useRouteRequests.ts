@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Track } from "../data/tracks";
+export type RouteRequestAttachment = { url: string; name: string; mime: string };
 export type RouteRequest = {
   id: string;
   name: string;
   region: string;
   note: string;
-  lng: number;
-  lat: number;
+  lng?: number | null;
+  lat?: number | null;
   address?: string | null;
   trackId?: string | null;
   trackSnapshot?: unknown;
+  attachments?: RouteRequestAttachment[] | null;
   status: "pending" | "accepted" | "rejected" | "duplicate";
   reviewNote?: string | null;
   routeId?: string | null;
@@ -27,6 +29,7 @@ const map = (r: any): RouteRequest => ({
   address: r.address,
   trackId: r.track_id,
   trackSnapshot: r.track_snapshot,
+  attachments: Array.isArray(r.attachments) ? r.attachments : null,
   status: r.status,
   reviewNote: r.review_note,
   routeId: r.route_id,
@@ -58,10 +61,11 @@ export function useRouteRequests(userId?: string) {
       name: string;
       region?: string;
       note?: string;
-      lng: number;
-      lat: number;
+      lng?: number | null;
+      lat?: number | null;
       address?: string;
       track?: Track | null;
+      attachments?: RouteRequestAttachment[];
     }) => {
       if (!userId) throw new Error("Not signed in");
       const t = draft.track;
@@ -72,9 +76,10 @@ export function useRouteRequests(userId?: string) {
           name: draft.name.trim(),
           region: draft.region || "",
           note: draft.note || "",
-          lng: draft.lng,
-          lat: draft.lat,
+          lng: draft.lng ?? null,
+          lat: draft.lat ?? null,
           address: draft.address || null,
+          attachments: draft.attachments?.length ? draft.attachments : null,
           track_id: t?.id || null,
           track_snapshot: t
             ? {
