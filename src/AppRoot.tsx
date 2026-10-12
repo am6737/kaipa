@@ -46,7 +46,8 @@ import { applyRouteGuideTemplate } from './lib/routeGuideImport';
 import { routeGuideCopy } from './components/discover/routeGuideCopy';
 import { AppAssistant } from './components/assistant/AppAssistant';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
-import { joinJourneyByInvite } from './lib/journeyInvite';
+import { fetchJourneyPoiById } from './lib/journeyInvite';
+import { joinJourneyByCode } from './lib/journeyShare';
 import { PushBootstrap, PushNavigator } from './push/PushBootstrap';
 
 function AppShell() {
@@ -272,7 +273,9 @@ function AppShell() {
             nav.showToast(t('qrLogin.approvedToast'));
           }}
           onJourneyInvite={async (invite) => {
-            const journey = await joinJourneyByInvite(invite);
+            const result = await joinJourneyByCode(invite.code);
+            if (!result.journeyId || (result.status !== 'joined' && result.status !== 'already_joined')) throw new Error(result.status);
+            const journey = await fetchJourneyPoiById(result.journeyId);
             await data.refetchJourneys();
             nav.closeJourneyInviteScanner();
             nav.setMainTab('journey');

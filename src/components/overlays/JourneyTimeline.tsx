@@ -1,4 +1,4 @@
-// JourneyTimeline.tsx — the unified 行程 surface. A user-grouped list of rich
+// JourneyTimeline.tsx — the unified 旅程 surface. A user-grouped list of rich
 // records (each row can carry photo/video media). Groups are user-defined strings
 // — users decide how to organize entries. Exposes the inline digest
 // (JourneyTimelineCard) and the bottom-sheet add/edit editor (JourneyEntryEditor):
@@ -2243,7 +2243,7 @@ function QuickAddSheet({ theme, groupStorageKey, initialDay, defaultDay, existin
   );
 }
 
-// ── Direct add — pops the quick-add sheet straight up from the inline 行程 tab ─
+// ── Direct add — pops the quick-add sheet straight up from the inline 旅程 tab ─
 export function JourneyEntryEditor({ theme, info, initialDay, availableGroups, editRow, onClose }: { theme: Theme; info: Poi; initialDay?: string; availableGroups?: string[]; editRow?: TLRow; onClose: () => void }) {
   const { userId, routes } = useData();
   const tl = useTimeline(info.id, userId);

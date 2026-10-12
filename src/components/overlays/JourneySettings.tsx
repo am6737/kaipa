@@ -852,7 +852,7 @@ export function JourneySettings({
               >
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontSize: 17, fontWeight: "600" }}>{guideStatus?.status === "approved" ? "路线攻略已通过" : guideStatus?.status === "pending" ? "路线攻略审核中" : guideStatus?.status === "rejected" ? "攻略审核未通过，可重新提交" : "发布为路线攻略"}</Text>
-                  <Text style={{ color: theme.text3, fontSize: 11.5, lineHeight: 18, marginTop: 3 }}>{guideStatus?.status === "approved" ? "已展示在路线卡片的大家的攻略中" : guideStatus?.status === "pending" ? "审核通过后会展示给其他人，请勿重复提交" : guideStatus?.status === "rejected" ? ("驳回原因：" + (guideStatus.rejectionReason || "请修改后重新提交")) : "整理行程、装备与复盘，提交审核后展示给其他人"}</Text>
+                  <Text style={{ color: theme.text3, fontSize: 11.5, lineHeight: 18, marginTop: 3 }}>{guideStatus?.status === "approved" ? "已展示在路线卡片的大家的攻略中" : guideStatus?.status === "pending" ? "审核通过后会展示给其他人，请勿重复提交" : guideStatus?.status === "rejected" ? ("驳回原因：" + (guideStatus.rejectionReason || "请修改后重新提交")) : "整理旅程、装备与复盘，提交审核后展示给其他人"}</Text>
                 </View>
                 {guideStatus?.status === "rejected" || !guideStatus ? <Icon name="chevronR" color={theme.text3} size={16} /> : null}
               </Press>
@@ -1044,7 +1044,7 @@ function GuidePublishSheet({
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.sm }}><Avatar size={28} uri={profile.avatarUrl} /><Text style={[type.caption, { color: theme.text2 }]}>{author}</Text></View>
             <Text style={[type.caption, { color: theme.text2, marginTop: space.sm }]}>发布于 {publishedDate}</Text>
             {step === "edit" && !readOnly ? <View style={[guideTextCard, { marginTop: space.xl }]}><TextInput value={intro} onChangeText={setIntro} maxLength={180} multiline placeholder="这次旅程最值得分享的经验" placeholderTextColor={theme.text3} style={{ width: "100%", minHeight: 48, padding: 0, color: theme.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" }} /></View> : intro.trim() ? <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 25, marginTop: space.xl }}>{intro}</Text> : null}
-            <View style={{ marginTop: space.xl }}><Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.md }]}>行程</Text>
+            <View style={{ marginTop: space.xl }}><Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.md }]}>旅程</Text>
             <RouteGuideItinerary theme={theme} plan={plan} />
             <View style={{ marginTop: space.xxl }}><RouteGuideEquipment theme={theme} plan={plan} /></View></View>
             {step === "edit" && !readOnly ? <><Text style={[type.sectionTitle, { color: theme.text, marginTop: space.xxl, marginBottom: space.md }]}>如果再走一次</Text><View style={guideTextCard}><TextInput value={reflection} onChangeText={setReflection} maxLength={280} multiline placeholder="记录给后来者的建议" placeholderTextColor={theme.text3} style={{ width: "100%", minHeight: 48, padding: 0, color: theme.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" }} /></View></> : <><Text style={[type.sectionTitle, { color: theme.text, marginTop: space.xxl, marginBottom: space.md }]}>如果再走一次</Text>{reflection.trim() ? <Text style={{ color: theme.text2, fontSize: 14, lineHeight: 25 }}>{reflection}</Text> : null}</>}

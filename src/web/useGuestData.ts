@@ -59,30 +59,52 @@ export interface CompanionData {
 
 type GuestSnapshot = { sessionId:string; share:ShareData; journey:JourneyData; host:HostData; companions:CompanionData[]; moments:GuestMoment[]; media:InspoMedia[] };
 type MomentInput = Omit<GuestMoment,'id'|'share_id'|'guest_session_id'|'created_at'>;
-export function useGuestData(slug: string, code: string) {
+export function useGuestData(code: string) {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState<string|null>(null);
   const [snapshot,setSnapshot] = useState<GuestSnapshot|null>(null);
   const [token,setToken] = useState('');
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);setError(null);setSnapshot(null);setToken('');
-    if (!slug || !code) {setError('invalid');setLoading(false);return;}
-    const key = 'kaipa_guest_session_v1:'+slug;
+    setLoading(true);
+    setError(null);
+    setSnapshot(null);
+    setToken('');
+    if (!code) {
+      setError('invalid');
+      setLoading(false);
+      return;
+    }
+    const key = `kaipa_guest_session_v1:${code}`;
     (async()=>{
       try {
         let previous:string|null = null;
-        try {previous=localStorage.getItem(key);} catch { /* memory-only session */ }
-        const session = await guestRequest<{sessionId:string;token:string}>({action:'guest_open',slug,code},previous || undefined);
+        try {
+          previous = localStorage.getItem(key);
+        } catch { /* memory-only session */ }
+        const session = await guestRequest<{ sessionId: string; token: string }>(
+          { action: 'guest_open', code },
+          previous || undefined,
+        );
         if (cancelled) return;
-        try {localStorage.setItem(key,session.token);} catch { /* memory-only session */ }
-        const next = await guestRequest<GuestSnapshot>({action:'guest_snapshot'},session.token);
-        if (!cancelled) {setToken(session.token);setSnapshot(next);}
-      } catch (cause) {if (!cancelled) setError(cause instanceof Error?cause.message:'fetch_error');}
-      finally {if (!cancelled) setLoading(false);}
+        try {
+          localStorage.setItem(key, session.token);
+        } catch { /* memory-only session */ }
+        const next = await guestRequest<GuestSnapshot>({ action: 'guest_snapshot' }, session.token);
+        if (!cancelled) {
+          setToken(session.token);
+          setSnapshot(next);
+        }
+      } catch {
+        if (!cancelled) setError('busy');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
-    return ()=>{cancelled=true;};
-  },[slug,code]);
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
   const addMoment = useCallback(async (m:MomentInput) => {
     if (!snapshot || !token) throw new Error('访客会话不可用，请刷新页面');
     const uri = !m.is_text && m.uri ? await uploadGuestPhoto(m.uri,snapshot.share.id,token) : '';

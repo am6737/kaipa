@@ -1,12 +1,12 @@
 import type { Poi } from '../data/pois';
 import { toJourneyPoi } from './mappers';
+import { normalizeJourneyCode } from './journeyShare';
 import { supabase } from './supabase';
 
-const JOURNEY_INVITE_PATH = /^\/j\/(.+)-(\d{4})\/?$/;
+const JOURNEY_INVITE_PATH = /^\/j\/([^/]+)\/?$/i;
 
 export type JourneyInvite = {
   url: string;
-  slug: string;
   code: string;
 };
 
@@ -16,8 +16,9 @@ export function parseJourneyInviteUrl(value: string): JourneyInvite | null {
     const configuredWebUrl = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
     const allowedOrigin = new URL(configuredWebUrl).origin;
     const match = decodeURIComponent(url.pathname).match(JOURNEY_INVITE_PATH);
-    if (url.origin !== allowedOrigin || !match) return null;
-    return { url: url.toString(), slug: match[1], code: match[2] };
+    const code = match ? normalizeJourneyCode(match[1]) : '';
+    if (url.origin !== allowedOrigin || !match || !/^[0-9A-Z]{4}$/.test(code)) return null;
+    return { url: url.toString(), code };
   } catch {
     return null;
   }
@@ -55,21 +56,4 @@ export async function fetchJourneyPoiById(journeyId: string): Promise<Poi> {
     undefined,
     viewerId,
   );
-}
-
-export async function joinJourneyBySlugCode(slug: string, code: string): Promise<Poi> {
-  const { data: result, error: joinError } = await supabase.rpc('join_journey_by_invite', {
-    invite_slug: slug,
-    invite_code: code,
-  });
-  if (joinError) throw joinError;
-
-  const journeyId = (result as { journey_id?: string } | null)?.journey_id;
-  if (!journeyId) throw new Error('JOURNEY_INVITE_INVALID');
-
-  return fetchJourneyPoiById(journeyId);
-}
-
-export async function joinJourneyByInvite(invite: JourneyInvite): Promise<Poi> {
-  return joinJourneyBySlugCode(invite.slug, invite.code);
 }

@@ -1178,7 +1178,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   useEffect(() => () => {
     if (momentFilterMenuRef) momentFilterMenuRef.current = null;
   }, [momentFilterMenuRef]);
-  // Peer tabs: 总览 / 瞬间 / 行程. 轨迹 is no longer a tab — the elevation lives on the
+  // Peer tabs: 总览 / 瞬间 / 旅程. 轨迹 is no longer a tab — the elevation lives on the
   // map above (a toggle reveals a scrubbable strip), since the map already is the
   // track. 同行 is a facepile inside 总览. Routes tab only what applies.
   const tabOptions = useMemo<{ id: TabId; label: string }[]>(() => {
@@ -1200,7 +1200,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
     return opts;
   }, [isJourney, journeyDays, poi.routeShowTimeline, poi.routeShowPhotos, allPhotos.length, resolved, t]);
   const [seg, setSeg] = useState<TabId>('overview');
-  // Each tab page is a full copy of its feature (every 行程 page re-renders the
+  // Each tab page is a full copy of its feature (every 旅程 page re-renders the
   // whole timeline), so mounting all of them for the opening frame is what
   // keeps the map camera queued behind the detail tree. A page mounts when it
   // becomes selected, or mid-swipe when the pager reveals it.
@@ -1431,7 +1431,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
       if (!positions.length) return;
       const threshold = value + space.sm;
       // Ties go to the earlier day: two days sharing one anchor means a measurement
-      // collapsed, and taking the last match reads as "it jumped to 行程2 and would
+      // collapsed, and taking the last match reads as "it jumped to 旅程2 and would
       // not come back", even at the top of the list.
       let visibleDay = positions[0].day;
       let acceptedY = Number.NEGATIVE_INFINITY;
@@ -1475,7 +1475,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
   const pendingPagerSegmentRef = useRef<TabId | null>(null);
   const [tabPageHeights, setTabPageHeights] = useState<Record<string, number>>({});
   // The page PagerView actually shows. The scroll follower moves the highlighted
-  // day (`seg`) without moving the pager — every 行程 page carries the whole
+  // day (`seg`) without moving the pager — every 旅程 page carries the whole
   // timeline — so the clip height has to track this, not `seg`: a highlighted day
   // that was never mounted has no stored height, and falling back to the default
   // collapsed the container, which made the host sheet clamp its own scroll offset.
@@ -2035,7 +2035,7 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           />
         ) : null}
 
-        {/* 行程 timeline */}
+        {/* 旅程 timeline */}
         {activeSeg === 'plan' ? <JourneyTimelineCard theme={theme} info={poi} readOnly={!isJourney || readOnly} preview={timelinePreview} availableDays={journeyDays} selectionMode={timelineSelectionMode} selectedItemIds={selectedTimelineItemIds} onSelectedItemIdsChange={onSelectedTimelineItemIdsChange} onGroupCollapseChange={animateDayPageCollapse} onReorderActiveChange={setTimelineReordering} /> : null}
         {activeJourneyDay != null ? (
           <View

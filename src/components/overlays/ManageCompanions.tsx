@@ -25,6 +25,7 @@ import { Press } from '../Press';
 import { NJBottomSheet, NJSharePanel } from './NewJourneySheet';
 import { useI18n, TKey } from '../../i18n';
 import { AppIconButton, DetailPage, radius, space, type } from '../../design-system';
+import { rotateJourneyShare } from '../../lib/journeyShare';
 
 // New companions cycle through this palette; 分工 quick-fills + the two roles
 // that get the accent-coloured badge mirror the prototype.
@@ -331,6 +332,13 @@ export function ManageCompanions({
   const removeAt = (index: number) => {
     persist(others.filter((_, itemIndex) => itemIndex !== index));
   };
+  const offerRotateShare = (hasAccount: boolean) => {
+    if (!canManageRoster || !hasAccount) return;
+    Alert.alert(t('journey.manage.rotateAfterRemoveTitle'), t('journey.manage.rotateAfterRemoveBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('journey.manage.rotateAfterRemoveAction'), onPress: () => { void rotateJourneyShare(poi.id).then((share) => onToast(share ? t('journey.manage.rotateAfterRemoveSuccess') : t('journey.manage.rotateAfterRemoveFailed'))); } },
+    ]);
+  };
   const confirmRemoveAt = (index: number) => {
     const companion = others[index];
     if (!companion) return;
@@ -339,7 +347,7 @@ export function ManageCompanions({
       t('journey.manage.removeConfirmBody'),
       [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('common.delete'), style: 'destructive', onPress: () => removeAt(index) },
+        { text: t('common.delete'), style: 'destructive', onPress: () => { removeAt(index); offerRotateShare(Boolean(companion.userId)); } },
       ],
     );
   };
@@ -394,8 +402,10 @@ export function ManageCompanions({
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
+            const removedAccount = [...selected].some((i) => Boolean(others[i]?.userId));
             persist(others.filter((_, i) => !selected.has(i)));
             exitSelect();
+            offerRotateShare(removedAccount);
           },
         },
       ],

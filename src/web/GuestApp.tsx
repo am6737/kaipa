@@ -9,12 +9,12 @@ import { useGuestData } from './useGuestData';
 
 const ID_KEY = 'kaipa_guest_identity_v1';
 
-function parseGuestPath(): { slug: string; code: string } | null {
+function parseGuestPath(): { code: string } | null {
   if (Platform.OS !== 'web') return null;
   const path = decodeURIComponent(window.location.pathname);
-  const match = path.match(/^\/j\/(.+)-(\d{4})$/);
+  const match = path.match(/^\/j\/([0-9a-z]{4})\/?$/i);
   if (!match) return null;
-  return { slug: match[1], code: match[2] };
+  return { code: match[1].toUpperCase() };
 }
 
 function loadIdentity(): GuestIdentity | null {
@@ -79,7 +79,7 @@ export function GuestApp() {
   }, []);
 
   const { loading, error, share, journey, host, companions, moments, media, sessionId, addMoment, deleteMoment } =
-    useGuestData(parsed?.slug || '', parsed?.code || '');
+    useGuestData(parsed?.code || '');
 
   if (!parsed) return <ErrorPage theme={theme} />;
   if (loading) return <LoadingPage theme={theme} />;

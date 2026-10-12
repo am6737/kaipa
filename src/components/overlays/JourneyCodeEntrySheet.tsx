@@ -9,8 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Poi } from '../../data/pois';
 import { motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
-import { joinJourneyBySlugCode, fetchJourneyPoiById } from '../../lib/journeyInvite';
-import { joinJourneyByCode, type CodeJoinCandidate } from '../../lib/journeyShare';
+import { fetchJourneyPoiById } from '../../lib/journeyInvite';
+import { joinJourneyByCode, normalizeJourneyCode } from '../../lib/journeyShare';
 import { Theme } from '../../theme/theme';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
@@ -36,8 +36,6 @@ export function JourneyCodeEntrySheet({
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [candidates, setCandidates] = useState<CodeJoinCandidate[]>([]);
-  const [joiningId, setJoiningId] = useState<string | null>(null);
 
   useEffect(() => {
     Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...motion.pageSpring }).start();
@@ -71,9 +69,7 @@ export function JourneyCodeEntrySheet({
     setError(
       message.includes('JOURNEY_FULL') ? t('qrLogin.errorJourneyFull')
         : message.includes('AUTH') ? t('passphrase.authRequired')
-        : message.includes('LIMIT') ? t('passphrase.joinLimited')
-        : message.includes('INVALID') ? t('passphrase.invalidCode')
-        : t('passphrase.joinFailed'),
+        : t('passphrase.busy'),
     );
   }, [t]);
 
@@ -81,14 +77,12 @@ export function JourneyCodeEntrySheet({
     if (busy || nextCode.length !== 4) return;
     setBusy(true);
     setError('');
-    setCandidates([]);
     try {
       const result = await joinJourneyByCode(nextCode);
-      if (result.status === 'ambiguous') {
-        setCandidates(result.candidates);
-      } else {
-        onJoined(await fetchJourneyPoiById(result.journeyId));
-      }
+      if (result.status === 'auth_required') throw new Error('AUTH_REQUIRED');
+      if (result.status === 'full') throw new Error('JOURNEY_FULL');
+      if (result.status === 'busy' || !result.journeyId) throw new Error('JOURNEY_BUSY');
+      onJoined(await fetchJourneyPoiById(result.journeyId));
     } catch (cause) {
       mapJoinError(cause);
       setTimeout(() => inputRef.current?.focus(), motion.quick);
@@ -109,27 +103,10 @@ export function JourneyCodeEntrySheet({
   }, [code, submit]);
 
   const changeCode = useCallback((value: string) => {
-    const nextCode = value.replace(/\D/g, '').slice(0, 4);
+    const nextCode = normalizeJourneyCode(value);
     setCode(nextCode);
     setError('');
-    setCandidates([]);
   }, []);
-
-  const pickCandidate = useCallback(async (candidate: CodeJoinCandidate) => {
-    if (busy) return;
-    setBusy(true);
-    setError('');
-    setJoiningId(candidate.journeyId);
-    try {
-      onJoined(await joinJourneyBySlugCode(candidate.slug, code.trim()));
-    } catch (cause) {
-      mapJoinError(cause);
-      setTimeout(() => inputRef.current?.focus(), motion.quick);
-    } finally {
-      setBusy(false);
-      setJoiningId(null);
-    }
-  }, [busy, code, mapJoinError, onJoined]);
 
   return (
     <KeyboardAvoidingView
@@ -168,14 +145,16 @@ export function JourneyCodeEntrySheet({
               ref={inputRef}
               value={code}
               onChangeText={changeCode}
-              keyboardType="number-pad"
+              keyboardType="default"
               maxLength={4}
               autoFocus
+              autoCapitalize="characters"
+              autoCorrect={false}
               showSoftInputOnFocus
               caretHidden
               contextMenuHidden
               textContentType="oneTimeCode"
-              autoComplete="sms-otp"
+              autoComplete="off"
               style={styles.hiddenInput}
             />
             {[0, 1, 2, 3].map((index) => {
@@ -205,28 +184,6 @@ export function JourneyCodeEntrySheet({
           ) : null}
 
           {error ? <Text style={[type.caption, styles.error, { color: theme.danger }]}>{error}</Text> : null}
-
-          {candidates.length ? (
-            <View style={[styles.candidates, { backgroundColor: theme.surfaceTop, borderColor: theme.border }]}>
-              <Text style={[type.caption, { color: theme.text2, marginBottom: space.xs }]}>{t('passphrase.ambiguousTitle')}</Text>
-              {candidates.map((candidate) => (
-                <Press
-                  key={candidate.journeyId}
-                  accessibilityRole="button"
-                  accessibilityLabel={candidate.name}
-                  onPress={() => void pickCandidate(candidate)}
-                  style={styles.candidateRow}
-                >
-                  <Text numberOfLines={1} style={[type.body, styles.candidateName, { color: theme.text }]}>{candidate.name}</Text>
-                  {joiningId === candidate.journeyId ? (
-                    <ActivityIndicator size="small" color={theme.text3} />
-                  ) : (
-                    <Icon name="chevronR" color={theme.text3} size={16} strokeWidth={2} />
-                  )}
-                </Press>
-              ))}
-            </View>
-          ) : null}
 
         </View>
       </Animated.View>

@@ -524,39 +524,26 @@ export function NJSharePanel({
   const [shareFailed, setShareFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
-  // Display-only fallback for the unsaved-journey preview (no journeyId yet);
-  // the moment a journey exists the server-generated code takes over.
-  const fallbackUrl = useMemo(() => {
-    const s = (tripName || 'kaipa').replace(/\s+/g, '').slice(0, 8);
-    const c = String(1000 + (Math.abs(hashSeed(tripName)) % 9000));
-    const base = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
-    return `${base}/j/${s}-${c}`;
-  }, [tripName]);
+  const fullUrl = share ? journeyShareUrl(share) : '';
 
-  const fullUrl = share ? journeyShareUrl(share) : journeyId ? '' : fallbackUrl;
-
-  useEffect(() => {
-    if (!journeyId) return;
-    let cancelled = false;
+  const loadShare = async () => {
+    if (!journeyId) return null;
     setShareFailed(false);
-    void ensureJourneyShare(journeyId).then((info) => {
-      if (cancelled) return;
-      if (info) setShare(info);
-      else setShareFailed(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [journeyId, retryKey]);
+    const info = await ensureJourneyShare(journeyId);
+    if (info) setShare(info); else setShareFailed(true);
+    return info;
+  };
 
   const doCopy = async () => {
-    if (!fullUrl) return;
+    const loaded = !share && journeyId ? await loadShare() : null;
+    const url = share ? journeyShareUrl(share) : loaded ? journeyShareUrl(loaded) : '';
+    if (!url) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(fullUrl);
+        await navigator.clipboard.writeText(url);
       } else {
         const { default: Clipboard } = await import('expo-clipboard' as any).catch(() => ({ default: null }));
-        if (Clipboard) await Clipboard.setStringAsync(fullUrl);
+        if (Clipboard) await Clipboard.setStringAsync(url);
       }
     } catch {}
     onToast(t('journeyEdit.share.toastLinkCopied'));
