@@ -16,7 +16,9 @@ const corsHeaders = {
 
 const QUIET_START_MIN = 22 * 60;   // 设备本地 22:00 起免打扰
 const QUIET_END_MIN = 8 * 60;      // 08:00 恢复（顺延发送的目标时刻）
-const MERGE_WINDOW_MS = 5 * 60 * 1000; // 同用户同 kind 5 分钟内合并
+// 频控：合并"同用户+同 kind+同文案要素(who+target)"，即同一个人对同一旅程的同一动作
+// 5 分钟内只推一次；不同旅伴的加入各推各的，不再被 kind 一刀切吞掉。
+const MERGE_WINDOW_MS = 5 * 60 * 1000;
 const DAY_MS = 86_400_000;
 
 function json(body: unknown, status = 200) {
@@ -168,18 +170,31 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // 频控合并：同用户同 kind 5 分钟内已实发过 → 跳过（消息中心仍保留每条）
-    const { data: recent } = await admin
-      .from('push_outbox')
-      .select('id')
-      .eq('user_id', job.user_id)
-      .eq('kind', job.kind)
-      .eq('status', 'done')
-      .gt('sent_count', 0)
-      .gt('processed_at', new Date(now - MERGE_WINDOW_MS).toISOString())
-      .limit(1);
-    if (recent && recent.length > 0) {
-      await admin.rpc('complete_push_job', { p_id: job.id, p_ok: true, p_sent: 0, p_error: 'merged_within_5min', p_attempt: job.attempts });
+    // 频控合并：同用户同 kind 同文案(who+target) 5 分钟内已实发过 → 跳过（消息中心仍保留每条）。
+    // 窗口从上一条"实发"的 processed_at 起算（merged 的记录 sent_count=0，不会续窗）。
+    let merged = false;
+    {
+      const { data: recentRows } = await admin
+        .from('push_outbox')
+        .select('notification_id')
+        .eq('user_id', job.user_id)
+        .eq('kind', job.kind)
+        .eq('status', 'done')
+        .gt('sent_count', 0)
+        .gt('processed_at', new Date(now - MERGE_WINDOW_MS).toISOString())
+        .limit(25);
+      const recentIds = (recentRows || []).map((r: { notification_id: string }) => r.notification_id);
+      if (recentIds.length > 0) {
+        const { data: sameText } = await admin
+          .from('notifications')
+          .select('who,target')
+          .in('id', recentIds);
+        merged = ((sameText || []) as Array<{ who: string | null; target: string | null }>)
+          .some((r) => r.who === notif.who && r.target === notif.target);
+      }
+    }
+    if (merged) {
+      await admin.rpc('complete_push_job', { p_id: job.id, p_ok: true, p_sent: 0, p_error: 'merged_same_content', p_attempt: job.attempts });
       results.push({ id: job.id, outcome: 'merged' });
       continue;
     }
@@ -216,7 +231,8 @@ Deno.serve(async (req) => {
       try {
         const response = await fetch(`${baseUrl}/apps/${appId}/push/single`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+          // DooPush 服务端 API 用 App Secret 走 Bearer 鉴权（X-API-Key 会 401）
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
           body: JSON.stringify({
             title,
             content,

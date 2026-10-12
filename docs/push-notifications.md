@@ -34,8 +34,9 @@ send-push-notifications (Deno Edge Function)
   → 每 job：查 notifications 行 → 该用户 push_devices
   → 免打扰：设备本地 22:00–08:00（按 tz_offset）→ reschedule 到最早当地 08:00(+0–90s 抖动)；
     纯免打扰回拨 attempts，伴随发送失败则保留 attempts 照常计数
-  → 频控：同 user+kind 5 分钟内已成功推送过 → 直接 done(merged)
-  → DooPush POST {base}/apps/{appId}/push/single（X-API-Key；device_id 填 token 值）
+  → 频控：同 user+kind+who+target（同人同旅程同动作）5 分钟内已成功推送过 → 直接 done(merged)；
+    不同旅伴的加入各推各的，不按 kind 一刀切
+  → DooPush POST {base}/apps/{appId}/push/single（Authorization: Bearer dp_as_* App Secret；device_id 填 token 值）
   → complete_push_job 带 p_attempt（领取代次校验，防 5 分钟卡死回收后的双写/双发）；
     失败指数退避，attempts≥6 → dead
 payload 携带 {scene, notification_id, target_id}，客户端点击后标已读并路由。
@@ -69,7 +70,7 @@ docker exec -i kaipa-supabase-db psql -U postgres -d postgres -c \
 | 变量 | 用途 |
 | --- | --- |
 | `DOOPUSH_APP_ID` | 服务端发送用 app id（**必须是 kaipa 自己的 DooPush 应用**，模板继承来的值是 yibai 的） |
-| `DOOPUSH_API_KEY` | 服务端 `dp_sk_*` server key；缺省时 drain 直接 no-op，本地开发不炸 |
+| `DOOPUSH_API_KEY` | 服务端 `dp_as_*` App Secret（Bearer 鉴权，需 `push:send` scope）；缺省时 drain 直接 no-op，本地开发不炸 |
 | `DOOPUSH_BASE_URL` | 可选，默认官方 API 域名 |
 
 客户端（`.env`，`app.config.js` 注入 `extra.doopush`）：
@@ -106,3 +107,16 @@ SDK 入口在模块顶层就 `requireNativeModule('DooPushReactNativeSDK')`，�
 - 无设备用户 → done(sent 0)；guide_review/companion_leave/guest_moment/departure 触发器
   均生成通知并入队；guest_moment 同旅程 1h 去重（2 条通知 → 1 条推送）。
 - `scan_departure_reminders()` 幂等：首跑 2、重跑 0；测试数据已全部清理。
+
+## 验证记录（2026-10-12，真机端到端）
+
+- 修复 401：DooPush 服务端 API 鉴权是 `Authorization: Bearer <dp_as_* App Secret>`，不是
+  `X-API-Key`（函数注释与本文档旧稿都写错过）。改头后 join 推送真机到达。
+- 真机（App Store 发行版、后台状态）收到 join 推送与消息中心文案一致；插 notifications 行
+  触发的全链路（入队→kick→drain→模板→DooPush→手机）验证通过，测试数据已清理。
+- 排障时逐段验证过：token/设备行唯一且匹配、device 记录 push_environment=production 与
+  正式包一致、iOS 配置已保存非 Mock。
+- 已知坑：DooPush 对 `md5(app+标题+正文+设备id)` 相同的推送**返回 400「推送内容重复」并拒收**
+  （线上实测；Web 控制台手动重发同文案同样报 400）——完全同文案的重复事件（同一人退出再加入
+  同一旅程）过了我方 5 分钟窗口后仍会被 DooPush 挡掉，消息中心仍保留每条；接受此边界，
+  不往用户可见文案里塞时间因子。
