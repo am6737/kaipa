@@ -152,6 +152,7 @@ module.exports = ({ config }) => {
     'expo-video',
     'expo-updates',
     'expo-apple-authentication',
+    './plugins/withIosPodDeploymentTarget',
   ],
   };
 

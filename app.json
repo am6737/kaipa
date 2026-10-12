@@ -8,6 +8,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "deploymentTarget": "16.4",
       "bundleIdentifier": "com.hitosea.letsgo",
       "appleTeamId": "G365J5PZA2",
       "usesAppleSignIn": true,
