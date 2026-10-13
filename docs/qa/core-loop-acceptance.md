@@ -145,5 +145,5 @@ node --env-file=/home/coder/workspaces/kaipa/.env -e 'const {spawnSync}=require(
 ## 交付与 CI
 
 - Draft PR：[am6737/kaipa#10](https://github.com/am6737/kaipa/pull/10)，保持 draft，不合并、不请求 review。
-- 初始文档基线已提交并推送（`05fae74`），本次报告、失败回归和可重放辅助文件作为后续提交推送。
+- 初始文档基线 `05fae74` 和验收报告、失败回归、可重放辅助文件提交 `5f5457a` 均已推送。CI 状态在推送后复核，仍无 checks 回报。
 - GitHub 查询 `statusCheckRollup: []`，仓库未发现 `.github/workflows`：**无 CI checks 回报，不能写为 CI 绿**。本地失败如上保留；即使未来 CI 缺少这些检查，也不能替代验收结论。
