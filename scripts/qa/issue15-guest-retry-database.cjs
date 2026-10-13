@@ -51,6 +51,35 @@ function ok(result) {
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
+// Store immutable SQL rows once, while retaining each observation's ordered
+// row IDs and timestamp. Assertions still run against the original SQL results.
+function compactEvidence(result) {
+  const compact = JSON.parse(JSON.stringify(result));
+  const catalog = new Map();
+  function rowIds(rows) {
+    return rows.map((row) => {
+      if (catalog.has(row.id)) assert.deepEqual(catalog.get(row.id), row);
+      else catalog.set(row.id, row);
+      return row.id;
+    });
+  }
+  for (const request of compact.requests) {
+    if (!request.databaseRowsBeforeBrowserResponse) continue;
+    request.databaseRowIdsBeforeBrowserResponse = rowIds(request.databaseRowsBeforeBrowserResponse);
+    delete request.databaseRowsBeforeBrowserResponse;
+  }
+  for (const scenario of compact.cases) {
+    if (!scenario.rows) continue;
+    scenario.rowIds = rowIds(scenario.rows);
+    delete scenario.rows;
+  }
+  if (compact.finalDatabaseRows) {
+    compact.finalDatabaseRowIds = rowIds(compact.finalDatabaseRows);
+    delete compact.finalDatabaseRows;
+  }
+  compact.rowCatalog = [...catalog.values()];
+  return compact;
+}
 const evidence = {
   testedCommit,
   startedAt: new Date().toISOString(),
@@ -606,7 +635,7 @@ async function replay(page, body, count) {
       !infrastructureFailure && evidence.productFailures.length === 0;
     fs.writeFileSync(
       path.join(evidenceDir, "guest-retry-database.json"),
-      JSON.stringify(evidence, null, 2) + "\n",
+      JSON.stringify(compactEvidence(evidence), null, 2) + "\n",
     );
     console.log(
       JSON.stringify(

@@ -29,7 +29,7 @@ UI 显式 key 的 URI/指纹缓存保留到 hook 卸载或更换分享，允许�
 
 复用主工作区已有 node_modules 和进程内 `.env`，没有使用其他任务工作树文件或更改共享依赖/环境文件。新 Web 导出子进程设 `EXPO_NO_DOTENV=1`、仅覆盖公开 API URL 为上述本地地址。代理只将真实 guest_add 发到本地网关（`maxRetries:0`）；收到 200 并独立 SQL 确认 ID/key/session 已写入后才 abort 浏览器响应。其它正常响应原样转发。证据不保存 token、密码、服务密钥、授权头或 HAR。
 
-[guest-retry-database.json](evidence/issue-15/guest-retry-database.json) 保存 11 次请求的 key、Kong request ID、响应 ID、首写确认时间及 SQL 行，8 个场景的 UI/数据库断言、源码/包哈希、容器版本和清理结果；[probe.txt](evidence/issue-15/probe.txt) 为运行摘要。两个受影响部署函数文件和写入 SQL 函数体与受测提交相同；唯一索引仍为 `(guest_session_id, request_key) WHERE request_key IS NOT NULL`。此核对不证明整个部署/schema 与提交一致。
+[guest-retry-database.json](evidence/issue-15/guest-retry-database.json) 保存 11 次请求的 key、Kong request ID、响应 ID、首写确认时间及 SQL 行，8 个场景的 UI/数据库断言、源码/包哈希、容器版本和清理结果；[probe.txt](evidence/issue-15/probe.txt) 为运行摘要。重复 SQL 行已无损归一化为 `rowCatalog`：请求用 `databaseRowIdsBeforeBrowserResponse`、场景用 `rowIds`、最终结果用 `finalDatabaseRowIds` 引用所见行，顺序和观察时间保留。两个受影响部署函数文件和写入 SQL 函数体与受测提交相同；唯一索引仍为 `(guest_session_id, request_key) WHERE request_key IS NOT NULL`。此核对不证明整个部署/schema 与提交一致。
 
 | 验收 | 实际结果 |
 | --- | --- |
@@ -65,3 +65,18 @@ fixture 账号 `c9ab252f-39d3-4890-ab0c-222d3d7dbd96`，旅程 `qa-issue15-ab9dd
 重跑：在本 PR 根目录使用同锁文件依赖，按上面的公开进程参数新导出当前源代码，然后运行辅助脚本。脚本默认读取本 checkout 的 HEAD 并核对 src/web 文件哈希，不能指向另一个版本的旧包；`KAIPA_QA_TESTED_ROOT`、`KAIPA_QA_WEB_DIR`、`KAIPA_QA_APP_ENV`、`KAIPA_QA_PLAYWRIGHT_MODULE`、`KAIPA_QA_CHROMIUM`、`KAIPA_QA_EVIDENCE_DIR` 可指定独立路径。网关固定为本地 8010，不支持线上目标。该辅助脚本适用于客户端修复后保留原表单的行为；原产品复现和真实两条证据仍由 #13 保留，没有改原测试阈值来掩盖失败。
 
 仅验证本机构建和本地 Supabase。真机、实际媒体上传/对象清理、移动 Safari、线上构建/API/数据库和线上部署均未验证，不声称线上已修复；照片 URI 复用与批量失败恢复仅有受控模型/组件回归。整页重新加载的待发布草稿不做持久化；结果未知时取消并明确新建仍可能保留前一次已提交记录，这是两次独立操作，不是重试。#11 权限问题仍独立 OPEN，未在此任务修复。
+
+
+## 交付范围复核与证据精简
+
+本轮未重跑已通过的产品回归、Web 导出、真实浏览器或数据库检查。重新从 #13 指定 head 提取原基线，用 `cmp /tmp/issue15-tsc-baseline.txt docs/qa/evidence/issue-15/tsc.txt` 验证逐字节相同，仍为 37 条既有错误，无新增错误。
+
+`gh pr checks` 无回报不是失败的测试或待运行 CI。已检查该 head 的 `statusCheckRollup=[]`、check-runs 总数 0、commit statuses 总数 0、Actions runs 空列表及仓库 workflows 总数 0。legacy combined status API 在没有 status 时返回默认 `pending`，不表示已排队/执行中的 CI。因此保留该 CLI 的非零结果，仍不称 CI 绿、不请求 review。
+
+最初 14 文件 +2115/-33 的分布：产品 3 文件 +99/-33；hook/组件回归 2 文件 +445；复用真实路径辅助脚本 1 文件 +630；本次证据 7 文件 +874；报告 1 文件 +67。产品外的主要新增用于可复验性；没有合入 #13 的报告、历史截图、历史多轮清理证据或其它全部材料。没有无关文件、权限产品改动或服务端改动。
+
+发现实际 JSON 的重复 SQL 行后，仅修改证据输出格式：同 ID 行确认完全相同后存一份，11 个逐请求观察集、8 个场景及最终 SQL 集保留有序行 ID 引用。JSON 从 28166 bytes 减至 17654 bytes（减少约 37%），从 683 行减至 466 行；没有删除 key、返回 ID、Kong request ID、时间、实际行字段、UI计数、源码/部署哈希或清理结果。辅助脚本内的真实 SQL、代理、业务断言和阈值全部保持原样。
+
+运行 `node /tmp/issue15-compact-evidence.cjs`，直接执行辅助脚本中的格式化函数，再用独立展开逻辑还原：与原提交 `9dbd628` 的原 JSON 每个字段深度相等，11 请求、8 场景、6 唯一行、全部通过和清理 0 均保留；确认 `src/web` 产品代码无差异。原清理证据的核验时间/SQL/计数/原 SHA 不改，另附原 SHA 的提交范围和精简 SHA/往返校验结果，见 cleanup-verification.json 的 `evidenceCompaction`。额外仅运行辅助脚本语法和 diff 格式检查，不新增数据库写入或重跑产品检查。
+
+生命周期实现和对应覆盖已复核：明确成功后关闭并给新操作新 key（hook、组件、真实浏览器）；提交前确定拒绝/首写后结果未知均保留 key（hook），未知结果保留草稿并从原表单恢复（组件、真实浏览器）；取消失败草稿再打开新表单换 key（组件）；整页重新打开从快照恢复已提交记录、下一次提交用新 key（hook remount、浏览器刷新）；同操作显式/隐式并发共享请求、同内容新操作不复用旧 key（hook、组件及 HTTP 对照）。本任务约定的本地文字重试验收项没有尚未解决项。真机、实际媒体、移动 Safari、线上部署仍是未验证边界；#11 独立权限问题仍 OPEN。

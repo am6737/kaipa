@@ -26,5 +26,20 @@
     "uploadTickets": 0,
     "sessionRateWindows": 0
   },
-  "evidenceSHA256": "41f41bb703e31d5b5b28b85a716030887c317be2fd063bb86d423d358555f0fc"
+  "evidenceSHA256": "41f41bb703e31d5b5b28b85a716030887c317be2fd063bb86d423d358555f0fc",
+  "evidenceHashScope": "Original uncompressed evidence at 9dbd628dfebb0d85adc25dd7852a20318728d9f0",
+  "evidenceCompaction": {
+    "command": "node /tmp/issue15-compact-evidence.cjs",
+    "originalCommit": "9dbd628dfebb0d85adc25dd7852a20318728d9f0",
+    "originalEvidenceSHA256": "41f41bb703e31d5b5b28b85a716030887c317be2fd063bb86d423d358555f0fc",
+    "compactEvidenceSHA256": "10bb1802f460733acbef57004fc4003237a364871a35ebe4f728ce9604cba5c7",
+    "originalBytes": 28166,
+    "compactBytes": 17654,
+    "uniqueSQLRows": 6,
+    "preservedRequests": 11,
+    "preservedCases": 8,
+    "completeRoundTripEqual": true,
+    "productFilesUnchanged": true,
+    "reranBrowserOrDatabase": false
+  }
 }
