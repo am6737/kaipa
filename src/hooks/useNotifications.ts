@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { toNotif } from '../lib/mappers';
+import { getDooPush } from '../lib/doopushNative';
 import type { Notif } from '../data/notifications';
 
 // notifications.avatar is a snapshot taken when the row was written, and avatar
@@ -74,6 +76,16 @@ export function useNotifications(userId: string | undefined) {
   }, [fetchNotifs, userId]);
 
   const unread = list.filter(n => !n.read).length;
+
+  // 桌面角标由推送 SDK 在投递时累加，读消息不会自动回写，所以它只涨不落。
+  // 以本地真实的未读数为准重新设置；loading 结束前不动，避免清掉旧角标又立刻重设。
+  useEffect(() => {
+    if (loading || Platform.OS === 'web') return;
+    const DooPush = getDooPush();
+    if (!DooPush) return;
+    const sync = unread > 0 ? DooPush.setBadge(unread) : DooPush.clearBadge();
+    sync.catch((e) => console.warn('[useNotifications] badge sync failed:', e));
+  }, [unread, loading]);
 
   const markRead = async (id: string) => {
     const previous = list;
