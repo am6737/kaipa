@@ -81,6 +81,13 @@ export async function deleteRouteGuide(id: string) {
   if (error) throw error;
 }
 
+/** Guide id → route id (for notification deep links). Null when the guide is missing or unreadable. */
+export async function fetchGuideRouteId(id: string): Promise<string | null> {
+  const { data, error } = await supabase.from('route_guides').select('route_id').eq('id', id).maybeSingle();
+  if (error || !data) return null;
+  return data.route_id;
+}
+
 export function useMyRouteGuideStatus(routeId: string | undefined, authorId: string | undefined) {
   const [status, setStatus] = useState<MyRouteGuideStatus | null>(null);
   const [loading, setLoading] = useState(Boolean(routeId && authorId));

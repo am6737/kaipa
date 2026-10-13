@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { DetailPage, radius, space, type } from '../../design-system';
 import { getRouteGuidePlans, guideText, sortRouteGuides, toRouteGuideTemplate } from '../../data/routeGuides';
+import type { RouteCondition } from '../../data/routeConditions';
 import { buildGuideDocument } from '../../lib/routeGuideExport';
 import { useI18n } from '../../i18n';
 import { useRouteWeather } from '../../hooks/useRouteWeather';
@@ -16,9 +17,9 @@ import { useNav, type RouteGuideRequest } from '../../nav/NavContext';
 import type { Theme } from '../../theme/theme';
 import { Avatar } from '../Avatar';
 import { Press } from '../Press';
-import { RouteGuideEquipment, RouteGuideItinerary, RouteGuideRow, RouteGuideTabs, RouteWeatherDetails } from './RouteGuideContent';
+import { MeBadge, RouteGuideEquipment, RouteGuideItinerary, RouteGuideRow, RouteGuideTabs, RouteWeatherDetails } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
-import { submitRouteCondition, useRouteConditions } from '../../hooks/useRouteConditions';
+import { deleteRouteCondition, submitRouteCondition, useRouteConditions } from '../../hooks/useRouteConditions';
 import { RouteConditionCard } from './RouteConditionCard';
 import { GuideDocument, RouteGuideExportSheet } from './RouteGuideExportSheet';
 import { RouteGuideShareSheet } from './RouteGuideShareSheet';
@@ -30,8 +31,8 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   const nav = useNav(); const { resolved } = useI18n(); const c = routeGuideCopy[resolved];
   const insets = useSafeAreaInsets();
   const plans = useMemo(() => getRouteGuidePlans(request.route), [request.route.id, request.route.name]);
-  const { reports, loading: reportsLoading, refresh: refreshReports } = useRouteConditions(request.route.id);
-  const { guides, loading: guidesLoading, toggleHelpful } = useRouteGuides(request.route.id);
+  const { reports, loading: reportsLoading, refresh: refreshReports, currentUserId } = useRouteConditions(request.route.id);
+  const { guides, loading: guidesLoading, toggleHelpful, currentUserId: currentGuideUserId } = useRouteGuides(request.route.id);
   const [stack, setStack] = useState<Page[]>([{ view: request.view, planId: request.planId, guideId: request.guideId }]);
   const page = stack[stack.length - 1];
   const [conditionDraft, setConditionDraft] = useState('');
@@ -84,6 +85,13 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
     const preset = { ...request.route, planningTemplate: toRouteGuideTemplate(plan, resolved) };
     onClose(); nav.openNewJourney(preset);
   };
+  const deleteCondition = async (report: RouteCondition) => {
+    try {
+      await deleteRouteCondition(report);
+    } catch {
+      nav.showToast(resolved === 'zh' ? '删除失败，请稍后重试' : 'Could not delete, please try again');
+    }
+  };
   const title = page.view === 'guides' ? `${request.route.name}${resolved === 'zh' ? '攻略' : ' guides'}` : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : page.view === 'conditions' ? `${request.route.name}${c.conditions}` : page.view === 'condition-compose' ? c.shareCondition : c.referencePlan;
   const hasCreate = page.view === 'guide' || page.view === 'plan';
   const pageBackgroundColor = page.view === 'guide' || page.view === 'guides' ? theme.featureSurface : theme.groupedBg;
@@ -99,7 +107,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
         <ScrollView key={`${page.view}:${plan.id}`} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}>
         <View style={styles.content}>
           {page.view === 'guides' ? <>
-            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended').map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} onPress={() => openGuide(item.id)} /></View>)}{!guidesLoading && guides.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
+            <View style={{ marginTop: space.xs }}>{guidesLoading ? <ActivityIndicator color={theme.accent} /> : sortRouteGuides(guides, 'recommended').map((item, index, all) => <View key={item.id} style={{ borderBottomWidth: index < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={item} showMeBadge={Boolean(currentGuideUserId) && item.authorId === currentGuideUserId} onPress={() => openGuide(item.id)} /></View>)}{!guidesLoading && guides.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
           </> : page.view === 'condition-compose' ? <>
             <View style={{ marginTop: space.xl }}>
               <TextInput autoFocus value={conditionDraft} onChangeText={setConditionDraft} placeholder={c.shareConditionPlaceholder} placeholderTextColor={theme.text3} multiline maxLength={200} style={[styles.composerInput, styles.composerPageInput, { color: theme.text, backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]} />
@@ -126,14 +134,14 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
               </View>
             </View>
           </> : page.view === 'conditions' ? <>
-            <View style={{ marginTop: space.sm }}>{reportsLoading ? <ActivityIndicator color={theme.accent} /> : reports.map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} />)}{!reportsLoading && reports.length === 0 ? <View style={styles.emptyConditions}><Press accessibilityRole="button" accessibilityLabel={c.shareCondition} onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])}><Text style={[styles.body, { color: theme.text2, textAlign: 'center' }]}>{c.noReports}</Text></Press></View> : null}</View>
+            <View style={{ marginTop: space.sm }}>{reportsLoading ? <ActivityIndicator color={theme.accent} /> : reports.map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} showMeBadge={Boolean(currentUserId) && report.userId === currentUserId} onDelete={currentUserId && report.userId === currentUserId ? () => { void deleteCondition(report); } : undefined} />)}{!reportsLoading && reports.length === 0 ? <View style={styles.emptyConditions}><Press accessibilityRole="button" accessibilityLabel={c.shareCondition} onPress={() => setStack((old) => [...old, { view: 'condition-compose' }])}><Text style={[styles.body, { color: theme.text2, textAlign: 'center' }]}>{c.noReports}</Text></Press></View> : null}</View>
           </> : page.view === 'weather' ? <>
             {weather.loading ? <View style={styles.weatherState}><ActivityIndicator color={theme.accent} /><Text style={[styles.caption, { color: theme.text2 }]}>{c.weather}</Text></View> : weather.forecast ? <RouteWeatherDetails theme={theme} forecast={weather.forecast} routeName={request.route.name} /> : <View style={styles.weatherState}><Text style={{ color: theme.text2 }}>{c.weatherUnavailable}</Text><Press accessibilityRole="button" onPress={weather.retry} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.accent }}>{c.retry}</Text></Press></View>}
           </> : <>
             {page.view === 'plan' ? <Text style={[styles.caption, { color: theme.text2, marginBottom: space.md }]}>{c.draft}</Text> : null}
             <Text style={[type.pageTitle, { color: theme.text, lineHeight: 36 }]}>{guideText(page.view === 'guide' ? guide.title : plan.title, resolved)}</Text>
             {page.view === 'guide' ? <>
-              <View style={styles.authorRow}><Avatar size={28} uri={guide.authorAvatarUrl || undefined} /><Text style={[styles.author, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text></View>
+              <View style={styles.authorRow}><Avatar size={28} uri={guide.authorAvatarUrl || undefined} /><Text style={[styles.author, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>{Boolean(currentGuideUserId) && guide.authorId === currentGuideUserId ? <MeBadge theme={theme} /> : null}</View>
               <View style={styles.metaRow}><Text style={[styles.caption, { color: theme.text2 }]}>{c.publishedDate} {guide.publishedDate}</Text>{guide.updatedDate !== guide.publishedDate ? <Text style={[styles.caption, { color: theme.text2 }]}>{c.updatedDate} {guide.updatedDate}</Text> : null}</View>
             </> : <Text style={[styles.caption, { color: theme.text2, marginTop: space.md }]}>{guideText(plan.description, resolved)}</Text>}
             {page.view === 'guide' && guide.description && guideText(guide.description, resolved).trim() ? <Text style={[styles.guideDescription, { color: theme.text2 }]}>{guideText(guide.description, resolved)}</Text> : null}
@@ -152,7 +160,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
         </ScrollView>
       </DetailPage>
     </View>
-    {shareOpen && page.view === 'guide' ? <RouteGuideShareSheet theme={theme} routeName={request.route.name} guide={guide} onClose={() => setShareOpen(false)} onExport={() => { setShareOpen(false); setExportOpen(true); }} onToast={nav.showToast} /> : null}
+    {shareOpen && page.view === 'guide' ? <RouteGuideShareSheet theme={theme} routeName={request.route.name} guide={guide} onClose={() => setShareOpen(false)} onExport={() => { setShareOpen(false); setExportOpen(true); }} /> : null}
   </Modal>
   {exportOpen && exportDoc ? <View pointerEvents="none" style={styles.captureHost}>
     <ViewShot ref={exportShot} onLayout={() => setExportReady(true)} style={{ width: exportWidth }}>
