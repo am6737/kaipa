@@ -11,9 +11,12 @@ function guestHarness({
   rejectFirstWrite = false,
   holdWrite = null,
   allowPhotos = false,
+  holdUpload = null,
   writeLimit = Infinity,
   loseWriteResponseKey = null,
 } = {}) {
+  const timers = new Map();
+  let timerId = 0;
   const states = [];
   const effects = [];
   const storage = new Map();
@@ -70,7 +73,9 @@ function guestHarness({
     "./guestStorage": {
       uploadGuestPhoto: async () => {
         assert.ok(allowPhotos, "Unexpected photo upload");
-        return `https://storage.test/photo-${++uploads}.jpg`;
+        uploads++;
+        if (holdUpload) await holdUpload;
+        return `https://storage.test/photo-${uploads}.jpg`;
       },
     },
     "./guestResources": {
@@ -118,16 +123,30 @@ function guestHarness({
   ).outputText;
   const context = vm.createContext({
     exports: {},
-    crypto: { randomUUID: () => `request-${++sequence}` },
+    setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; },
+    clearTimeout: (id) => timers.delete(id),
+    TextEncoder,
+    crypto: { subtle: require('node:crypto').webcrypto.subtle, randomUUID: () => `request-${++sequence}` },
     localStorage: {
+      get length() { return storage.size; },
+      key: (i) => [...storage.keys()][i] || null,
       getItem: (key) => storage.get(key) || null,
       setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
     },
     require: (name) => {
       assert.ok(name in mocks, `Unexpected dependency: ${name}`);
       return mocks[name];
     },
   });
+  for (const module of ["guestDeadline", "guestRetryState"]) {
+    const output = ts.transpileModule(fs.readFileSync(`src/web/${module}.ts`, "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const exports = {};
+    vm.runInContext(`(function(exports, require) {${output}\n})`, context)(exports, (name) => mocks[name]);
+    mocks[`./${module}`] = exports;
+  }
   vm.runInContext(code, context);
   let guestCode = "AB12";
   const render = (nextCode = guestCode) => {
@@ -141,7 +160,12 @@ function guestHarness({
     render,
     requests,
     writes,
+    async expire() {
+      for (const [id, timer] of [...timers]) { assert.ok(timer.ms <= 30000); timers.delete(id); timer.fn(); }
+      await new Promise((resolve) => setImmediate(resolve));
+    },
     get uploads() { return uploads; },
+    savedOperations() { return [...storage].filter(([key]) => key.startsWith("kaipa_guest_operations_v1:")); },
     advanceWindow() { window++; windowAttempts = 0; },
     remount() {
       states.forEach((state) => state?.cleanup?.());
@@ -289,7 +313,7 @@ test("changing share clears pending operations and stale completions cannot upda
   world.render("CD34");
   await new Promise((resolve) => setImmediate(resolve));
   release();
-  await writing;
+  await assert.rejects(writing, /发布页面已离开/);
   assert.equal(world.render().moments.length, 0);
   await world.render().addMoment(moment);
   assert.equal(world.writes.size, 2);
@@ -368,4 +392,78 @@ test("batch retries unknown committed item with its original key while skipping 
   await world.render().addMoment(photos[0], "new-operation:0");
   assert.equal(world.writes.size, 62);
   assert.equal(world.render().moments.length, 62);
+});
+
+
+test("hung guest_add releases pending within 30s, retries original key and ignores late completion", async () => {
+  let release;
+  const world = guestHarness({ holdWrite: new Promise((resolve) => { release = resolve; }) });
+  const guest = await world.open();
+  let outcome;
+  guest.addMoment(moment, "hung").then(() => { outcome = "resolved"; }, () => { outcome = "rejected"; });
+  await new Promise((resolve) => setImmediate(resolve));
+  await world.expire();
+  assert.equal(outcome, "rejected", "A request that never settles must end the UI wait");
+  let retryOutcome;
+  world.render().addMoment(moment, "hung").then(() => { retryOutcome = "resolved"; }, () => { retryOutcome = "rejected"; });
+  await new Promise((resolve) => setImmediate(resolve));
+  const keys = world.requests.filter(({ body }) => body.action === "guest_add").map(({ body }) => body.requestKey);
+  assert.deepEqual(keys, ["hung", "hung"], "Expired inFlight must not prevent a same-key retry");
+  world.render("CD34");
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(world.writes.size, 1);
+  assert.equal(world.render().moments.length, 0, "Late completions cannot modify the new page");
+});
+
+test("confirmed explicit results survive remount, while unknown operations retry the saved key", async () => {
+  const world = guestHarness({ loseWriteResponseKey: "unknown" });
+  const guest = await world.open();
+  await guest.addMoment(moment, "confirmed");
+  await assert.rejects(guest.addMoment(moment, "unknown"), /Response lost/);
+  world.remount();
+  const restored = await world.open();
+  const before = world.requests.filter(({ body }) => body.action === "guest_add").length;
+  await restored.addMoment(moment, "confirmed");
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add").length, before);
+  await world.render().addMoment(moment, "unknown");
+  assert.equal(world.writes.size, 2);
+  assert.equal(world.render().moments.length, 2);
+});
+
+
+test("hung upload releases pending and its late result cannot trigger guest_add", async () => {
+  let release;
+  const world = guestHarness({ allowPhotos: true, holdUpload: new Promise((resolve) => { release = resolve; }) });
+  await world.open();
+  const photo = { ...moment, uri: "blob:photo", is_text: false };
+  let outcome;
+  world.render().addMoment(photo, "photo").then(() => { outcome = "resolved"; }, () => { outcome = "rejected"; });
+  await world.expire();
+  assert.equal(outcome, "rejected");
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add").length, 0);
+  assert.equal(world.writes.size, 0);
+  await world.render().addMoment(photo, "photo");
+  assert.equal(world.writes.size, 1);
+  assert.equal(world.render().moments.length, 1);
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add")[0].body.requestKey, "photo");
+});
+
+
+test("durable photo progress stores a bounded digest and confirmed replay survives reload without HTTP", async () => {
+  const world = guestHarness({ allowPhotos: true });
+  const photo = { ...moment, uri: "data:image/png;base64," + "A".repeat(1024 * 1024), is_text: false };
+  await (await world.open()).addMoment(photo, "large-photo");
+  const records = world.savedOperations();
+  assert.equal(records.length, 1);
+  assert.ok(records[0][1].length < 4096, 'Photo payload must stay out of localStorage progress');
+  assert.equal(records[0][1].includes(photo.uri), false);
+  world.remount();
+  await (await world.open()).addMoment(photo, "large-photo");
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add").length, 1);
+  assert.equal(world.uploads, 1);
+  assert.equal(world.render().moments.length, 1);
 });

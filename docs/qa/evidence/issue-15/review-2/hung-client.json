@@ -1,0 +1,74 @@
+{
+  "kind": "browser-native-storage-controlled-http",
+  "requests": [
+    {
+      "key": "adef60de-bdf0-4044-91d5-6cd80d338a8a",
+      "id": "row-0",
+      "caption": "悬挂草稿",
+      "mode": "hang"
+    },
+    {
+      "key": "adef60de-bdf0-4044-91d5-6cd80d338a8a",
+      "id": "row-0",
+      "caption": "悬挂草稿",
+      "mode": "success"
+    },
+    {
+      "key": "338e9915-7b1a-4a5c-82ef-2897092856d9",
+      "id": "row-1",
+      "caption": "刷新恢复",
+      "mode": "hang"
+    },
+    {
+      "key": "338e9915-7b1a-4a5c-82ef-2897092856d9",
+      "id": "row-1",
+      "caption": "刷新恢复",
+      "mode": "success"
+    }
+  ],
+  "cases": [
+    {
+      "name": "hung-request-bounded",
+      "advancedClockMs": 30001,
+      "draftRetained": true,
+      "key": "adef60de-bdf0-4044-91d5-6cd80d338a8a",
+      "passed": true
+    },
+    {
+      "name": "same-key-retry-and-late-response",
+      "modelRows": 1,
+      "newSheetIntact": true,
+      "passed": true
+    },
+    {
+      "name": "departure-reload-resumes-original-key",
+      "key": "338e9915-7b1a-4a5c-82ef-2897092856d9",
+      "modelRows": 2,
+      "passed": true
+    },
+    {
+      "name": "native-indexeddb-photo-and-isolated-cleanup",
+      "key": "photo-key",
+      "caption": "照片草稿",
+      "photoReadableAfterReload": true,
+      "cleared": true,
+      "passed": true
+    }
+  ],
+  "pageErrors": [],
+  "sourceHashes": {
+    "guestDeadline.ts": "e92feb9abdbe8474ff64163f8137fde7d6060fbe035e791693e65ec9b28d1c1d",
+    "guestRetryState.ts": "8c1026ac2703218810bf876bcb35c4abe78baf4fc314765b3fda9a8badb017ce",
+    "useGuestData.ts": "ac444a2920e438e695e15448c54fe7f69c21ae78d0a7ca06879f5f648f0699cf",
+    "guestResources.ts": "29ff74ed5c33e99cbae9ea2d272b59b9bd2e5753018bb949be62eb1c31b1b4be",
+    "guestStorage.ts": "478447571a9e43771887c170af85f958aa301172a0eb920121a72d29c3a96458",
+    "GuestWall.tsx": "fcdcf290f7a81b63c509c7d0a64acbc62dab7792a32178f66cd0bed7cd08bdfa",
+    "GuestUploadSheet.tsx": "d0a40568ec3231ce4cf34a33ee5e5a968a652f3448af67922ce1c13c705b2dc3"
+  },
+  "bundleHashes": {
+    "index-2cf6a9136f8c45203a8de82f3677b762.js": "85c92179c57dd6b2679102a3bd967e694ecf364cf80a2956d1c10f27ecf33b51",
+    "index-b26b129b99dd7786e889e0930287f951.js": "65730f9f63ed32d4403574dcbed3b539b277a4c85537fd5bbc11e62bf6c1b45a"
+  },
+  "chromium": "141.0.7390.37",
+  "passed": true
+}

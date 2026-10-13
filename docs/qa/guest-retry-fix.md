@@ -1,6 +1,6 @@
 # Issue #15：访客发布重试
 
-本机修复验收通过：服务端已提交但浏览器丢响应，保留的原表单再次发布使用原 requestKey、返回原 ID；SQL 1 条，当前墙上 1 条，刷新仍 1 条。仅修改 `useGuestData.ts`、`GuestWall.tsx`、`GuestUploadSheet.tsx` 三个客户端模块及必要回归/本地辅助脚本/精简证据。没有服务端、协议、迁移、部署、共享配置、CI、发布或密钥改动。
+本机修复验收通过：服务端已提交但浏览器丢响应，保留的原表单再次发布使用原 requestKey、返回原 ID；SQL 1 条，当前墙上 1 条，刷新仍 1 条。当前产品范围为 `useGuestData.ts`、`GuestWall.tsx`、`GuestUploadSheet.tsx`、guestResources/guestStorage 及新增 guestDeadline/guestRetryState 客户端辅助模块，另含必要回归/本地辅助脚本/精简证据。历史验证结果按受测提交保留，第二轮当前策略见下表及文末。没有服务端、协议、迁移、部署、共享配置、CI、发布或密钥改动。
 
 依据 [#13](https://github.com/am6737/kaipa/pull/13) head `3ed19ba4ca5982a4c5e32287eed0dd74c419780b` 的报告与真实辅助脚本；取受测 `df412c4188bf02e94db641380d75194d00f1217a` archive 的原 `scripts/test-qa-guest-retry.cjs` 到本 PR 正确路径，没有合入 #13 全部证据。先运行未改产品的原回归得到 2 pass / 1 fail：模拟先提交 Map 再抛响应丢失，重试 key 为 request-1/request-2，期望 1、实际 2。见 [hook-before.txt](evidence/issue-15/hook-before.txt)。模型不是数据库证据。
 
@@ -15,13 +15,15 @@
 | 同操作并发调用 | hook 在 ref 中同步注册操作并共享 inFlight；表单 ref 额外防止 React 更新前的快速双击 |
 | 确定拒绝 / 结果未知 | 都保留 key 和草稿，解除提交中的状态并显示原错误；不从错误文本猜测提交结果。已有服务拒绝明确没有插入时，同 key 重试也安全 |
 | 已明确成功 | 墙更新后才关闭表单；下一次“添加”挂载新表单，首次提交生成新 key，即使内容相同 |
-| 取消失败草稿再添加 | 明确放弃该操作，空白新表单生成新 key；失败可能已提交，取消不删除服务端记录 |
-| 修改失败内容 | 表单提示取消后重新添加；同 key 不允许改写请求内容，hook 也校验指纹 |
-| 整页刷新 / hook 重新挂载 | 不持久化待发布内容/key；用既有访客 token 获取真实快照，已提交记录恢复；随后添加属于新操作 |
-| 更换分享 / 卸载 | 清空操作缓存；旧异步响应不能写入新分享的本地快照 |
+| 关闭失败草稿再添加 | 同一 session 恢复 IndexedDB 草稿和原 key；取消/背景关闭不再代表放弃 |
+| 明确放弃并新建 | 清理该批次草稿/进度后关闭；下一次添加生成新 key，已提交内容保留；清理中禁止再次发布 |
+| 修改失败内容 | 必须明确放弃并新建；同 key 不允许改写请求内容，hook 也校验指纹 |
+| 整页刷新 / hook 重新挂载 | 先取真实快照；同 session 读取已确认结果/上传 URI/指纹，添加时恢复已尝试发布的草稿和原 key，只重试未确认项；成功清理后添加才是新操作 |
+| 更换分享 / 卸载 | 清空内存操作并隔离旧响应；持久草稿仍按原 session 保存，不迁移至新 session；返回原有效 session 可恢复 |
+| 请求一直不返回 | 单项上传+写入链 30 秒后拒绝并释放 pending；迟到响应不能更新结果/快照或继续发下一阶段请求，原草稿/key 保留 |
 | 照片批量部分成功 | 每项为同一批次 UUID 加索引；已确认项缓存结果并跳过 HTTP/上传，未确认项沿用原 key 和已上传 URI 恢复（第一轮审查补修） |
 
-UI 显式 key 的结果/URI/指纹缓存保留到 hook 卸载或更换分享；批次恢复时已确认项直接返回，仅请求未确认项。旧 key 不再由已关闭表单使用。为兼容原 hook 调用，未传显式 key 时，完整输入指纹匹配未确认操作；成功后移除该隐式操作，下次同内容调用生成新 key。这个参数仅改变客户端调用方式，HTTP 仍发送原协议的 `requestKey` / `moment`，未添加服务端字段。
+UI 显式 key 的结果/URI/指纹按 session 逐项保存在 localStorage，批次全部确认或明确放弃后清理；批次恢复时已确认项直接返回，仅请求未确认项。关闭未知表单后恢复仍使用旧 key；已确认完成或明确放弃后新表单使用新 key。为兼容原 hook 调用，未传显式 key 时，完整输入指纹匹配未确认操作；成功后移除该隐式操作，下次同内容调用生成新 key。这个参数仅改变客户端调用方式，HTTP 仍发送原协议的 `requestKey` / `moment`，未添加服务端字段。
 
 ## 本地真实路径与结果
 
@@ -64,7 +66,7 @@ fixture 账号 `c9ab252f-39d3-4890-ab0c-222d3d7dbd96`，旅程 `qa-issue15-ab9dd
 
 重跑：在本 PR 根目录使用同锁文件依赖，按上面的公开进程参数新导出当前源代码，然后运行辅助脚本。脚本默认读取本 checkout 的 HEAD 并核对 src/web 文件哈希，不能指向另一个版本的旧包；`KAIPA_QA_TESTED_ROOT`、`KAIPA_QA_WEB_DIR`、`KAIPA_QA_APP_ENV`、`KAIPA_QA_PLAYWRIGHT_MODULE`、`KAIPA_QA_CHROMIUM`、`KAIPA_QA_EVIDENCE_DIR` 可指定独立路径。网关固定为本地 8010，不支持线上目标。该辅助脚本适用于客户端修复后保留原表单的行为；原产品复现和真实两条证据仍由 #13 保留，没有改原测试阈值来掩盖失败。
 
-仅验证本机构建和本地 Supabase。真机、实际媒体上传/对象清理、移动 Safari、线上构建/API/数据库和线上部署均未验证，不声称线上已修复；照片 URI 复用与批量失败恢复仅有受控模型/组件回归。整页重新加载的待发布草稿不做持久化；结果未知时取消并明确新建仍可能保留前一次已提交记录，这是两次独立操作，不是重试。#11 权限问题仍独立 OPEN，未在此任务修复。
+仅验证本机构建和本地 Supabase。真机、实际媒体上传/对象清理、移动 Safari、线上构建/API/数据库和线上部署均未验证，不声称线上已修复；照片 URI 复用与批量失败恢复仅有受控模型/组件回归。当前第二轮修复将已尝试发布的草稿持久化；结果未知时明确放弃并新建仍可能保留前一次已提交记录，这是两次独立操作。#11 权限问题仍独立 OPEN，未在此任务修复。
 
 
 ## 交付范围复核与证据精简
@@ -106,3 +108,31 @@ Reviewer 指出的缺陷成立：上一版仅保留 URI/key，已确认项仍会
 | git diff --check && git diff --cached --check | exit 0 |
 
 根目录仍无 test/lint script，沿用已有 node:test、TypeScript 和必要 Web 导出。此轮 61 条和 62 条是执行真实 hook 的受控服务模型结果，不是实际 PostgreSQL 或媒体上传证据；没有重跑浏览器/数据库写入、没有新增共享 fixture，旧真实文字路径证据仍明确属于原受测提交。实际媒体、真机、移动 Safari、线上仍未验证。原 draft PR 更新并回复本阻断，不请求 GitHub review、不合并。
+
+
+## 第二轮审查唯一阻断：悬挂等待与离开恢复
+
+首轮实现的关闭保护会被永不返回的 SDK 请求困住，而且刷新会丢失未确认操作的 key。此次只修该阻断，新增两个客户端辅助模块并连接原 hook/UI/resources/storage；没有服务端、协议、迁移、部署、CI 或共享运行配置变更。
+
+`guestDeadline` 将 guestRequest（包含错误体解析）、单项上传+guest_add 链和 IndexedDB 操作的等待分别限制为 **30,000 ms**。到时拒绝，finally 释放 pending 和表单提交状态，可关闭或沿原 key 重试。SDK 网络可能继续运行，本方案不承诺取消已到达服务器的写入；超时仅表示结果未知。deadline 与 hook 世代 guard 在源照片读取、票据、签名上传和 guest_add 返回后检查，迟到结果不会发下一阶段请求、修改结果缓存/墙快照或关闭新表单。IndexedDB 超时则 abort 已开始的事务，迟到 open 不再开始事务。
+
+草稿先保存、后发写入；保存失败不发请求。首次发布前只在内存编辑，首次发布将文字/日期/照片内容和批次 UUID 存 IndexedDB。选出的 blob URL 转为 data URL，避免刷新后失效；localStorage 仅存每项进度及照片 SHA-256 指纹，不重复保存媒体。每个 session/批次独立，清理只删自己的 key，已确认结果不重发。关闭、页面离开或刷新均保留已尝试操作；恢复必须是同一有效 guest session。全部成功后先清理再关闭；清理失败仍可恢复确认缓存。明确“放弃此草稿并新建”才清理旧操作，清理中锁住再次发布。
+
+这些上限不是整个批次的 30 秒总上限：保存草稿最多 30 秒，照片指纹计算另最多 30 秒，每项上传+写入最多 30 秒，完成后的清理另最多 30 秒；批量按顺序执行。某个网络阶段悬挂后至多 30 秒结束该项等待并停下批次。存储读取失败可关闭重开，不猜测丢弃未知草稿。浏览器清空存储、隐私模式数据丢失或服务器替换/过期 session 后无法自动恢复原操作，不把 key 迁入新去重域；未尝试发布的编辑草稿不持久化。多页独立草稿不会互相覆盖，恢复选择该 session 首个未清理草稿。
+
+先在未改产品上运行新增回归，原 17 项通过、悬挂/重新挂载两项失败，见 [regression-before.txt](evidence/issue-15/review-2/regression-before.txt)。最终保留全部原 17 项，增加悬挂 guest_add、源读取/票据/上传/错误体、迟到结果、同 key 恢复、确认结果跨 remount、存储失败禁止写入、照片指纹、IndexedDB 超时 abort 等回归；原换分享测试保留计数/快照断言并增强为旧操作必须拒绝。显式放弃测试同时检查清理中捕获的发布回调也无法写入。
+
+本轮真实 Chromium 使用新导出的客户端和原生 IndexedDB，HTTP 由 Playwright 控制，**没有访问真实 Supabase/PostgreSQL，也没有实际媒体上传**。浏览器时钟推进 30,001 ms，验证悬挂结束后保留草稿、同 key 重试恢复 UI、迟到首响应不改新表单、仍 pending 时离开再打开沿原 key 恢复；另验证 blob 内容经 IndexedDB 刷新后可读及独立 key 清理。4 场景通过、pageErrors 空；逐请求 key/模型 ID 与源码/包哈希见 [hung-client.json](evidence/issue-15/review-2/hung-client.json)。模型行数与早期真实 SQL 证据分开报告；未新增共享 fixture，浏览器和临时服务器均关闭。
+
+本检出实际使用临时 node_modules 链接至主工作区已安装的同锁文件依赖；Node 24.18.0、TypeScript 6.0.3、Expo 56.0.21，yarn.lock SHA-256 与第一轮一致，没有安装/修改依赖。根目录没有 lint/test scripts 或 CI workflows，因此使用下列实际检查，交付前移除链接。
+
+| 本轮最终检查 | 结果 |
+| --- | --- |
+| `node --test scripts/test-qa-guest-retry.cjs scripts/test-guest-publish.cjs scripts/test-guest-deadline.cjs` | 29 pass / 0 fail，原 17 项全部保留；[regression-after.txt](evidence/issue-15/review-2/regression-after.txt) |
+| `npx --no-install tsc --noEmit` | exit 2，37 条既有错误；[tsc.txt](evidence/issue-15/review-2/tsc.txt) |
+| `cmp /tmp/issue15-tsc-baseline.txt docs/qa/evidence/issue-15/review-2/tsc.txt` | exit 0，与 #13 指定基线逐字节一致，无新增，不称类型检查全绿 |
+| `node /tmp/issue15-review2-export.cjs` | Web export exit 0；进程内本地公开 API URL，不改 env；[web-export.txt](evidence/issue-15/review-2/web-export.txt) |
+| `node scripts/qa/issue15-hung-client.cjs` | 4/4 场景，通过，受控 HTTP/原生浏览器存储 |
+| 受影响回归/浏览器脚本 `node --check`、`git diff --check` | 通过 |
+
+第 2 轮阻断的本地客户端验收无尚未解决项。当前验证边界仍为本机构建、受控悬挂与持久化和历史提交的本地 Supabase 文字证据；本轮未重跑真实 SQL 写入，真机、实际媒体、移动 Safari、线上部署未验证，不声称线上已修复。PR 保持 draft，不请求 review、不合并。

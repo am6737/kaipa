@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { guestRequest } from './guestResources';
 import { uploadGuestPhoto } from './guestStorage';
+import { withGuestDeadline } from './guestDeadline';
+import { readGuestOperations, saveGuestOperation } from './guestRetryState';
 
 export interface GuestMoment {
   id: string;
@@ -96,6 +98,7 @@ export function useGuestData(code: string) {
         } catch { /* memory-only session */ }
         const next = await guestRequest<GuestSnapshot>({ action: 'guest_snapshot' }, session.token);
         if (!cancelled) {
+          pending.current = readGuestOperations<PendingMoment>(next.sessionId);
           setToken(session.token);
           setSnapshot(next);
         }
@@ -116,8 +119,14 @@ export function useGuestData(code: string) {
     // UI supplies one key per submission/item. The implicit path also retains a
     // failed operation for callers retrying the same input without an explicit key.
     const input = { ...m };
+    // Photo contents live in IndexedDB. Keep only their digest in the small
+    // localStorage progress record, rather than copying the entire data URL.
+    const uriIdentity = m.uri.startsWith('data:') ? await withGuestDeadline(async () => {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(m.uri));
+      return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    }) : m.uri;
     const fingerprint = JSON.stringify([
-      m.guest_name, m.guest_ini, m.guest_tone, m.uri, m.caption, m.day, m.is_text,
+      m.guest_name, m.guest_ini, m.guest_tone, uriIdentity, m.caption, m.day, m.is_text,
     ]);
     const slot = requestKey ? `key:${requestKey}` : `input:${fingerprint}`;
     let operation = entries.get(slot);
@@ -131,25 +140,41 @@ export function useGuestData(code: string) {
     if (operation.result) return;
     if (operation.inFlight) return operation.inFlight;
     const current = operation;
-    current.inFlight = (async () => {
+    current.inFlight = withGuestDeadline(async deadlineGuard => {
+      const guard = () => {
+        deadlineGuard();
+        if (pending.current !== entries) throw new Error('发布页面已离开，请恢复原草稿');
+      };
+      const persist = () => {
+        guard();
+        if (requestKey) saveGuestOperation(snapshot.sessionId, slot, {
+          requestKey: current.requestKey, fingerprint: current.fingerprint, uri: current.uri, result: current.result,
+        });
+      };
+      persist();
       // Keep a completed upload through a lost guest_add response as well.
       if (current.uri === undefined) {
-        current.uri = !input.is_text && input.uri
-          ? await uploadGuestPhoto(input.uri, snapshot.share.id, token) : '';
+        const uri = !input.is_text && input.uri
+          ? await uploadGuestPhoto(input.uri, snapshot.share.id, token, guard) : '';
+        guard();
+        current.uri = uri;
+        persist();
       }
       const data = await guestRequest<GuestMoment>({
         action: 'guest_add', requestKey: current.requestKey, moment: { ...input, uri: current.uri },
       }, token);
+      guard();
       current.result = data;
       if (pending.current === entries) {
         setSnapshot(prev => prev ? {
           ...prev, moments: [data, ...prev.moments.filter(row => row.id !== data.id)],
         } : prev);
       }
+      persist();
       // Retain confirmed explicit results so batch recovery skips them locally.
       // Implicit success retires the key so a new identical operation can post.
       if (!requestKey) entries.delete(slot);
-    })();
+    });
     try {
       await current.inFlight;
     } finally {

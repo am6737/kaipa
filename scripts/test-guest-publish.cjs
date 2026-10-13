@@ -9,6 +9,7 @@ const ts = require('typescript');
 function componentHarness(file, name, overrides = {}) {
   const state = [];
   let cursor = 0, sequence = 0;
+  const effects = [];
   const react = {
     useState(initial) {
       const i = cursor++;
@@ -19,6 +20,13 @@ function componentHarness(file, name, overrides = {}) {
       const i = cursor++;
       if (!(i in state)) state[i] = { current: initial };
       return state[i];
+    },
+    useEffect(effect, deps) {
+      const i = cursor++;
+      const previous = state[i];
+      if (!previous || deps.some((v, j) => v !== previous.deps[j])) effects.push(() => {
+        previous?.cleanup?.(); state[i] = { deps, cleanup: effect() };
+      });
     },
     useCallback: (f) => f,
     useMemo: (f) => f(),
@@ -39,6 +47,7 @@ function componentHarness(file, name, overrides = {}) {
     '../components/Avatar': { Avatar: 'Avatar' },
     '../components/Press': { Press: 'Press' },
     '../i18n': { useI18n: () => ({ t: (key) => key }) },
+    './guestRetryState': { loadGuestDraft: async () => null, saveGuestDraft: async () => {}, clearGuestDraft: async () => {}, durablePhotoUri: async (uri) => uri },
     '../design-system': { space: { sm: 12 }, type: { hint: {} } },
     '../data/tones': { paletteFor: () => ['color'] },
     './GuestLightbox': { GuestLightbox: 'GuestLightbox' },
@@ -54,8 +63,8 @@ function componentHarness(file, name, overrides = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true },
   }).outputText, context);
   return {
-    render(props) { cursor = 0; return context.exports[name](props); },
-    remount() { state.length = 0; },
+    render(props) { cursor = 0; const tree = context.exports[name](props); effects.splice(0).forEach((f) => f()); return tree; },
+    remount() { state.forEach((v) => v?.cleanup?.()); state.length = 0; },
   };
 }
 function nodes(tree) {
@@ -141,4 +150,74 @@ test('canceling an unknown failed operation then reopening produces a new key fo
   await button(render(), 'guest.wall.post').props.onPress();
   assert.equal(keys.length, 2);
   assert.notEqual(keys[0], keys[1]);
+});
+
+
+test('scoped unknown draft is saved before writing, survives departure and restores its key; explicit new clears it', async () => {
+  let saved = null, release;
+  let clearRelease;
+  const keys = [];
+  const repo = {
+    loadGuestDraft: async () => saved,
+    saveGuestDraft: async (scope, draft) => { saved = JSON.parse(JSON.stringify(draft)); },
+    clearGuestDraft: async (scope, key) => {
+      await new Promise(resolve => { clearRelease = resolve; });
+      if (saved?.key === key) saved = null;
+    },
+    durablePhotoUri: async (uri) => uri,
+  };
+  const world = componentHarness('src/web/GuestUploadSheet.tsx', 'GuestUploadSheet', { './guestRetryState': repo });
+  let closed = 0;
+  const props = { theme, days: 1, draftScope: 'session', onClose: () => { closed++; }, onPost: async () => {},
+    onPostText: async (caption, day, key) => {
+      assert.equal(saved.key, key, 'Durable draft must precede any network write');
+      keys.push(key);
+      await new Promise((resolve, reject) => { release = () => reject(new Error('等待超过30秒')); });
+    } };
+  const render = () => world.render(props);
+  render(); await new Promise((resolve) => setImmediate(resolve));
+  byType(render(), 'TextInput').props.onChangeText('可恢复草稿');
+  const first = button(render(), 'guest.wall.post').props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  release(); await first;
+  const originalKey = saved.key;
+  button(render(), 'guest.wall.cancel').props.onPress();
+  assert.equal(closed, 1);
+  assert.equal(saved.key, originalKey, 'Closing must preserve unknown key');
+  world.remount();
+  render(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(byType(render(), 'TextInput').props.value, '可恢复草稿');
+  assert.equal(byType(render(), 'TextInput').props.editable, false);
+  const retry = button(render(), 'guest.wall.post').props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(keys, [originalKey, originalKey]);
+  release(); await retry;
+  const stalePublish = button(render(), 'guest.wall.post').props.onPress;
+  const discard = button(render(), '放弃此草稿并新建（已提交内容会保留）').props.onPress();
+  await stalePublish();
+  assert.equal(keys.length, 2, 'Discarding must block even captured publish callbacks');
+  button(render(), 'guest.wall.cancel').props.onPress?.();
+  assert.equal(closed, 1);
+  clearRelease(); await discard;
+  assert.equal(saved, null);
+  world.remount(); render(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(byType(render(), 'TextInput').props.value, '');
+});
+
+
+test('failed durable draft save prevents any write and preserves the retry key in the sheet', async () => {
+  let writable = false, calls = 0, key;
+  const repo = { loadGuestDraft: async () => null, clearGuestDraft: async () => {}, durablePhotoUri: async (uri) => uri,
+    saveGuestDraft: async (scope, draft) => { if (key) assert.equal(draft.key, key); key = draft.key; if (!writable) throw new Error('存储不可用'); } };
+  const world = componentHarness('src/web/GuestUploadSheet.tsx', 'GuestUploadSheet', { './guestRetryState': repo });
+  const props = { theme, days: 1, draftScope: 'session', onClose: () => {}, onPost: async () => {}, onPostText: async () => { calls++; } };
+  const render = () => world.render(props);
+  render(); await new Promise((resolve) => setImmediate(resolve));
+  byType(render(), 'TextInput').props.onChangeText('saved-first');
+  await button(render(), 'guest.wall.post').props.onPress();
+  assert.equal(calls, 0);
+  assert.equal(byType(render(), 'TextInput').props.value, 'saved-first');
+  writable = true;
+  await button(render(), 'guest.wall.post').props.onPress();
+  assert.equal(calls, 1);
 });

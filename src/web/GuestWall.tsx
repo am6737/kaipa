@@ -15,6 +15,7 @@ import { GuestUploadSheet } from './GuestUploadSheet';
 import { GuestSaveSheet, type SavablePhoto } from './GuestSaveSheet';
 import type { GuestMoment, JourneyData, CompanionData, HostData, InspoMedia } from './useGuestData';
 import type { GuestIdentity } from './IdentitySheet';
+import { clearGuestDraft } from './guestRetryState';
 
 interface Props {
   theme: Theme;
@@ -173,9 +174,10 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         is_text: false,
       }, `${requestKey}:${i}`);
     }
+    await clearGuestDraft(sessionId, requestKey);
     onToast(t('guest.wall.photoAdded', { count: String(photos.length) }));
     setUploadOpen(false);
-  }, [identity, onAddMoment, onToast, t]);
+  }, [identity, onAddMoment, onToast, t, sessionId]);
 
   const handleAddText = useCallback(async (caption: string, day: number, requestKey: string) => {
     await onAddMoment({
@@ -187,9 +189,10 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
       day,
       is_text: true,
     }, requestKey);
+    await clearGuestDraft(sessionId, requestKey);
     onToast(t('guest.wall.photoAdded', { count: '1' }));
     setUploadOpen(false);
-  }, [identity, onAddMoment, onToast, t]);
+  }, [identity, onAddMoment, onToast, t, sessionId]);
 
   const handleDelete = useCallback(async (m: GuestMoment) => {
     setLightbox(null);
@@ -356,6 +359,7 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         <GuestUploadSheet
           theme={theme}
           days={days}
+          draftScope={sessionId}
           onPost={handleAddPhotos}
           onPostText={handleAddText}
           onClose={() => setUploadOpen(false)}

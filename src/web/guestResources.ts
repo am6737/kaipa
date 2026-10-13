@@ -1,5 +1,7 @@
 import { guestSupabase } from './supabaseGuest';
+import { withGuestDeadline } from './guestDeadline';
 export async function guestRequest<T>(body: Record<string,unknown>, token?: string): Promise<T> {
+  return withGuestDeadline(async () => {
   const {data,error} = await guestSupabase.functions.invoke('resources',{body,headers:token?{'x-guest-session':token}:{}});
   if (error) {
     let message = '操作失败，请稍后重试';
@@ -8,4 +10,5 @@ export async function guestRequest<T>(body: Record<string,unknown>, token?: stri
   }
   if (data?.error) throw new Error(data.error.message);
   return data as T;
+  });
 }
