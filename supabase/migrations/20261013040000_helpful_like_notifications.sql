@@ -166,8 +166,9 @@ BEGIN
      SET helpful_count = helpful_count + 1
    WHERE id = p_id;
 
+  -- target_id 传攻略 id：App 端按 guide_like 路由到攻略详情页，而非路线卡片
   PERFORM public.notify_helpful(
-    guide_author, auth.uid(), 'guide_like', '觉得你的路书有用', guide_title, guide_route
+    guide_author, auth.uid(), 'guide_like', '觉得你的路书有用', guide_title, p_id
   );
 
   RETURN true;

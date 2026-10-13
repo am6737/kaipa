@@ -6,6 +6,7 @@ import { useNav } from '../nav/NavContext';
 import { useData } from '../data/DataContext';
 import { supabase } from '../lib/supabase';
 import { openNotificationTargetById } from '../lib/notificationRouting';
+import type { NotifKind } from '../data/notifications';
 import { getDooPush } from '../lib/doopushNative';
 import {
   formatDooPushError,
@@ -198,6 +199,7 @@ export function PushNavigator() {
         nav,
         journeys: data.journeys,
         routes: data.routes,
+        kind: payload.scene as NotifKind | undefined,
       });
       if (!ok && payload.target_id) nav.showToast(t('account.inbox.toastTargetUnavailable'));
     };

@@ -1841,6 +1841,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
       nav,
       journeys: data.journeys,
       routes: data.routes,
+      kind: item.kind,
     }).then((ok) => {
       if (!ok) showToast(t("account.inbox.toastTargetUnavailable"));
     });
