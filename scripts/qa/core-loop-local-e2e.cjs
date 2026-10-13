@@ -286,16 +286,21 @@ async function guest(body, token) {
             console.log(
               "unsigned presence subscription=" + status + " track=" + tracked,
             );
+            if (tracked !== "ok") {
+              throw new Error(
+                "UNVERIFIED: presence track=" + tracked +
+                "; no explicit authorization denial was observed",
+              );
+            }
             assert.notEqual(
               tracked,
               "ok",
               "Unsigned non-member can forge the owner position on the public journey channel",
             );
           } else {
-            assert.notEqual(
-              status,
-              "TIMEOUT",
-              "Presence server timeout is not proof of permission denial",
+            throw new Error(
+              "UNVERIFIED: presence subscription=" + status +
+              "; a connection error or timeout is not proof of permission denial",
             );
           }
         } finally {
@@ -484,7 +489,8 @@ async function guest(body, token) {
       await result("real Web guest cover renders owned fixture", async () => {
         const context = await browser.newContext({ locale: "zh-CN" });
         const page = await context.newPage();
-        page.on("pageerror", (e) => console.log("browser error=" + e.message));
+        const errors = [];
+        page.on("pageerror", (e) => errors.push(e.message));
         page.on("response", (r) => {
           if (r.url().includes("/functions/v1/"))
             console.log("browser functions status=" + r.status());
@@ -519,6 +525,7 @@ async function guest(body, token) {
         await page.getByText("进入旅程", { exact: true }).click();
         await page.getByText("QA browser text", { exact: true }).waitFor();
         console.log("guest wall text persisted after reload");
+        assert.deepEqual(errors, [], "Guest page must not have uncaught errors");
         await page.screenshot({ path: evidenceDir + "/guest-wall.png" });
         await context.close();
       });

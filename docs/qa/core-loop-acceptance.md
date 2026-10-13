@@ -13,6 +13,21 @@
 - 数据库既有测试均在事务内运行；辅助脚本先插入两个隔离 fixture 账号，使原测试读取的前两个 profile 也是测试账号，原断言保持不变。fixture ID 已占用时拒绝执行。9 组全部显式回滚；失败的过期回归随 psql 退出自动回滚。
 - 本地集成每次创建两个确认邮箱的测试账号，模拟已完成入门的回访用户，只操作这些账号的旅程、装备和分享；finally 删除账号。最终确认 `remaining_qa_auth=0`、`remaining_qa_journeys=0`。未使用真实用户数据做写入。
 
+## 失败归因复核（2026-10-13，续验）
+
+续验起点为已推送且工作区干净的 `f0acd740781a9cd517ea12bd2ecda1c15ea3ded7`。使用 `git archive 3a6648afb5bbbce9ded361aa84099d89bfb5089f` 在 `/tmp/kaipa-qa-followup/baseline` 提取未改动产品基线，基线与 PR 使用同一借用依赖；不改产品、依赖补丁、CI、阈值或已有断言。这里的“新增回归”指新增验收测试暴露产品原有缺陷，**不是 QA PR 引入的产品退化**。
+
+| 失败检查 | 归因及对照证据 | 最终状态与边界 |
+| --- | --- | --- |
+| 根目录 `npx --no-install tsc --noEmit` | 未改动基线与 PR 均 exit 2、37 条错误；两份输出逐字相同，SHA-256 见 [续验证据](evidence/followup-checks.txt)，完整 [基线输出](evidence/baseline-tsc.txt) | **基线既有验证失败**，不能给应用类型绿灯 |
+| 应用所选套件 | 基线 134 项、113 通过/21 失败；PR 137 项、115 通过/22 失败，均 0 skipped/todo。[基线完整输出](evidence/baseline-app-tests.txt)；21 个既有失败的名称及完整诊断在仅归一化路径和耗时后完全相同 | 17 个既有 mock 加载阻断、1 个借用依赖缺 native patch、3 个既有 presence 时序断言不符；新增 guest 测试 2 通过/1 产品失败。环境/加载受限功能均**未验证** |
+| 过期口令 SQL 回归 | 既有输出明确 exit 3，错误来自设置成功、到期新会话拒绝后的旧 token 读取断言；本次只读取部署 `pg_get_functiondef`，函数体与产品基线唯一 `resource_guest_snapshot` 定义逐字一致，缺分享有效期条件 | **有效产品失败回归 Q-P1-01**；证据准确，未重复执行未改动 SQL。只证实读取，不声称过期写入已验证 |
+| Web 检查 | 既有截图/body/异常支持畸形 URL 空白和 503 误报失效；原脚本只检查空白/异常，未断言错误恢复语义。本次补语义断言后重跑：9 个断言中 6 通过/3 失败（503 1 个、畸形 URL 2 个） | **产品失败 Q-P2-01/02**；脚本自身缺断言已补。渲染成功不等于错误提示验收通过 |
+| local-e2e | 原输出已有 `SUBSCRIBED`、`track=ok` 权限失败；原脚本的连接错误分支可能误报权限通过、guest 浏览器异常只记录。本次改为非明确权限拒绝均标 `UNVERIFIED`，并断言 guest 无异常，重跑仍仅位置权限步骤失败 | **有效产品失败 Q-P1-02**；没有把连接失败当成安全拒绝。正常路径仅在已列范围通过 |
+| guest 重试回归 | 补前提断言：第一次请求抛“响应丢失”时已有 1 条服务端记录；第二次调用真实 hook 后 request keys 为 `request-1`、`request-2`，serverRows=2、visibleRows=1；全文件 2 通过/1 失败 | **有效产品失败 Q-P1-03**；mock 模拟已由真实服务同 requestKey 去重证据支持。浏览器代理丢响应/实际数据库产生两条未验证 |
+
+新增验收辅助代码的问题仅是上述断言覆盖/误报风险，已只修测试和辅助代码并重跑受影响检查；没有发现应把三项关键产品失败改判为 mock 失败的证据。17 个旧 mock 缺口及 native patch 环境问题在原样基线也存在，本次保留其失败，不把它们当产品新增缺陷或通过。完整续验命令、诊断和清理结果见 [followup-checks.txt](evidence/followup-checks.txt)。已有 Edge 4 个入口类型检查、27 项服务端测试、9 组 SQL、Web 导出仍引用初次输出；未因文档更新重复运行，也不列为本次新检查。
+
 ## 逐项结论
 
 “通过”仅指该行所列断言。服务层、hook 写入和浏览器刷新不能替代原生 UI、真机重启或进程恢复验收。
@@ -36,6 +51,7 @@
 - 复现：创建隔离主人旅程并生成有效分享；先 `open_resource_guest_session` 获取访客会话并成功读取；将**该 fixture 的**分享 `expires_at` 设为 `'-infinity'`；新开会话已返回 `busy`，再次用原 token 调用 `resource_guest_snapshot`。
 - 期望：过期分享立即拒绝已有会话的读取与写入；实际：原会话仍读到快照。`supabase/tests/qa-guest-share-expiry.sql` 在现有部署函数上失败：`QA defect: existing guest session still reads an expired journey share`，exit 3。
 - 影响：7 天有效期无法限制已建立会话的访问；访客会话本身可持续 90 天。`resources` 在访客操作前调用同一快照函数，因此写入边界也需跟随修复复核；本次直接证实的是读取，没有声称实际执行过过期写入。
+- 严重程度 **P1（高，访问边界缺陷）**：持有旧 token 的访客在口令到期后仍可读取旅程/同伴/墙快照，不能依赖 7 天口令有效期撤销访问；仅操作 fixture，没有证据声称生产数据已经泄露。
 - 模块：`resource_guest_snapshot`（定义于 `supabase/migrations/20261008140000_resource_uploads.sql`）、`supabase/functions/resources/index.ts`；口令入口的有效期检查在后续 passphrase/invite migration 中。
 - 给 builder：在服务端统一验证分享 active、有效期、旅程未删除、邀请开关；同时补齐过期读取、文字写入、上传/删除的回归。此 PR 仅提供失败回归，不改迁移或函数。
 
@@ -44,15 +60,17 @@
 - 复现：仅用公开 anon key、无用户 session 创建 Supabase 客户端；以隔离旅程 ID 订阅 `journey-presence:<journeyId>`；调用 `track({userId: fixtureOwnerId, longitude:110, latitude:25, fixedAt:Date.now()})`。
 - 期望：非成员不能加入或发布，不能冒用其他伙伴；实际：`SUBSCRIBED`，`track=ok`。本地集成的权限断言失败，其余核心步骤继续运行，账号最后清理。
 - 影响：知道旅程 ID 的外部客户端可以向成员频道发布冒名位置；代码也使用公共频道读取 presence。没有真机证据证明伪造 pin 已显示，成员真实位置的被动监听未单独实测，不能把它们标为已经验证。
+- 严重程度 **P1（高，身份与位置可信度缺陷）**：不需要登录、成员资格或受害者 token 即获订阅/发布 ACK；旅程 ID 是复现前提。服务端接受冒名位置已证实，真实成员接收、pin 展示和被动位置泄露仍未验证。
 - 模块：`src/lib/companionPresenceBus.ts` 的公共 channel；`src/hooks/useCompanionPresence.ts`；其文件头明确记录 membership 绑定尚未实施。
 - 给 builder：使用由服务端成员身份授权的频道并约束发布者身份，补非成员、移出成员、退出登录与身份冒用测试；不只依靠旅程 ID 难猜。不得通过改断言或跳过用例掩盖边界缺失。
 
 ### Q-P1-03：访客发布响应丢失后重复提交会新增两条文字（产品缺陷）
 
-- 复现：有效访客进入墙，填写一条文字；代理让 `guest_add` 在服务端成功提交后丢弃响应；用户收到失败，再次打开添加并提交同一文字。确定性回归直接执行真实 `useGuestData`，模拟相同的提交成功/响应丢失，再调用一次发布。
+- 已执行复现：确定性回归直接执行真实 `useGuestData`，打开有效 fixture session，第一次 `guest_add` 先记录写入再抛响应丢失错误；保留同一文字输入，重新 render 后再调用发布。未执行的浏览器补验：在有效访客墙通过代理让服务端提交成功后丢弃响应，再次提交同一文字；这不能写成已完成浏览器复现。
 - 期望：同一次用户提交的恢复复用 request key，只保留一条；实际：每次 `addMoment` 都生成 `crypto.randomUUID()`，服务端认为是不同请求。回归 `2 !== 1`，2 项正常/断网打开断言通过、该去重断言失败。
 - 证据：`scripts/test-qa-guest-retry.cjs`；现有代码 `src/web/useGuestData.ts`；本地真实服务另外证实**相同** requestKey 的重放能去重，因此不是服务端唯一约束失效。
 - 影响：断网或响应不确定时用户以为失败却已有记录，重复输入后造成内容重复；照片可能还有重复上传影响，本次未实测。
+- 严重程度 **P1（高，核心重试一致性缺陷）**：一次失败后的恢复新增记录，不是仅多发一次请求。受控服务模型两条记录而客户端只显示第二条，刷新后重复内容风险明确；真实服务已验证稳定 key 可以去重，实际浏览器丢响应后数据库重复写入仍待补验。与前两项的权限风险不同，本项没有越权/泄露证据。
 - 给 builder：为一个待发布操作保留稳定标识和草稿，提交结果不确定时可查询/恢复；明确重试与新的发布操作。补浏览器代理丢响应回归；本次丢响应失败证据来自无网络 hook 回归，未宣称浏览器也完成了丢响应模拟。
 
 ### Q-P2-01：畸形编码分享 URL 导致空白页（产品缺陷）
@@ -71,14 +89,14 @@
 
 ### Q-V-P1-01：根目录类型检查失败（仓库验证阻断）
 
-- 复现：依照 AGENTS 执行 `npx tsc --noEmit`；实际 exit 2，37 条错误。
+- 复现：依照 AGENTS 执行 `npx tsc --noEmit`；初次实际 exit 2，37 条错误。续验以 `--no-install` 保证只用现有依赖，基线和 PR 都复现同样 exit 2、37 条错误且输出逐字相同。
 - 主要错误：`scripts/collect-route-sources.ts` / `_test.ts` 的 `.ts` 导入、`Deno`、`ImportMeta.main`；其引入的 `supabase/functions/app-agent/search/guide-reader.ts` / `registry.ts` 进入 Expo 编译图，出现 `npm:zod` 等类型错误。根目录 exclude 不阻止通过 import 进入的服务端文件。
 - 期望：约定的应用检查可成功区分 Deno 与 Expo；影响：无法提供应用类型绿灯，不等同于已证明某个用户页面运行失败。
 - 给 builder：梳理编译边界与跨运行时导入，再在各包完成真实检查；本 PR 不改 tsconfig、CI 或阈值。相关 4 个 Edge 入口的独立 `deno check` 已通过，不能拿它替代本失败。
 
 ### Q-V-P2-01：现有客户端套件 21 个基线失败，另新增 1 个真实缺陷回归失败（验证阻断/环境限制）
 
-- 完整所选流程套件共 137 个测试：115 通过、22 失败、0 skipped、0 todo。没有删、跳过或修改原断言。
+- 完整所选流程套件最终重跑共 137 个测试：115 通过、22 失败、0 skipped、0 todo。未改动产品基线对应既有套件为 134 项、113 通过/21 失败；21 个失败的完整诊断一致。没有删、跳过或修改原断言。
 - 17 个属于测试辅助加载缺口：`test-journey-map-framing.cjs` 6 项、`test-map-marker-rebuild.cjs` 10 项缺 `../../i18n` mock；`test-timeline-reorder.cjs` 1 项缺 `../data/timeline` mock。实际产品操作未执行到这些断言，不能认定对应功能已坏或已好。
 - 1 个环境失败：`test-map-poi-selection.cjs` 读取借用依赖中的 `AIRMapManager.m`，缺仓库 patch 应有的 `MKMapFeatureAnnotation`。没有为让检查绿而修改共享 node_modules；需在隔离安装并应用正常 postinstall patch 的依赖中复核，不能直接认定本提交 patch 无效。
 - 3 个现有 presence 失败：关闭/重新开启/登出后，测试期望的立即 untrack/再次 track 次数不符。代码存在 8 秒 untrack debounce 和发送间隔。可确认代码和测试约定不一致，不能仅据此断言真机分享停止失效；需 builder 明确关停承诺，并用虚拟时间完整验证关停与快速切换，不以放宽预期替代功能验证。
@@ -106,7 +124,7 @@ README Deferred 仍把创建、全局搜索、邀请/访客墙列为 toast/stub�
 | `/home/coder/.deno/bin/deno test --allow-env --allow-read supabase/functions/_shared/resource-guard_test.ts supabase/functions/_shared/route-guides_test.ts supabase/functions/map-search/` | exit 0，27 通过/0 失败；地图供应商行为使用既有受控夹具 |
 | `node scripts/qa/core-loop-db.cjs` | exit 0，9 组既有 SQL 全通过并 ROLLBACK；不执行迁移；不用会临时改结构的 `test-route-guide-import-db.cjs` runner |
 | `docker exec -i kaipa-supabase-db psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/qa-guest-share-expiry.sql` | exit 3，Q-P1-01，事务自动回滚 |
-| `node scripts/qa/core-loop-web.cjs` | exit 1：3 个正常/受控错误页面正常渲染，畸形 URL 空白/异常；Q-P2-01、Q-P2-02 |
+| `node scripts/qa/core-loop-web.cjs` | 最终 exit 1：9 个断言，6 通过/3 失败；根登录与普通无效链接通过，503 错误恢复失败、畸形 URL 异常及提示失败；Q-P2-01、Q-P2-02 |
 | `node scripts/qa/core-loop-local-e2e.cjs` | exit 1：正常登录/存储/装备/搜索/邀请/访客路径通过，未登录 presence 发布权限断言失败；finally 两个账号删除成功 |
 | `node --check scripts/qa/core-loop-db.cjs`，`node --check scripts/qa/core-loop-local-e2e.cjs`，`node --check scripts/qa/core-loop-web.cjs` | 均 exit 0 |
 | 清理后的 SQL 查询 `auth.users` / `journeys` 的 `qa-core-*`、`qa-expiry-*`、`qa-share-expiry-*` 和临时固定 fixture ID | exit 0，剩余账号和旅程均 0 |
@@ -147,3 +165,4 @@ node --env-file=/home/coder/workspaces/kaipa/.env -e 'const {spawnSync}=require(
 - Draft PR：[am6737/kaipa#10](https://github.com/am6737/kaipa/pull/10)，保持 draft，不合并、不请求 review。
 - 初始文档基线 `05fae74` 和验收报告、失败回归、可重放辅助文件提交 `5f5457a` 均已推送。CI 状态在推送后复核，仍无 checks 回报。
 - GitHub 查询 `statusCheckRollup: []`，仓库未发现 `.github/workflows`：**无 CI checks 回报，不能写为 CI 绿**。本地失败如上保留；即使未来 CI 缺少这些检查，也不能替代验收结论。
+- 续验交付补充原样基线证据及失败分类，只增强三个 QA 脚本的断言/诊断。最终仍有类型、应用、Web、local-e2e 失败和已确认的 SQL 失败，**验收清单已形成，产品验收未通过**。builder 需处理 Q-P1-01/02/03、Q-P2-01/02，明确 presence 关停时序承诺，并跟进类型编译边界和旧测试辅助加载问题；真机及其它环境受限清单仍未验证。保持 PR draft，不请求 review。

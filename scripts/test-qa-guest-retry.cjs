@@ -154,7 +154,14 @@ test("QA retrying a guest text after a lost response must leave only one server 
     guest.addMoment(moment),
     /Response lost after server commit/,
   );
+  assert.equal(world.writes.size, 1, "First request committed before its response was lost");
   await world.render().addMoment(moment);
+  console.log("QA lost-response evidence=" + JSON.stringify({
+    requestKeys: world.requests.filter(({ body }) => body.action === "guest_add")
+      .map(({ body }) => body.requestKey),
+    serverRows: world.writes.size,
+    visibleRows: world.render().moments.length,
+  }));
   assert.equal(
     world.writes.size,
     1,
