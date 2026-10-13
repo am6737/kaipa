@@ -11,6 +11,8 @@ function guestHarness({
   rejectFirstWrite = false,
   holdWrite = null,
   allowPhotos = false,
+  writeLimit = Infinity,
+  loseWriteResponseKey = null,
 } = {}) {
   const states = [];
   const effects = [];
@@ -21,6 +23,9 @@ function guestHarness({
   let uploads = 0;
   let sequence = 0;
   let loseResponse = loseFirstWriteResponse;
+  let responseKeyToLose = loseWriteResponseKey;
+  let window = 0;
+  let windowAttempts = 0;
   const snapshot = {
     sessionId: "session-1",
     share: { id: "share-1" },
@@ -70,7 +75,7 @@ function guestHarness({
     },
     "./guestResources": {
       async guestRequest(body, token) {
-        requests.push({ body, token });
+        requests.push({ body, token, window });
         if (body.action === "guest_open") {
           if (failOpen) throw new Error("Controlled offline");
           return { sessionId: snapshot.sessionId, token: token || "token-1" };
@@ -79,6 +84,8 @@ function guestHarness({
           return { ...snapshot, moments: [...writes.values()] };
         if (body.action === "guest_add") {
           if (holdWrite) await holdWrite;
+          // Admission precedes SQL key deduplication, as in the real service.
+          if (++windowAttempts > writeLimit) throw new Error("Write rate limit exceeded");
           if (rejectWrite) {
             rejectWrite = false;
             throw new Error("Server rejected before commit");
@@ -89,8 +96,9 @@ function guestHarness({
               ...body.moment,
               id: body.requestKey,
             });
-          if (loseResponse) {
+          if (loseResponse || body.requestKey === responseKeyToLose) {
             loseResponse = false;
+            responseKeyToLose = null;
             throw new Error("Response lost after server commit");
           }
           return writes.get(body.requestKey);
@@ -134,6 +142,7 @@ function guestHarness({
     requests,
     writes,
     get uploads() { return uploads; },
+    advanceWindow() { window++; windowAttempts = 0; },
     remount() {
       states.forEach((state) => state?.cleanup?.());
       states.length = 0;
@@ -286,7 +295,7 @@ test("changing share clears pending operations and stale completions cannot upda
   assert.equal(world.writes.size, 2);
 });
 
-test("lost add response reuses the completed upload; completed batch items replay without reupload", async () => {
+test("lost add response reuses the upload; confirmed batch items issue no request or reupload", async () => {
   const world = guestHarness({ allowPhotos: true, loseFirstWriteResponse: true });
   const photo = { ...moment, uri: "blob:photo", is_text: false };
   await assert.rejects((await world.open()).addMoment(photo, "batch:0"), /Response lost/);
@@ -298,4 +307,65 @@ test("lost add response reuses the completed upload; completed batch items repla
   assert.equal(world.writes.size, 2);
   assert.equal(world.render().moments.length, 2);
   assert.equal(world.writes.get("batch:0").uri, "https://storage.test/photo-1.jpg");
+  assert.deepEqual(world.requests.filter(({ body }) => body.action === "guest_add").map(({ body }) => body.requestKey),
+    ["batch:0", "batch:0", "batch:1"]);
+});
+
+
+function batchPhotos(count) {
+  return Array.from({ length: count }, (_, i) => ({ ...moment, uri: `blob:photo-${i}`, is_text: false }));
+}
+async function submitBatch(world, photos, key) {
+  // Same sequential per-item calls/keys as GuestWall; executes the real hook.
+  for (let i = 0; i < photos.length; i++) await world.render().addMoment(photos[i], `${key}:${i}`);
+}
+
+test("61-item batch skips 60 confirmed writes in a new quota window and completes with one request", async () => {
+  const world = guestHarness({ allowPhotos: true, writeLimit: 60 });
+  await world.open();
+  const photos = batchPhotos(61);
+  await assert.rejects(submitBatch(world, photos, "batch"), /Write rate limit/);
+  assert.equal(world.writes.size, 60);
+  assert.equal(world.render().moments.length, 60);
+  const firstWindow = world.requests.filter(({ body, window }) => body.action === "guest_add" && window === 0);
+  assert.equal(firstWindow.length, 61);
+  assert.equal(firstWindow.at(-1).body.requestKey, "batch:60");
+  world.advanceWindow();
+  await submitBatch(world, photos, "batch");
+  const nextWindow = world.requests.filter(({ body, window }) => body.action === "guest_add" && window === 1);
+  assert.deepEqual(nextWindow.map(({ body }) => body.requestKey), ["batch:60"]);
+  assert.equal(world.writes.size, 61);
+  assert.equal(world.render().moments.length, 61);
+  assert.equal(world.uploads, 61);
+  await submitBatch(world, photos, "batch");
+  assert.equal(world.requests.filter(({ body, window }) => body.action === "guest_add" && window === 1).length, 1,
+    "Completed items must consume no further guest_add requests or quota");
+  console.log("QA 61-item recovery=" + JSON.stringify({ firstWindowRequests: firstWindow.length, firstWindowRows: 60,
+    nextWindowKeys: nextWindow.map(({ body }) => body.requestKey), finalRows: world.writes.size, visibleRows: world.render().moments.length }));
+});
+
+test("batch retries unknown committed item with its original key while skipping confirmed items", async () => {
+  const world = guestHarness({ allowPhotos: true, writeLimit: 60, loseWriteResponseKey: "batch:1" });
+  await world.open();
+  const photos = batchPhotos(61);
+  await assert.rejects(submitBatch(world, photos, "batch"), /Response lost after server commit/);
+  assert.equal(world.writes.size, 2);
+  assert.equal(world.render().moments.length, 1);
+  const unknownId = world.writes.get("batch:1").id;
+  world.advanceWindow();
+  await submitBatch(world, photos, "batch");
+  const nextKeys = world.requests.filter(({ body, window }) => body.action === "guest_add" && window === 1)
+    .map(({ body }) => body.requestKey);
+  assert.equal(nextKeys.length, 60);
+  assert.deepEqual(nextKeys, Array.from({ length: 60 }, (_, i) => `batch:${i + 1}`));
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add" && body.requestKey === "batch:1").length, 2);
+  assert.equal(world.writes.get("batch:1").id, unknownId);
+  assert.equal(world.writes.size, 61);
+  assert.equal(world.render().moments.length, 61);
+  assert.equal(world.uploads, 61);
+  // Identical content in an explicitly new operation must still issue a write.
+  world.advanceWindow();
+  await world.render().addMoment(photos[0], "new-operation:0");
+  assert.equal(world.writes.size, 62);
+  assert.equal(world.render().moments.length, 62);
 });

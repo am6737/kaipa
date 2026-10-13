@@ -19,9 +19,9 @@
 | 修改失败内容 | 表单提示取消后重新添加；同 key 不允许改写请求内容，hook 也校验指纹 |
 | 整页刷新 / hook 重新挂载 | 不持久化待发布内容/key；用既有访客 token 获取真实快照，已提交记录恢复；随后添加属于新操作 |
 | 更换分享 / 卸载 | 清空操作缓存；旧异步响应不能写入新分享的本地快照 |
-| 照片批量部分成功 | 每项为同一批次 UUID 加索引；重试整批时每项仍用原 key，已上传 URI 缓存在本 hook 会话内，避免重复上传已完成项 |
+| 照片批量部分成功 | 每项为同一批次 UUID 加索引；已确认项缓存结果并跳过 HTTP/上传，未确认项沿用原 key 和已上传 URI 恢复（第一轮审查补修） |
 
-UI 显式 key 的 URI/指纹缓存保留到 hook 卸载或更换分享，允许部分完成批次重放。旧 key 不再由已关闭表单使用。为兼容原 hook 调用，未传显式 key 时，完整输入指纹匹配未确认操作；成功后移除该隐式操作，下次同内容调用生成新 key。这个参数仅改变客户端调用方式，HTTP 仍发送原协议的 `requestKey` / `moment`，未添加服务端字段。
+UI 显式 key 的结果/URI/指纹缓存保留到 hook 卸载或更换分享；批次恢复时已确认项直接返回，仅请求未确认项。旧 key 不再由已关闭表单使用。为兼容原 hook 调用，未传显式 key 时，完整输入指纹匹配未确认操作；成功后移除该隐式操作，下次同内容调用生成新 key。这个参数仅改变客户端调用方式，HTTP 仍发送原协议的 `requestKey` / `moment`，未添加服务端字段。
 
 ## 本地真实路径与结果
 
@@ -80,3 +80,29 @@ fixture 账号 `c9ab252f-39d3-4890-ab0c-222d3d7dbd96`，旅程 `qa-issue15-ab9dd
 运行 `node /tmp/issue15-compact-evidence.cjs`，直接执行辅助脚本中的格式化函数，再用独立展开逻辑还原：与原提交 `9dbd628` 的原 JSON 每个字段深度相等，11 请求、8 场景、6 唯一行、全部通过和清理 0 均保留；确认 `src/web` 产品代码无差异。原清理证据的核验时间/SQL/计数/原 SHA 不改，另附原 SHA 的提交范围和精简 SHA/往返校验结果，见 cleanup-verification.json 的 `evidenceCompaction`。额外仅运行辅助脚本语法和 diff 格式检查，不新增数据库写入或重跑产品检查。
 
 生命周期实现和对应覆盖已复核：明确成功后关闭并给新操作新 key（hook、组件、真实浏览器）；提交前确定拒绝/首写后结果未知均保留 key（hook），未知结果保留草稿并从原表单恢复（组件、真实浏览器）；取消失败草稿再打开新表单换 key（组件）；整页重新打开从快照恢复已提交记录、下一次提交用新 key（hook remount、浏览器刷新）；同操作显式/隐式并发共享请求、同内容新操作不复用旧 key（hook、组件及 HTTP 对照）。本任务约定的本地文字重试验收项没有尚未解决项。真机、实际媒体、移动 Safari、线上部署仍是未验证边界；#11 独立权限问题仍 OPEN。
+
+
+## 第一轮审查唯一阻断：批量恢复耗尽限流窗口
+
+Reviewer 指出的缺陷成立：上一版仅保留 URI/key，已确认项仍会调用 guest_add。每分钟 60 次的准入发生在 SQL 去重前，61 项首次完成 60 条，下一窗口重试的 60 次请求仍被已确认项占用，末项持续无法提交。此轮只修这个客户端阻断，未改服务端限流、协议、数据库、CI 或其它任务文件。
+
+产品只改 useGuestData：保存 guestRequest 成功返回的 GuestMoment 结果，指纹校验后如已有结果即本地返回，不上传、不发 guest_add。GuestWall 仍按原批次索引枚举，保持逐项 key 对齐；已确认项的 hook 调用是无网络的本地跳过。响应丢失/提交前拒绝不会设置 result，未确认项仍持原 key 和 URI 重试。明确新操作的新 key、隐式成功后退役 key、取消重开与 hook 卸载/换分享的缓存清理沿用原生命周期。
+
+先增加真实 hook 的准入模型回归（每窗口 60 次、先计请求再按 key 去重），运行未改产品得到 15 pass / 2 fail；两个新增用例都在下一窗口再次被限流，见 [regression-before.txt](evidence/issue-15/review-1/regression-before.txt)。修复后原断言全部保留并增强成功项零请求断言，最终 17 pass / 0 fail / 0 skipped / 0 todo，见 [regression-after.txt](evidence/issue-15/review-1/regression-after.txt)。
+
+- 61 张照片：首窗口 61 次请求，其中 60 成功、末项限流，服务模型/墙快照均 60 条；新窗口仅 guest_add(batch:60) 一次，最终模型/墙均 61 条；再恢复同批也不增加任何请求或额度消耗，上传共 61 次。
+- 未知结果批量：首项确认成功，第二项服务模型提交后丢响应；新窗口跳过首项，只请求第二项至末项共 60 次；未知项两次都用 batch:1、返回原 ID，最终模型/墙均 61 条。随后显式新 key 发布同内容仍生成第 62 条，未误用确认缓存。
+- 原组件回归仍覆盖失败表单保留、同 key 重试、成功才关闭、快速双击、取消失败草稿后新操作；原 hook 回归仍覆盖串行/并发、确定失败、换分享/重新挂载。批次索引枚举的组件测试检查 hook 调用，额度测试检查实际 guestRequest 次数，两者不混为 HTTP 重放。
+
+本轮自身检出目录最初无 node_modules。临时 `ln -s /home/coder/workspaces/kaipa/node_modules node_modules`，复用主工作区已安装依赖；没有安装依赖、修改共享 node_modules、package.json 或 lockfile。Node v24.18.0，TypeScript 6.0.3，Expo 56.0.21；两处 yarn.lock SHA-256 均 5765f9af5a7043907d6967add6bf17c8c3e221e6f0e41261d175bdc78a08820d。检查实际从本检出根目录运行，不将 reviewer 未运行 tsc 写成自身结果。交付前移除临时链接，恢复干净工作树。
+
+| 本轮实际命令 | 结果 |
+| --- | --- |
+| node --test scripts/test-qa-guest-retry.cjs scripts/test-guest-publish.cjs | 修复前 15/2，修复后 17/0，通过，原阈值未降低 |
+| npx --no-install tsc --noEmit | 实际运行 exit 2；37 条原有错误，见 [tsc.txt](evidence/issue-15/review-1/tsc.txt) |
+| cmp /tmp/issue15-tsc-baseline.txt docs/qa/evidence/issue-15/review-1/tsc.txt | exit 0，与 #13 指定 head 原基线逐字节一致，无新增；SHA-256 52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7 |
+| node /tmp/issue15-review1-export.cjs | 新 Web 导出 exit 0；仅进程覆盖本地公开 API URL，见 [web-export.txt](evidence/issue-15/review-1/web-export.txt) |
+| node --check scripts/test-qa-guest-retry.cjs && node --check scripts/test-guest-publish.cjs | exit 0 |
+| git diff --check && git diff --cached --check | exit 0 |
+
+根目录仍无 test/lint script，沿用已有 node:test、TypeScript 和必要 Web 导出。此轮 61 条和 62 条是执行真实 hook 的受控服务模型结果，不是实际 PostgreSQL 或媒体上传证据；没有重跑浏览器/数据库写入、没有新增共享 fixture，旧真实文字路径证据仍明确属于原受测提交。实际媒体、真机、移动 Safari、线上仍未验证。原 draft PR 更新并回复本阻断，不请求 GitHub review、不合并。

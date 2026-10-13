@@ -59,7 +59,7 @@ export interface CompanionData {
 
 type GuestSnapshot = { sessionId:string; share:ShareData; journey:JourneyData; host:HostData; companions:CompanionData[]; moments:GuestMoment[]; media:InspoMedia[] };
 type MomentInput = Omit<GuestMoment,'id'|'share_id'|'guest_session_id'|'created_at'>;
-type PendingMoment = { requestKey: string; fingerprint: string; uri?: string; inFlight?: Promise<void> };
+type PendingMoment = { requestKey: string; fingerprint: string; uri?: string; result?: GuestMoment; inFlight?: Promise<void> };
 export function useGuestData(code: string) {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState<string|null>(null);
@@ -126,6 +126,9 @@ export function useGuestData(code: string) {
       entries.set(slot, operation);
     }
     if (operation.fingerprint !== fingerprint) throw new Error('请重新打开发布页面后提交新内容');
+    // Confirmed items need no HTTP replay: admission consumes quota before SQL
+    // deduplication. Unknown outcomes still retry with their original key/URI.
+    if (operation.result) return;
     if (operation.inFlight) return operation.inFlight;
     const current = operation;
     current.inFlight = (async () => {
@@ -137,13 +140,14 @@ export function useGuestData(code: string) {
       const data = await guestRequest<GuestMoment>({
         action: 'guest_add', requestKey: current.requestKey, moment: { ...input, uri: current.uri },
       }, token);
+      current.result = data;
       if (pending.current === entries) {
         setSnapshot(prev => prev ? {
           ...prev, moments: [data, ...prev.moments.filter(row => row.id !== data.id)],
         } : prev);
       }
-      // An explicit batch may replay already completed items after a later item
-      // failed. Retain their uploaded URI; SQL returns the original row by key.
+      // Retain confirmed explicit results so batch recovery skips them locally.
+      // Implicit success retires the key so a new identical operation can post.
       if (!requestKey) entries.delete(slot);
     })();
     try {
