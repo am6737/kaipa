@@ -212,24 +212,27 @@ test("definite rejection retains the operation key for retry without a committed
   assert.equal(world.render().moments.length, 1);
 });
 
-test("concurrent retries join one operation, then reuse its key after a lost response", async () => {
+for (const explicit of [false, true]) {
+test(`concurrent ${explicit ? "explicit" : "implicit"} retries join one operation and reuse its key after a lost response`, async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const world = guestHarness({ holdWrite: gate, loseFirstWriteResponse: true });
   const guest = await world.open();
-  const attempts = [guest.addMoment(moment), guest.addMoment({ ...moment }), world.render().addMoment(moment)];
+  const key = explicit ? "ui-operation" : undefined;
+  const attempts = [guest.addMoment(moment, key), guest.addMoment({ ...moment }, key), world.render().addMoment(moment, key)];
   const outcomes = Promise.allSettled(attempts);
   assert.equal(world.requests.filter(({ body }) => body.action === "guest_add").length, 1);
   release();
   assert.ok((await outcomes).every((result) => result.status === "rejected"));
   assert.equal(world.writes.size, 1);
-  await Promise.all([world.render().addMoment(moment), world.render().addMoment(moment)]);
+  await Promise.all([world.render().addMoment(moment, key), world.render().addMoment(moment, key)]);
   const keys = world.requests.filter(({ body }) => body.action === "guest_add").map(({ body }) => body.requestKey);
   assert.equal(keys.length, 2);
   assert.equal(new Set(keys).size, 1);
   assert.equal(world.writes.size, 1);
   assert.equal(world.render().moments.length, 1);
 });
+}
 
 test("success retires an implicit key; another identical submission is a new operation", async () => {
   const world = guestHarness();

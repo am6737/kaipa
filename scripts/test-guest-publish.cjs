@@ -123,3 +123,22 @@ test('wall stays open on failure, closes only on confirmed success, partial batc
   assert.equal(byType(render(), 'GuestUploadSheet'), undefined);
   assert.equal(toasts.length, 1);
 });
+
+
+test('canceling an unknown failed operation then reopening produces a new key for identical content', async () => {
+  const world = componentHarness('src/web/GuestUploadSheet.tsx', 'GuestUploadSheet');
+  const keys = [];
+  let closed = 0;
+  const props = { theme, days: 1, onClose: () => { closed++; }, onPost: async () => {},
+    onPostText: async (caption, day, key) => { keys.push(key); if (keys.length === 1) throw new Error('Unknown result'); } };
+  const render = () => world.render(props);
+  byType(render(), 'TextInput').props.onChangeText('same');
+  await button(render(), 'guest.wall.post').props.onPress();
+  button(render(), 'guest.wall.cancel').props.onPress();
+  assert.equal(closed, 1);
+  world.remount();
+  byType(render(), 'TextInput').props.onChangeText('same');
+  await button(render(), 'guest.wall.post').props.onPress();
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1]);
+});
