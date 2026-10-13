@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
 import { useI18n } from '../i18n';
+import { space, type } from '../design-system';
 
 interface PhotoPick {
   uri: string;
@@ -15,8 +16,8 @@ interface PhotoPick {
 interface Props {
   theme: Theme;
   days: number;
-  onPost: (photos: PhotoPick[], caption: string, day: number) => void;
-  onPostText: (caption: string, day: number) => void;
+  onPost: (photos: PhotoPick[], caption: string, day: number, requestKey: string) => Promise<void>;
+  onPostText: (caption: string, day: number, requestKey: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -26,6 +27,13 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
   const [picks, setPicks] = useState<PhotoPick[]>([]);
   const [caption, setCaption] = useState('');
   const [day, setDay] = useState(Math.max(1, days));
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState('');
+  const operation = useRef<{ key: string; inFlight: boolean } | null>(null);
+  // Once attempted, this draft is a retry of that operation. Cancel/reopen is
+  // the explicit way to start a new one, even with identical content.
+  const locked = operation.current !== null;
+  const close = () => { if (!operation.current?.inFlight) onClose(); };
 
   const pickImages = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -33,7 +41,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
       allowsMultipleSelection: true,
       quality: 0.8,
     });
-    if (result.canceled) return;
+    if (result.canceled || operation.current) return;
     const newPicks = result.assets.map((a) => ({
       uri: a.uri,
       width: a.width || 1,
@@ -43,17 +51,30 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
   }, []);
 
   const removePick = (idx: number) => {
+    if (operation.current) return;
     setPicks((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const canPost = picks.length > 0 || caption.trim().length > 0;
 
-  const handlePost = () => {
-    if (!canPost) return;
-    if (picks.length === 0) {
-      onPostText(caption.trim(), day);
-    } else {
-      onPost(picks, caption.trim(), day);
+  const handlePost = async () => {
+    if (!canPost || operation.current?.inFlight) return;
+    if (!operation.current) operation.current = { key: crypto.randomUUID(), inFlight: false };
+    const current = operation.current;
+    current.inFlight = true;
+    setPosting(true);
+    setError('');
+    try {
+      if (picks.length === 0) {
+        await onPostText(caption.trim(), day, current.key);
+      } else {
+        await onPost(picks, caption.trim(), day, current.key);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '操作失败，请稍后重试');
+    } finally {
+      current.inFlight = false;
+      setPosting(false);
     }
   };
 
@@ -62,23 +83,29 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <Pressable style={s.backdrop} onPress={onClose} />
+      <Pressable style={s.backdrop} onPress={close} />
       <View style={s.sheetWrap}>
         <View style={[s.sheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg, maxHeight: Math.round(winH * 0.85) }]}>
           <View style={s.handle} />
 
           {/* header */}
           <View style={s.headerRow}>
-            <Press onPress={onClose} style={s.headerBtn}>
+            <Press onPress={posting ? undefined : close} style={s.headerBtn}>
               <Text style={[s.headerBtnText, { color: theme.text2 }]}>{t('guest.wall.cancel')}</Text>
             </Press>
             <Text style={[s.headerTitle, { color: theme.text }]}>{t('guest.wall.addMoment')}</Text>
-            <Press onPress={canPost ? handlePost : undefined} style={s.headerBtn}>
-              <Text style={[s.headerBtnText, { color: canPost ? theme.accent : theme.text3, fontWeight: '700' }]}>
+            <Press onPress={canPost && !posting ? handlePost : undefined} style={s.headerBtn}>
+              <Text style={[s.headerBtnText, { color: canPost && !posting ? theme.accent : theme.text3, fontWeight: '700' }]}>
                 {t('guest.wall.post')}
               </Text>
             </Press>
           </View>
+          {!!error && (
+            <View style={{ marginBottom: space.sm }}>
+              <Text accessibilityRole="alert" style={{ ...type.hint, color: theme.danger }}>{error}</Text>
+              <Text style={{ ...type.hint, color: theme.text2 }}>再次发布会重试本次内容；如需修改，请取消后重新添加。</Text>
+            </View>
+          )}
 
           <ScrollView style={s.scrollBody} showsVerticalScrollIndicator={false}>
             {/* photo grid */}
@@ -86,12 +113,12 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
               {picks.map((p, i) => (
                 <View key={i} style={s.photoThumb}>
                   <Image source={{ uri: p.uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
-                  <Press onPress={() => removePick(i)} style={s.removeBtn}>
+                  <Press onPress={locked ? undefined : () => removePick(i)} style={s.removeBtn}>
                     <Text style={s.removeX}>✕</Text>
                   </Press>
                 </View>
               ))}
-              <Press onPress={pickImages} style={[s.addPhotoBtn, { borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)' }]}>
+              <Press onPress={locked ? undefined : pickImages} style={[s.addPhotoBtn, { borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)' }]}>
                 <Text style={{ fontSize: 22, color: theme.accent }}>＋</Text>
                 <Text style={{ fontSize: 10.5, color: theme.text3 }}>{t('guest.wall.selectPhotos')}</Text>
               </Press>
@@ -100,6 +127,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
             {/* caption */}
             <TextInput
               value={caption}
+              editable={!locked}
               onChangeText={setCaption}
               placeholder={t('guest.wall.captionPlaceholder')}
               placeholderTextColor={theme.text3}
@@ -119,7 +147,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
                 return (
                   <Press
                     key={d}
-                    onPress={() => setDay(d)}
+                    onPress={locked ? undefined : () => setDay(d)}
                     style={[s.dayBtn, on && {
                       backgroundColor: theme.dark ? 'rgba(120,120,128,0.5)' : '#fff',
                       shadowColor: '#000',

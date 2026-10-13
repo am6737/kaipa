@@ -8,13 +8,17 @@ const ts = require("typescript");
 function guestHarness({
   loseFirstWriteResponse = false,
   failOpen = false,
+  rejectFirstWrite = false,
+  holdWrite = null,
+  allowPhotos = false,
 } = {}) {
   const states = [];
   const effects = [];
   const storage = new Map();
   const writes = new Map();
   let cursor = 0;
-  let mounted = false;
+  let rejectWrite = rejectFirstWrite;
+  let uploads = 0;
   let sequence = 0;
   let loseResponse = loseFirstWriteResponse;
   const snapshot = {
@@ -41,14 +45,27 @@ function guestHarness({
           },
         ];
       },
-      useEffect(effect) {
-        if (!mounted) effects.push(effect);
+      useRef(initial) {
+        const index = cursor++;
+        if (!(index in states)) states[index] = { current: initial };
+        return states[index];
+      },
+      useEffect(effect, deps) {
+        const index = cursor++;
+        const previous = states[index];
+        if (!previous || deps.some((dep, i) => dep !== previous.deps[i])) {
+          effects.push(() => {
+            previous?.cleanup?.();
+            states[index] = { deps, cleanup: effect() };
+          });
+        }
       },
       useCallback: (callback) => callback,
     },
     "./guestStorage": {
       uploadGuestPhoto: async () => {
-        throw new Error("Unexpected photo upload");
+        assert.ok(allowPhotos, "Unexpected photo upload");
+        return `https://storage.test/photo-${++uploads}.jpg`;
       },
     },
     "./guestResources": {
@@ -61,6 +78,11 @@ function guestHarness({
         if (body.action === "guest_snapshot")
           return { ...snapshot, moments: [...writes.values()] };
         if (body.action === "guest_add") {
+          if (holdWrite) await holdWrite;
+          if (rejectWrite) {
+            rejectWrite = false;
+            throw new Error("Server rejected before commit");
+          }
           // Model the server's existing unique (session_id, request_key) constraint.
           if (!writes.has(body.requestKey))
             writes.set(body.requestKey, {
@@ -99,18 +121,25 @@ function guestHarness({
     },
   });
   vm.runInContext(code, context);
-  const render = () => {
+  let guestCode = "AB12";
+  const render = (nextCode = guestCode) => {
+    guestCode = nextCode;
     cursor = 0;
-    return context.exports.useGuestData("AB12");
+    const result = context.exports.useGuestData(guestCode);
+    effects.splice(0).forEach((effect) => effect());
+    return result;
   };
   return {
     render,
     requests,
     writes,
+    get uploads() { return uploads; },
+    remount() {
+      states.forEach((state) => state?.cleanup?.());
+      states.length = 0;
+    },
     async open() {
       render();
-      mounted = true;
-      effects.splice(0).forEach((effect) => effect());
       await new Promise((resolve) => setImmediate(resolve));
       return render();
     },
@@ -167,4 +196,103 @@ test("QA retrying a guest text after a lost response must leave only one server 
     1,
     "The same user submission must reuse its request key after a lost response",
   );
+});
+
+
+test("definite rejection retains the operation key for retry without a committed row", async () => {
+  const world = guestHarness({ rejectFirstWrite: true });
+  const guest = await world.open();
+  await assert.rejects(guest.addMoment(moment), /rejected before commit/);
+  assert.equal(world.writes.size, 0);
+  await world.render().addMoment({ ...moment });
+  const keys = world.requests.filter(({ body }) => body.action === "guest_add").map(({ body }) => body.requestKey);
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
+  assert.equal(world.writes.size, 1);
+  assert.equal(world.render().moments.length, 1);
+});
+
+test("concurrent retries join one operation, then reuse its key after a lost response", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const world = guestHarness({ holdWrite: gate, loseFirstWriteResponse: true });
+  const guest = await world.open();
+  const attempts = [guest.addMoment(moment), guest.addMoment({ ...moment }), world.render().addMoment(moment)];
+  const outcomes = Promise.allSettled(attempts);
+  assert.equal(world.requests.filter(({ body }) => body.action === "guest_add").length, 1);
+  release();
+  assert.ok((await outcomes).every((result) => result.status === "rejected"));
+  assert.equal(world.writes.size, 1);
+  await Promise.all([world.render().addMoment(moment), world.render().addMoment(moment)]);
+  const keys = world.requests.filter(({ body }) => body.action === "guest_add").map(({ body }) => body.requestKey);
+  assert.equal(keys.length, 2);
+  assert.equal(new Set(keys).size, 1);
+  assert.equal(world.writes.size, 1);
+  assert.equal(world.render().moments.length, 1);
+});
+
+test("success retires an implicit key; another identical submission is a new operation", async () => {
+  const world = guestHarness();
+  await (await world.open()).addMoment(moment);
+  await world.render().addMoment(moment);
+  assert.equal(world.writes.size, 2);
+  assert.equal(world.render().moments.length, 2);
+});
+
+test("different input and explicitly new identical operations cannot reuse an unknown operation key", async () => {
+  const world = guestHarness({ loseFirstWriteResponse: true });
+  await assert.rejects((await world.open()).addMoment(moment), /Response lost/);
+  await world.render().addMoment({ ...moment, day: 2 });
+  await world.render().addMoment(moment, "new-operation");
+  assert.equal(world.writes.size, 3);
+  await world.render().addMoment(moment);
+  assert.equal(world.writes.size, 3);
+  assert.equal(world.render().moments.length, 3);
+});
+
+test("explicit key cannot be used with changed content", async () => {
+  const world = guestHarness({ loseFirstWriteResponse: true });
+  await assert.rejects((await world.open()).addMoment(moment, "operation"), /Response lost/);
+  await assert.rejects(world.render().addMoment({ ...moment, caption: "new" }, "operation"), /新内容/);
+  assert.equal(world.writes.size, 1);
+  await world.render().addMoment(moment, "operation");
+  assert.equal(world.render().moments.length, 1);
+});
+
+test("remount reads the committed snapshot and creates a new key for a new submission", async () => {
+  const world = guestHarness({ loseFirstWriteResponse: true });
+  await assert.rejects((await world.open()).addMoment(moment), /Response lost/);
+  world.remount();
+  const reopened = await world.open();
+  assert.equal(reopened.moments.length, 1);
+  await reopened.addMoment(moment);
+  assert.equal(world.writes.size, 2);
+});
+
+test("changing share clears pending operations and stale completions cannot update its snapshot", async () => {
+  let release;
+  const world = guestHarness({ holdWrite: new Promise((resolve) => { release = resolve; }) });
+  const guest = await world.open();
+  const writing = guest.addMoment(moment);
+  world.render("CD34");
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  await writing;
+  assert.equal(world.render().moments.length, 0);
+  await world.render().addMoment(moment);
+  assert.equal(world.writes.size, 2);
+});
+
+test("lost add response reuses the completed upload; completed batch items replay without reupload", async () => {
+  const world = guestHarness({ allowPhotos: true, loseFirstWriteResponse: true });
+  const photo = { ...moment, uri: "blob:photo", is_text: false };
+  await assert.rejects((await world.open()).addMoment(photo, "batch:0"), /Response lost/);
+  assert.equal(world.uploads, 1);
+  await world.render().addMoment(photo, "batch:0");
+  await world.render().addMoment(photo, "batch:0");
+  await world.render().addMoment(photo, "batch:1");
+  assert.equal(world.uploads, 2);
+  assert.equal(world.writes.size, 2);
+  assert.equal(world.render().moments.length, 2);
+  assert.equal(world.writes.get("batch:0").uri, "https://storage.test/photo-1.jpg");
 });

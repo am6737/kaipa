@@ -33,7 +33,7 @@ interface Props {
     caption: string;
     day: number;
     is_text: boolean;
-  }) => Promise<void>;
+  }, requestKey?: string) => Promise<void>;
   onDeleteMoment: (id: string) => Promise<void>;
   onToast: (msg: string) => void;
 }
@@ -161,9 +161,7 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
 
   const canDelete = useCallback((m: GuestMoment) => !!sessionId && m.guest_session_id === sessionId, [sessionId]);
 
-  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number) => {
-    setUploadOpen(false);
-    try {
+  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number, requestKey: string) => {
     for (let i = 0; i < photos.length; i++) {
       await onAddMoment({
         guest_name: identity.name,
@@ -173,15 +171,13 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         caption: i === 0 ? caption : '',
         day,
         is_text: false,
-      });
+      }, `${requestKey}:${i}`);
     }
     onToast(t('guest.wall.photoAdded', { count: String(photos.length) }));
-    } catch (error) { onToast(error instanceof Error?error.message:'上传失败'); }
+    setUploadOpen(false);
   }, [identity, onAddMoment, onToast, t]);
 
-  const handleAddText = useCallback(async (caption: string, day: number) => {
-    setUploadOpen(false);
-    try {
+  const handleAddText = useCallback(async (caption: string, day: number, requestKey: string) => {
     await onAddMoment({
       guest_name: identity.name,
       guest_ini: identity.ini,
@@ -190,9 +186,9 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
       caption,
       day,
       is_text: true,
-    });
+    }, requestKey);
     onToast(t('guest.wall.photoAdded', { count: '1' }));
-    } catch (error) { onToast(error instanceof Error?error.message:'保存失败'); }
+    setUploadOpen(false);
   }, [identity, onAddMoment, onToast, t]);
 
   const handleDelete = useCallback(async (m: GuestMoment) => {
