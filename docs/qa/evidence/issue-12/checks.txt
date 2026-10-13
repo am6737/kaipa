@@ -1,0 +1,31 @@
+受测提交 df412c4188bf02e94db641380d75194d00f1217a，2026-10-13 UTC。
+
+[受测 archive /tmp/kaipa-issue12/tested]
+node node_modules/expo/bin/cli export --platform web --output-dir /tmp/kaipa-issue12/web
+exit 0（由 Node 子进程执行，读取既有 .env 后仅在该子进程覆盖 EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:8010、EXPO_NO_DOTENV=1）
+
+node --test scripts/test-qa-guest-retry.cjs
+exit 1；2 pass / 1 fail / 0 skipped / 0 todo；原有模拟产品失败。
+保存的 hook-regression.txt 仅移除了输出行尾空格，未更改诊断。
+
+npx --no-install tsc --noEmit
+exit 2；37 条既有类型错误，完整 stdout/stderr 见 tested-tsc.txt。
+
+[本 PR 根目录]
+node --check scripts/qa/guest-retry-database.cjs
+exit 0（最终排版后检查）。
+
+node scripts/qa/guest-retry-database.cjs
+exit 1；最终完整运行 executionPassed=true，productAcceptancePassed=false。
+唯一产品验收失败：丢响应 UI 重试造成实际 DB 两条记录。
+初次两个辅助脚本定位问题已经修正；中止运行及最终运行均已清理账号/业务数据。
+
+npx --no-install tsc --noEmit
+exit 2；37 条既有类型错误。与受测 archive 的输出用 cmp 比较逐字节一致。
+两个输出 SHA-256=52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7。
+借用的根目录 node_modules 软链接已移除，未改共享依赖。
+
+[清理]
+脚本删除最终 fixture 后独立 SQL 计数：auth/profiles/journeys/shares/moments/guestSessions/uploadTickets/sessionRateWindows 全 0。
+初次两个运行的 session 限流窗口按 JSON 已知 UUID 定向删除后，独立 SQL 检查见 initial-attempts-cleanup.json，全 0。
+全局预算记账、分享码短期限流及服务日志未重置；不宣称这些全局计数为 0。

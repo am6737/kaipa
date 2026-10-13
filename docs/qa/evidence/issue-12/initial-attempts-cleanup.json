@@ -1,0 +1,22 @@
+[
+  {
+    "attempt": "initial-locator-attempt",
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "sessionRateWindows": 0
+  },
+  {
+    "attempt": "returning-cta-attempt",
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "sessionRateWindows": 0
+  }
+]
