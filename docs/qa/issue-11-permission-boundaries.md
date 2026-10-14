@@ -1,59 +1,69 @@
-# Issue #11 权限边界修复：待确认方案
+# Issue #11 权限边界修复与隔离验收
 
-状态：**等待 Lead 提交 owner 确认迁移与位置协议兼容方案，尚未实施产品修复。**
+Owner 2026-10-14 开爬群 seq38 已批准方案 B：项目未发布，不保留旧协议兼容；批准访客数据库迁移、新版认证位置协议和移除旧公共发布路径；断网暂停发布，重连重新校验权限。继续原分支 `happy/builder/jnjbrcf8-1` 和 [draft PR #14](https://github.com/am6737/kaipa/pull/14)，保留 `b22b13c` 的复现/证据，未整合 #10 全部改动。
 
-参考 [#9](https://github.com/am6737/kaipa/issues/9)、[draft PR #10](https://github.com/am6737/kaipa/pull/10)，受测 QA 提交 `df412c4188bf02e94db641380d75194d00f1217a`。本分支从其产品基线 `3a6648afb5bbbce9ded361aa84099d89bfb5089f` 开始，初始工作区干净；没有合入 #10 的全部改动。
+**仓库实现及隔离验证已完成，未部署或修改共享实例。共享旧公共位置路径仍需要受控入口切换、上游隔离与既有连接排空，不能把本 PR 的代码完成写成共享漏洞已关闭。** 禁止部署、共享配置修改、合并、CI/发布/签名/密钥配置变更的边界保持有效。PR 保持 draft，没有绿色 CI 时不请求 review。
 
-## 实际位置与必要变化
+## 访客权限
 
-- `src/lib/companionPresenceBus.ts`：`attachChannel` 建立公共 `journey-presence:<journeyId>` channel。
-- `src/hooks/useCompanionPresence.ts`：发布者把客户端传入的 `userId` 写入 `track` payload。
-- `src/lib/companionPresence.ts`：`foldPresenceRoster` 依据未认证 payload 的 `userId` 合并位置。合法成员也能自报另一成员身份；仅改成 private channel 或隐藏按钮不足以修复。
-- `supabase/functions/resources/index.ts`：所有 `guest_*` 操作先调用 `resource_guest_snapshot`。
-- `supabase/migrations/20261008140000_resource_uploads.sql`：`resource_guest_snapshot` 只检查 guest session 的 90 天期限、share active 和 journey 未删除，没有 share 的 7 天期限。文字写入与删除复用它；`prepare_resource_upload` 的独立校验也缺分享期限。已发放上传票据的存储写入边界需一起核对。
-- `supabase/migrations/20261012230000_journey_passphrase_v2.sql` 和 `20261013010000_journey_invite_toggle.sql`：新开 guest session 已检查 share 到期与邀请开关，不能保护旧 session 的后续操作。
+`20261014100000_guest_permission_boundaries.sql` 新增内部 `require_resource_guest`，固定空 `search_path`，撤销 PUBLIC/anon/authenticated/service_role 的直接执行权。统一检查 guest session 未过期、对应 share active 且 `expires_at > clock_timestamp()`、journey 未删除、`invite_enabled=true`，并验证上传 scope。读取、文字新增/删除通过 snapshot 共用边界，文字幂等和按 session 的内容所有权逻辑保留。
 
-## 需 owner 确认
+上传申请以最新 `20261012170000_upload_ticket_tuning.sql` 为基准，保留随文件大小变化的 2–30 分钟票据 TTL、8 个并发槽位、访客日配额和全局/用户预算、其他上传用途。`account_storage_object()` 在实际 INSERT/UPDATE 的票据校验中通过 `guest_session_id` 再检查访客权限，发生在 trusted measured size 之前，覆盖已发签名票据以及特权 Storage 数据库写入。真实 Storage 测试证明 trigger 拒绝后对象未提交，不能仅靠 RLS。票据过期/消费的异常改用明确权限错误，其余记账、删除、旧对象无变化元数据更新逻辑保留。
 
-1. **访客数据库函数更新**：新增独立 migration，统一分享 active、`expires_at > now()`、session 有效、journey 未删除及邀请开关校验；snapshot、文字增删、上传申请及已有票据上传都使用相同边界。不回写旧 migration，不改变 4 位口令或有效期，不要求合法 Web 访客注册账号。数据库函数替换属于用户明确要求先确认的迁移部分，目前暂停。
-2. **位置服务端身份与权限边界**：需要服务端用验证后的用户身份检查主人/同行成员资格，对每次发布重新校验以涵盖撤销权限后的长连接，禁止把 payload 身份当作真实身份。不能把仅在加入时缓存的频道权限当作撤销后的发布校验。需确认实现路线：保留 presence 并在受控 Realtime 服务端实施每次发布鉴权，或改为认证发布入口和服务端生成身份的分发协议。后一方案涉及频道/协议与旧客户端兼容；前一方案涉及额外服务端维护面。均尚未实施，不能只切换客户端 private flag 后宣称修复。
-3. **旧客户端策略**：旧公共频道发布路径必须在服务端失效；新的可信接收端不能接受旧路径的自报身份。需明确升级前位置分享的处理方式、版本共存范围及回退边界，避免声称旧客户端仍安全兼容。
+Web 请求格式、匿名口令访客体验、口令/分享/session 原有效期均未改变。校验持有 session/share/journey 行锁到事务结束，撤销/关闭/删除与已接受写入有明确提交顺序；网络中已生成的响应不可能被追溯收回。
 
-建议 Lead 请求 owner 确认的具体决策：批准访客统一校验 migration；位置优先采用认证发布入口，由服务端验证 JWT、每次检查旅程成员资格、拒绝身份不符并生成可信分发身份，接收频道仅允许服务端发布。旧公共 presence 发布入口须同时禁用，旧 App 的位置分享需要升级，不能以回退公共频道维持旧版位置分享。采用此路线前还需明确离开/断连后位置消失语义，验证可继续满足现有体验。若 owner 要求保留原 presence 协议，则改走受控 Realtime 服务端每次 track 鉴权/撤销校验的方案，并接受额外服务维护成本。这里是待批准方案，不是已实现或已验证的接口。
+## 可信位置协议
 
-## 合法体验与验收计划
+`journey-location` 使用 Auth `getUser(token)` 验证真实 JWT，拒绝无登录、签名伪造、过期 JWT、匿名 Auth 账号和冒报另一 `userId`。RPC 的 actor 只来自真实 Auth 返回值。每次 open/publish/close/snapshot 都检查 Auth 用户、当前旅程主人/同行成员以及旅程未删除，客户端没有位置表的读写权或位置 RPC 执行权。
 
-匿名无登录客户端和匿名 Auth 账号不能冒充旅程成员发布；持有效口令的 Web 访客仍能匿名浏览、署名发墙内容，并按会话拥有权删除自己的内容。受邀注册成员可正常访问和发布位置。Web 访客会话不等于成员身份，不能自动获得位置发布权。
+`20261014110000_trusted_journey_locations.sql` 将位置存入私有设备租约；用户身份、发布时间由数据库生成，坐标在 Edge 和 DB 两处校验。每个设备有独立随机 session ID、递增 sequence、40 秒租约和永久关闭的 tombstone（在下一次 open 时清理旧租约），拒绝乱序与迟到写入复活。删除/移动成员会关闭原租约，重新加入需要新会话；旅程删除或主人变更关闭旅程原租约。主人和成员资格行锁覆盖 publish 事务，撤销后原会话发布拒绝。
 
-在完全独立测试服务上先复现，然后验证匿名、自报他人身份、非成员、成员移出/退出/旅程删除后的发布被明确拒绝，合法主人与成员正常发布；撤销必须覆盖已连接的会话。访客回归覆盖有效口令、旧 token 的过期读取/文字写入/删除/上传申请/已发票据上传，关闭邀请、轮换口令、删除旅程及 session 到期。不得把超时或连接失败算作授权拒绝。
+可信分发采用认证 HTTP 快照，约 3 秒轮询，快照只包含当前合法成员最近设备的位置。客户端不能往快照发布或指定发布者。多个设备折成一个用户头像，关闭一个设备不会关闭另一个设备。`src/lib/companionPresenceBus.ts` 不再订阅 Realtime；`src/hooks/useCompanionPresence.ts` 不再调用公共 track。`src/lib/companionLocationTransport.ts` 处理租约/请求，丢弃旧生命周期迟到响应；self pin 只在服务端确认后显示。
 
-现有脚本与检查保持原断言、阈值；不处理 #10 的重试风险，不修改 CI、发布、签名或密钥配置，不部署，不修改共享运行实例。真机、成员实际位置接收与地图展示在 #10 尚未验证，本 PR 也不以 mock/服务 ACK 代替此验收。
+断网立即暂停 GPS/发布并清除本地 self pin，重连 fresh open 重新授权；不排队重放断网期间位置。关闭分享、后台、退出登录尝试立即 close；断网/杀进程/会话已失效时不能保证 close 到达，其他客户端从最后服务端发布起最多保留 40 秒，加下一次约 3 秒轮询。接收请求失败或切后台清空快照。撤销前已生成的 HTTP 响应可能稍后到达，下一次快照更正；不声称网络中的位置可即时收回。
 
-## 证据
+核对 `DataContext.tsx:115`，publisher 仍在 app 级挂载；核对 Discover 的详情关闭/切 tab 停分享、伙伴 `userId` 映射与 NativeMap marker 展示，没有引入 UI 文案或导航变更。HTTP 第二客户端收到了合法成员/主人的身份与坐标，但实际 App 地图/头像像素、真机定位/系统后台行为仍未验证。
 
-2026-10-13 独立复现：Node 24（驱动）/ Node 22（隔离 WebSocket 客户端），Postgres `supabase/postgres:15.8.1.085`、Realtime `supabase/realtime:v2.102.3`、SDK `2.108.1`。脚本只读取共享库的 schema、角色名与 Realtime migration 版本元数据；不复制用户数据、口令、会话、tenant 配置或密钥。所有 fixture 与临时 JWT 密钥均在新建容器/internal network 内，测试结束删除。
+## 旧公共入口封堵
 
-共享库 `snapshot`、文字写入/删除函数体与提交逐字一致；`prepare_resource_upload` 存在部署漂移（票据 TTL/并发限额差异）。隔离库明确重装本提交中这四个**未修改的原函数定义**后复现；没有把部署漂移写成受测提交结果。schema 来自运行实例，并非声称所有表/触发器与提交完全一致。相关 schema ACL 保留，既有 SQL 权限断言没有删除或跳过。
+`supabase/functions/realtime-location-guard/server.ts` 是仓库内准备的 Realtime 网关，封堵 `realtime:journey-presence:*` 所有 Phoenix 消息和输出，并拒绝旧 topic 的 HTTP broadcast。JSON object/array 两种 Phoenix serializer 均覆盖，同一已建立 socket 上的旧 track 收到 `legacy_location_disabled`，没有把伪造 payload 转发给上游。当前 guard 仅转发 JSON Phoenix 帧，二进制帧不转发；本 App 未发现现有二进制 broadcast 使用，受控启用时仍需回归其他 Realtime 用途。
 
-重跑命令（需 Docker 及本提交锁定的 `node_modules`，从根目录执行；默认 source DB 是自托管 `kaipa-supabase-db`）：
+[受控启用方案](../../infra/supabase/realtime-location-guard/README.md) 明确要求：阻断所有外部 ingress、所有路径改经 guard、上游只能在内网访问，并在阻断期间排空/重启旧 Realtime 连接。只改频道名、private-only、DNS/路由、客户端过滤或隐藏按钮都不够。隔离测试先证明原连接可冒报身份，再受控重启**隔离 Realtime**并观察原 WebSocket close，随后经 guard 的所有角色旧 join 明确拒绝。没有实际应用共享 Kong/Realtime/compose 配置。
+
+## 最终检查
+
+从根目录运行以下命令（Deno 函数与 guard 不由根 tsc 覆盖，因此单独检查）：
 
 ```bash
-KAIPA_ISSUE11_EVIDENCE_DIR=/tmp/kaipa-issue11-evidence node scripts/qa/issue11-isolated.cjs
+KAIPA_ISSUE11_REPAIRED=1 KAIPA_ISSUE11_EVIDENCE_DIR=/tmp/kaipa-issue11-validated node scripts/qa/issue11-isolated.cjs
+node --test scripts/test-companion-presence.cjs
+/home/coder/.deno/bin/deno check supabase/functions/resources/index.ts supabase/functions/journey-join/index.ts supabase/functions/journey-location/index.ts supabase/functions/realtime-location-guard/server.ts
+/home/coder/.deno/bin/deno test --allow-env --allow-net supabase/functions/_shared/resource-guard_test.ts supabase/functions/journey-join supabase/functions/realtime-location-guard
+npx --no-install tsc --noEmit
+node --check scripts/qa/issue11-isolated.cjs
+node --check scripts/qa/issue11-presence.cjs
+node --check scripts/qa/issue11-http-stack.cjs
+node --check scripts/qa/issue11-http.cjs
+git diff --check
 ```
-
-脚本 exit 1 是访问边界回归失败；exit 2 是环境/连接错误或未验证，不能当作权限拒绝。位置子脚本当前针对旧 presence 协议复现；修复路线确认后必须接入实际新的拒绝响应断言，不能把连接失败算通过。
 
 | 检查 | 最终结果 |
 | --- | --- |
-| 独立 SQL 访客矩阵 | **9 通过/4 失败**，psql exit 3：口令过期后旧 session 读取、文字新增、删除自己的内容、上传申请全部仍被接受。有效匿名访客及合法主人/成员资格正常；会话自身过期、关闭邀请、重启邀请不复活旧 session 的边界通过 |
-| 独立 Realtime 矩阵 | **2 通过/5 失败**，exit 1：合法主人/成员可发布；无登录匿名、匿名 Auth 账号、已登录非成员、成员冒报另一用户，以及同一连接在成员移出后发布均收到 `SUBSCRIBED, track=ok` |
-| 原 `journey-passphrase-v2.sql` / `journey-invite-toggle.sql` | 隔离数据库运行，均 exit 0，显式 ROLLBACK，保持原断言 |
-| `/home/coder/.deno/bin/deno check supabase/functions/resources/index.ts supabase/functions/journey-join/index.ts` | 通过 |
-| `/home/coder/.deno/bin/deno test --allow-env supabase/functions/_shared/resource-guard_test.ts supabase/functions/journey-join` | 3 通过/0 失败；journey-join 目录没有测试，不能宣称覆盖了该入口的集成行为 |
-| `npx --no-install tsc --noEmit` | **失败 exit 2**，37 条错误，完整输出与 #10 的 `baseline-tsc.txt` 逐字一致，SHA-256 `52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7` |
-| `node --test scripts/test-companion-presence.cjs` | **15 通过/3 失败**，exit 1，原有关闭/快速重启/退出登录时序断言失败。使用 `git archive 3a6648a` 提取原文件与 `src/`，在 archive 根目录用同一依赖运行得到相同结果；完整输出仅归一化路径/耗时后逐字一致。未调整阈值或产品实现 |
-| `node --check scripts/qa/issue11-isolated.cjs`、`node --check scripts/qa/issue11-presence.cjs`、`git diff --check` | 通过 |
+| 访客 SQL 矩阵 | 45 通过/0 失败：过期分享读取/新增/删除/上传申请/特权实际对象写入，邀请关闭、口令轮换、旅程删除、session/票据过期，scope/内容归属/幂等，有效内容与对象完成，内部函数 ACL，2 分钟 TTL 与 8 槽位调优 |
+| 真实 HTTP 矩阵 | 52 通过/0 失败：认证位置发布/另一客户端快照、客户端直接 RPC/分发表写入拒绝、匿名/冒报/非成员/撤销原会话拒绝，多设备/关闭/过期/重新授权；有效访客 HTTP 和真实 Storage 上传；过期 token 真实 HTTP 增删读/上传申请，已签名票据真实对象上传与票据到期拒绝；旧 Realtime 原连接排空与所有角色旧路径拒绝 |
+| 既有 passphrase / invite SQL | 原断言/ACL 保留，各 exit 0，ROLLBACK |
+| 客户端单元与竞态 | 25 通过/0 失败，0 skipped；原 7 项 roster/freshness 断言保留，旧 socket lifecycle 测试适配新租约；增加断网/合法重连/重连拒绝/后台/迟到 open/publish/snapshot/撤销读取覆盖 |
+| Deno check | 上述 4 个入口通过 |
+| Deno test | 5 通过/0 失败；journey-join 目录仍没有测试，不把这写成该入口 HTTP 验收 |
+| 根 tsc | 仍失败，37 条原有错误；输出与修复前/#10 基线逐字一致，SHA-256 `52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7`，无新增类型错误 |
+| 脚本语法 / diff | 通过 |
 
-完整权限矩阵输出见 [guest evidence](evidence/issue11-guest-boundaries.txt)、[presence evidence](evidence/issue11-presence-boundaries.txt)；SQL 函数匹配见 [source comparison](evidence/issue11-source-match.txt)。以上是**修复前证据**。迁移、协议及兼容方案未批准、未实施，所以没有修复后证据。已有上传票据到期后真实对象上传、真实 Edge HTTP 端到端过期写入、实际 App 成员接收/展示和真机均未验证；SQL 写入证据不代替它们。单纯成员资格函数通过也不代表完整客户端/RLS 读取体验已通过。
+修复后输出见 `evidence/issue11-after-*`；仅去除终端行尾空格与文件末尾空行，tsc 原样保留以比较哈希。修复前访客 9 通过/4 失败，公共位置 2 通过/5 失败，分别见原 `issue11-guest-boundaries.txt` / `issue11-presence-boundaries.txt`；本次在修改产品前再次得到相同矩阵。基于 `git archive b22b13c`、同一依赖再次运行原 presence 测试是 15 通过/3 失败（关闭、快速重启、退出登录时序），保留证据，不把旧基线写成全绿。
 
-PR 保持 draft；没有绿色 CI 证据时不请求 review。
+## 隔离方法和未验证项
+
+脚本只读共享实例的 schema、角色名、版本 migration 元数据（Realtime/Auth/Storage），不复制业务用户、口令、session、tenant 配置或共享密钥。只在新容器/internal network 中写 fixture；所有 JWT 密钥随机生成、临时文件不入库，测试结束删除容器/网络。schema-only/no-owner 的 clone 中 Auth/Storage 运行角色使用测试特权和 Auth search_path；client ACL/RLS 保留，Storage 特权写入正是本次要验证的边界。schema 来源为运行实例，不声称全库都从迁移空库重建。原四个访客定义先恢复 checkout 基线，再明确应用最新上传调优及两份新 migration，避免把部署漂移当产品结果。
+
+真实 HTTP 使用原 `resources/index.ts` 与新 location handler 运行于 Deno HTTP worker，通过隔离 Auth `v2.189.0`、PostgREST `v14.12`、Storage `v1.60.4`、Realtime `v2.102.3` 和 Postgres `15.8.1.085`；不是 mock、SQL-only 或共享部署。没有运行完整自托管 Kong + Supabase edge-runtime worker 的生产拓扑。超时、连接失败、服务启动失败均记为未验证，未计权限拒绝；调试阶段发生的隔离 fixture/连接错误已修正，最终矩阵才是通过证据。
+
+未验证：真机、实际 App 成员位置接收/地图展示、生产拓扑、共享入口切换/全域名和直连端口封堵、共享旧连接排空、其他 Realtime 用途全量回归、并发多事务压力。位置是按提交顺序鉴权与最多 40 秒租约，不承诺跨网络瞬时消失。应用变更还需后续有授权的受控维护任务；本任务未部署/合并，也未更改 CI/发布/签名/密钥配置。GitHub 当前没有绿色 CI，未请求审查。

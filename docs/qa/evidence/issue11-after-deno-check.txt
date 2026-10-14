@@ -1,0 +1,2 @@
+command: /home/coder/.deno/bin/deno check supabase/functions/resources/index.ts supabase/functions/journey-join/index.ts supabase/functions/journey-location/index.ts supabase/functions/realtime-location-guard/server.ts
+exit=0 (cached check produced no diagnostics)

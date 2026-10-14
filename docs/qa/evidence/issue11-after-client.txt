@@ -1,0 +1,33 @@
+✔ one companion is one entry, however many connections tracked (158.271353ms)
+✔ a roster is sorted by user so the marker memo sees a stable list (84.60175ms)
+✔ incomplete or unreadable presence entries are dropped, not drawn (35.940026ms)
+✔ a fix older than the drop window is off the map, the boundary stays on (31.112718ms)
+✔ the fold returns its own objects, so a caller cannot write through to presence state (35.220475ms)
+✔ freshness is measured on arrival, never on the sender** clock (30.754582ms)
+✔ an entry is only refreshed by news about that same user (30.992452ms)
+✔ one journey has one snapshot bus; a live reference survives release (93.143205ms)
+✔ a late snapshot from a released bus cannot update a reopened map (65.02598ms)
+✔ a bus in use is never evicted when many other journeys open (36.308143ms)
+✔ a session with no cached fix still starts the location watch (77.438172ms)
+✔ a rejected cache lookup still starts the location watch (72.651879ms)
+✔ a cached fix goes out after server authorization before device moves (57.064839ms)
+✔ turning sharing off closes immediately while map snapshot bus remains live (63.363998ms)
+✔ sharing again after stop gets a fresh lease and old close cannot remove it (42.735427ms)
+✔ the keep-alive advances the server publication stamp (53.577366ms)
+✔ movement is floored so a car ride cannot flood publication (42.120577ms)
+✔ signing out clears the toggle and closes old account lease (39.540674ms)
+✔ offline pauses location publication; reconnect reauthorizes rather than replaying queue (42.071819ms)
+✔ foreground restoration opens a new lease and background cannot publish (48.458589ms)
+✔ late open after off is closed and cannot start a watch (61.222157ms)
+✔ late publish after off cannot restore self pin or resurrect device (40.63966ms)
+✔ revocation rejects each publish and clears self pin and intent (43.725025ms)
+✔ legal reconnect uses a fresh authorized session and new GPS fix (44.383319ms)
+✔ snapshot authorization failure clears peers from an already open viewer (88.868935ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1973.672155

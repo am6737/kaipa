@@ -1,0 +1,79 @@
+✔ one companion is one entry, however many connections tracked (160.446985ms)
+✔ a roster is sorted by user so the marker memo sees a stable list (50.719963ms)
+✔ incomplete or unreadable presence entries are dropped, not drawn (19.621521ms)
+✔ a fix older than the drop window is off the map, the boundary stays on (20.798915ms)
+✔ the fold returns its own objects, so a caller cannot write through to presence state (18.894209ms)
+✔ one journey has one channel; releasing it does not unsubscribe (48.427625ms)
+✔ reopening a journey whose channel is still leaving joins a fresh channel (439.580692ms)
+✔ a bus in use is never evicted to make room (43.864687ms)
+✔ a session with no cached fix still starts the location watch (77.853597ms)
+✔ a rejected cache lookup still starts the location watch (82.05432ms)
+✔ a cached fix goes out on the join, before the device moves (45.851998ms)
+✖ turning sharing off untracks, instead of relying on leaving the channel (48.60477ms)
+✖ sharing again after a stop reuses the bus instead of racing a second join (66.995355ms)
+✔ freshness is measured on arrival, never on the sender** clock (13.057785ms)
+✔ an entry is only refreshed by news about that same user (11.618819ms)
+✔ the keep-alive re-stamps, because an identical payload is not a diff (68.818646ms)
+✔ movement is floored so a car ride cannot out-run the presence rate limit (43.464449ms)
+✖ signing out clears the toggle the next account would otherwise inherit (39.667223ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 15
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9826.665135
+
+✖ failing tests:
+
+test at scripts/test-companion-presence.cjs:389:1
+✖ turning sharing off untracks, instead of relying on leaving the channel (48.60477ms)
+  AssertionError [ERR_ASSERTION]: peers stop seeing this position immediately
+
+  0 !== 1
+
+      at TestContext.<anonymous> (/tmp/kaipa-issue11-baseline/scripts/test-companion-presence.cjs:400:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-companion-presence.cjs:406:1
+✖ sharing again after a stop reuses the bus instead of racing a second join (66.995355ms)
+  AssertionError [ERR_ASSERTION]: and the new position goes out
+
+  1 !== 2
+
+      at TestContext.<anonymous> (/tmp/kaipa-issue11-baseline/scripts/test-companion-presence.cjs:419:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-companion-presence.cjs:513:1
+✖ signing out clears the toggle the next account would otherwise inherit (39.667223ms)
+  AssertionError [ERR_ASSERTION]: and the share stopped on the way out
+
+  0 !== 1
+
+      at TestContext.<anonymous> (/tmp/kaipa-issue11-baseline/scripts/test-companion-presence.cjs:527:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

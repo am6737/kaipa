@@ -1,0 +1,54 @@
+PASS: no login rejected
+PASS: anonymous Auth rejected
+PASS: forged JWT rejected
+PASS: nonmember rejected
+PASS: expired JWT rejected
+PASS: client cannot directly invoke trusted publisher RPC
+PASS: client cannot insert trusted distribution rows
+PASS: legal owner opens device
+PASS: legal member opens device
+PASS: member cannot report owner identity
+PASS: invalid coordinate rejected
+PASS: legal member publishes
+PASS: second authenticated client receives member
+PASS: received identity and coordinates are server generated
+PASS: out-of-order sequence rejected
+PASS: second device opens independently
+PASS: tablet publishes
+PASS: phone closes immediately
+PASS: closing phone preserves tablet and folds one avatar
+PASS: late publish cannot resurrect closed device
+PASS: legal owner publishes own location
+PASS: member receives legitimate owner location
+PASS: original device denied after member removal
+PASS: removed viewer cannot receive snapshot
+PASS: trusted snapshot removes revoked publisher
+PASS: rejoin cannot revive revoked lease
+PASS: reconnect gets fresh authorization
+PASS: expired disconnected lease cannot publish
+PASS: expired lease removed from snapshot
+PASS: deleted journey owner publish rejected
+PASS: valid passphrase opens anonymous Web guest
+PASS: valid guest HTTP snapshot
+PASS: valid guest HTTP text write
+PASS: valid guest receives signed upload ticket
+PASS: valid signed ticket uploads real Storage object
+PASS: issue second ticket before share expires
+PASS: expired old token HTTP read rejected
+PASS: expired old token real Edge HTTP write rejected
+PASS: expired old token HTTP deletion rejected
+PASS: expired old token upload request rejected
+PASS: previously signed ticket actual object upload rejected by guest trigger
+PASS: rejected real object never committed
+PASS: issue ticket for ticket-expiry upload check
+PASS: ticket expiry rejects actual object upload
+PASS: isolated old connection reproduces identity spoof before drain
+PASS: controlled isolated restart closes already-connected old socket
+PASS: owner old public channel explicitly rejected
+PASS: member old public channel explicitly rejected
+PASS: outsider old public channel explicitly rejected
+PASS: anonymous old public channel explicitly rejected
+PASS: unsigned old public channel explicitly rejected
+PASS: legacy HTTP broadcast denied
+HTTP summary: 52 passed, 0 failed
+http exit=0

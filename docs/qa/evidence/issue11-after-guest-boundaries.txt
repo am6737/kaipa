@@ -1,0 +1,61 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+DO
+                           label                            | result
+------------------------------------------------------------+--------
+ legal owner and companion membership                       | PASS
+ valid anonymous guest open/read/text/upload preparation    | PASS
+ expired passphrase rejects new session                     | PASS
+ expired share rejects established-session read             | PASS
+ expired share rejects text write                           | PASS
+ expired share rejects content deletion                     | PASS
+ expired share rejects upload preparation                   | PASS
+ expired share rejects privileged actual object insert      | PASS
+ valid share restores established-session read              | PASS
+ expired session rejects read                               | PASS
+ expired session rejects text write                         | PASS
+ guest upload rejects another share scope                   | PASS
+ guest write idempotency preserved                          | PASS
+ valid guest deletes own content                            | PASS
+ another guest cannot delete content by matching nickname   | PASS
+ session rejects read                                       | PASS
+ session rejects write                                      | PASS
+ session rejects delete                                     | PASS
+ session rejects prepare                                    | PASS
+ session rejects actual object insert                       | PASS
+ ticket rejects actual object insert                        | PASS
+ deleted rejects read                                       | PASS
+ deleted rejects write                                      | PASS
+ deleted rejects delete                                     | PASS
+ deleted rejects prepare                                    | PASS
+ deleted rejects actual object insert                       | PASS
+ disabled rejects read                                      | PASS
+ disabled rejects write                                     | PASS
+ disabled rejects delete                                    | PASS
+ disabled rejects prepare                                   | PASS
+ disabled rejects actual object insert                      | PASS
+ inactive rejects read                                      | PASS
+ inactive rejects write                                     | PASS
+ inactive rejects delete                                    | PASS
+ inactive rejects prepare                                   | PASS
+ inactive rejects actual object insert                      | PASS
+ internal guest validator privileges restricted             | PASS
+ small-ticket 2-minute TTL tuning preserved                 | PASS
+ valid privileged object insert completes/accounting intact | PASS
+ tuned eight-ticket concurrency cap preserved               | PASS
+ rotated passphrase rejects established read                | PASS
+ rotated passphrase rejects actual object insert            | PASS
+ disabled invitation rejects existing read                  | PASS
+ disabled invitation rejects existing text write            | PASS
+ re-enabled invitation does not revive old session          | PASS
+(45 rows)
+
+ passed | failed
+--------+--------
+     45 |      0
+(1 row)
+
+DO
+ROLLBACK
+psql exit=0

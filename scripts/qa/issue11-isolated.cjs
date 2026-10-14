@@ -7,6 +7,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync, spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
+const repaired = process.env.KAIPA_ISSUE11_REPAIRED === '1';
 const evidence = process.env.KAIPA_ISSUE11_EVIDENCE_DIR;
 if (!evidence) throw new Error('Set KAIPA_ISSUE11_EVIDENCE_DIR to a local evidence directory');
 fs.mkdirSync(evidence, { recursive: true });
@@ -42,7 +43,7 @@ function record(name, result) {
     const roles = run(['exec', source, 'psql', '-X', '-At', '-U', 'postgres', '-d', 'postgres', '-c',
       "select rolname from pg_roles where rolname !~ '^pg_' and rolname <> 'postgres' order by rolname"]).trim().split('\n');
     const metadata = run(['exec', source, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--data-only',
-      '--table=_realtime.schema_migrations', '--table=realtime.schema_migrations', '--no-owner', '--no-privileges']);
+      '--table=_realtime.schema_migrations', '--table=realtime.schema_migrations', '--table=auth.schema_migrations', '--table=storage.migrations', '--no-owner', '--no-privileges']);
     // Record deployment drift, then install only UNCHANGED checkout definitions
     // in the disposable clone so results refer to the requested product baseline.
     const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261008140000_resource_uploads.sql'), 'utf8');
@@ -72,9 +73,15 @@ function record(name, result) {
     psql(schema); psql(metadata);
     psql(baselineFunctions.join('\n'));
     psql(acl);
+    if (repaired) {
+      for (const migration of ['20261012170000_upload_ticket_tuning.sql','20261014100000_guest_permission_boundaries.sql','20261014110000_trusted_journey_locations.sql']) {
+        psql(fs.readFileSync(path.join(root,'supabase/migrations',migration),'utf8'));
+      }
+    }
     psql(seedBetween('20261008120000_membership_foundation.sql', 'insert into public.resource_policies(version, features)', 'update public.resource_policies set published_at=now();')
       + seedBetween('20261008130000_membership_runtime.sql', 'insert into public.resource_rate_rules values', 'create function public.membership_event_context')
       + seedBetween('20261008140000_resource_uploads.sql', 'insert into public.service_budgets(service,daily_units,per_run_units)', '-- Backfill'));
+    psql("insert into public.service_budget_usage(service,day,used) values('stored_bytes','2000-01-01',0),('stored_objects','2000-01-01',0);");
     const sqlResult = spawnSync('docker', ['exec', '-i', db, 'psql', '-X', '-h', '/tmp', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
       input: fs.readFileSync(path.join(root, 'supabase/tests/issue11-guest-boundaries.sql')), encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
     });
@@ -87,6 +94,11 @@ function record(name, result) {
       });
       record(name, result.stdout + result.stderr + 'psql exit=' + result.status + '\n');
       existingFailed ||= result.status !== 0;
+    }
+    if (repaired) {
+      const httpPassed = await require('./issue11-http-stack.cjs')({ root, temp, db, network, created, run, psql, record });
+      process.exitCode = sqlResult.status || existingFailed || !httpPassed ? 1 : 0;
+      return;
     }
     const fixture = Object.fromEntries(['owner', 'member', 'outsider', 'anonymous', 'journey'].map(key => [key, crypto.randomUUID()]));
     psql("insert into auth.users(id,email,role,aud,is_anonymous) values " + ['owner', 'member', 'outsider', 'anonymous'].map(key =>
@@ -108,7 +120,7 @@ function record(name, result) {
     for (let attempt = 0; attempt < 45; attempt++) {
       // HTTP availability only; the child performs the actual authenticated join.
       const ready = spawnSync('docker', ['exec', realtime, 'curl', '-s', '--max-time', '2', '-o', '/dev/null', 'http://localhost:4000/'], { encoding: 'utf8' });
-      if (ready.status === 0) break;
+      if (ready.status === 0) { await new Promise(resolve => setTimeout(resolve, 6000)); break; }
       if (attempt === 44) throw new Error('UNVERIFIED: isolated Realtime did not become ready');
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
@@ -131,6 +143,7 @@ function record(name, result) {
     child.stderr.on('data', data => { errors += data; });
     const code = await new Promise(resolve => child.on('close', resolve));
     record('presence-boundaries', output + errors + 'presence exit=' + code + '\n');
+    if (code === 2) record('realtime-debug', run(['logs', realtime]));
     if (code !== 0 && code !== 1) throw new Error('UNVERIFIED: presence connection/setup failure');
     process.exitCode = sqlResult.status || code || existingFailed ? 1 : 0;
   } catch (error) { console.error(error.message); process.exitCode = 2; }

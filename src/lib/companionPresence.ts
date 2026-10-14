@@ -1,30 +1,7 @@
-// Companion live-location sharing (旅程伙伴位置).
-//
-// The whole feature is one toggle: while it is on and the app is foregrounded,
-// the user's position rides a Supabase realtime *presence* channel keyed by the
-// journey id. Presence was chosen over a table on purpose:
-//
-// - "on = share, off = gone" is exactly presence's join/leave semantics, so
-//   nobody has to write a TTL, a sweeper, or an "offline" flag — a killed app
-//   drops the socket and the avatar disappears by itself. Turning the toggle off
-//   is not a socket drop, though: the publisher has to untrack explicitly,
-//   because the map's half of the channel outlives the switch (see
-//   useCompanionPresence's releaseBus).
-// - No row writes per second; the self-hosted database sees zero traffic from
-//   this feature.
-//
-// Deliberate v1 limits (they are the cheap half of the WeChat behaviour):
-// - Foreground only. There is no background location permission, so when the
-//   app suspends the position freezes and then lapses with the socket.
-// - Freshness is decided by arrival on the *viewer's* device (`seenAt`), never
-//   by the sender's stamp: two phones do not agree on the time of day, and a
-//   peer's clock being fast used to make that peer invisible.
-// - The toggle never persists across cold starts: sharing always begins off.
-//   Signing out clears it too (see usePresencePublisher), because no reload
-//   happens there either.
-// - Coordinates are WGS-84 end to end; `NativeMap` projects per platform, so
-//   nothing here may pre-shift them (see src/lib/coordinates usage in
-//   NativeMap.ios/android).
+// Foreground companion locations. Identity, timestamps and leases come from the
+// authenticated server protocol; this module only folds trusted snapshots and
+// shares local UI state. WGS-84 coordinates are projected by NativeMap.
+// No toggle persists across a cold start or sign-out.
 
 import { useSyncExternalStore } from 'react';
 
@@ -35,7 +12,7 @@ export interface CompanionPresence {
   longitude: number;
   /** WGS-84 degrees */
   latitude: number;
-  /** epoch ms of the device fix this position came from — the *sender's* clock */
+  /** epoch ms of the server-accepted publication */
   fixedAt: number;
   /**
    * epoch ms on *this* device when we last saw this entry change. Every
@@ -52,31 +29,12 @@ export const PRESENCE_STALE_MS = 2 * 60_000;
 /** A fix older than this is not worth drawing at all. */
 export const PRESENCE_DROP_MS = 30 * 60_000;
 
-export function presenceChannelName(journeyId: string) {
-  return `journey-presence:${journeyId}`;
-}
-
 /**
- * Fold a presence roster into one entry per user.
- *
- * The argument is `Object.values(channel.presenceState())`: one group per
- * *connection*, each holding everything that connection tracked. Grouping by
- * the presence key is what used to collapse one user's several connections
- * into one avatar, but realtime-js 2.108 stopped sending the key `track()` is
- * given (its `track(payload, opts)` forwards only `opts.timeout`), so the
- * grouping is per socket and has to happen here instead: newest fix per
- * `userId`, or a companion on a phone and a tablet draws two avatars — and two
- * markers with the same clipId.
- *
- * `previous` is what we published to the UI last time. An entry whose stamp and
- * coordinates are unchanged keeps its old `seenAt`, so "how long since this peer
- * said anything" survives every unrelated roster churn; anything new or changed
- * is stamped with `now`, the arrival time on this device.
- *
- * Anything that is not a complete, finite reading is dropped rather than
- * trusted. A missing `fixedAt` used to survive (the payload was cast, not
- * checked) and then compared as NaN: `age > PRESENCE_DROP_MS` is false for NaN,
- * so that entry rendered forever as a fresh, never-staling avatar.
+ * Fold trusted HTTP snapshot readings into one marker per real user.
+ * The database chooses the newest device publication; this also tolerates
+ * duplicate readings without duplicate marker IDs. Unchanged readings retain
+ * their local arrival time, so unrelated polling cannot refresh a quiet peer.
+ * Structural/coordinate checks are defensive parsing, not authentication.
  */
 export function foldPresenceRoster(
   groups: unknown[][],
@@ -88,11 +46,10 @@ export function foldPresenceRoster(
     entries.forEach((raw) => {
       const presence = readPresence(raw);
       if (!presence) return;
-      // The sender's clock only gets a one-sided vote here: an entry nobody has
-      // refreshed in half an hour is not worth drawing even on the strength of
-      // its arrival, because a rejoin hands us the whole roster at once. A head
-      // start on the clock must not drop anyone, so `<= now` gates it.
-      if (presence.fixedAt <= now && now - presence.fixedAt > PRESENCE_DROP_MS) return;
+      // A delayed snapshot must not draw an ancient publication. Server and
+      // device clocks may differ; a stamp ahead of ours is still drawable.
+      if (presence.fixedAt <= now && now - presence.fixedAt > PRESENCE_DROP_MS)
+        return;
       const current = bestByUser.get(presence.userId);
       if (!current || presence.fixedAt > current.fixedAt) {
         bestByUser.set(presence.userId, presence);
@@ -102,10 +59,11 @@ export function foldPresenceRoster(
   const roster: CompanionPresence[] = [];
   bestByUser.forEach((presence, userId) => {
     const last = previous.find((peer) => peer.userId === userId);
-    const unchanged = !!last
-      && last.fixedAt === presence.fixedAt
-      && last.longitude === presence.longitude
-      && last.latitude === presence.latitude;
+    const unchanged =
+      !!last &&
+      last.fixedAt === presence.fixedAt &&
+      last.longitude === presence.longitude &&
+      last.latitude === presence.latitude;
     const entry: CompanionPresence = {
       ...presence,
       seenAt: unchanged && last ? last.seenAt : now,
@@ -120,10 +78,23 @@ type RawReading = Omit<CompanionPresence, 'seenAt'>;
 
 function readPresence(raw: unknown): RawReading | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { userId, longitude, latitude, fixedAt } = raw as Record<string, unknown>;
+  const { userId, longitude, latitude, fixedAt } = raw as Record<
+    string,
+    unknown
+  >;
   if (typeof userId !== 'string' || !userId) return null;
-  if (typeof longitude !== 'number' || !Number.isFinite(longitude)) return null;
-  if (typeof latitude !== 'number' || !Number.isFinite(latitude)) return null;
+  if (
+    typeof longitude !== 'number' ||
+    !Number.isFinite(longitude) ||
+    Math.abs(longitude) > 180
+  )
+    return null;
+  if (
+    typeof latitude !== 'number' ||
+    !Number.isFinite(latitude) ||
+    Math.abs(latitude) > 90
+  )
+    return null;
   if (typeof fixedAt !== 'number' || !Number.isFinite(fixedAt)) return null;
   return { userId, longitude, latitude, fixedAt };
 }
@@ -157,9 +128,8 @@ export function useSharingJourneyId(): string | null {
 }
 
 // ---- the publisher's latest self fix ----
-// Peers see us through presence; our own map wants the same avatar without
-// waiting for its own presence round-trip. The publisher writes here whenever
-// it has a fresh fix while sharing; the journey map draws it as a self pin.
+// Peers see server snapshots. The self pin appears only after a successful
+// publish acknowledgement; pausing/closing clears it immediately.
 let lastSelfPresence: CompanionPresence | null = null;
 let lastKnownSelfPresence: CompanionPresence | null = null;
 const selfPresenceListeners = new Set<() => void>();
