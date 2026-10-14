@@ -1,0 +1,10 @@
+PASS: legal owner publishes own identity — SUBSCRIBED, track=ok
+PASS: legal companion publishes own identity — SUBSCRIBED, track=ok
+FAIL: member cannot self-report another user identity — SUBSCRIBED, track=ok
+FAIL: unsigned anonymous publisher is rejected — SUBSCRIBED, track=ok
+FAIL: anonymous Auth account is rejected — SUBSCRIBED, track=ok
+FAIL: signed-in nonmember is rejected — SUBSCRIBED, track=ok
+REVOKE_READY
+FAIL: already-connected companion is rejected after removal — SUBSCRIBED, track=ok
+Presence summary: 2 passed, 5 failed
+presence exit=1

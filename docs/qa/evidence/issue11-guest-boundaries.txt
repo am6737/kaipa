@@ -1,0 +1,29 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+DO
+                          label                          |                result
+---------------------------------------------------------+---------------------------------------
+ legal owner and companion membership                    | PASS
+ valid anonymous guest open/read/text/upload preparation | PASS
+ expired passphrase rejects new session                  | PASS
+ expired share rejects established-session read          | FAIL: unauthorized operation accepted
+ expired share rejects text write                        | FAIL: unauthorized operation accepted
+ expired share rejects content deletion                  | FAIL: unauthorized operation accepted
+ expired share rejects upload preparation                | FAIL: unauthorized operation accepted
+ valid share restores established-session read           | PASS
+ expired session rejects read                            | PASS
+ expired session rejects text write                      | PASS
+ disabled invitation rejects existing read               | PASS
+ disabled invitation rejects existing text write         | PASS
+ re-enabled invitation does not revive old session       | PASS
+(13 rows)
+
+ passed | failed
+--------+--------
+      9 |      4
+(1 row)
+
+ERROR:  Issue 11 guest access boundary regression failed
+CONTEXT:  PL/pgSQL function inline_code_block line 3 at RAISE
+psql exit=3

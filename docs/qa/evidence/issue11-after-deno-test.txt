@@ -1,0 +1,11 @@
+Check supabase/functions/_shared/resource-guard_test.ts
+Check supabase/functions/realtime-location-guard/server_test.ts
+running 3 tests from ./supabase/functions/_shared/resource-guard_test.ts
+chunked oversized requests are rejected even without Content-Length ... ok (2ms)
+rate limit commits response and exposes retry hint ... ok (0ms)
+quota failures return a public code and database outage fails closed ... ok (0ms)
+running 2 tests from ./supabase/functions/realtime-location-guard/server_test.ts
+blocks legacy topics in both Phoenix serializers and rejects malformed input ... ok (1ms)
+existing socket receives explicit track rejection while ordinary channels work ... ok (90ms)
+
+ok | 5 passed | 0 failed (400ms)

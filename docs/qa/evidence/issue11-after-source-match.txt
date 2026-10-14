@@ -1,0 +1,5 @@
+resource_guest_snapshot: body matches checkout
+write_resource_guest_moment: body matches checkout
+delete_resource_guest_moment: body matches checkout
+prepare_resource_upload: DEPLOYMENT DRIFT; use unchanged checkout body in clone
+Schema-only clone; no user rows copied.

@@ -1,327 +1,172 @@
-// Live companion presence over Supabase realtime channels. See
-// src/lib/companionPresence.ts for why presence (not a table) carries this and
-// what the deliberate v1 limits are.
-//
-// Two halves, sharing one socket channel per journey:
-// - usePresencePublisher mounts app-wide (DataContext) and owns the "am I
-//   sharing" side: one location watch while the toggle is on, no matter which
-//   screen the user is reading.
-// - useCompanionLocations mounts with the journey detail map and owns the
-//   "where is everyone else" side.
-// Both go through a refcounted bus keyed by the journey id, which lives in
-// src/lib/companionPresenceBus.ts: supabase-js hands the *same* channel object
-// to two callers of channel(name), so two independent hooks on one device would
-// fight over it. The bus owns the single subscription and tells its users when
-// it is ready (including after a socket reconnect, which is when a tracker must
-// replay its presence). Dropping to zero refs does *not* unsubscribe — see
-// releaseBus there, which explains why releasing a channel and re-acquiring it
-// inside one round trip produced a share that never started.
-//
-// Security note: the channel topic carries the journey's uuid and anyone with
-// the anon key + that uuid could join the presence set. v1 accepts that
-// (uuid-not-enumerable + the payload is only a coarse live position that
-// requires an *open* toggle to exist at all); binding the channel to journey
-// membership is the known next step, not an oversight. Binding it matters for
-// more than eavesdropping: the track payload is unverified in both directions,
-// so a joiner can also *write* one — and the viewer resolves a companion's
-// avatar from `userId` in that payload, which is enough to draw a known
-// companion at a place they have never stood.
-
+// Foreground location sharing via verified HTTP requests and server snapshots.
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import * as Location from 'expo-location';
+import * as Network from 'expo-network';
 import {
   setLastSelfPresence,
-  getLastSelfPresence,
   clearLastSelfPresenceHistory,
-  getSharingJourneyId,
   setSharingJourneyId,
   useLastSelfPresence,
   useSharingJourneyId,
   type CompanionPresence,
 } from '../lib/companionPresence';
-import { acquireBus, onBusReady, releaseBus } from '../lib/companionPresenceBus';
-
-// Position deltas below this do not deserve a broadcast; the keep-alive at
-// PRESENCE_REBROADCAST_MS still refreshes fixedAt so the ring stays honest
-// while the app is genuinely foregrounded and moving slowly.
-const MOVE_MIN_METERS = 15;
-// Re-send the current fix at least this often so "fresh" means "the app is
-// alive", not "the device happened to move".
-const PRESENCE_REBROADCAST_MS = 30_000;
-// Self-hosted Realtime allows 5 presence calls per connection per 30 seconds by
-// default (CLIENT_PRESENCE_MAX_CALLS / CLIENT_PRESENCE_WINDOW_MS, see
-// infra/supabase/docker/CONFIG.md:859), and a move-triggered broadcast used to be
-// bounded only by how fast the device produced fixes — which is to say not at all
-// in a car or a cable car to the trailhead. Eight seconds keeps the worst case at
-// four tracks a window, keep-alive included, under that ceiling.
-const MIN_TRACK_GAP_MS = 8_000;
-
-// A rapid off/on on the same journey creates two publisher effects before the
-// realtime untrack from the first one has completed. Keep the old cleanup from
-// clearing the new publisher's local pin or untracking its presence.
-let publisherGeneration = 0;
-type PendingUntrack = { promise: Promise<unknown>; cancel: () => void };
-const pendingUntracks = new Map<string, PendingUntrack>();
-const UNTRACK_DEBOUNCE_MS = 8_000;
-const lastTrackedByJourney = new Map<string, CompanionPresence>();
-
-function metersBetween(a: CompanionPresence, bLng: number, bLat: number) {
-  // Flat-earth at journey scales; a city-block error is not worth a haversine.
-  const x = (bLng - a.longitude) * Math.cos((a.latitude * Math.PI) / 180) * 111_320;
-  const y = (bLat - a.latitude) * 110_540;
-  return Math.sqrt(x * x + y * y);
-}
-
-function toPresence(position: Location.LocationObject, userId: string): CompanionPresence | null {
-  const { longitude, latitude } = position.coords;
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-    console.warn('companion presence: ignoring invalid location fix', position.coords);
-    return null;
-  }
-  const now = Date.now();
-  return {
-    userId,
-    longitude,
-    latitude,
-    fixedAt: typeof position.timestamp === 'number' && Number.isFinite(position.timestamp)
-      ? position.timestamp
-      : now,
-    // The pin this user sees of themselves ages on the same arrival clock as
-    // everybody else's, so a publisher that stops getting through goes grey on
-    // its own screen too — the one honest signal this feature is allowed to
-    // give without a toast.
-    seenAt: now,
-  };
-}
-
-// ---- publisher ----
+import { acquireBus, releaseBus } from '../lib/companionPresenceBus';
+import {
+  LocationPublisher,
+  LocationRequestError,
+} from '../lib/companionLocationTransport';
 
 export function usePresencePublisher(userId: string | null) {
-  const sharingJourneyId = useSharingJourneyId();
+  const journeyId = useSharingJourneyId();
   useEffect(() => {
+    setLastSelfPresence(null);
     if (!userId) {
-      // Signing out does not reload the bundle, so the module-level toggle would
-      // otherwise survive it — and the next account to log in on this phone
-      // would hand its position to a journey it is not part of, while the switch
-      // on that journey's card shows off.
       setSharingJourneyId(null);
       clearLastSelfPresenceHistory();
       return;
     }
-    if (!sharingJourneyId) return;
-    const publisherId = userId;
-    const generation = ++publisherGeneration;
-    const priorPendingUntrack = pendingUntracks.get(sharingJourneyId);
-    // A new share supersedes a delayed cleanup from the previous share. This
-    // is also what keeps rapid toggles below the Realtime Presence call limit.
-    priorPendingUntrack?.cancel();
-    const priorUntrack = priorPendingUntrack?.promise;
-    if (priorPendingUntrack) pendingUntracks.delete(sharingJourneyId);
-    const bus = acquireBus(sharingJourneyId);
+    if (!journeyId) return;
     let disposed = false;
-    let positionSub: Location.LocationSubscription | null = null;
-    let appSuspended = false;
-    let suspendUntrack: Promise<unknown> | null = null;
-    const cachedSelf = getLastSelfPresence();
-    let latest: CompanionPresence | null = cachedSelf
-      ? { ...cachedSelf, seenAt: Date.now() }
-      : null;
-    let lastBroadcastAt = 0;
-    let untrackSettled = !priorUntrack;
-
-    const broadcast = (force = false) => {
-      // subscribed is only ever set by the join callback of a real channel, so
-      // the null test is for the type, not for a race.
-      const channel = bus.channel;
-      if (appSuspended || !channel || !bus.subscribed || !latest || !untrackSettled) return;
-      const now = Date.now();
-      if (now - lastBroadcastAt < (force ? MIN_TRACK_GAP_MS : PRESENCE_REBROADCAST_MS)) return;
-      lastBroadcastAt = now;
-      if (!force) {
-        // Presence tells peers about a *diff*, so the keep-alive has to change
-        // the payload to mean anything: re-sending the identical fix refreshed
-        // nothing on their map, and a companion standing still went grey at 2
-        // minutes and off the map at 30 with their app open and sharing. A
-        // stationary phone reporting the same place *is* a new report, so the
-        // stamp moves with it. (Movement publishes arrive already re-stamped by
-        // toPresence, and a replay of an old fix deliberately keeps its age.)
-        latest = { ...latest, fixedAt: now, seenAt: now };
+    let active =
+      AppState.currentState === 'active' || AppState.currentState == null;
+    let online = false;
+    let generation = 0;
+    let starting = false;
+    let publisher: LocationPublisher | null = null;
+    let watch: Location.LocationSubscription | null = null;
+    let latest: CompanionPresence | null = null;
+    let lastSent = 0;
+    const pause = () => {
+      generation++;
+      watch?.remove();
+      watch = null;
+      latest = null;
+      lastSent = 0;
+      setLastSelfPresence(null);
+      const old = publisher;
+      publisher = null;
+      void old?.stop().catch(() => {}); // An offline device lapses after 40s server time.
+    };
+    const failure = (error: unknown) => {
+      pause();
+      if (
+        error instanceof LocationRequestError &&
+        [401, 403].includes(error.status)
+      ) {
+        setSharingJourneyId(null);
       }
-      const tracked = lastTrackedByJourney.get(sharingJourneyId);
-      const unchanged = tracked
-        && tracked.userId === latest.userId
-        && tracked.longitude === latest.longitude
-        && tracked.latitude === latest.latitude
-        && tracked.fixedAt === latest.fixedAt;
-      if (!unchanged) {
-        const payload = latest;
-        void channel.track(payload)
-          .then(() => {
-            lastTrackedByJourney.set(sharingJourneyId, payload);
+    };
+    const publish = async () => {
+      if (
+        disposed ||
+        !active ||
+        !online ||
+        !publisher ||
+        !latest ||
+        Date.now() - lastSent < 8000
+      )
+        return;
+      const current = generation;
+      lastSent = Date.now();
+      try {
+        const acknowledged = await publisher.publish(latest);
+        if (!disposed && generation === current && acknowledged)
+          setLastSelfPresence(acknowledged);
+      } catch (error) {
+        if (!disposed && generation === current) failure(error);
+      }
+    };
+    const start = async () => {
+      if (disposed || !active || !online || publisher || starting) return;
+      starting = true;
+      const current = generation;
+      const next = new LocationPublisher(journeyId);
+      publisher = next;
+      try {
+        if (!(await next.begin()) || disposed || generation !== current) return;
+        const cached = await Location.getLastKnownPositionAsync({
+          maxAge: 120_000,
+        }).catch(() => null);
+        if (disposed || generation !== current) return;
+        const receive = (position: Location.LocationObject) => {
+          if (disposed || generation !== current || !active || !online) return;
+          const { longitude, latitude } = position.coords;
+          if (
+            !Number.isFinite(longitude) ||
+            !Number.isFinite(latitude) ||
+            Math.abs(longitude) > 180 ||
+            Math.abs(latitude) > 90
+          )
+            return;
+          latest = {
+            userId,
+            longitude,
+            latitude,
+            fixedAt: Date.now(),
+            seenAt: Date.now(),
+          };
+          void publish();
+        };
+        if (cached) receive(cached);
+        const sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          receive,
+        );
+        if (disposed || generation !== current) sub.remove();
+        else watch = sub;
+      } catch (error) {
+        if (!disposed && generation === current) failure(error);
+      } finally {
+        starting = false;
+      }
+    };
+    let networkGeneration = 0;
+    const network = (state: Network.NetworkState) => {
+      online =
+        state.isConnected === true && state.isInternetReachable !== false;
+      if (!online) pause();
+      else void start();
+    };
+    const networkSub = Network.addNetworkStateListener((state) => {
+      networkGeneration++;
+      network(state);
+    });
+    const initialNetwork = networkGeneration;
+    void Network.getNetworkStateAsync()
+      .then((state) => {
+        if (!disposed && networkGeneration === initialNetwork) network(state);
+      })
+      .catch(() => {});
+    const appSub = AppState.addEventListener('change', (state) => {
+      active = state === 'active';
+      if (!active) pause();
+      else {
+        networkGeneration++;
+        const check = networkGeneration;
+        void Network.getNetworkStateAsync()
+          .then((state) => {
+            if (!disposed && check === networkGeneration) network(state);
           })
           .catch(() => {});
       }
-      setLastSelfPresence(latest);
-    };
-
-    let watchStarting = false;
-    const startWatch = async () => {
-      if (disposed || appSuspended || positionSub || watchStarting) return;
-      watchStarting = true;
-      // A cached fix only shortcuts the first avatar. It must never decide
-      // whether the watch runs: getLastKnownPositionAsync returns null on a
-      // clean session (nothing located yet) or when the last fix is older than
-      // maxAge — which is exactly the user who has been reading the map
-      // stationary for five minutes before tapping share. Returning there left
-      // the toggle on with no watch and nothing published, forever.
-      try {
-        if (!latest) {
-          const cached = await Location.getLastKnownPositionAsync({ maxAge: 120_000 })
-            .catch(() => null);
-          if (disposed || appSuspended) return;
-          if (cached && !latest) {
-            const cachedPresence = toPresence(cached, publisherId);
-            if (cachedPresence) {
-              latest = cachedPresence;
-              broadcast(true);
-            }
-          }
-        }
-      } finally {
-        watchStarting = false;
-      }
-      if (disposed || appSuspended || positionSub) return;
-      void Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5_000,
-          distanceInterval: 10,
-        },
-        (position) => {
-          if (disposed) return;
-          const next = toPresence(position, publisherId);
-          if (!next) return;
-          const moved = !latest || metersBetween(latest, next.longitude, next.latitude) >= MOVE_MIN_METERS;
-          latest = next;
-          if (moved) broadcast(true);
-          else broadcast();
-        },
-      ).then((sub) => {
-        if (disposed) sub.remove();
-        else positionSub = sub;
-      }).catch((error) => {
-        // All the user sees of this is the switch staying on with no avatar
-        // appearing, so keep the reason for whoever chases the report: revoked
-        // permission mid-session, or location services off on the device.
-        console.warn(
-          'companion presence: location watch failed',
-          error instanceof Error ? error.message : error,
-        );
-      });
-    };
-
-    // Start the Android location watcher independently of the Realtime join.
-    // AMap/Android can take a moment to initialize (and a transient socket
-    // reconnect can take longer); tying the first GPS fix to SUBSCRIBED made
-    // the switch appear to do nothing whenever the channel was not ready yet.
-    // The watcher is still foreground-only and broadcast() remains gated by
-    // bus.subscribed, so this does not publish before the channel is joined.
-    void startWatch();
-
-    const cancelReady = onBusReady(bus, () => {
-      // On a (re)join: replay the presence the server dropped, then make sure
-      // the location watch is running (it lapses while the app is suspended).
-      if (latest) broadcast(true);
-      void startWatch();
     });
-
-    if (priorUntrack) {
-      void priorUntrack.then(() => {
-        if (disposed) return;
-        untrackSettled = true;
-        broadcast(true);
-      });
-    }
-
-    // A foreground-only feature must not leave the last position live while
-    // the app is in the background. Keep the user's intent in
-    // sharingJourneyId so a short app switch can resume when they return to
-    // this journey, but remove the realtime presence and location watcher.
-    const suspendPublishing = () => {
-      if (appSuspended) return;
-      appSuspended = true;
-      positionSub?.remove();
-      positionSub = null;
-      setLastSelfPresence(null);
-      const channel = bus.channel;
-      if (channel && bus.subscribed) {
-        lastTrackedByJourney.delete(sharingJourneyId);
-        suspendUntrack = channel.untrack().catch(() => undefined);
-      }
-    };
-
-    const resumePublishing = async () => {
-      if (!appSuspended || disposed) return;
-      if (suspendUntrack) await suspendUntrack;
-      if (disposed) return;
-      appSuspended = false;
-      lastBroadcastAt = 0;
-      void startWatch();
-      broadcast(true);
-    };
-
-    // Coming back to the foreground after a suspend the socket may still be up
-    // but our last fix is now stale; republish the freshest one immediately.
-    const appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void resumePublishing();
-      else suspendPublishing();
-    });
-
+    const timer = setInterval(() => {
+      if (!publisher) void start();
+      else void publish();
+    }, 10000);
     return () => {
       disposed = true;
-      positionSub?.remove();
-      appStateSub.remove();
-      cancelReady();
-      const isCurrentPublisher = publisherGeneration === generation;
-      if (isCurrentPublisher) setLastSelfPresence(null);
-      // If a newer publisher is already sharing this same journey, its track
-      // may have replaced ours on the channel. Untracking here would make the
-      // map lose the new position after a quick off/on sequence.
-      const newerSameJourneyPublisher = !isCurrentPublisher
-        && getSharingJourneyId() === sharingJourneyId;
-      if (bus.channel && bus.subscribed && !newerSameJourneyPublisher) {
-        // Stop publishing here, not by leaving the channel. The map usually
-        // still holds a ref to this bus, so the channel outlives the toggle and
-        // an un-untracked presence keeps showing this position to everyone in
-        // the journey until a viewer's 30 minute drop; the local avatar vanishes
-        // immediately either way, so nothing on this screen says it is lying.
-        let timer: ReturnType<typeof setTimeout> | null = null;
-        let resolveCancelled!: () => void;
-        const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
-        const untrack = new Promise<unknown>((resolve) => {
-          timer = setTimeout(() => {
-            void bus.channel?.untrack().catch(() => {}).then(() => {
-              lastTrackedByJourney.delete(sharingJourneyId);
-              resolve(undefined);
-            });
-          }, UNTRACK_DEBOUNCE_MS);
-        });
-        const pending: PendingUntrack = {
-          promise: Promise.race([untrack, cancelled]),
-          cancel: () => {
-            if (timer) clearTimeout(timer);
-            resolveCancelled();
-          },
-        };
-        pendingUntracks.set(sharingJourneyId, pending);
-        void pending.promise.then(() => {
-          if (pendingUntracks.get(sharingJourneyId) === pending) pendingUntracks.delete(sharingJourneyId);
-        });
-      }
-      releaseBus(sharingJourneyId, bus);
+      pause();
+      clearInterval(timer);
+      appSub.remove();
+      networkSub.remove();
     };
-  }, [userId, sharingJourneyId]);
+  }, [userId, journeyId]);
 }
 
 // ---- viewer ----
