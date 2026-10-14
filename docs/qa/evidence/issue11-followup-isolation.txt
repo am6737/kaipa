@@ -1,0 +1,3 @@
+Disposable network Internal=true; DB/Auth/Storage/REST/Edge/gateway/Realtime have no published host ports.
+Guard runs in isolated gateway; upstream accessible only from disposable network / host administrator.
+Shared ingress configuration was not changed or validated.

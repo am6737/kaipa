@@ -8,6 +8,8 @@ const crypto = require('node:crypto');
 const { spawnSync, spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
 const repaired = process.env.KAIPA_ISSUE11_REPAIRED === '1';
+const followup = process.env.KAIPA_ISSUE11_FOLLOWUP === '1';
+if (followup && !repaired) throw new Error('Follow-up requires repaired isolation');
 const evidence = process.env.KAIPA_ISSUE11_EVIDENCE_DIR;
 if (!evidence) throw new Error('Set KAIPA_ISSUE11_EVIDENCE_DIR to a local evidence directory');
 fs.mkdirSync(evidence, { recursive: true });
@@ -60,7 +62,7 @@ function record(name, result) {
     run(['network', 'create', '--internal', network]); created.push(['network', 'rm', network]);
     run(['run', '-d', '--name', db, '--label', 'kaipa.issue11.disposable=true', '--network', network,
       '--network-alias', 'realtime-dev.supabase-realtime', '--user', 'postgres', '--entrypoint', 'sh', 'supabase/postgres:15.8.1.085', '-c',
-      'initdb -D /tmp/issue11-data --auth=trust >/tmp/init.log && exec postgres -D /tmp/issue11-data -c shared_preload_libraries=pg_stat_statements,pg_net -c unix_socket_directories=/tmp']);
+      'initdb -D /tmp/issue11-data --auth=trust >/tmp/init.log && exec postgres -D /tmp/issue11-data -c shared_preload_libraries=pg_stat_statements,pg_net -c unix_socket_directories=/tmp' + (followup ? ' -c wal_level=logical' : '')]);
     created.push(['rm', '-f', db]);
     for (let attempt = 0; attempt < 30; attempt++) {
       const ready = spawnSync('docker', ['exec', db, 'pg_isready', '-h', '/tmp', '-U', 'postgres'], { encoding: 'utf8' });
@@ -82,6 +84,11 @@ function record(name, result) {
       + seedBetween('20261008130000_membership_runtime.sql', 'insert into public.resource_rate_rules values', 'create function public.membership_event_context')
       + seedBetween('20261008140000_resource_uploads.sql', 'insert into public.service_budgets(service,daily_units,per_run_units)', '-- Backfill'));
     psql("insert into public.service_budget_usage(service,day,used) values('stored_bytes','2000-01-01',0),('stored_objects','2000-01-01',0);");
+    if (followup) {
+      const passed = await require('./issue11-http-stack.cjs')({ root, temp, db, network, created, run, psql, record, followup });
+      process.exitCode = passed ? 0 : 1;
+      return;
+    }
     const sqlResult = spawnSync('docker', ['exec', '-i', db, 'psql', '-X', '-h', '/tmp', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
       input: fs.readFileSync(path.join(root, 'supabase/tests/issue11-guest-boundaries.sql')), encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
     });

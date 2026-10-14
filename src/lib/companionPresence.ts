@@ -48,8 +48,7 @@ export function foldPresenceRoster(
       if (!presence) return;
       // A delayed snapshot must not draw an ancient publication. Server and
       // device clocks may differ; a stamp ahead of ours is still drawable.
-      if (presence.fixedAt <= now && now - presence.fixedAt > PRESENCE_DROP_MS)
-        return;
+      if (presence.fixedAt <= now && now - presence.fixedAt > PRESENCE_DROP_MS) return;
       const current = bestByUser.get(presence.userId);
       if (!current || presence.fixedAt > current.fixedAt) {
         bestByUser.set(presence.userId, presence);
@@ -59,11 +58,10 @@ export function foldPresenceRoster(
   const roster: CompanionPresence[] = [];
   bestByUser.forEach((presence, userId) => {
     const last = previous.find((peer) => peer.userId === userId);
-    const unchanged =
-      !!last &&
-      last.fixedAt === presence.fixedAt &&
-      last.longitude === presence.longitude &&
-      last.latitude === presence.latitude;
+    const unchanged = !!last
+      && last.fixedAt === presence.fixedAt
+      && last.longitude === presence.longitude
+      && last.latitude === presence.latitude;
     const entry: CompanionPresence = {
       ...presence,
       seenAt: unchanged && last ? last.seenAt : now,
@@ -78,10 +76,7 @@ type RawReading = Omit<CompanionPresence, 'seenAt'>;
 
 function readPresence(raw: unknown): RawReading | null {
   if (!raw || typeof raw !== 'object') return null;
-  const { userId, longitude, latitude, fixedAt } = raw as Record<
-    string,
-    unknown
-  >;
+  const { userId, longitude, latitude, fixedAt } = raw as Record<string, unknown>;
   if (typeof userId !== 'string' || !userId) return null;
   if (
     typeof longitude !== 'number' ||

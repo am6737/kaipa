@@ -12,6 +12,7 @@ module.exports = async ({
   run,
   psql,
   record,
+  followup = false,
 }) => {
   const secret = crypto.randomBytes(32).toString('hex');
   const jwt = (role, sub, anonymous = false) => {
@@ -238,6 +239,13 @@ try{return await fetch(u,{method:req.method,headers:req.headers,body:req.body,re
     HOSTNAME: 'realtime-dev.supabase-realtime',
   });
   const clientName = db + '-http-client';
+  if (followup) {
+    const topology = JSON.parse(run(['network', 'inspect', network]))[0];
+    const bindings = JSON.parse(run(['inspect', db, rest, auth, storage, resources, gateway, realtime]));
+    if (!topology.Internal || bindings.some(c => Object.keys(c.HostConfig.PortBindings || {}).length))
+      throw new Error('UNVERIFIED: disposable upstream isolation');
+    record('followup-isolation', 'Disposable network Internal=true; DB/Auth/Storage/REST/Edge/gateway/Realtime have no published host ports.\nGuard runs in isolated gateway; upstream accessible only from disposable network / host administrator.\nShared ingress configuration was not changed or validated.\n');
+  }
   created.push(['rm', '-f', clientName]);
   const child = spawn(
     'docker',
@@ -254,7 +262,7 @@ try{return await fetch(u,{method:req.method,headers:req.headers,body:req.body,re
       '-v',
       temp + ':/fixture:ro',
       '-v',
-      path.join(root, 'scripts/qa/issue11-http.cjs') + ':/test.cjs:ro',
+      path.join(root, followup ? 'scripts/qa/issue11-followup.cjs' : 'scripts/qa/issue11-http.cjs') + ':/test.cjs:ro',
       '-e',
       'NODE_PATH=/deps',
       'node:22-alpine',
@@ -294,7 +302,7 @@ try{return await fetch(u,{method:req.method,headers:req.headers,body:req.body,re
   });
   const code = await new Promise((resolve) => child.on('close', resolve));
   record(
-    'http-boundaries',
+    followup ? 'followup-realtime' : 'http-boundaries',
     output
       .split('\n')
       .filter((l) => !l.startsWith('SQL '))

@@ -1,0 +1,24 @@
+{
+  "queried_at_utc": "2026-10-14T03:28:17.391028+00:00",
+  "head": "9ce4cbc787da00535ef282eeb1accefb5bdd08a4",
+  "queries": {
+    "workflows": {
+      "command": "gh api repos/am6737/kaipa/actions/workflows",
+      "total_count": 0
+    },
+    "runs": {
+      "command": "gh api repos/am6737/kaipa/actions/runs",
+      "total_count": 0
+    },
+    "checks": {
+      "command": "gh api repos/am6737/kaipa/commits/9ce4cbc787da00535ef282eeb1accefb5bdd08a4/check-runs",
+      "total_count": 0
+    },
+    "statuses": {
+      "command": "gh api repos/am6737/kaipa/commits/9ce4cbc787da00535ef282eeb1accefb5bdd08a4/status",
+      "total_count": 0,
+      "state": "pending"
+    }
+  },
+  "conclusion": "No configured GitHub Actions workflows; zero repository runs, head check runs and commit statuses. Aggregate pending with zero statuses does not mean CI is running."
+}
