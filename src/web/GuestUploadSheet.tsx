@@ -1,10 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Theme } from '../theme/theme';
 import { Press } from '../components/Press';
 import { useI18n } from '../i18n';
+import { space, type } from '../design-system';
+import { loadGuestDraft, saveGuestDraft, clearGuestDraft, durablePhotoUri } from './guestRetryState';
+import type { GuestIdentity } from './IdentitySheet';
 
 interface PhotoPick {
   uri: string;
@@ -15,17 +18,43 @@ interface PhotoPick {
 interface Props {
   theme: Theme;
   days: number;
-  onPost: (photos: PhotoPick[], caption: string, day: number) => void;
-  onPostText: (caption: string, day: number) => void;
+  draftScope?: string;
+  identity?: GuestIdentity;
+  onPost: (photos: PhotoPick[], caption: string, day: number, requestKey: string, identity?: GuestIdentity) => Promise<void>;
+  onPostText: (caption: string, day: number, requestKey: string, identity?: GuestIdentity) => Promise<void>;
+  onDiscard?: (requestKey: string) => void;
   onClose: () => void;
 }
 
-export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: Props) {
+export function GuestUploadSheet({ theme, days, draftScope, identity, onPost, onPostText, onDiscard, onClose }: Props) {
   const { t } = useI18n();
   const { height: winH } = useWindowDimensions();
   const [picks, setPicks] = useState<PhotoPick[]>([]);
   const [caption, setCaption] = useState('');
   const [day, setDay] = useState(Math.max(1, days));
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState('');
+  const [hydrating, setHydrating] = useState(!!draftScope);
+  const mounted = useRef(true);
+  const operation = useRef<{ key: string; identity?: GuestIdentity; inFlight: boolean; discarded?: boolean } | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    if (draftScope) loadGuestDraft(draftScope).then(draft => {
+      if (!mounted.current) return;
+      if (draft) {
+        setPicks(draft.picks);
+        setCaption(draft.caption);
+        setDay(draft.day);
+        operation.current = { key: draft.key, identity: draft.identity, inFlight: false };
+      }
+      setHydrating(false);
+    }).catch(cause => { if (mounted.current) setError(cause.message); });
+    return () => { mounted.current = false; };
+  }, [draftScope]);
+  // Closing a scoped sheet keeps an unknown operation. Only explicit "new"
+  // discards it. Page departure also leaves the persisted draft intact.
+  const locked = operation.current !== null;
+  const close = () => { if (!operation.current?.inFlight) onClose(); };
 
   const pickImages = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -33,27 +62,43 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
       allowsMultipleSelection: true,
       quality: 0.8,
     });
-    if (result.canceled) return;
-    const newPicks = result.assets.map((a) => ({
-      uri: a.uri,
-      width: a.width || 1,
-      height: a.height || 1,
-    }));
-    setPicks((prev) => [...prev, ...newPicks]);
+    if (result.canceled || operation.current) return;
+    try {
+      const newPicks = await Promise.all(result.assets.map(async a => ({
+        uri: await durablePhotoUri(a.uri), width: a.width || 1, height: a.height || 1,
+      })));
+      if (mounted.current && !operation.current) setPicks(prev => [...prev, ...newPicks]);
+    } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : '无法保存照片'); }
   }, []);
 
   const removePick = (idx: number) => {
+    if (operation.current) return;
     setPicks((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const canPost = picks.length > 0 || caption.trim().length > 0;
 
-  const handlePost = () => {
-    if (!canPost) return;
-    if (picks.length === 0) {
-      onPostText(caption.trim(), day);
-    } else {
-      onPost(picks, caption.trim(), day);
+  const handlePost = async () => {
+    if (!mounted.current || !canPost || hydrating || operation.current?.inFlight || operation.current?.discarded) return;
+    if (!operation.current) operation.current = { key: crypto.randomUUID(), identity: identity && { ...identity }, inFlight: false };
+    const current = operation.current;
+    current.inFlight = true;
+    setPosting(true);
+    setError('');
+    try {
+      if (identity && !current.identity) throw new Error('无法恢复原访客身份，请放弃此草稿并新建');
+      if (draftScope) await saveGuestDraft(draftScope, { key: current.key, identity: current.identity, picks, caption: caption.trim(), day });
+      if (!mounted.current) return;
+      if (picks.length === 0) {
+        await onPostText(caption.trim(), day, current.key, current.identity);
+      } else {
+        await onPost(picks, caption.trim(), day, current.key, current.identity);
+      }
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : '操作失败，请稍后重试');
+    } finally {
+      current.inFlight = false;
+      if (mounted.current) setPosting(false);
     }
   };
 
@@ -62,23 +107,55 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <Pressable style={s.backdrop} onPress={onClose} />
+      <Pressable style={s.backdrop} onPress={close} />
       <View style={s.sheetWrap}>
         <View style={[s.sheet, { backgroundColor: theme.dark ? '#1c1c1e' : theme.bg, maxHeight: Math.round(winH * 0.85) }]}>
           <View style={s.handle} />
 
           {/* header */}
           <View style={s.headerRow}>
-            <Press onPress={onClose} style={s.headerBtn}>
+            <Press onPress={posting ? undefined : close} style={s.headerBtn}>
               <Text style={[s.headerBtnText, { color: theme.text2 }]}>{t('guest.wall.cancel')}</Text>
             </Press>
             <Text style={[s.headerTitle, { color: theme.text }]}>{t('guest.wall.addMoment')}</Text>
-            <Press onPress={canPost ? handlePost : undefined} style={s.headerBtn}>
-              <Text style={[s.headerBtnText, { color: canPost ? theme.accent : theme.text3, fontWeight: '700' }]}>
+            <Press onPress={canPost && !posting && !hydrating ? handlePost : undefined} style={s.headerBtn}>
+              <Text style={[s.headerBtnText, { color: canPost && !posting && !hydrating ? theme.accent : theme.text3, fontWeight: '700' }]}>
                 {t('guest.wall.post')}
               </Text>
             </Press>
           </View>
+          {!!error && (
+            <View style={{ marginBottom: space.sm }}>
+              <Text accessibilityRole="alert" style={{ ...type.hint, color: theme.danger }}>{error}</Text>
+              <Text style={{ ...type.hint, color: theme.text2 }}>再次发布会重试本次内容；关闭后原草稿仍可恢复。</Text>
+            </View>
+          )}
+          {!!draftScope && locked && (
+            <View style={{ marginBottom: space.sm }}>
+              {!!operation.current?.identity && (
+                <Text style={{ ...type.hint, color: theme.text2 }}>本次草稿使用访客身份：{operation.current.identity.name}</Text>
+              )}
+              <Press onPress={posting || hydrating ? undefined : async () => {
+                if (!operation.current || operation.current.inFlight || hydrating) return;
+                const current = operation.current;
+                current.inFlight = true;
+                setPosting(true);
+                try {
+                  await clearGuestDraft(draftScope, current.key);
+                  current.discarded = true;
+                  onDiscard?.(current.key);
+                  if (mounted.current) onClose();
+                } catch (cause) {
+                  if (mounted.current) setError(cause instanceof Error ? cause.message : '无法清除草稿');
+                } finally {
+                  current.inFlight = false;
+                  if (mounted.current) setPosting(false);
+                }
+              }}>
+                <Text style={{ ...type.hint, color: theme.accent }}>放弃此草稿并新建（已提交内容会保留）</Text>
+              </Press>
+            </View>
+          )}
 
           <ScrollView style={s.scrollBody} showsVerticalScrollIndicator={false}>
             {/* photo grid */}
@@ -86,12 +163,12 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
               {picks.map((p, i) => (
                 <View key={i} style={s.photoThumb}>
                   <Image source={{ uri: p.uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
-                  <Press onPress={() => removePick(i)} style={s.removeBtn}>
+                  <Press onPress={locked ? undefined : () => removePick(i)} style={s.removeBtn}>
                     <Text style={s.removeX}>✕</Text>
                   </Press>
                 </View>
               ))}
-              <Press onPress={pickImages} style={[s.addPhotoBtn, { borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)' }]}>
+              <Press onPress={locked ? undefined : pickImages} style={[s.addPhotoBtn, { borderColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)' }]}>
                 <Text style={{ fontSize: 22, color: theme.accent }}>＋</Text>
                 <Text style={{ fontSize: 10.5, color: theme.text3 }}>{t('guest.wall.selectPhotos')}</Text>
               </Press>
@@ -100,6 +177,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
             {/* caption */}
             <TextInput
               value={caption}
+              editable={!locked}
               onChangeText={setCaption}
               placeholder={t('guest.wall.captionPlaceholder')}
               placeholderTextColor={theme.text3}
@@ -119,7 +197,7 @@ export function GuestUploadSheet({ theme, days, onPost, onPostText, onClose }: P
                 return (
                   <Press
                     key={d}
-                    onPress={() => setDay(d)}
+                    onPress={locked ? undefined : () => setDay(d)}
                     style={[s.dayBtn, on && {
                       backgroundColor: theme.dark ? 'rgba(120,120,128,0.5)' : '#fff',
                       shadowColor: '#000',

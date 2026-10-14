@@ -1,0 +1,39 @@
+✔ hanging durable draft transaction is aborted on deadline and cannot commit later (187.265967ms)
+✔ guestRequest bounds hanging invoke and cannot turn a late result into success (26.83158ms)
+✔ guestRequest bounds hanging error-body and cannot turn a late result into success (20.263302ms)
+✔ hanging photo fetch ends waiting and cannot launch a late next stage (25.068401ms)
+✔ hanging photo ticket ends waiting and cannot launch a late next stage (30.396522ms)
+✔ hanging photo upload ends waiting and cannot launch a late next stage (18.024631ms)
+✔ failed sheet preserves draft/key, blocks edits and rapid duplicate presses, cancel/reopen starts new (241.166603ms)
+✔ wall stays open on failure, closes only on confirmed success, partial batch retries stable per-item keys (118.957587ms)
+✔ canceling an unknown failed operation then reopening produces a new key for identical content (52.878166ms)
+✔ scoped unknown draft is saved before writing, survives departure and restores its key; explicit new clears it (70.609361ms)
+✔ failed durable draft save prevents any write and preserves the retry key in the sheet (48.09957ms)
+✔ QA guest text happy path updates the snapshot after a successful write (253.659313ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (58.137898ms)
+QA lost-response evidence={"requestKeys":["request-1","request-1"],"serverRows":1,"visibleRows":1}
+✔ QA retrying a guest text after a lost response must leave only one server row (55.334407ms)
+✔ definite rejection retains the operation key for retry without a committed row (57.627634ms)
+✔ concurrent implicit retries join one operation and reuse its key after a lost response (57.994664ms)
+✔ concurrent explicit retries join one operation and reuse its key after a lost response (37.63767ms)
+✔ success retires an implicit key; another identical submission is a new operation (29.492198ms)
+✔ different input and explicitly new identical operations cannot reuse an unknown operation key (37.313717ms)
+✔ explicit key cannot be used with changed content (49.270896ms)
+✔ remount reads the committed snapshot and creates a new key for a new submission (36.767013ms)
+✔ changing share clears pending operations and stale completions cannot update its snapshot (51.076433ms)
+✔ lost add response reuses the upload; confirmed batch items issue no request or reupload (37.225198ms)
+QA 61-item recovery={"firstWindowRequests":61,"firstWindowRows":60,"nextWindowKeys":["batch:60"],"finalRows":61,"visibleRows":61}
+✔ 61-item batch skips 60 confirmed writes in a new quota window and completes with one request (34.464996ms)
+✔ batch retries unknown committed item with its original key while skipping confirmed items (34.746887ms)
+✔ hung guest_add releases pending within 30s, retries original key and ignores late completion (31.996975ms)
+✔ confirmed explicit results survive remount, while unknown operations retry the saved key (31.93619ms)
+✔ hung upload releases pending and its late result cannot trigger guest_add (32.468778ms)
+✔ durable photo progress stores a bounded digest and confirmed replay survives reload without HTTP (58.819943ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1582.651353

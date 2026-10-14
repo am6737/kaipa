@@ -1,0 +1,50 @@
+✔ failed sheet preserves draft/key, blocks edits and rapid duplicate presses, cancel/reopen starts new (200.282153ms)
+✔ wall stays open on failure, closes only on confirmed success, partial batch retries stable per-item keys (106.489801ms)
+✔ canceling an unknown failed operation then reopening produces a new key for identical content (40.37896ms)
+✔ QA guest text happy path updates the snapshot after a successful write (189.132699ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (55.036694ms)
+QA lost-response evidence={"requestKeys":["request-1","request-1"],"serverRows":1,"visibleRows":1}
+✔ QA retrying a guest text after a lost response must leave only one server row (26.482574ms)
+✔ definite rejection retains the operation key for retry without a committed row (28.379045ms)
+✔ concurrent implicit retries join one operation and reuse its key after a lost response (33.172961ms)
+✔ concurrent explicit retries join one operation and reuse its key after a lost response (18.657475ms)
+✔ success retires an implicit key; another identical submission is a new operation (23.483334ms)
+✔ different input and explicitly new identical operations cannot reuse an unknown operation key (28.44319ms)
+✔ explicit key cannot be used with changed content (22.554823ms)
+✔ remount reads the committed snapshot and creates a new key for a new submission (30.295165ms)
+✔ changing share clears pending operations and stale completions cannot update its snapshot (17.353389ms)
+✔ lost add response reuses the completed upload; completed batch items replay without reupload (14.961754ms)
+✖ 61-item batch skips 60 confirmed writes in a new quota window and completes with one request (20.840488ms)
+✖ batch retries unknown committed item with its original key while skipping confirmed items (24.418571ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 15
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1227.823508
+
+✖ failing tests:
+
+test at scripts/test-qa-guest-retry.cjs:321:1
+✖ 61-item batch skips 60 confirmed writes in a new quota window and completes with one request (20.840488ms)
+  Error: Write rate limit exceeded
+      at guestRequest (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:88:52)
+      at evalmachine.<anonymous>:88:66
+      at Object.addMoment (evalmachine.<anonymous>:100:11)
+      at submitBatch (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:318:64)
+      at async TestContext.<anonymous> (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:332:3)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
+
+test at scripts/test-qa-guest-retry.cjs:345:1
+✖ batch retries unknown committed item with its original key while skipping confirmed items (24.418571ms)
+  Error: Write rate limit exceeded
+      at guestRequest (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:88:52)
+      at evalmachine.<anonymous>:88:66
+      at async Object.addMoment (evalmachine.<anonymous>:102:13)
+      at async submitBatch (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:318:43)
+      at async TestContext.<anonymous> (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-qa-guest-retry.cjs:354:3)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)

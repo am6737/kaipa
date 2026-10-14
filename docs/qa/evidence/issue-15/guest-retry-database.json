@@ -1,0 +1,466 @@
+{
+  "testedCommit": "2f1483e3f2efcc85e1884dfd83031dcc52983f31",
+  "startedAt": "2026-10-13T11:42:45.983Z",
+  "requests": [
+    {
+      "sequence": 1,
+      "mode": "normal-ui",
+      "startedAt": "2026-10-13T11:42:49.875Z",
+      "action": "guest_add",
+      "requestKey": "7d656208-8322-4fb5-b078-e64b14030677",
+      "caption": "QA15 正常发布",
+      "upstreamResponseAt": "2026-10-13T11:42:49.932Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "36",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "5ae0f0071329cf7894b69f32ef365734"
+      },
+      "commitObservedAt": "2026-10-13T11:42:50.115Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390"
+      ]
+    },
+    {
+      "sequence": 2,
+      "mode": "lost-response-ui",
+      "startedAt": "2026-10-13T11:42:50.691Z",
+      "action": "guest_add",
+      "requestKey": "f58fed32-bb42-408b-b431-5c1ec113e71a",
+      "caption": "QA15 丢响应后重试",
+      "upstreamResponseAt": "2026-10-13T11:42:50.727Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_65403f32-6f31-46fa-b985-9c99a995b644",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "26",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "9b073a7beed0495809a92151c235284c"
+      },
+      "commitObservedAt": "2026-10-13T11:42:50.916Z",
+      "browserResponse": "aborted-after-confirmed-commit",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_65403f32-6f31-46fa-b985-9c99a995b644"
+      ]
+    },
+    {
+      "sequence": 3,
+      "mode": "retry-ui",
+      "startedAt": "2026-10-13T11:42:51.539Z",
+      "action": "guest_add",
+      "requestKey": "f58fed32-bb42-408b-b431-5c1ec113e71a",
+      "caption": "QA15 丢响应后重试",
+      "upstreamResponseAt": "2026-10-13T11:42:51.575Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_65403f32-6f31-46fa-b985-9c99a995b644",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "28",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "d7857e5634b5026423dca3046644b32e"
+      },
+      "commitObservedAt": "2026-10-13T11:42:51.755Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_65403f32-6f31-46fa-b985-9c99a995b644"
+      ]
+    },
+    {
+      "sequence": 4,
+      "mode": "new-identical-operation-ui",
+      "startedAt": "2026-10-13T11:42:53.090Z",
+      "action": "guest_add",
+      "requestKey": "ffae727d-7344-40f4-a2ba-9b768a67abda",
+      "caption": "QA15 正常发布",
+      "upstreamResponseAt": "2026-10-13T11:42:53.127Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_56343316-58e5-4b67-a1f0-1de1c377c4db",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "29",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "1667540d5b418f391d894a05edc53c70"
+      },
+      "commitObservedAt": "2026-10-13T11:42:53.323Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+        "sm_56343316-58e5-4b67-a1f0-1de1c377c4db"
+      ]
+    },
+    {
+      "sequence": 5,
+      "mode": "same-key-serial-browser-fetch",
+      "startedAt": "2026-10-13T11:42:53.618Z",
+      "action": "guest_add",
+      "requestKey": "7d656208-8322-4fb5-b078-e64b14030677",
+      "caption": "QA15 正常发布",
+      "upstreamResponseAt": "2026-10-13T11:42:53.644Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "20",
+        "x-kong-proxy-latency": "1",
+        "x-kong-request-id": "f8c74064957e8b5eee474c37218c7a6a"
+      },
+      "commitObservedAt": "2026-10-13T11:42:53.829Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+        "sm_56343316-58e5-4b67-a1f0-1de1c377c4db"
+      ]
+    },
+    {
+      "sequence": 6,
+      "mode": "same-key-serial-browser-fetch",
+      "startedAt": "2026-10-13T11:42:53.839Z",
+      "action": "guest_add",
+      "requestKey": "7d656208-8322-4fb5-b078-e64b14030677",
+      "caption": "QA15 正常发布",
+      "upstreamResponseAt": "2026-10-13T11:42:53.868Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "23",
+        "x-kong-proxy-latency": "1",
+        "x-kong-request-id": "a72dd547b09c3847607b3d246e9d344c"
+      },
+      "commitObservedAt": "2026-10-13T11:42:54.048Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+        "sm_56343316-58e5-4b67-a1f0-1de1c377c4db"
+      ]
+    },
+    {
+      "sequence": 7,
+      "mode": "same-fresh-key-concurrent-browser-fetch",
+      "startedAt": "2026-10-13T11:42:54.573Z",
+      "action": "guest_add",
+      "requestKey": "9bfaa06d-e9e3-45d5-991e-4981006df1e0",
+      "caption": "QA15 同键并发",
+      "upstreamResponseAt": "2026-10-13T11:42:54.969Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_7f649741-1372-483b-83c5-48a3a5181e3a",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "50",
+        "x-kong-proxy-latency": "1",
+        "x-kong-request-id": "e55af7156fdbc1726e5f392331fbed57"
+      },
+      "commitObservedAt": "2026-10-13T11:42:55.142Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+      ]
+    },
+    {
+      "sequence": 8,
+      "mode": "same-fresh-key-concurrent-browser-fetch",
+      "startedAt": "2026-10-13T11:42:54.575Z",
+      "action": "guest_add",
+      "requestKey": "9bfaa06d-e9e3-45d5-991e-4981006df1e0",
+      "caption": "QA15 同键并发",
+      "upstreamResponseAt": "2026-10-13T11:42:54.789Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_7f649741-1372-483b-83c5-48a3a5181e3a",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "23",
+        "x-kong-proxy-latency": "1",
+        "x-kong-request-id": "97a6265c21be033b1aef0c24de6f1109"
+      },
+      "commitObservedAt": "2026-10-13T11:42:54.964Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+      ]
+    },
+    {
+      "sequence": 9,
+      "mode": "same-fresh-key-concurrent-browser-fetch",
+      "startedAt": "2026-10-13T11:42:54.577Z",
+      "action": "guest_add",
+      "requestKey": "9bfaa06d-e9e3-45d5-991e-4981006df1e0",
+      "caption": "QA15 同键并发",
+      "upstreamResponseAt": "2026-10-13T11:42:54.609Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_7f649741-1372-483b-83c5-48a3a5181e3a",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "21",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "7cbc050200d0f21c7b060913d69cf609"
+      },
+      "commitObservedAt": "2026-10-13T11:42:54.788Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+      ]
+    },
+    {
+      "sequence": 10,
+      "mode": "same-session-two-tabs-ui",
+      "startedAt": "2026-10-13T11:42:56.938Z",
+      "action": "guest_add",
+      "requestKey": "8b8f3ce7-d943-4c51-8eb3-f30739a25acf",
+      "caption": "QA15 双页同时发布",
+      "upstreamResponseAt": "2026-10-13T11:42:56.968Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_ef9152a7-4043-4652-b8ab-f463514e357c",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "23",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "13f9c11510bda845c5d34d3eae00fc10"
+      },
+      "commitObservedAt": "2026-10-13T11:42:57.139Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_ef9152a7-4043-4652-b8ab-f463514e357c"
+      ]
+    },
+    {
+      "sequence": 11,
+      "mode": "same-session-two-tabs-ui",
+      "startedAt": "2026-10-13T11:42:57.144Z",
+      "action": "guest_add",
+      "requestKey": "9e3f7c0e-804d-4a18-bfec-5990441afb74",
+      "caption": "QA15 双页同时发布",
+      "upstreamResponseAt": "2026-10-13T11:42:57.185Z",
+      "upstreamStatus": 200,
+      "responseId": "sm_42e4bc89-7c24-4ee3-9244-4b61f1631144",
+      "gatewayHeaders": {
+        "x-kong-upstream-latency": "34",
+        "x-kong-proxy-latency": "0",
+        "x-kong-request-id": "fe8df21dcf7c6f0f7036245dd5137174"
+      },
+      "commitObservedAt": "2026-10-13T11:42:57.359Z",
+      "browserResponse": "fulfilled",
+      "databaseRowIdsBeforeBrowserResponse": [
+        "sm_ef9152a7-4043-4652-b8ab-f463514e357c",
+        "sm_42e4bc89-7c24-4ee3-9244-4b61f1631144"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "normal-ui",
+      "passed": true,
+      "rowIds": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390"
+      ]
+    },
+    {
+      "name": "lost-response-ui",
+      "visibleRows": 0,
+      "passed": true,
+      "rowIds": [
+        "sm_65403f32-6f31-46fa-b985-9c99a995b644"
+      ]
+    },
+    {
+      "name": "retry-ui",
+      "visibleRows": 1,
+      "expectedRows": 1,
+      "passed": true,
+      "rowIds": [
+        "sm_65403f32-6f31-46fa-b985-9c99a995b644"
+      ]
+    },
+    {
+      "name": "retry-ui-after-reload",
+      "visibleRows": 1,
+      "passed": true
+    },
+    {
+      "name": "new-identical-operation-ui",
+      "passed": true,
+      "rowIds": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+        "sm_56343316-58e5-4b67-a1f0-1de1c377c4db"
+      ]
+    },
+    {
+      "name": "same-key-serial-browser-fetch",
+      "responses": [
+        {
+          "status": 200,
+          "id": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390"
+        },
+        {
+          "status": 200,
+          "id": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390"
+        }
+      ],
+      "passed": true,
+      "rowIds": [
+        "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+        "sm_56343316-58e5-4b67-a1f0-1de1c377c4db"
+      ]
+    },
+    {
+      "name": "same-fresh-key-concurrent-browser-fetch",
+      "requestKey": "9bfaa06d-e9e3-45d5-991e-4981006df1e0",
+      "responses": [
+        {
+          "status": 200,
+          "id": "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+        },
+        {
+          "status": 200,
+          "id": "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+        },
+        {
+          "status": 200,
+          "id": "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+        }
+      ],
+      "passed": true,
+      "rowIds": [
+        "sm_7f649741-1372-483b-83c5-48a3a5181e3a"
+      ]
+    },
+    {
+      "name": "same-session-two-tabs-ui",
+      "passed": true,
+      "meaning": "Two independent UI submissions; not proof of automatic concurrent hook retry",
+      "rowIds": [
+        "sm_ef9152a7-4043-4652-b8ab-f463514e357c",
+        "sm_42e4bc89-7c24-4ee3-9244-4b61f1631144"
+      ]
+    }
+  ],
+  "productFailures": [],
+  "node": "v24.18.0",
+  "playwright": "1.56.1",
+  "sourceHashes": {
+    "App.web.tsx": "ae0cc45956397611ea4ad9310a74006cae2bcbf160dcdc95d3ba5d2c76717282",
+    "src/web/GuestApp.tsx": "19c6b11b46309f2cfbb9aa0d61a6a2f50ab980c80587f7924110b281f4f6c784",
+    "src/web/GuestCover.tsx": "8cfdec081025142caad80d77a2115ee9145ae456e484965191be64e6e79dbffb",
+    "src/web/GuestLightbox.tsx": "ea0f3a93685d6d746cb831760b88289cb198a6938df2ad4012b107d6d99c5f66",
+    "src/web/GuestSaveSheet.tsx": "b23a63bf868bee3d29213d0686fc911ea2188c4f6c5396d01122e03af87c211c",
+    "src/web/GuestUploadSheet.tsx": "fd7b1d19de118f908bcb6e0f321d177feec525c72bb2590ee5c40e2c5b0329fb",
+    "src/web/GuestWall.tsx": "09a98aa213f394a0ac4db0f7ff1405ac0eaec6c27d0c0ea1133662ecba55dbec",
+    "src/web/IdentitySheet.tsx": "528f21ec063eff9d378ece29fffdf30a77ce8ebed2b5cc8deb597c90240371d9",
+    "src/web/guestResources.ts": "cd4a50e6accdc9d6b7d179b07f0a6318fa48340fa09ec2f5d62d9933e358bb4d",
+    "src/web/guestStorage.ts": "f80de4a17700b5cdfe4a9884f0541919a51a4ca84e0d8bdc3dfb50f69cd58e61",
+    "src/web/supabaseGuest.ts": "ac281b082e463b173a01b7b551f6c343151fab7b89a239116af56894edcb0089",
+    "src/web/useGuestData.ts": "a003fc7e167d7f976fdc77daa9a01d02c4d350bce446b2e61429ef5f02cdf4b4"
+  },
+  "deployment": {
+    "containers": [
+      "/kaipa-supabase-edge-functions sha256:028f109b27ebee0dcd03a242a6ab7d759fff782c2876d5aff2c8a1b596e5e0b4 supabase/edge-runtime:v1.74.0 2026-10-13T08:00:24.153494548Z",
+      "/kaipa-supabase-db sha256:8613ba8eab946dff6674a2db6aab75b80aa101da39035fe20f62b0c7591ab35d supabase/postgres:15.8.1.085 2026-10-10T07:58:05.475102833Z",
+      "/kaipa-supabase-rest sha256:f4cf0696ca63f31ea41adfe8f49fd2977ea8708a6153c218180713d64669586d postgrest/postgrest:v14.12 2026-10-10T07:58:05.473091367Z",
+      "/kaipa-supabase-kong sha256:d2ccf3dc8b789c7afd999c1290e119a19a3ade5512586a6b1a83b2f0c4c6e62a kong/kong:3.9.1 2026-10-10T07:58:05.474676412Z"
+    ],
+    "functions": {
+      "resources/index.ts": "f2871df7079ed848ff7a7482e81e5e090492bbc6e8f7bdd6a12d0b4d9c314b51",
+      "_shared/resource-guard.ts": "5b25ce6a8ab05d773f9808560d49a17526ff24a54500d84a1c6b3e116dc09555"
+    },
+    "sqlBodySHA256": "12fc399b9f5ea087235bec7633c231f4b39c8b107e7ad23634fe89fc34b77f38",
+    "sqlBodyMatchesTestedMigration": true,
+    "indexes": [
+      "CREATE UNIQUE INDEX shared_moments_pkey ON public.shared_moments USING btree (id)",
+      "CREATE UNIQUE INDEX shared_moments_request ON public.shared_moments USING btree (guest_session_id, request_key) WHERE (request_key IS NOT NULL)"
+    ]
+  },
+  "webBundles": {
+    "index-483ce21a02fe387e2ee0b82c4652a5e5.js": "faf257e20d13322feadf26a839b8e87b991894073c2352e6554a6ab62bc4d96a",
+    "index-fe503a0d0b46280812194c50274f0015.js": "65d52acd3071216895b2fbb80c7e09109f09283b4dcca9fcedf3cdd5709ed9cc"
+  },
+  "fixture": {
+    "userId": "c9ab252f-39d3-4890-ab0c-222d3d7dbd96",
+    "journeyId": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+    "shareId": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a"
+  },
+  "browserOrigin": "http://127.0.0.1:36443",
+  "chromium": "141.0.7390.37",
+  "browserFailure": {
+    "requestKey": "f58fed32-bb42-408b-b431-5c1ec113e71a",
+    "error": "net::ERR_FAILED"
+  },
+  "pageErrors": [],
+  "executionPassed": true,
+  "fixtureSessionIds": [
+    "57a9bbf3-a9f4-4cfe-a506-8be116567212"
+  ],
+  "cleanup": {
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "uploadTickets": 0,
+    "sessionRateWindows": 0
+  },
+  "finishedAt": "2026-10-13T11:42:58.630Z",
+  "productAcceptancePassed": true,
+  "finalDatabaseRowIds": [
+    "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+    "sm_65403f32-6f31-46fa-b985-9c99a995b644",
+    "sm_56343316-58e5-4b67-a1f0-1de1c377c4db",
+    "sm_7f649741-1372-483b-83c5-48a3a5181e3a",
+    "sm_ef9152a7-4043-4652-b8ab-f463514e357c",
+    "sm_42e4bc89-7c24-4ee3-9244-4b61f1631144"
+  ],
+  "rowCatalog": [
+    {
+      "id": "sm_acdc5d11-0408-4e88-862b-2ecf7a892390",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "7d656208-8322-4fb5-b078-e64b14030677",
+      "caption": "QA15 正常发布",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:49.910666+00:00"
+    },
+    {
+      "id": "sm_65403f32-6f31-46fa-b985-9c99a995b644",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "f58fed32-bb42-408b-b431-5c1ec113e71a",
+      "caption": "QA15 丢响应后重试",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:50.716428+00:00"
+    },
+    {
+      "id": "sm_56343316-58e5-4b67-a1f0-1de1c377c4db",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "ffae727d-7344-40f4-a2ba-9b768a67abda",
+      "caption": "QA15 正常发布",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:53.115297+00:00"
+    },
+    {
+      "id": "sm_7f649741-1372-483b-83c5-48a3a5181e3a",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "9bfaa06d-e9e3-45d5-991e-4981006df1e0",
+      "caption": "QA15 同键并发",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:54.600134+00:00"
+    },
+    {
+      "id": "sm_ef9152a7-4043-4652-b8ab-f463514e357c",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "8b8f3ce7-d943-4c51-8eb3-f30739a25acf",
+      "caption": "QA15 双页同时发布",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:56.958445+00:00"
+    },
+    {
+      "id": "sm_42e4bc89-7c24-4ee3-9244-4b61f1631144",
+      "journey_id": "qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af",
+      "share_id": "js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a",
+      "guest_session_id": "57a9bbf3-a9f4-4cfe-a506-8be116567212",
+      "request_key": "9e3f7c0e-804d-4a18-bfec-5990441afb74",
+      "caption": "QA15 双页同时发布",
+      "is_text": true,
+      "created_at": "2026-10-13T11:42:57.169971+00:00"
+    }
+  ]
+}

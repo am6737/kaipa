@@ -1,0 +1,45 @@
+{
+  "verifiedAt": "2026-10-13T11:44:49.140730+00:00",
+  "command": [
+    "docker",
+    "exec",
+    "-i",
+    "kaipa-supabase-db",
+    "psql",
+    "-U",
+    "postgres",
+    "-d",
+    "postgres",
+    "-X",
+    "-At",
+    "-v",
+    "ON_ERROR_STOP=1"
+  ],
+  "sql": "SELECT json_build_object(\n 'auth',(SELECT count(*) FROM auth.users WHERE id='c9ab252f-39d3-4890-ab0c-222d3d7dbd96'),\n 'profiles',(SELECT count(*) FROM public.profiles WHERE id='c9ab252f-39d3-4890-ab0c-222d3d7dbd96'),\n 'journeys',(SELECT count(*) FROM public.journeys WHERE id='qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af'),\n 'shares',(SELECT count(*) FROM public.journey_shares WHERE journey_id='qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af'),\n 'moments',(SELECT count(*) FROM public.shared_moments WHERE journey_id='qa-issue15-ab9dd862-6d4f-4b5a-a66a-8b17241d48af'),\n 'guestSessions',(SELECT count(*) FROM public.resource_guest_sessions WHERE share_id='js_13d27f4d-c37e-4863-9dce-5d9ac2ee577a'),\n 'uploadTickets',(SELECT count(*) FROM public.resource_upload_tickets WHERE user_id='c9ab252f-39d3-4890-ab0c-222d3d7dbd96'),\n 'sessionRateWindows',(SELECT count(*) FROM public.resource_rate_windows WHERE scope='guest_write' AND subject IN ('57a9bbf3-a9f4-4cfe-a506-8be116567212')));",
+  "counts": {
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "uploadTickets": 0,
+    "sessionRateWindows": 0
+  },
+  "evidenceSHA256": "41f41bb703e31d5b5b28b85a716030887c317be2fd063bb86d423d358555f0fc",
+  "evidenceHashScope": "Original uncompressed evidence at 9dbd628dfebb0d85adc25dd7852a20318728d9f0",
+  "evidenceCompaction": {
+    "command": "node /tmp/issue15-compact-evidence.cjs",
+    "originalCommit": "9dbd628dfebb0d85adc25dd7852a20318728d9f0",
+    "originalEvidenceSHA256": "41f41bb703e31d5b5b28b85a716030887c317be2fd063bb86d423d358555f0fc",
+    "compactEvidenceSHA256": "10bb1802f460733acbef57004fc4003237a364871a35ebe4f728ce9604cba5c7",
+    "originalBytes": 28166,
+    "compactBytes": 17654,
+    "uniqueSQLRows": 6,
+    "preservedRequests": 11,
+    "preservedCases": 8,
+    "completeRoundTripEqual": true,
+    "productFilesUnchanged": true,
+    "reranBrowserOrDatabase": false
+  }
+}

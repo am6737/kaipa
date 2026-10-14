@@ -15,6 +15,7 @@ import { GuestUploadSheet } from './GuestUploadSheet';
 import { GuestSaveSheet, type SavablePhoto } from './GuestSaveSheet';
 import type { GuestMoment, JourneyData, CompanionData, HostData, InspoMedia } from './useGuestData';
 import type { GuestIdentity } from './IdentitySheet';
+import { clearGuestDraft } from './guestRetryState';
 
 interface Props {
   theme: Theme;
@@ -24,6 +25,7 @@ interface Props {
   identity: GuestIdentity;
   moments: GuestMoment[];
   sessionId: string;
+  onDiscardOperation?: (requestKey: string) => void;
   media: InspoMedia[];
   onAddMoment: (m: {
     guest_name: string;
@@ -33,7 +35,7 @@ interface Props {
     caption: string;
     day: number;
     is_text: boolean;
-  }) => Promise<void>;
+  }, requestKey?: string) => Promise<void>;
   onDeleteMoment: (id: string) => Promise<void>;
   onToast: (msg: string) => void;
 }
@@ -123,7 +125,7 @@ function MediaCard({ m, onPress, colW }: { m: InspoMedia; onPress: () => void; c
 }
 
 // ── Main wall ──
-export function GuestWall({ theme, journey, host, companions, identity, moments, sessionId, media, onAddMoment, onDeleteMoment, onToast }: Props) {
+export function GuestWall({ theme, journey, host, companions, identity, moments, sessionId, media, onDiscardOperation, onAddMoment, onDeleteMoment, onToast }: Props) {
   const { t } = useI18n();
   const { width: W } = useWindowDimensions();
   const days = journey.total_days || parseInt(journey.days || '3', 10) || 3;
@@ -161,39 +163,37 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
 
   const canDelete = useCallback((m: GuestMoment) => !!sessionId && m.guest_session_id === sessionId, [sessionId]);
 
-  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number) => {
-    setUploadOpen(false);
-    try {
+  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number, requestKey: string, originalIdentity: GuestIdentity = identity) => {
     for (let i = 0; i < photos.length; i++) {
       await onAddMoment({
-        guest_name: identity.name,
-        guest_ini: identity.ini,
-        guest_tone: identity.tone,
+        guest_name: originalIdentity.name,
+        guest_ini: originalIdentity.ini,
+        guest_tone: originalIdentity.tone,
         uri: photos[i].uri,
         caption: i === 0 ? caption : '',
         day,
         is_text: false,
-      });
+      }, `${requestKey}:${i}`);
     }
+    await clearGuestDraft(sessionId, requestKey);
     onToast(t('guest.wall.photoAdded', { count: String(photos.length) }));
-    } catch (error) { onToast(error instanceof Error?error.message:'上传失败'); }
-  }, [identity, onAddMoment, onToast, t]);
-
-  const handleAddText = useCallback(async (caption: string, day: number) => {
     setUploadOpen(false);
-    try {
+  }, [identity, onAddMoment, onToast, t, sessionId]);
+
+  const handleAddText = useCallback(async (caption: string, day: number, requestKey: string, originalIdentity: GuestIdentity = identity) => {
     await onAddMoment({
-      guest_name: identity.name,
-      guest_ini: identity.ini,
-      guest_tone: identity.tone,
+      guest_name: originalIdentity.name,
+      guest_ini: originalIdentity.ini,
+      guest_tone: originalIdentity.tone,
       uri: '',
       caption,
       day,
       is_text: true,
-    });
+    }, requestKey);
+    await clearGuestDraft(sessionId, requestKey);
     onToast(t('guest.wall.photoAdded', { count: '1' }));
-    } catch (error) { onToast(error instanceof Error?error.message:'保存失败'); }
-  }, [identity, onAddMoment, onToast, t]);
+    setUploadOpen(false);
+  }, [identity, onAddMoment, onToast, t, sessionId]);
 
   const handleDelete = useCallback(async (m: GuestMoment) => {
     setLightbox(null);
@@ -360,6 +360,9 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
         <GuestUploadSheet
           theme={theme}
           days={days}
+          draftScope={sessionId}
+          identity={identity}
+          onDiscard={onDiscardOperation}
           onPost={handleAddPhotos}
           onPostText={handleAddText}
           onClose={() => setUploadOpen(false)}
