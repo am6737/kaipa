@@ -467,3 +467,21 @@ test("durable photo progress stores a bounded digest and confirmed replay surviv
   assert.equal(world.uploads, 1);
   assert.equal(world.render().moments.length, 1);
 });
+
+test('discard invalidates a pending operation; late response cannot restore progress or affect the new operation', async () => {
+  let release;
+  const world = guestHarness({ holdWrite: new Promise(resolve => { release = resolve; }) });
+  await world.open();
+  const old = world.render().addMoment(moment, 'discarded');
+  const rejected = assert.rejects(old, /草稿已放弃/);
+  await new Promise(resolve => setImmediate(resolve));
+  world.render().discardOperation('discarded');
+  const renamed = { ...moment, guest_name: 'New Guest', guest_ini: 'N', guest_tone: 'forest' };
+  const next = world.render().addMoment(renamed, 'new-operation');
+  await new Promise(resolve => setImmediate(resolve));
+  release(); await rejected; await next;
+  assert.equal(world.render().moments.length, 1);
+  assert.equal(world.render().moments[0].guest_name, 'New Guest');
+  const oldRecord = world.savedOperations().find(([key]) => key.endsWith(':key:discarded'));
+  assert.equal(JSON.parse(oldRecord[1]).result, undefined, 'Late result cannot restore confirmed retry progress');
+});

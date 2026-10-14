@@ -7,24 +7,25 @@ const path = require('node:path');
 const ts = require('typescript');
 const { createHash } = require('node:crypto');
 const { chromium } = require('/tmp/kaipa-qa-tools/node_modules/playwright');
-const web = '/tmp/kaipa-issue15/review-2/web';
+const web = process.env.KAIPA_QA_WEB_DIR || '/tmp/kaipa-issue15/review-2/web';
+const evidenceFile = process.env.KAIPA_QA_CLIENT_EVIDENCE || 'docs/qa/evidence/issue-15/review-2/hung-client.json';
 const evidence = { kind: 'browser-native-storage-controlled-http', requests: [], cases: [], pageErrors: [] };
 const rows = new Map();
 let mode = 'hang', held = [], browser, server, addObserved;
 const snapshot = () => ({ sessionId: 'browser-session', share: { id: 'browser-share', journey_id: 'qa', user_id: 'host' },
   journey: { name: 'QA 悬挂恢复', region: 'QA', tone: 'forest', date: null, days: '1', total_days: 1, coverUrl: null },
   host: { display_name: 'Host', avatar_ini: 'H', avatar_color: 'forest' }, companions: [], moments: [...rows.values()], media: [] });
-async function join(page, origin) {
+async function join(page, origin, name = 'Browser Guest') {
   await page.goto(origin + '/j/A1B2');
   await page.getByText('QA 悬挂恢复', { exact: true }).waitFor();
-  await page.getByPlaceholder('你的名字').fill('Browser Guest');
+  await page.getByPlaceholder('你的名字').fill(name);
   await page.getByText(/^(加入这段旅程|进入旅程)$/).click();
   await page.getByText('添加', { exact: true }).waitFor();
 }
 function observeAdd() { return new Promise(resolve => { addObserved = resolve; }); }
 (async () => {
   try {
-    evidence.sourceHashes = Object.fromEntries(['guestDeadline.ts', 'guestRetryState.ts', 'useGuestData.ts', 'guestResources.ts', 'guestStorage.ts', 'GuestWall.tsx', 'GuestUploadSheet.tsx'].map(file =>
+    evidence.sourceHashes = Object.fromEntries(['guestDeadline.ts', 'guestRetryState.ts', 'useGuestData.ts', 'guestResources.ts', 'guestStorage.ts', 'GuestWall.tsx', 'GuestUploadSheet.tsx', 'GuestApp.tsx'].map(file =>
       [file, createHash('sha256').update(fs.readFileSync('src/web/' + file)).digest('hex')]));
     evidence.bundleHashes = Object.fromEntries(fs.readdirSync(web + '/_expo/static/js/web').map(file =>
       [file, createHash('sha256').update(fs.readFileSync(web + '/_expo/static/js/web/' + file)).digest('hex')]));
@@ -60,7 +61,7 @@ function observeAdd() { return new Promise(resolve => { addObserved = resolve; }
       assert.equal(body.action, 'guest_add');
       if (!rows.has(body.requestKey)) rows.set(body.requestKey, { ...body.moment, id: 'row-' + rows.size, share_id: 'browser-share', guest_session_id: 'browser-session', created_at: new Date().toISOString() });
       const result = rows.get(body.requestKey);
-      evidence.requests.push({ key: body.requestKey, id: result.id, caption: result.caption, mode });
+      evidence.requests.push({ key: body.requestKey, id: result.id, caption: result.caption, identity: { name: body.moment.guest_name, ini: body.moment.guest_ini, tone: body.moment.guest_tone }, mode });
       addObserved?.(); addObserved = null;
       if (mode === 'hang') { held.push({ route, result }); return; }
       return json(result);
@@ -96,7 +97,7 @@ function observeAdd() { return new Promise(resolve => { addObserved = resolve; }
     await page.getByText('发布', { exact: true }).click(); await nextObserved;
     const reloadKey = evidence.requests.at(-1).key;
     assert.notEqual(reloadKey, originalKey);
-    await join(page, origin); // Departure while still pending, without awaiting timeout.
+    await join(page, origin, 'Renamed Guest'); // Departure while still pending, without awaiting timeout.
     await page.getByText('添加', { exact: true }).click();
     await page.getByPlaceholder('说点什么…（没有照片也可以发布）').waitFor();
     await page.waitForFunction(() => document.querySelector('input[placeholder="说点什么…（没有照片也可以发布）"]')?.value === '刷新恢复');
@@ -105,7 +106,48 @@ function observeAdd() { return new Promise(resolve => { addObserved = resolve; }
     await page.getByPlaceholder('说点什么…（没有照片也可以发布）').waitFor({ state: 'detached' });
     assert.equal(evidence.requests.at(-1).key, reloadKey);
     assert.equal(rows.size, 2);
-    evidence.cases.push({ name: 'departure-reload-resumes-original-key', key: reloadKey, modelRows: rows.size, passed: true });
+    assert.equal(evidence.requests.at(-1).identity.name, 'Browser Guest', 'Recovered key must use original visitor identity');
+    evidence.cases.push({ name: 'departure-reload-resumes-original-key', key: reloadKey, currentName: 'Renamed Guest', restoredIdentity: evidence.requests.at(-1).identity, modelRows: rows.size, passed: true });
+    mode = 'hang';
+    await page.getByText('添加', { exact: true }).click();
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').fill('将丢弃的草稿');
+    const discardObserved = observeAdd();
+    await page.getByText('发布', { exact: true }).click(); await discardObserved;
+    const discardedKey = evidence.requests.at(-1).key;
+    const discardedResponse = held.pop();
+    await page.clock.fastForward(30001);
+    await page.getByText('等待超过30秒，结果未确认，请重试本次内容', { exact: true }).waitFor();
+    await page.getByText('取消', { exact: true }).click();
+    await page.getByText('添加', { exact: true }).click();
+    const discardButton = page.getByText('放弃此草稿并新建（已提交内容会保留）', { exact: true });
+    await discardButton.waitFor(); // Freshly recovered sheet has no error.
+    assert.equal(await page.getByText('等待超过30秒，结果未确认，请重试本次内容', { exact: true }).count(), 0);
+    await discardButton.click();
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').waitFor({ state: 'detached' });
+    const cleared = await page.evaluate(async key => {
+      const state = await import('/guestRetryState.js');
+      return await state.loadGuestDraft('browser-session') === null &&
+        ![...state.readGuestOperations('browser-session').keys()].some(slot => slot === 'key:' + key || slot.startsWith('key:' + key + ':'));
+    }, discardedKey);
+    assert.equal(cleared, true);
+    await page.getByText('添加', { exact: true }).click();
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').fill('迟到响应后保留的新草稿');
+    await discardedResponse.route.fulfill({ status: 200, contentType: 'application/json', json: discardedResponse.result, headers: { 'access-control-allow-origin': '*' } });
+    await page.clock.runFor(50);
+    assert.equal(await page.getByPlaceholder('说点什么…（没有照片也可以发布）').inputValue(), '迟到响应后保留的新草稿');
+    await page.getByText('取消', { exact: true }).click();
+    await join(page, origin, 'Newest Guest');
+    await page.getByText('添加', { exact: true }).click();
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').waitFor();
+    assert.equal(await page.getByPlaceholder('说点什么…（没有照片也可以发布）').inputValue(), '');
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').fill('明确的新操作');
+    mode = 'success';
+    await page.getByText('发布', { exact: true }).click();
+    await page.getByPlaceholder('说点什么…（没有照片也可以发布）').waitFor({ state: 'detached' });
+    assert.notEqual(evidence.requests.at(-1).key, discardedKey);
+    assert.equal(evidence.requests.at(-1).identity.name, 'Newest Guest');
+    assert.equal(rows.size, 4);
+    evidence.cases.push({ name: 'visible-discard-refresh-new-key-and-current-identity', discardedKey, cleared, newKey: evidence.requests.at(-1).key, identity: evidence.requests.at(-1).identity, lateResponseLeavesNewDraftIntact: true, modelRows: rows.size, passed: true });
     await page.evaluate(async () => {
       const state = await import('/guestRetryState.js');
       const uri = await state.durablePhotoUri(URL.createObjectURL(new Blob(['durable-photo'], { type: 'image/png' })));
@@ -131,7 +173,7 @@ function observeAdd() { return new Promise(resolve => { addObserved = resolve; }
   finally {
     if (browser) await browser.close();
     if (server) await new Promise(resolve => server.close(resolve));
-    fs.writeFileSync('docs/qa/evidence/issue-15/review-2/hung-client.json', JSON.stringify(evidence, null, 2) + '\n');
+    fs.writeFileSync(evidenceFile, JSON.stringify(evidence, null, 2) + '\n');
     console.log(JSON.stringify({ passed: evidence.passed, cases: evidence.cases, failure: evidence.failure, pageErrors: evidence.pageErrors }, null, 2));
     process.exitCode = evidence.passed ? 0 : 1;
   }

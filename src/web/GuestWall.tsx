@@ -25,6 +25,7 @@ interface Props {
   identity: GuestIdentity;
   moments: GuestMoment[];
   sessionId: string;
+  onDiscardOperation?: (requestKey: string) => void;
   media: InspoMedia[];
   onAddMoment: (m: {
     guest_name: string;
@@ -124,7 +125,7 @@ function MediaCard({ m, onPress, colW }: { m: InspoMedia; onPress: () => void; c
 }
 
 // ── Main wall ──
-export function GuestWall({ theme, journey, host, companions, identity, moments, sessionId, media, onAddMoment, onDeleteMoment, onToast }: Props) {
+export function GuestWall({ theme, journey, host, companions, identity, moments, sessionId, media, onDiscardOperation, onAddMoment, onDeleteMoment, onToast }: Props) {
   const { t } = useI18n();
   const { width: W } = useWindowDimensions();
   const days = journey.total_days || parseInt(journey.days || '3', 10) || 3;
@@ -162,12 +163,12 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
 
   const canDelete = useCallback((m: GuestMoment) => !!sessionId && m.guest_session_id === sessionId, [sessionId]);
 
-  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number, requestKey: string) => {
+  const handleAddPhotos = useCallback(async (photos: { uri: string; width: number; height: number }[], caption: string, day: number, requestKey: string, originalIdentity: GuestIdentity = identity) => {
     for (let i = 0; i < photos.length; i++) {
       await onAddMoment({
-        guest_name: identity.name,
-        guest_ini: identity.ini,
-        guest_tone: identity.tone,
+        guest_name: originalIdentity.name,
+        guest_ini: originalIdentity.ini,
+        guest_tone: originalIdentity.tone,
         uri: photos[i].uri,
         caption: i === 0 ? caption : '',
         day,
@@ -179,11 +180,11 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
     setUploadOpen(false);
   }, [identity, onAddMoment, onToast, t, sessionId]);
 
-  const handleAddText = useCallback(async (caption: string, day: number, requestKey: string) => {
+  const handleAddText = useCallback(async (caption: string, day: number, requestKey: string, originalIdentity: GuestIdentity = identity) => {
     await onAddMoment({
-      guest_name: identity.name,
-      guest_ini: identity.ini,
-      guest_tone: identity.tone,
+      guest_name: originalIdentity.name,
+      guest_ini: originalIdentity.ini,
+      guest_tone: originalIdentity.tone,
       uri: '',
       caption,
       day,
@@ -360,6 +361,8 @@ export function GuestWall({ theme, journey, host, companions, identity, moments,
           theme={theme}
           days={days}
           draftScope={sessionId}
+          identity={identity}
+          onDiscard={onDiscardOperation}
           onPost={handleAddPhotos}
           onPostText={handleAddText}
           onClose={() => setUploadOpen(false)}

@@ -110,3 +110,19 @@ for (const phase of ['fetch', 'ticket', 'upload']) {
     assert.equal(world.timers.size, 0);
   });
 }
+
+test('legacy draft recovers original identity from saved fingerprint instead of the current visitor', async () => {
+  for (const hasProgress of [true, false]) {
+    const values = hasProgress ? new Map([['kaipa_guest_operations_v1:session:key:legacy:0', JSON.stringify({ fingerprint: JSON.stringify(['Original Guest', 'O', 'river', 'uri', '', 1, false]) })]]) : new Map();
+    const transaction = { objectStore: () => ({ getAll() {
+      const request = { result: [{ scope: 'session', key: 'legacy', picks: [], caption: 'unknown', day: 1 }] };
+      queueMicrotask(() => { request.onsuccess(); transaction.oncomplete(); });
+      return request;
+    } }) };
+    const world = transport('none', { localStorage: { get length() { return values.size; }, key: i => [...values.keys()][i], getItem: key => values.get(key) },
+      indexedDB: { open() { const request = { result: { transaction: () => transaction, close() {} } }; queueMicrotask(() => request.onsuccess()); return request; } } });
+    const draft = await world.retryState().loadGuestDraft('session');
+    assert.equal(draft.identity?.name, hasProgress ? 'Original Guest' : undefined);
+    assert.equal(draft.key, 'legacy');
+  }
+});

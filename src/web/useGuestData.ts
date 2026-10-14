@@ -143,7 +143,7 @@ export function useGuestData(code: string) {
     current.inFlight = withGuestDeadline(async deadlineGuard => {
       const guard = () => {
         deadlineGuard();
-        if (pending.current !== entries) throw new Error('发布页面已离开，请恢复原草稿');
+        if (pending.current !== entries || entries.get(slot) !== current) throw new Error('发布页面已离开或草稿已放弃');
       };
       const persist = () => {
         guard();
@@ -182,11 +182,16 @@ export function useGuestData(code: string) {
       current.inFlight = undefined;
     }
   },[snapshot,token]);
+  const discardOperation = useCallback((requestKey: string) => {
+    for (const slot of pending.current.keys()) {
+      if (slot === `key:${requestKey}` || slot.startsWith(`key:${requestKey}:`)) pending.current.delete(slot);
+    }
+  }, []);
   const deleteMoment = useCallback(async (id:string)=>{
     if (!token) throw new Error('访客会话不可用，请刷新页面');
     await guestRequest({action:'guest_delete',id},token);
     setSnapshot(prev=>prev?{...prev,moments:prev.moments.filter(m=>m.id!==id)}:prev);
   },[token]);
   return {loading,error,share:snapshot?.share || null,journey:snapshot?.journey || null,host:snapshot?.host || null,
-    companions:snapshot?.companions || [],moments:snapshot?.moments || [],media:snapshot?.media || [],sessionId:snapshot?.sessionId || '',addMoment,deleteMoment};
+    companions:snapshot?.companions || [],moments:snapshot?.moments || [],media:snapshot?.media || [],sessionId:snapshot?.sessionId || '',addMoment,deleteMoment,discardOperation};
 }

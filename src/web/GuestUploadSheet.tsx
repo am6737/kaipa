@@ -7,6 +7,7 @@ import { Press } from '../components/Press';
 import { useI18n } from '../i18n';
 import { space, type } from '../design-system';
 import { loadGuestDraft, saveGuestDraft, clearGuestDraft, durablePhotoUri } from './guestRetryState';
+import type { GuestIdentity } from './IdentitySheet';
 
 interface PhotoPick {
   uri: string;
@@ -18,12 +19,14 @@ interface Props {
   theme: Theme;
   days: number;
   draftScope?: string;
-  onPost: (photos: PhotoPick[], caption: string, day: number, requestKey: string) => Promise<void>;
-  onPostText: (caption: string, day: number, requestKey: string) => Promise<void>;
+  identity?: GuestIdentity;
+  onPost: (photos: PhotoPick[], caption: string, day: number, requestKey: string, identity?: GuestIdentity) => Promise<void>;
+  onPostText: (caption: string, day: number, requestKey: string, identity?: GuestIdentity) => Promise<void>;
+  onDiscard?: (requestKey: string) => void;
   onClose: () => void;
 }
 
-export function GuestUploadSheet({ theme, days, draftScope, onPost, onPostText, onClose }: Props) {
+export function GuestUploadSheet({ theme, days, draftScope, identity, onPost, onPostText, onDiscard, onClose }: Props) {
   const { t } = useI18n();
   const { height: winH } = useWindowDimensions();
   const [picks, setPicks] = useState<PhotoPick[]>([]);
@@ -33,7 +36,7 @@ export function GuestUploadSheet({ theme, days, draftScope, onPost, onPostText, 
   const [error, setError] = useState('');
   const [hydrating, setHydrating] = useState(!!draftScope);
   const mounted = useRef(true);
-  const operation = useRef<{ key: string; inFlight: boolean } | null>(null);
+  const operation = useRef<{ key: string; identity?: GuestIdentity; inFlight: boolean; discarded?: boolean } | null>(null);
   useEffect(() => {
     mounted.current = true;
     if (draftScope) loadGuestDraft(draftScope).then(draft => {
@@ -42,7 +45,7 @@ export function GuestUploadSheet({ theme, days, draftScope, onPost, onPostText, 
         setPicks(draft.picks);
         setCaption(draft.caption);
         setDay(draft.day);
-        operation.current = { key: draft.key, inFlight: false };
+        operation.current = { key: draft.key, identity: draft.identity, inFlight: false };
       }
       setHydrating(false);
     }).catch(cause => { if (mounted.current) setError(cause.message); });
@@ -76,19 +79,20 @@ export function GuestUploadSheet({ theme, days, draftScope, onPost, onPostText, 
   const canPost = picks.length > 0 || caption.trim().length > 0;
 
   const handlePost = async () => {
-    if (!canPost || hydrating || operation.current?.inFlight) return;
-    if (!operation.current) operation.current = { key: crypto.randomUUID(), inFlight: false };
+    if (!mounted.current || !canPost || hydrating || operation.current?.inFlight || operation.current?.discarded) return;
+    if (!operation.current) operation.current = { key: crypto.randomUUID(), identity: identity && { ...identity }, inFlight: false };
     const current = operation.current;
     current.inFlight = true;
     setPosting(true);
     setError('');
     try {
-      if (draftScope) await saveGuestDraft(draftScope, { key: current.key, picks, caption: caption.trim(), day });
+      if (identity && !current.identity) throw new Error('无法恢复原访客身份，请放弃此草稿并新建');
+      if (draftScope) await saveGuestDraft(draftScope, { key: current.key, identity: current.identity, picks, caption: caption.trim(), day });
       if (!mounted.current) return;
       if (picks.length === 0) {
-        await onPostText(caption.trim(), day, current.key);
+        await onPostText(caption.trim(), day, current.key, current.identity);
       } else {
-        await onPost(picks, caption.trim(), day, current.key);
+        await onPost(picks, caption.trim(), day, current.key, current.identity);
       }
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : '操作失败，请稍后重试');
@@ -124,25 +128,32 @@ export function GuestUploadSheet({ theme, days, draftScope, onPost, onPostText, 
             <View style={{ marginBottom: space.sm }}>
               <Text accessibilityRole="alert" style={{ ...type.hint, color: theme.danger }}>{error}</Text>
               <Text style={{ ...type.hint, color: theme.text2 }}>再次发布会重试本次内容；关闭后原草稿仍可恢复。</Text>
-              {!!draftScope && !posting && (
-                <Press onPress={async () => {
-                  if (!operation.current || operation.current.inFlight || hydrating) return;
-                  const current = operation.current;
-                  current.inFlight = true;
-                  setPosting(true);
-                  try {
-                    await clearGuestDraft(draftScope, current.key);
-                    if (mounted.current) onClose();
-                  } catch (cause) {
-                    if (mounted.current) setError(cause instanceof Error ? cause.message : '无法清除草稿');
-                  } finally {
-                    current.inFlight = false;
-                    if (mounted.current) setPosting(false);
-                  }
-                }}>
-                  <Text style={{ ...type.hint, color: theme.accent }}>放弃此草稿并新建（已提交内容会保留）</Text>
-                </Press>
+            </View>
+          )}
+          {!!draftScope && locked && (
+            <View style={{ marginBottom: space.sm }}>
+              {!!operation.current?.identity && (
+                <Text style={{ ...type.hint, color: theme.text2 }}>本次草稿使用访客身份：{operation.current.identity.name}</Text>
               )}
+              <Press onPress={posting || hydrating ? undefined : async () => {
+                if (!operation.current || operation.current.inFlight || hydrating) return;
+                const current = operation.current;
+                current.inFlight = true;
+                setPosting(true);
+                try {
+                  await clearGuestDraft(draftScope, current.key);
+                  current.discarded = true;
+                  onDiscard?.(current.key);
+                  if (mounted.current) onClose();
+                } catch (cause) {
+                  if (mounted.current) setError(cause instanceof Error ? cause.message : '无法清除草稿');
+                } finally {
+                  current.inFlight = false;
+                  if (mounted.current) setPosting(false);
+                }
+              }}>
+                <Text style={{ ...type.hint, color: theme.accent }}>放弃此草稿并新建（已提交内容会保留）</Text>
+              </Press>
             </View>
           )}
 

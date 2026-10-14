@@ -1,6 +1,6 @@
 # Issue #15：访客发布重试
 
-本机修复验收通过：服务端已提交但浏览器丢响应，保留的原表单再次发布使用原 requestKey、返回原 ID；SQL 1 条，当前墙上 1 条，刷新仍 1 条。当前产品范围为 `useGuestData.ts`、`GuestWall.tsx`、`GuestUploadSheet.tsx`、guestResources/guestStorage 及新增 guestDeadline/guestRetryState 客户端辅助模块，另含必要回归/本地辅助脚本/精简证据。历史验证结果按受测提交保留，第二轮当前策略见下表及文末。没有服务端、协议、迁移、部署、共享配置、CI、发布或密钥改动。
+本机修复验收通过：服务端已提交但浏览器丢响应，保留的原表单再次发布使用原 requestKey、返回原 ID；SQL 1 条，当前墙上 1 条，刷新仍 1 条。当前产品范围为 `useGuestData.ts`、`GuestWall.tsx`、`GuestUploadSheet.tsx`、`GuestApp.tsx`、guestResources/guestStorage 及新增 guestDeadline/guestRetryState 客户端辅助模块，另含必要回归/本地辅助脚本/精简证据。历史验证结果按受测提交保留，第二轮当前策略见下表及文末。没有服务端、协议、迁移、部署、共享配置、CI、发布或密钥改动。
 
 依据 [#13](https://github.com/am6737/kaipa/pull/13) head `3ed19ba4ca5982a4c5e32287eed0dd74c419780b` 的报告与真实辅助脚本；取受测 `df412c4188bf02e94db641380d75194d00f1217a` archive 的原 `scripts/test-qa-guest-retry.cjs` 到本 PR 正确路径，没有合入 #13 全部证据。先运行未改产品的原回归得到 2 pass / 1 fail：模拟先提交 Map 再抛响应丢失，重试 key 为 request-1/request-2，期望 1、实际 2。见 [hook-before.txt](evidence/issue-15/hook-before.txt)。模型不是数据库证据。
 
@@ -13,6 +13,7 @@
 | 编辑未提交草稿 | 不分配 key；首次点击发布时同步分配 UUID 并锁定本次内容 |
 | 同操作串行重试 | 表单保留草稿/key；仍点击原“发布”；SQL 返回原记录，hook 按 ID 合并快照 |
 | 同操作并发调用 | hook 在 ref 中同步注册操作并共享 inFlight；表单 ref 额外防止 React 更新前的快速双击 |
+| 恢复时改名 | 草稿沿用首次发布时保存的 name/ini/tone；文字及照片均与原 key 配对，明确放弃后新操作使用当前身份 |
 | 确定拒绝 / 结果未知 | 都保留 key 和草稿，解除提交中的状态并显示原错误；不从错误文本猜测提交结果。已有服务拒绝明确没有插入时，同 key 重试也安全 |
 | 已明确成功 | 墙更新后才关闭表单；下一次“添加”挂载新表单，首次提交生成新 key，即使内容相同 |
 | 关闭失败草稿再添加 | 同一 session 恢复 IndexedDB 草稿和原 key；取消/背景关闭不再代表放弃 |
@@ -136,3 +137,29 @@ Reviewer 指出的缺陷成立：上一版仅保留 URI/key，已确认项仍会
 | 受影响回归/浏览器脚本 `node --check`、`git diff --check` | 通过 |
 
 第 2 轮阻断的本地客户端验收无尚未解决项。当前验证边界仍为本机构建、受控悬挂与持久化和历史提交的本地 Supabase 文字证据；本轮未重跑真实 SQL 写入，真机、实际媒体、移动 Safari、线上部署未验证，不声称线上已修复。PR 保持 draft，不请求 review、不合并。
+
+
+## 授权追加轮次：恢复身份与可见丢弃入口
+
+依据 Owner 明确授权继续在原 draft #16 修复第三轮两项阻断。旧版草稿只保存内容/key，恢复后 GuestWall 用当前身份构造请求，改名导致与原指纹不符而持续拒绝；丢弃按钮又只在 error 分支中，恢复时尚无 error 因而不可见。本轮只处理这两点，不改变之前 30 秒有界等待、关闭/刷新恢复或确认项零请求行为。
+
+首次发布同步复制原访客的 name/ini/tone 至操作 ref，在写入前随草稿保存。恢复后文字/照片发布回调显式传入这份原身份，GuestWall 用它构造所有批次项目；hook 原指纹校验保留，未知项继续原 key、确认项仍直接返回。已保存的旧格式草稿从 key 对应的第一项不可变指纹恢复原身份，不做存储版本迁移；找不到原身份时禁止把当前身份配旧 key，表单允许直接丢弃。恢复表单显示本次草稿所用原访客身份。
+
+丢弃入口移出 error 分支，恢复后无需再尝试发布即可看到并使用。发送或清理中入口可见但禁用，最长等待仍遵循既有每阶段/每项 30 秒上限。清理对应 IndexedDB 草稿与 localStorage 重试进度成功后，经 GuestApp/GuestWall 回调删除 hook 中的对应操作，迟到继续执行必须通过该操作仍存在的 guard；捕获的旧发布回调也被永久退役，不能重新保存已丢弃草稿。刷新不恢复已丢弃内容，下一次明确新操作使用新 key 和当前身份。清理进度失败会显示错误，不静默报告完成；已经到达服务端的写入可能保留，丢弃不是删除服务端内容。
+
+修复前先添加两个真实组件连接回归：旧 29 项通过，两项新增分别因改名恢复不完成、无可见丢弃入口而失败，见 [regression-before.txt](evidence/issue-15/review-3/regression-before.txt)（仅去除输出行末空白）。修复后 **33/33 通过**，原 29 项保留，新增改名+remount 原身份/key、直接丢弃+刷新+新 key/当前身份、丢弃期间迟到响应隔离及旧格式原身份恢复；原捕获回调测试额外检查清理结束后仍不能复活旧草稿。见 [regression-after.txt](evidence/issue-15/review-3/regression-after.txt)。
+
+复用已有真实导出客户端/Chromium/原生 IndexedDB 辅助脚本，仅增加可配置导出及证据路径和本轮断言，无重复复制脚本。**5/5 浏览器场景通过**：保留原悬挂/迟到/原生照片内容恢复场景，在 pending 中离开后改名恢复原身份/key 并成功；新增在无 error 的恢复表单直接丢弃，检查两类持久记录均清除、迟到响应不改新草稿、刷新为空、新提交新 key/最新身份。请求证据保存 name/ini/tone、key、模型 ID，源码/包哈希与 pageErrors，见 [hung-client.json](evidence/issue-15/review-3/hung-client.json)。这些 HTTP/行数来自受控响应和内存模型，**没有访问实际 Supabase/PostgreSQL，也没有实际媒体上传**；照片内容恢复仍使用合成 Blob。浏览器与临时静态服务器关闭，无共享 fixture 或运行实例配置改动。
+
+实际本检出临时链接主工作区同 yarn.lock 已安装依赖（Node 24.18.0、TypeScript 6.0.3、Expo 56.0.21；锁文件 SHA-256 与前轮一致），不安装或更改共享依赖，检查完成后移除链接。
+
+| 本轮实际最终检查 | 结果 |
+| --- | --- |
+| `node --test scripts/test-qa-guest-retry.cjs scripts/test-guest-publish.cjs scripts/test-guest-deadline.cjs` | 33 pass / 0 fail / 0 skipped / 0 todo |
+| `npx --no-install tsc --noEmit` | exit 2，37 条既有错误；[tsc.txt](evidence/issue-15/review-3/tsc.txt) |
+| `cmp /tmp/issue15-tsc-baseline.txt docs/qa/evidence/issue-15/review-3/tsc.txt` | exit 0，与指定 #13 基线逐字节一致，无新增，不称类型检查全绿 |
+| `node /tmp/issue15-review3-export.cjs` | 新 Web 导出通过，仅进程内本地公开 API URL；[web-export.txt](evidence/issue-15/review-3/web-export.txt) |
+| `KAIPA_QA_WEB_DIR=/tmp/kaipa-issue15/review-3/web KAIPA_QA_CLIENT_EVIDENCE=docs/qa/evidence/issue-15/review-3/hung-client.json node scripts/qa/issue15-hung-client.cjs` | 5/5 通过，pageErrors 空 |
+| 四个受影响测试/浏览器脚本 `node --check`、diff 检查 | 通过；根目录没有适用 lint script，不改 CI |
+
+当前授权的两项阻断本地验收无遗留，继续交由 Reviewer 审查；PR 保持 draft，不请求 GitHub review、不合并。只验证本机构建与受控浏览器，本轮不将历史真实 SQL 结果冒充当前 head 验证。真机、Safari、实际媒体/对象清理和线上仍未验证；#11 权限问题独立 OPEN，未混入其改动。

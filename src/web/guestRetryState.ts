@@ -1,4 +1,5 @@
 import { withGuestDeadline } from './guestDeadline';
+import type { GuestIdentity } from './IdentitySheet';
 
 export interface GuestPhotoDraft { uri: string; width: number; height: number }
 export interface GuestDraft {
@@ -6,6 +7,7 @@ export interface GuestDraft {
   picks: GuestPhotoDraft[];
   caption: string;
   day: number;
+  identity?: GuestIdentity;
 }
 
 const operationsKey = (scope: string) => `kaipa_guest_operations_v1:${scope}`;
@@ -51,9 +53,21 @@ function draftTransaction<T>(scope: string, mode: IDBTransactionMode,
   }, () => transaction?.abort());
 }
 export function loadGuestDraft(scope: string): Promise<GuestDraft | null> {
-  return draftTransaction(scope, 'readonly', (store, done) => {
+  return draftTransaction<GuestDraft | null>(scope, 'readonly', (store, done) => {
     const request = store.getAll();
     request.onsuccess = () => done(request.result.find(row => row.scope === scope) || null);
+  }).then(draft => {
+    // Older drafts omitted identity; their immutable per-item fingerprint
+    // already contains it. Never substitute the visitor's current name.
+    if (draft && !draft.identity) {
+      const entries = readGuestOperations<{ fingerprint: string }>(scope);
+      const progress = entries.get(`key:${draft.key}`) || entries.get(`key:${draft.key}:0`);
+      try {
+        const [name, ini, tone] = JSON.parse(progress!.fingerprint);
+        if ([name, ini, tone].every(value => typeof value === 'string')) draft.identity = { name, ini, tone };
+      } catch { /* UI offers discard when original identity cannot be recovered */ }
+    }
+    return draft;
   });
 }
 export function saveGuestDraft(scope: string, draft: GuestDraft): Promise<void> {
@@ -71,7 +85,8 @@ export function clearGuestDraft(scope: string, key: string): Promise<void> {
     const entries = readGuestOperations<unknown>(scope);
     for (const slot of entries.keys()) {
       if (slot === `key:${key}` || slot.startsWith(`key:${key}:`)) {
-        try { localStorage.removeItem(`${operationsKey(scope)}:${slot}`); } catch { /* keep safe old records */ }
+        try { localStorage.removeItem(`${operationsKey(scope)}:${slot}`); }
+        catch { throw new Error('无法清除发布进度，请检查浏览器存储后重试'); }
       }
     }
   });

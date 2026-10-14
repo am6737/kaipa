@@ -199,6 +199,8 @@ test('scoped unknown draft is saved before writing, survives departure and resto
   button(render(), 'guest.wall.cancel').props.onPress?.();
   assert.equal(closed, 1);
   clearRelease(); await discard;
+  await stalePublish();
+  assert.equal(keys.length, 2, 'Discarded captured callbacks must stay retired');
   assert.equal(saved, null);
   world.remount(); render(); await new Promise((resolve) => setImmediate(resolve));
   assert.equal(byType(render(), 'TextInput').props.value, '');
@@ -220,4 +222,65 @@ test('failed durable draft save prevents any write and preserves the retry key i
   writable = true;
   await button(render(), 'guest.wall.post').props.onPress();
   assert.equal(calls, 1);
+});
+
+// Connect the real sheet's publishing callback to the real wall after a rename.
+function recoveryWorld() {
+  let saved = null;
+  const requests = [], confirmed = new Map();
+  const repo = { loadGuestDraft: async () => saved,
+    saveGuestDraft: async (scope, draft) => { saved = JSON.parse(JSON.stringify(draft)); },
+    clearGuestDraft: async () => { saved = null; }, durablePhotoUri: async uri => uri };
+  const wall = componentHarness('src/web/GuestWall.tsx', 'GuestWall', { './guestRetryState': repo });
+  const sheet = componentHarness('src/web/GuestUploadSheet.tsx', 'GuestUploadSheet', { './guestRetryState': repo });
+  const original = { name: '原访客', ini: '原', tone: 'river' }, renamed = { name: '改名访客', ini: '改', tone: 'forest' };
+  const props = { theme, journey: { total_days: 1 }, host: { display_name: 'Host' }, companions: [], identity: original,
+    moments: [], sessionId: 'session', media: [], onDeleteMoment: async () => {}, onToast: () => {},
+    onAddMoment: async (moment, key) => {
+      const previous = confirmed.get(key);
+      if (previous) assert.deepEqual(moment, previous, 'Same key must retain the original identity');
+      requests.push({ moment, key });
+      if (!previous) { confirmed.set(key, moment); throw new Error('Response lost'); }
+    } };
+  const render = () => {
+    button(wall.render(props), 'journey.action.add').props.onPress();
+    return sheet.render(byType(wall.render(props), 'GuestUploadSheet').props);
+  };
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  return { props, original, renamed, requests, render, tick, sheet, saved: () => saved };
+}
+
+test('renamed visitor restores original draft identity after refresh and retries original key', async () => {
+  const w = recoveryWorld();
+  w.render(); await w.tick();
+  byType(w.render(), 'TextInput').props.onChangeText('身份草稿');
+  await button(w.render(), 'guest.wall.post').props.onPress();
+  const key = w.requests[0].key;
+  w.sheet.remount(); w.props.identity = w.renamed;
+  w.render(); await w.tick();
+  await button(w.render(), 'guest.wall.post').props.onPress();
+  assert.equal(w.requests.length, 2, 'Renaming must not strand a recovered retry');
+  assert.equal(w.requests[1].key, key);
+  assert.equal(w.requests[1].moment.guest_name, w.original.name);
+  assert.equal(w.saved(), null, 'Confirmed recovery clears the draft');
+});
+
+test('recovered draft exposes discard before any retry; refresh stays empty and new operation uses current identity', async () => {
+  const w = recoveryWorld();
+  w.render(); await w.tick();
+  byType(w.render(), 'TextInput').props.onChangeText('身份草稿');
+  await button(w.render(), 'guest.wall.post').props.onPress();
+  const oldKey = w.requests[0].key;
+  w.sheet.remount(); w.props.identity = w.renamed;
+  w.render(); await w.tick();
+  const discard = button(w.render(), '放弃此草稿并新建（已提交内容会保留）');
+  assert.ok(discard?.props.onPress, 'Recovered draft must offer discard without first failing again');
+  await discard.props.onPress();
+  assert.equal(w.saved(), null);
+  w.sheet.remount(); w.render(); await w.tick();
+  assert.equal(byType(w.render(), 'TextInput').props.value, '');
+  byType(w.render(), 'TextInput').props.onChangeText('身份草稿');
+  await button(w.render(), 'guest.wall.post').props.onPress();
+  assert.notEqual(w.requests[1].key, oldKey);
+  assert.equal(w.requests[1].moment.guest_name, w.renamed.name);
 });
