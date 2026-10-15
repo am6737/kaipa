@@ -2,6 +2,8 @@ import { z } from 'npm:zod@4.1.12';
 import { travelRequestSchema } from './travel-request.ts';
 import { validIsoDate } from './itinerary-validation.ts';
 import type { TopicCheck } from './topic-boundary.ts';
+import type { RouterIntent } from './intent-router.ts';
+import type { AgentIntent } from './types.ts';
 
 export const writeOperations = [
   'create_journey', 'add_itinerary_items', 'update_journey_schedule',
@@ -65,7 +67,24 @@ export type TaskOutcome = {
   draft: (PlanDraft & { id: string }) | null;
   missingOperations: WriteOperation[];
 };
-export type TaskState = { runId: string; journeyId: string | null; decision: TaskDecision; outcome: TaskOutcome | null; topicCheck?: TopicCheck };
+// How this turn's intent was decided (intent-router.ts). `applied` is false
+// when the result was only recorded (shadow mode, continuation, router failure).
+export type TaskRouting = {
+  intent: RouterIntent;
+  source: 'app' | 'router' | 'continuation' | 'interpreter';
+  applied: boolean;
+  clarify?: { question: string; options: Array<{ label: string; message: string }> };
+  alternatives?: RouterIntent[];
+  appIntent?: AgentIntent;
+  note?: string;
+  error?: string;
+};
+export type TaskState = { runId: string; journeyId: string | null; decision: TaskDecision; outcome: TaskOutcome | null; topicCheck?: TopicCheck; routing?: TaskRouting };
+
+// A routed clarification ends the turn with its question; nothing else runs.
+export function taskClarification(task: TaskState) {
+  return task.routing?.applied && task.routing.clarify && !task.decision.offTopic ? task.routing.clarify : null;
+}
 
 // Semantic interpretation is model-based; execution cannot expand its result.
 // This is defense in depth, not a replacement for database RLS or permissions.

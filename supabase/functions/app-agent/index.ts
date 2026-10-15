@@ -21,7 +21,8 @@ import { prepareTask } from './task-store.ts';
 import { checkTopic, offTopicResponse } from './topic-boundary.ts';
 import { runPipeline, useStagedPipeline } from './pipeline.ts';
 import { renderTaskResponse } from './response-presentation.ts';
-import { planDraftSchema, taskOutcome, type PlanDraft } from './task.ts';
+import { planDraftSchema, taskClarification, taskOutcome, type PlanDraft } from './task.ts';
+import { intentRouterMode, isAgentIntent } from './intent-router.ts';
 import { assistantStoragePath, InvalidTrackError, isTrackAttachment, readAttachment, trackInput } from './attachments.ts';
 
 const corsHeaders = {
@@ -670,6 +671,9 @@ Deno.serve(async (req) => {
     }
 
     if (body.action !== 'turn' || !body.message?.trim()) return json({ error: { code: 'message_required', message: '请输入内容' } }, 400);
+    // Older and newer clients may send intents this version does not know;
+    // they are treated as absent so the request still runs through the router.
+    if (!isAgentIntent(body.intent)) body.intent = undefined;
     if (!jobLease && validClientRunId(body.clientRunId)) {
       const existingRun = await client.from('agent_runs').select('id,thread_id,status,final_output').eq('id', body.clientRunId).maybeSingle();
       if (existingRun.error) throw existingRun.error;
@@ -770,17 +774,44 @@ Deno.serve(async (req) => {
       if (result.error) throw result.error;
     };
     const budget = modelBudget(jobAdmin,'run:'+runId);
+    const interpretation = createAgentRuntime(config, false, undefined, recordMetric, budget);
     const task = await prepareTask(client, jobAdmin, {
       runId, threadId, userId: user.id, journeyId: resolvedCurrentJourneyId || null,
       message: effectiveMessage, intent: body.intent, temporalContext,
       attachments: attachments.map(({ name, kind }) => ({ name, kind })),
-    }, createAgentRuntime(config, false, undefined, recordMetric, budget).interpret,
+      routerMode: intentRouterMode(Deno.env.get('KAIPA_INTENT_ROUTER')),
+    }, interpretation.interpret,
     input => checkTopic(input, { url: Deno.env.get('TOPIC_GUARD_URL') || '',
-      token: Deno.env.get('TOPIC_GUARD_TOKEN') || '', budget, recordMetric }));
+      token: Deno.env.get('TOPIC_GUARD_TOKEN') || '', budget, recordMetric }),
+    interpretation.route);
     if (task.decision.offTopic) {
       // Stop before context hydration, attachment parsing, plan quota and the
       // conversational runtime. No business tool is exposed for this turn.
       const output = offTopicResponse(body.locale);
+      const ui: AgentMessageUi = {
+        requestId: runId, quickReplies: output.quickReplies,
+        taskOutcome: taskOutcome(task, output, []),
+      };
+      const finalized = await client.rpc('finalize_agent_run', {
+        target_run_id: runId, assistant_message: output.text, message_ui: ui,
+      });
+      if (finalized.error) throw finalized.error;
+      const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
+      if (finished.error) throw finished.error;
+      shouldPersistFailure = false;
+      return json({ threadId, runId, status: 'completed', message: output.text,
+        quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
+    }
+    const clarification = taskClarification(task);
+    if (clarification) {
+      // The routed request could write different data or lacks its target.
+      // Ask before any pipeline, conversational runtime or plan quota; each
+      // option sends a complete instruction that authorizes the next turn.
+      const output = {
+        text: clarification.question,
+        quickReplies: clarification.options.map(({ label, message }): AgentQuickReply => ({ label, message })),
+        pendingQuestion: clarification.question, draft: null,
+      };
       const ui: AgentMessageUi = {
         requestId: runId, quickReplies: output.quickReplies,
         taskOutcome: taskOutcome(task, output, []),

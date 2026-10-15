@@ -1,5 +1,5 @@
 import { prepareTask } from './task-store.ts';
-import { taskDecisionSchema } from './task.ts';
+import { taskClarification, taskDecisionSchema } from './task.ts';
 import { TOPIC_POLICY_VERSION } from './topic-boundary.ts';
 
 Deno.test('task preparation supplies bound-track metadata and persists missing full-plan endpoint dependency', async () => {
@@ -100,4 +100,61 @@ Deno.test('unavailable NeMo cannot authorize or persist a task', async () => {
     return;
   }
   throw new Error('Unavailable guard passed');
+});
+
+Deno.test('a routed clarification is persisted and reused on retry', async () => {
+  let persisted: any = null;
+  let interpreted = 0;
+  let routed = 0;
+  const client = { from(table: string) {
+    let runQuery = false;
+    const chain = {
+      select: () => chain, eq: (column: string) => { if (column === 'run_id') runQuery = true; return chain; },
+      is: () => chain, order: () => chain, limit: () => chain,
+      maybeSingle: () => ({ error: null, data: runQuery && persisted ? { state: persisted.state } : null }),
+      insert: (value: unknown) => { persisted = value; return { error: null }; },
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }),
+    };
+    return chain;
+  } };
+  const args = { runId: 'run', threadId: 'thread', userId: 'user', journeyId: 'journey',
+    message: '添加一顶帐篷', temporalContext: 'today', attachments: [], routerMode: 'on' as const };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const task = await prepareTask(client, client, args, async () => {
+      interpreted++;
+      return taskDecisionSchema.parse({ objective: 'add tent', mode: 'execute', continuation: false, authorizationQuote: '添加一顶帐篷',
+        operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], days: null, plannedDate: null, dateUndecided: false,
+        destination: null, trackAttachmentName: null, packingMode: 'incremental', constraints: [] });
+    }, async () => ({ allowed: true, policyVersion: TOPIC_POLICY_VERSION, checkedAt: 'now' }), async input => {
+      routed++;
+      if (input.latestMessage !== args.message || !input.hasCurrentJourney) throw new Error('Wrong router input');
+      return { intent: 'clarify', alternatives: ['gear_add', 'packing_add'], clarifyQuestion: '加到哪里？',
+        clarifyOptions: [{ label: '装备库', message: '把帐篷录入我的装备库' }, { label: '这次清单', message: '把帐篷加到这次旅程的装备清单' }] };
+    });
+    const clarification = taskClarification(task);
+    if (clarification?.question !== '加到哪里？' || clarification.options.length !== 2) throw new Error('Clarification missing');
+    if (task.decision.mode === 'execute' || task.decision.operations.length) throw new Error('Clarification kept writes');
+  }
+  if (persisted.state.routing?.intent !== 'clarify') throw new Error('Routing not persisted');
+  if (interpreted !== 1 || routed !== 1) throw new Error('Retry re-ran interpretation or routing');
+});
+
+Deno.test('task preparation passes the router mode through', async () => {
+  for (const routerMode of ['off', 'shadow'] as const) {
+    let routed = 0;
+    const client = { from() {
+      const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
+        maybeSingle: () => ({ error: null, data: null }), insert: () => ({ error: null }),
+        then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }) };
+      return chain;
+    } };
+    const task = await prepareTask(client, client, { runId: 'run', threadId: 'thread', userId: 'user', journeyId: null,
+      message: '记上我的新头灯', temporalContext: 'today', attachments: [], routerMode }, async () => taskDecisionSchema.parse({
+      objective: 'gear', mode: 'execute', continuation: false, authorizationQuote: '记上我的新头灯', operations: ['add_gear'],
+      requiredOperations: ['add_gear'], days: null, plannedDate: null, dateUndecided: false, destination: null, trackAttachmentName: null,
+      packingMode: 'none', constraints: [] }), async () => ({ allowed: true, policyVersion: TOPIC_POLICY_VERSION, checkedAt: 'now' }),
+    async () => { routed++; return { intent: 'discuss', alternatives: [], clarifyQuestion: null, clarifyOptions: [] }; });
+    if (routed !== (routerMode === 'off' ? 0 : 1)) throw new Error(`${routerMode}: router calls ${routed}`);
+    if (task.decision.operations.join() !== 'add_gear' || task.routing?.applied) throw new Error(`${routerMode}: decision changed`);
+  }
 });

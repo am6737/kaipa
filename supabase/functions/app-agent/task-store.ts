@@ -1,4 +1,5 @@
 import { constrainTaskDecision, taskDecisionSchema, type TaskDecision, type TaskState } from './task.ts';
+import { resolveTask, type RouterInput, type RouterMode, type RouterOutput } from './intent-router.ts';
 import { TOPIC_POLICY_VERSION, type TopicCheck, type TopicInput } from './topic-boundary.ts';
 
 type Client = any;
@@ -6,9 +7,10 @@ type Client = any;
 export async function prepareTask(
   client: Client,
   admin: Client,
-  args: { runId: string; threadId: string; userId: string; journeyId: string | null; message: string; intent?: string; temporalContext: string; attachments: Array<{ name: string; kind: string }> },
+  args: { runId: string; threadId: string; userId: string; journeyId: string | null; message: string; intent?: string; temporalContext: string; attachments: Array<{ name: string; kind: string }>; routerMode?: RouterMode },
   interpret: (input: unknown) => Promise<TaskDecision>,
   checkTopic: (input: TopicInput) => Promise<TopicCheck>,
+  route?: (input: RouterInput) => Promise<RouterOutput>,
 ): Promise<TaskState> {
   const saved = await client.from('agent_task_states').select('state').eq('run_id', args.runId).maybeSingle();
   if (saved.error) throw saved.error;
@@ -67,24 +69,31 @@ export async function prepareTask(
   const boundTrack = relatedTrack as { file_name?: string | null; coords?: [number, number][] | null } | null;
   const hasBoundTrack = Boolean(bound.data?.track_id)
     || (Array.isArray(boundTrack?.coords) && boundTrack.coords.length >= 2);
-  const interpreted = await interpret({
-    latestMessage: args.message,
+  // Gate, intent router (in parallel with the interpreter), applyIntent, quote
+  // guard and constrainTaskDecision; see intent-router.ts.
+  const { decision, routing } = await resolveTask({
+    message: args.message,
+    journeyId: args.journeyId,
+    previous,
     appIntent: args.intent || null,
-    currentJourneyId: args.journeyId,
-    boundTrack: { available: hasBoundTrack, filename: boundTrack?.file_name || null },
-    temporalContext: args.temporalContext,
-    availableAttachments: args.attachments,
-    previousTask: previous,
+    hasBoundTrack,
+    mode: args.routerMode ?? 'on',
     recentMessages,
-  });
-  const decision = constrainTaskDecision({
-    ...interpreted,
-    offTopic: false,
-    objective: interpreted.objective?.trim() || args.message.trim().slice(0, 1000),
-  }, args.message, previous, args.journeyId, { hasBoundTrack, intent: args.intent });
-  const state: TaskState = { runId: args.runId, journeyId: args.journeyId, decision, outcome: null, topicCheck };
+    interpretInput: {
+      latestMessage: args.message,
+      appIntent: args.intent || null,
+      currentJourneyId: args.journeyId,
+      boundTrack: { available: hasBoundTrack, filename: boundTrack?.file_name || null },
+      temporalContext: args.temporalContext,
+      availableAttachments: args.attachments,
+      previousTask: previous,
+      recentMessages,
+    },
+  }, interpret, route);
+  const state: TaskState = { runId: args.runId, journeyId: args.journeyId, decision, outcome: null, topicCheck, routing };
   // Only the authenticated worker's service client can persist interpreted scope.
-  // Retries reuse it rather than reinterpreting an already partially executed task.
+  // Retries reuse it, including the routing and any clarification, rather than
+  // reinterpreting an already partially executed task.
   await persistTask(state);
   return state;
 

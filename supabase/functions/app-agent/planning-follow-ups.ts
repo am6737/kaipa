@@ -28,7 +28,8 @@ export function planningFollowUpReplies(
         ['安排往返交通', '帮我安排完整往返交通，包含到徒步起点和从终点离开的接驳。复用已确认地点；缺少出发地时可建议本次定位，并确认是否往返这里。先分析可行方案，只问关键问题，保留已有徒步旅程。'],
         ['安排住宿', '帮我为刚规划的旅程补充徒步前后的住宿，只询问缺失的住宿需求，保留已有旅程。'],
       ];
-  return options.map(([label, message]) => ({ label, message, action: 'supplement_plan' }));
+  const intents = ['transport_supplement', 'stay_supplement'] as const;
+  return options.map(([label, message], index) => ({ label, message, action: 'supplement_plan', intent: intents[index] }));
 }
 
 export function normalizePlanningFollowUps(replies: AgentQuickReply[]): AgentQuickReply[] {
@@ -41,6 +42,10 @@ export function normalizePlanningFollowUps(replies: AgentQuickReply[]): AgentQui
   return replies.flatMap((reply) => {
     if (reply.action !== 'supplement_plan') return [reply];
     if (reply.label === '补充交通和住宿' || reply.label === 'Add both') return [];
-    return [{ ...reply, label: labels[reply.label] || reply.label }];
+    const label = labels[reply.label] || reply.label;
+    // Replies stored before entry intents existed still route like new ones.
+    const intent = reply.intent ?? (/交通|transport/i.test(label) ? 'transport_supplement'
+      : /住宿|accommodation/i.test(label) ? 'stay_supplement' : undefined);
+    return [{ ...reply, label, ...(intent ? { intent } : {}) }];
   });
 }

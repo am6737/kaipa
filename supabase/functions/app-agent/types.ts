@@ -19,6 +19,8 @@ export type AgentQuickReply = {
   message: string;
   action?: 'upload_track' | 'skip_track' | 'retry_run' | 'supplement_plan' | 'request_location';
   runId?: string;
+  // Sent back with the message when tapped, so the button decides the intent.
+  intent?: AgentIntent;
 };
 
 export type AgentSource = {
@@ -96,7 +98,10 @@ export type AgentModelMetric = {
   success: boolean;
 };
 
-export type AgentIntent = 'plan_journey';
+// App entry intents, identical to the client's union. The server validates
+// body.intent against intent-router.ts appIntentRoutes; unknown values are ignored.
+export type AgentIntent = 'plan_journey' | 'packing_full' | 'transport_supplement' | 'stay_supplement'
+  | 'gear_onboarding' | 'gear_set_onboarding' | 'journey_review';
 
 export type AgentResponse = {
   threadId: string;

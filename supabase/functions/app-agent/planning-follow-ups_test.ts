@@ -14,6 +14,7 @@ Deno.test('offers two independent localized extras only after a saved core plan'
     assert(replies.every((reply) => reply.action === 'supplement_plan'), 'options must remain visible alongside undo');
     assert(replies.every((reply) => reply.label.length <= 24 && reply.message.length <= 200), 'reply limits');
     assert(replies[0].label === (locale === 'zh' ? '安排往返交通' : 'Arrange transport'), 'localized label');
+    assert(replies[0].intent === 'transport_supplement' && replies[1].intent === 'stay_supplement', 'buttons carry their entry intent');
   }
 });
 
@@ -40,6 +41,8 @@ Deno.test('existing history adopts two entries without changing submitted messag
   const normalized = normalizePlanningFollowUps(old);
   assert(normalized.length === 2 && normalized[0].label === '安排往返交通' && normalized[1].label === '安排住宿', 'normalize existing entries');
   assert(normalized[0].message === old[0].message && old.length === 3, 'do not mutate stored history');
+  assert(normalized[0].intent === 'transport_supplement' && normalized[1].intent === 'stay_supplement', 'stored entries gain their entry intent');
+  assert(old.every(reply => reply.intent === undefined), 'stored history objects stay unchanged');
   const clarification = { label: '补充交通和住宿', message: 'both' };
   assert(normalizePlanningFollowUps([clarification])[0] === clarification, 'leave ordinary clarification options intact');
 });
