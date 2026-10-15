@@ -50,7 +50,16 @@ export function RouteReferencePlanCard({ theme, plans, selectedId, onSelect, onO
   </View>;
 }
 
-export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false }: { theme: Theme; guide: RouteCommunityGuide; onPress: () => void; helpful?: number; compact?: boolean }) {
+export function MeBadge({ theme }: { theme: Theme }) {
+  const { t } = useI18n();
+  return <View style={styles.meBadge}>
+    <View style={[styles.meBadgeInner, { backgroundColor: theme.fieldSurface }]}>
+      <Text style={[styles.meBadgeText, { color: theme.text2 }]}>{t('journey.companions.meBadge')}</Text>
+    </View>
+  </View>;
+}
+
+export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false, showMeBadge = false }: { theme: Theme; guide: RouteCommunityGuide; onPress: () => void; helpful?: number; compact?: boolean; showMeBadge?: boolean }) {
   const { resolved } = useI18n();
   return <Press onPress={onPress} accessibilityRole="button" style={[styles.guide, compact && styles.compactGuide]}>
     <View>
@@ -58,11 +67,13 @@ export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false 
       {compact ? <View style={styles.compactAuthorRow}>
         <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
         <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{guideText(guide.author, resolved)}</Text>
+        {showMeBadge ? <MeBadge theme={theme} /> : null}
         <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
       </View> : <View style={styles.authorRow}>
         <View style={styles.authorGroup}>
           <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
           <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>
+          {showMeBadge ? <MeBadge theme={theme} /> : null}
         </View>
         <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text>
         <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
@@ -166,4 +177,5 @@ const styles = StyleSheet.create({
   detailDay: { paddingVertical: space.xl }, firstDetailDay: { paddingTop: 0 }, dayLabel: { marginBottom: space.sm, ...type.dayLabel },
   weather: { borderRadius: radius.card, paddingHorizontal: space.md },
   weatherLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 84, paddingVertical: space.md },
+  meBadge: { minHeight: 20, justifyContent: 'center', flexShrink: 0 }, meBadgeInner: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill }, meBadgeText: { fontSize: 9.5, lineHeight: 12, fontWeight: '700' },
 });

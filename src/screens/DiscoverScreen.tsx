@@ -27,6 +27,7 @@ import { KPState, KPSkeletonLine } from '../components/State';
 import { StaggerIn } from '../components/StaggerIn';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
+import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypoints } from '../components/discover/routeWaypointMarkers';
 import { AppActionDialog, layout, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
 import { Avatar } from '../components/Avatar';
@@ -530,6 +531,7 @@ const DISTANCE_LABEL_FALLBACK_MS = Platform.OS === 'android' ? 820 : 420;
 const NO_FOCUS_SEGMENTS: GlobeRouteSegment[] = [];
 
 const NO_COMPANION_PINS: NativeMapMarker[] = [];
+const NO_ROUTE_WAYPOINT_MARKERS: NativeMapMarker[] = [];
 
 // Shared empty selection: `selectedIds` is only read or replaced wholesale, so one
 // instance lets `exitSelect()` bail instead of handing React a new Set identity and
@@ -593,6 +595,11 @@ export function DiscoverScreen({
   const mapMarkerPressAtRef = React.useRef(0);
   const wasMapActiveRef = React.useRef(active);
   const mapCameraEventRef = React.useRef<{ at: number } | null>(null);
+  // Track annotations on the open route card: which waypoint's bubble is up,
+  // and the (debounced, half-step) zoom the annotation groups are clustered at.
+  const [selectedRouteWaypoint, setSelectedRouteWaypoint] = useState<number | null>(null);
+  const [waypointClusterZoom, setWaypointClusterZoom] = useState<number | null>(null);
+  const waypointZoomTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
   const [routeNavigation, setRouteNavigation] = useState<PlannedLeg | null>(null);
   // Keep the selected route active while its navigation request is being
@@ -606,6 +613,15 @@ export function DiscoverScreen({
     setRouteNavigationRouteId(null);
     return () => routeNavigationRequestRef.current?.abort();
   }, [nav.pointInfo?.id]);
+  useEffect(() => {
+    setSelectedRouteWaypoint(null);
+    setWaypointClusterZoom(null);
+    if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
+    waypointZoomTimerRef.current = null;
+  }, [nav.pointInfo?.id]);
+  useEffect(() => () => {
+    if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
+  }, []);
 
   const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
     if (routeNavigationRouteId === route.id) {
@@ -1539,6 +1555,37 @@ export function DiscoverScreen({
       ...comparisonRoutes.flatMap((route) => route.trackCoords ?? []),
     ];
   }, [comparisonRoutes, focusCoords, nav.pointInfo?.kind]);
+  // The route card's own annotation layer: the track's library waypoints drawn
+  // on the open route. Built through `extraMarkers` rather than a MapGlobe prop
+  // because that file's framing test vm-loads it against a fixed import list.
+  const routeWaypointMarkers = useMemo<NativeMapMarker[]>(() => {
+    const point = nav.pointInfo;
+    if (!point || point.kind !== 'route' || !point.trackWaypoints?.length) return NO_ROUTE_WAYPOINT_MARKERS;
+    // Shares the opening frame's budget with the kilometre labels: both wait
+    // for the card's camera fit to be reported, when the real zoom is known.
+    if (!distanceMarkersReady || routeNavigation) return NO_ROUTE_WAYPOINT_MARKERS;
+    const primary = focusCoords;
+    if (!primary || primary.length < 2) return NO_ROUTE_WAYPOINT_MARKERS;
+    const drawn = routeReversed ? [...primary].reverse() : primary;
+    const projected = projectRouteWaypoints(drawn, point.trackWaypoints, routeReversed);
+    if (!projected.length) return NO_ROUTE_WAYPOINT_MARKERS;
+    return buildRouteWaypointMarkers({
+      theme,
+      waypoints: projected,
+      zoom: waypointClusterZoom ?? estimateRouteWaypointZoom(drawn, width - 108, Math.max(140, height * 0.42)),
+      selected: selectedRouteWaypoint,
+      onWaypointPress: (index) => {
+        // A marker press bubbles to the map background on both platforms; the
+        // guard is what keeps the bubble from dismissing itself.
+        mapMarkerPressAtRef.current = Date.now();
+        setSelectedRouteWaypoint((current) => current === index ? null : index);
+      },
+      onClusterPress: (coordinates) => {
+        mapMarkerPressAtRef.current = Date.now();
+        setMapCameraAction({ type: 'fitCoordinates', revision: Date.now(), coordinates });
+      },
+    });
+  }, [distanceMarkersReady, focusCoords, nav.pointInfo?.kind, nav.pointInfo?.id, nav.pointInfo?.trackWaypoints, routeNavigation, routeReversed, selectedRouteWaypoint, theme, waypointClusterZoom, width, height]);
   // The itinerary's own navigation layer: every stop that carries a place, and
   // the road between two stops of the same day. Gated behind `detailReady`
   // because it is derived from the timeline fetch, and a journey opened from the
@@ -1943,6 +1990,12 @@ export function DiscoverScreen({
       }];
     });
   }, [data.profile.avatarUrl, nav.pointInfo, presenceClock, peers, selfPresence, sharingThisJourney, t, theme, userId]);
+  // Waypoints ride along beside the companion pins: `MapGlobe` appends
+  // `extraMarkers` last, so both land over the track furniture.
+  const mapExtraMarkers = useMemo(
+    () => (routeWaypointMarkers.length ? [...companionPins, ...routeWaypointMarkers] : companionPins),
+    [companionPins, routeWaypointMarkers],
+  );
   const toggleLocationShare = useCallback(async () => {
     if (!openJourneyId) return;
     if (locationShareToggleInFlightRef.current) return;
@@ -2148,6 +2201,15 @@ export function DiscoverScreen({
       // The move the card asked for is over: the kilometre labels can have these
       // frames to themselves instead of competing with the animation.
       setDistanceMarkersReady(true);
+      // The waypoint groups cluster by on-screen pixels, so they want the same
+      // deal MapGlobe gives its distance step: half-zoom buckets, rebuilt only
+      // once the camera has been quiet — re-snapshotting markers mid-pinch is
+      // the stutter those comments were written about.
+      if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
+      waypointZoomTimerRef.current = setTimeout(() => {
+        waypointZoomTimerRef.current = null;
+        setWaypointClusterZoom(Math.floor(camera.zoom * 2) / 2);
+      }, 180);
       const hidden = !wasMapActiveRef.current;
       if (hidden) mapCameraEventRef.current = { at: Date.now() };
     },
@@ -2203,6 +2265,11 @@ export function DiscoverScreen({
         return;
       }
       if (nav.pointInfo) {
+        // On a route card, a tap that is not a marker closes the waypoint
+        // bubble if one is up; otherwise the card stays put.
+        if (nav.pointInfo.kind === 'route' && selectedRouteWaypoint != null) {
+          setSelectedRouteWaypoint(null);
+        }
         return;
       }
       sheetRef.current?.dismiss();
@@ -2296,7 +2363,7 @@ export function DiscoverScreen({
           journeyLegs={journeyLegs}
           journeyStops={journeyStops}
           journeyDayLabels={journeyDayLabels}
-          extraMarkers={companionPins}
+          extraMarkers={mapExtraMarkers}
           onJourneyDayLabelPress={globeHandlers.onJourneyDayLabelPress}
           onJourneyStopPress={globeHandlers.onJourneyStopPress}
           center={mapCenter}

@@ -33,6 +33,7 @@ export interface RouteCommunityGuide {
   id: string;
   title: GuideText;
   author: GuideText;
+  authorId?: string;
   authorAvatarUrl?: string | null;
   description?: GuideText;
   season: 'autumn' | 'spring';

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useMe } from './useMe';
 import type { RouteCommunityGuide, RouteGuidePlan, GuideText } from '../data/routeGuides';
 
 type Row = { id: string; title: string; intro: string | null; reflection: string | null; plan: RouteGuidePlan; author_id: string; submitted_at: string; updated_at: string; helpful_count: number; route_guide_helpful_votes?: { user_id: string }[]; profile?: { display_name?: string | null; nick?: string | null; avatar_url?: string | null } | null };
@@ -8,7 +9,7 @@ export type MyRouteGuideStatus = { id: string; status: 'pending' | 'approved' | 
 export type MyRouteGuide = MyRouteGuideStatus & { routeId: string; submittedAt: string; helpfulCount: number };
 const text = (value: string): GuideText => ({ zh: value, en: value });
 const mapRow = (row: Row): RouteCommunityGuide => ({
-  id: row.id, title: text(row.title), description: text(row.intro || ''), author: text(row.profile?.display_name || row.profile?.nick || 'Kaipa 用户'), authorAvatarUrl: row.profile?.avatar_url || null,
+  id: row.id, title: text(row.title), description: text(row.intro || ''), authorId: row.author_id, author: text(row.profile?.display_name || row.profile?.nick || 'Kaipa 用户'), authorAvatarUrl: row.profile?.avatar_url || null,
   season: 'autumn', travelDate: row.submitted_at.slice(0, 10), publishedDate: row.submitted_at.slice(0, 10), updatedDate: row.updated_at.slice(0, 10),
   helpful: row.helpful_count || 0, helpfulMarked: Boolean(row.route_guide_helpful_votes?.length), plan: row.plan, review: text(row.reflection || row.intro || ''),
 });
@@ -19,6 +20,7 @@ const subscribers = new Map<string, Set<(patch: GuideHelpfulPatch) => void>>();
 export function useRouteGuides(routeId: string) {
   const [guides, setGuides] = useState<RouteCommunityGuide[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentUserId = useMe();
   useEffect(() => {
     const listeners = subscribers.get(routeId) ?? new Set();
     subscribers.set(routeId, listeners);
@@ -61,7 +63,7 @@ export function useRouteGuides(routeId: string) {
       throw error;
     }
   }, [routeId]);
-  return { guides, loading, refresh, toggleHelpful };
+  return { guides, loading, refresh, toggleHelpful, currentUserId };
 }
 
 export async function submitRouteGuide(input: { routeId: string; authorId: string; title: string; intro: string; reflection: string; plan: RouteGuidePlan }) {

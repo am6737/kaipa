@@ -1,4 +1,4 @@
-import { ruralLocationProvince } from './itinerary-geocoding.ts';
+import { ruralLocationProvince, geocodeKeywordLadder } from './itinerary-geocoding.ts';
 import { presentItinerary } from './itinerary-presentation.ts';
 import { expandItineraryLocations } from './itinerary-locations.ts';
 // @ts-ignore Deno npm specifier
@@ -219,37 +219,82 @@ function gcj02ToWgs84(lng: number, lat: number): [number, number] {
   return estimate;
 }
 
-async function geocodeJourneyMapLocation(query: string, language = 'zh,en', province?: string): Promise<JourneyMapLocation> {
-  const key = amapWebKey();
-  if (!key) throw new Error('地图定位服务暂不可用');
+/** The free web key is rate-limited per second; a throttled answer is a retry,
+ * not a missing place, and must not silently cost the plan its coordinate. */
+class AmapThrottledError extends Error {}
+
+type AmapPoi = { name?: string; pname?: string; cityname?: string; adname?: string; address?: string; location?: string };
+
+async function searchAmapPoi(key: string, keywords: string, province?: string): Promise<AmapPoi | null> {
   const params = new URLSearchParams({
     key,
-    keywords: query,
+    keywords,
     offset: '1',
     page: '1',
     extensions: 'base',
     citylimit: province ? 'true' : 'false',
     ...(province ? { city: province } : {}),
-    language: language.startsWith('en') ? 'en' : 'zh_cn',
+    language: 'zh_cn',
   });
   const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`, { signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error('地图定位服务暂不可用');
-  const json = await response.json() as { status?: string; pois?: any[] };
+  const json = await response.json() as { status?: string; info?: string; pois?: AmapPoi[] };
+  if (json.info === 'CUQPS_HAS_EXCEEDED_THE_LIMIT') throw new AmapThrottledError();
   const candidate = json.status === '1' ? json.pois?.[0] : null;
   // Providers can ignore the city filter. Reject a rural namesake outside
   // the journey province instead of routing the itinerary across the country.
-  const poi = candidate && (!province || candidate.pname === province) ? candidate : null;
-  const [gcjLng, gcjLat] = String(poi?.location || '').split(',').map(Number);
-  if (!Number.isFinite(gcjLng) || !Number.isFinite(gcjLat)) throw new Error(`没有找到「${query}」的地图坐标`);
-  const [lng, lat] = gcj02ToWgs84(gcjLng, gcjLat);
-  const name = poi.name || query;
-  const parentValue = poi.cityname || poi.adname || poi.pname || '';
-  const parent = Array.isArray(parentValue) ? parentValue.filter(Boolean).join('') : parentValue;
-  const regionParts = [name, parent].filter((part, index, parts) => part && parts.indexOf(part) === index);
+  return candidate && (!province || candidate.pname === province) ? candidate : null;
+}
+
+async function geocodeJourneyMapLocation(query: string, province?: string): Promise<JourneyMapLocation> {
+  const key = amapWebKey();
+  if (!key) throw new Error('地图定位服务暂不可用');
+  let poi: AmapPoi | null = null;
+  for (const keywords of geocodeKeywordLadder(query)) {
+    poi = await searchAmapPoi(key, keywords, province);
+    if (poi) break;
+  }
+  if (poi) {
+    const [gcjLng, gcjLat] = String(poi.location || '').split(',').map(Number);
+    if (!Number.isFinite(gcjLng) || !Number.isFinite(gcjLat)) throw new Error(`没有找到「${query}」的地图坐标`);
+    const [lng, lat] = gcj02ToWgs84(gcjLng, gcjLat);
+    const name = poi.name || query;
+    const parentValue = poi.cityname || poi.adname || poi.pname || '';
+    const parent = Array.isArray(parentValue) ? parentValue.filter(Boolean).join('') : parentValue;
+    const regionParts = [name, parent].filter((part, index, parts) => part && parts.indexOf(part) === index);
+    return {
+      name,
+      address: [poi.pname, poi.cityname, poi.adname, poi.address].filter(value => typeof value === 'string').join(''),
+      region: regionParts.slice(0, 2).join(' · ') || name,
+      coord: coordinateLabel(lng, lat),
+      lng,
+      lat,
+    };
+  }
+  // Administrative and village names live in the address geocoder rather than
+  // in the POI index, so a name-only lookup is a second opinion, not a failure.
+  const addressParams = new URLSearchParams({ key, address: query, ...(province ? { city: province } : {}) });
+  const addressResponse = await fetch(`https://restapi.amap.com/v3/geocode/geo?${addressParams.toString()}`, { signal: AbortSignal.timeout(8000) });
+  if (!addressResponse.ok) throw new Error('地图定位服务暂不可用');
+  const addressJson = await addressResponse.json() as { status?: string; info?: string; geocodes?: Array<{ location?: string; formatted_address?: string; province?: string; city?: string; district?: string; level?: string }> };
+  if (addressJson.info === 'CUQPS_HAS_EXCEEDED_THE_LIMIT') throw new AmapThrottledError();
+  const geo = addressJson.status === '1' ? (addressJson.geocodes || []).find(entry => {
+    if (province && entry.province !== province) return false;
+    // The geocoder happily answers with the enclosing district, or with a
+    // namesake whose stem only partly matches ("卡尔杂村" → 茂县卡尔). A coarse
+    // or unmatched answer is worth less than no coordinate at all, because the
+    // day's driving leg would then be planned to the wrong town.
+    if (['国家', '省', '市', '区县', '特别行政区'].includes(String(entry.level))) return false;
+    return Boolean(entry.formatted_address?.includes(query));
+  }) : null;
+  const [geoLng, geoLat] = String(geo?.location || '').split(',').map(Number);
+  if (!geo || !Number.isFinite(geoLng) || !Number.isFinite(geoLat)) throw new Error(`没有找到「${query}」的地图坐标`);
+  const [lng, lat] = gcj02ToWgs84(geoLng, geoLat);
+  const regionParts = [geo.province, geo.city, geo.district].filter(value => typeof value === 'string' && value) as string[];
   return {
-    name,
-    address: [poi.pname, poi.cityname, poi.adname, poi.address].filter(value => typeof value === 'string').join(''),
-    region: regionParts.slice(0, 2).join(' · ') || name,
+    name: query,
+    address: geo.formatted_address || regionParts.join(''),
+    region: [query, regionParts[1] || regionParts[0]].filter(Boolean).join(' · '),
     coord: coordinateLabel(lng, lat),
     lng,
     lat,
@@ -259,12 +304,18 @@ async function geocodeJourneyMapLocation(query: string, language = 'zh,en', prov
 async function maybeGeocodeJourneyMapLocation(query: string | undefined, province?: string): Promise<JourneyMapLocation | null> {
   const cleaned = query?.trim();
   if (!cleaned) return null;
-  try {
-    return await geocodeJourneyMapLocation(cleaned, 'zh,en', province);
-  } catch (error) {
-    console.warn('Could not geocode journey location', error);
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await geocodeJourneyMapLocation(cleaned, province);
+    } catch (error) {
+      if (!(error instanceof AmapThrottledError) || attempt === 1) {
+        console.warn('Could not geocode journey location', error);
+        return null;
+      }
+      await new Promise(resolve => setTimeout(resolve, 900));
+    }
   }
+  return null;
 }
 
 async function uploadedTrackForRun(client: Client, context: AgentContext, requestedName?: string): Promise<UploadedTrackData | null> {
@@ -834,7 +885,7 @@ export const addItineraryParams = z.object({ journeyId: z.string().min(1).max(10
 export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, runContext?: RunContext): Promise<unknown> => mutate('add_itinerary_items', args, runContext, async (client, context) => {
     await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
     const [journey, existingRows, existingGroups] = await Promise.all([
-      client.from('journeys').select('total_days,region').eq('id', args.journeyId).single(),
+      client.from('journeys').select('total_days,region,track_id').eq('id', args.journeyId).single(),
       client.from('timeline_rows').select('id,day,title,time_mins,time_end_mins,item_kind,location').eq('journey_id', args.journeyId),
       client.from('timeline_groups').select('name,note,sort_order,deleted').eq('journey_id', args.journeyId),
     ]);
@@ -865,24 +916,92 @@ export const runAddItinerary = async (args: z.infer<typeof addItineraryParams>, 
       day: resolveJourneyDay(row.day, existingNames), title: row.title, timeStart: clock(row.time_mins), timeEnd: clock(row.time_end_mins),
     })));
     if (conflicts.length) throw new Error(itineraryValidationError(conflicts));
-    // Resolve named map places once per batch; failure retains the name without inventing coordinates.
-    const locations = new Map<string, JourneyMapLocation | null>();
-    const queries = [...new Set(uniqueItems.filter(item => item.location && (item.location.longitude == null || item.location.latitude == null) && !/→|->|住宿地点|候选营地|附近|住宿$|轨迹起点|轨迹终点/.test(item.location.name)).map(item => item.location!.name))];
-    for (let offset = 0; offset < queries.length; offset += 4) {
-      await Promise.all(queries.slice(offset, offset + 4).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name, ruralLocationProvince(name, journey.data.region)))));
+    // A model-filled lat/lng is not evidence, so every place is re-resolved by the
+    // server. The exception is a stop that names a waypoint on a track this journey
+    // can draw: the recorded walk is better authority than the POI index, and the
+    // model only ever cites the research alias (trk008), never a track uuid.
+    const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const referenced = [...new Set(uniqueItems.flatMap(item => item.location?.trackId ? [String(item.location.trackId)] : []))];
+    const aliasRefs = referenced.filter(id => !uuidShape.test(id));
+    const aliasToTrack = new Map<string, string>();
+    if (aliasRefs.length) {
+      const aliasRoutes = await client.from('routes').select('id,name,track_file_name').in('id', aliasRefs);
+      if (aliasRoutes.error) throw aliasRoutes.error;
+      const routesByFile = new Map<string, string>((aliasRoutes.data || []).map((route: { id: string; name: string; track_file_name?: string | null }) =>
+        [route.track_file_name || `${route.name}.gpx`, route.id] as const));
+      if (routesByFile.size) {
+        const aliasTracks = await client.from('tracks').select('id,file_name').eq('user_id', context.userId).in('file_name', [...routesByFile.keys()]).limit(40);
+        if (aliasTracks.error) throw aliasTracks.error;
+        for (const track of (aliasTracks.data || []) as Array<{ id: string; file_name: string }>) {
+          const alias = routesByFile.get(track.file_name);
+          if (alias) aliasToTrack.set(alias, track.id);
+        }
+      }
     }
-    const rows = uniqueItems.map((item, index) => ({
-      id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
-      title: item.title, day: item.day,
-      time_mins: itineraryMinutes(item.timeStart) ?? null,
-      time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
-      item_kind: item.kind ?? 'activity',
-      route_id: item.kind === 'activity' ? item.routeId || null : null,
-      location: item.location && locations.get(item.location.name)
-        ? { ...item.location, longitude: locations.get(item.location.name)!.lng, latitude: locations.get(item.location.name)!.lat, address: item.location.address || locations.get(item.location.name)!.address || null, source: 'map' }
-        : item.location ?? null,
-      is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
-    }));
+    const candidateTrackIds = new Set([...referenced.filter(id => uuidShape.test(id)), ...aliasToTrack.values()]);
+    if (journey.data.track_id) candidateTrackIds.add(journey.data.track_id);
+    const trackWaypoints = new Map<string, Array<{ name: string; meters: number }>>();
+    const trackLengths = new Map<string, number>();
+    if (candidateTrackIds.size) {
+      const anchorTracks = await client.from('tracks').select('id,waypoints,dist_m').in('id', [...candidateTrackIds]);
+      if (anchorTracks.error) throw anchorTracks.error;
+      for (const track of anchorTracks.data || []) {
+        const entries: Array<{ name: string; meters: number }> = [];
+        for (const waypoint of Array.isArray(track.waypoints) ? track.waypoints : []) {
+          const name = typeof waypoint?.name === 'string' ? waypoint.name.trim() : '';
+          const km = Number(waypoint?.km);
+          if (name && Number.isFinite(km)) entries.push({ name, meters: Math.round(km * 1000) });
+        }
+        trackWaypoints.set(track.id, entries);
+        const length = Number(track.dist_m);
+        if (Number.isFinite(length) && length > 0) trackLengths.set(track.id, length);
+      }
+    }
+    const confirmedAnchor = (item: typeof uniqueItems[number]) => {
+      const location = item.location;
+      const name = location?.name.trim();
+      if (!location || !name) return null;
+      const cited = location.trackId ? aliasToTrack.get(String(location.trackId)) || (uuidShape.test(String(location.trackId)) ? String(location.trackId) : null) : null;
+      for (const trackId of cited ? [cited] : [...candidateTrackIds]) {
+        const waypoint = (trackWaypoints.get(trackId) || []).find(entry => entry.name === name);
+        if (!waypoint) continue;
+        const claimed = location.trackMeters;
+        return { trackId, trackMeters: typeof claimed === 'number' && Number.isFinite(claimed) && claimed >= 0 ? Math.round(claimed) : waypoint.meters,
+          trackLengthMeters: trackLengths.get(trackId) ?? location.trackLengthMeters ?? null };
+      }
+      return null;
+    };
+    const trustedAnchor = (item: typeof uniqueItems[number]) => Boolean(confirmedAnchor(item)) || Boolean(item.location?.address);
+    const queries = [...new Set(uniqueItems.filter(item => item.location && !trustedAnchor(item) && !/→|->|住宿地点|候选营地|附近|住宿$|轨迹起点|轨迹终点/.test(item.location.name)).map(item => item.location!.name))];
+    const locations = new Map<string, JourneyMapLocation | null>();
+    // Two in flight keeps the batch inside the map provider's per-second quota;
+    // a throttled name is retried rather than dropped.
+    for (let offset = 0; offset < queries.length; offset += 2) {
+      await Promise.all(queries.slice(offset, offset + 2).map(async name => locations.set(name, await maybeGeocodeJourneyMapLocation(name, ruralLocationProvince(name, journey.data.region)))));
+    }
+    const rows = uniqueItems.map((item, index) => {
+      // Model coordinates never reach the timeline: a place is either anchored on
+      // the walk, resolved by the map provider, or kept as a name only.
+      const resolved = item.location ? locations.get(item.location.name) ?? null : null;
+      const anchor = item.location ? confirmedAnchor(item) : null;
+      const location = !item.location ? null : anchor
+        ? { ...item.location, longitude: null, latitude: null, source: 'track' as const, trackId: anchor.trackId, trackMeters: anchor.trackMeters, trackLengthMeters: anchor.trackLengthMeters }
+        : resolved
+          ? { ...item.location, longitude: resolved.lng, latitude: resolved.lat, address: resolved.address || null, source: 'map' as const, trackId: null, trackMeters: null, trackLengthMeters: null }
+          : item.location.address
+            ? { ...item.location, trackId: null, trackMeters: null, trackLengthMeters: null }
+            : { ...item.location, longitude: null, latitude: null, trackId: null, trackMeters: null, trackLengthMeters: null, source: 'custom' as const };
+      return {
+        id: `ai_${crypto.randomUUID()}`, journey_id: args.journeyId, user_id: context.userId,
+        title: item.title, day: item.day,
+        time_mins: itineraryMinutes(item.timeStart) ?? null,
+        time_end_mins: itineraryMinutes(item.timeEnd) ?? null,
+        item_kind: item.kind ?? 'activity',
+        route_id: item.kind === 'activity' ? item.routeId || null : null,
+        location,
+        is_synth: true, is_custom: false, checked: false, sort_order: (existingRows.data?.length || 0) + index,
+      };
+    });
     const groupNames = [...new Set([...uniqueItems.map((item) => item.day), ...notes.keys()])];
     const createdGroupNames = groupNames.filter((name) => !existingNames.includes(name));
     const groups = groupNames.filter(name => createdGroupNames.includes(name) || notes.has(name)).map((name, index) => ({

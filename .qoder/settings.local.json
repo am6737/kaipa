@@ -13,7 +13,8 @@
       "Bash(git -C /tmp ls-remote --heads https://github.com/hitosea/happy-next.git 2>&1 | head -5)",
       "Bash(wc:*)",
       "Bash(grep -n \"create table\" /home/coder/workspaces/kaipa/supabase/schema.sql | head -30)",
-      "Bash(grep -rliE 'email|sign.?in' /home/coder/workspaces/kaipa/docs/*.md | head -20; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/functions 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/migrations 2>/dev/null | tail -20; echo ---; ls /home/coder/workspaces/kaipa/supabase 2>/dev/null)"
+      "Bash(grep -rliE 'email|sign.?in' /home/coder/workspaces/kaipa/docs/*.md | head -20; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/functions 2>/dev/null; echo ---; ls /home/coder/workspaces/kaipa/infra/supabase/migrations 2>/dev/null | tail -20; echo ---; ls /home/coder/workspaces/kaipa/supabase 2>/dev/null)",
+      "Bash(cd /home/coder/workspaces/kaipa && ls node_modules | grep -i -E \"doo|push|badge\" ; echo ---; grep -n -i -E \"doo|push|badge\" package.json)"
     ]
   }
 }

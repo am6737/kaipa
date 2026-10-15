@@ -3,6 +3,7 @@ import type { GuideText } from './routeGuides';
 export interface RouteCondition {
   id: string;
   routeId: string;
+  userId?: string;
   author: GuideText;
   authorAvatarUrl?: string | null;
   source: 'user' | 'official';

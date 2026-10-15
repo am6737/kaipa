@@ -1,5 +1,5 @@
 import { newPackingDraft } from './packing-draft.ts';
-import { railCacheTtl, runCommitPackingDraftBestEffort, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
+import { railCacheTtl, runCommitPackingDraftBestEffort, runAddItinerary, bindRunClient, releaseRunClient, createJourney, addPackingItems, resolvePackingOwner, searchRoutes, searchTransport, kaipaAllTools, kaipaGlobalTools, kaipaJourneyTools } from './tools.ts';
 import type { AgentContext } from './types.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -263,5 +263,166 @@ Deno.test('rail cache reads reject older long-lived snapshots and write the shor
   } finally {
     globalThis.fetch = originalFetch;
     names.forEach((name, i) => saved[i] === undefined ? Deno.env.delete(name) : Deno.env.set(name, saved[i]!));
+  }
+});
+
+// The plan model transcribed the track start coordinate onto every village of
+// one hike and the old filter only geocoded items with empty lat/lng, so the
+// fabrication reached the timeline labeled source=map. Server resolution is
+// now the only coordinate source, except for anchors that name a real waypoint
+// on their own track.
+Deno.test('model-injected itinerary coordinates are re-resolved, not trusted', async () => {
+  const savedEnv = ['AMAP_WEB_KEY', 'SERVICE_ROLE_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_AGENT_DATABASE_URL', 'APP_AGENT_SERVICE_ROLE_KEY'].map(name => [name, Deno.env.get(name)] as const);
+  const originalFetch = globalThis.fetch;
+  try {
+    Deno.env.set('AMAP_WEB_KEY', 'test-key');
+    const h = planningHarness('Plan the hike', 'journey');
+    h.context.task = { runId: h.context.runId, journeyId: 'journey', outcome: null, decision: {
+      objective: 'Plan', mode: 'execute', domain: 'hiking', domainQuote: null, authorizationUnconfirmed: false,
+      fullHikingPlan: true, activeHoursPerDay: null, continuation: false, authorizationQuote: 'Plan',
+      operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], destination: null,
+      days: 3, derivedDays: null, plannedDate: null, dateUndecided: true, trackAttachmentName: null, packingMode: 'none', constraints: [],
+    } };
+    h.context.dataContext = { versions: {}, observed: { journey: { journey: 'v1', track: 'v1', itinerary: 'v1' } }, snapshots: {} } as never;
+    const committed: Array<Record<string, any>> = [];
+    const track = { id: '9f1c2b3a-4d5e-4a6b-8c7d-1e2f3a4b5c6d', name: '党岭三湖连穿', waypoints: [{ name: 'D5：卓雍措营地', km: 9.19 }, { name: '终点：卡尔杂', km: 19.46 }] };
+    const tracks = [track];
+    const trackIds: string[][] = [];
+    const amapRequests: URL[] = [];
+    globalThis.fetch = async (input: any) => {
+      const url = new URL(String(input));
+      amapRequests.push(url);
+      const keywords = url.searchParams.get('keywords');
+      const pois = keywords === '卡尔杂村'
+        ? [{ name: '甲依拉措山庄', pname: '四川省', cityname: '甘孜藏族自治州', adname: '丹巴县', address: '某路1号', location: '101.348157,31.101975' }]
+        : [];
+      return Response.json({ status: '1', pois });
+    };
+    const client = { from(table: string) {
+      if (table === 'agent_tool_calls') return h.client.from(table);
+      const data = table === 'journeys' ? { id: 'journey', user_id: 'user', region: '四川省 · 甘孜', total_days: 3, track_id: track.id }
+        : table === 'tracks' ? tracks : [];
+      const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
+        in: (_column: unknown, ids: unknown) => { if (table === 'tracks') trackIds.push(ids as string[]); return Promise.resolve({ data: table === 'tracks' ? tracks.filter(item => (ids as string[]).includes(item.id)) : data, error: null }); },
+        single: async () => ({ data: table === 'tracks' ? (data as Array<Record<string, unknown>>)[0] : data, error: null }),
+        maybeSingle: async () => ({ data: table === 'tracks' ? null : data, error: null }),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve) };
+      return chain;
+    }, rpc: async (_name: string, args: Record<string, any>) => {
+      committed.push(args.p_change);
+      return { data: { output: { added: args.p_change.rows.length }, versions: { journey: 'v1', track: 'v1', itinerary: 'v1' } }, error: null };
+    } };
+    bindRunClient(h.context.runId, client);
+    try {
+      const fabricated = { source: 'map', longitude: 101.407867, latitude: 31.073537, trackId: 'trk008', trackMeters: 0, trackLengthMeters: 19462, address: null } as const;
+      await runAddItinerary({ journeyId: 'journey', groupNotes: [], items: [
+        { day: 'Day 1', kind: 'custom', title: '抵达卡尔杂村', startLocation: null, routeId: null, timeStart: null, timeEnd: null,
+          location: { name: '卡尔杂村', incomingMode: null, ...fabricated } },
+        { day: 'Day 2', kind: 'custom', title: '前往党岭村', startLocation: null, routeId: null, timeStart: null, timeEnd: null,
+          location: { name: '党岭村', incomingMode: null, ...fabricated } },
+        { day: 'Day 2', kind: 'stay', title: '卓雍措营地', startLocation: null, routeId: 'trk008', timeStart: null, timeEnd: null,
+          location: { name: 'D5：卓雍措营地', incomingMode: null, source: 'custom', longitude: 31.049579, latitude: 101.353194, trackId: track.id, trackMeters: 9193, trackLengthMeters: 19462, address: null } },
+        { day: 'Day 3', kind: 'activity', title: '下到卡尔杂', startLocation: null, routeId: 'trk008', timeStart: null, timeEnd: null,
+          location: { name: '终点：卡尔杂', incomingMode: null, ...fabricated, trackMeters: null } },
+      ] }, { context: h.context } as never);
+      const rows = committed[0].rows;
+      const amapNames = amapRequests.map(url => url.searchParams.get('keywords'));
+      assert(rows.length === 4, 'every item must still save');
+      // Model coordinates must never survive unverified: the village got the POI point.
+      const village = rows.find((row: any) => row.location?.name === '卡尔杂村').location;
+      assert(village.source === 'map' && Math.abs(village.latitude - 31.101975) < 0.01, 'village must take the resolved POI coordinate, not the fabricated track start');
+      assert(village.trackId === null && village.trackMeters === null, 'a resolved place must not keep a fake track anchor');
+      const missing = rows.find((row: any) => row.location?.name === '党岭村').location;
+      assert(missing.latitude === null && missing.longitude === null && missing.source === 'custom', 'unresolvable places keep the name without invented coordinates');
+      assert(missing.trackId === null && missing.trackMeters === null, 'an unverified track anchor must not steer geometry after its coordinates are dropped');
+      // A catalog route id is not a track uuid, so it must never reach the tracks query.
+      assert(JSON.stringify(trackIds) === JSON.stringify([[track.id]]), `only uuid anchors may be queried, got ${JSON.stringify(trackIds)}`);
+      // Waypoint anchors are server-verifiable, so they skip geocoding entirely.
+      const camp = rows.find((row: any) => row.location?.name === 'D5：卓雍措营地').location;
+      assert(camp.trackMeters === 9193 && camp.trackId === track.id, 'a confirmed waypoint anchor must be preserved');
+      assert(camp.latitude === null && camp.longitude === null, 'an anchor reads its geometry from the track, not from model lat/lng');
+      assert(camp.source === 'track', 'a waypoint anchor is stored the same way the manual track picker stores it');
+      assert(!amapNames.includes('D5：卓雍措营地'), 'waypoint anchors must not hit the map provider');
+      // A stop named after a waypoint anchors on the walk even when the model only
+      // knows the research alias and leaves the distance out.
+      const finish = rows.find((row: any) => row.location?.name === '终点：卡尔杂').location;
+      assert(finish.source === 'track' && finish.trackId === track.id, 'a waypoint name must anchor on the journey track');
+      assert(finish.trackMeters === 19460 && finish.latitude === null, 'the recorded waypoint distance replaces the missing measurement');
+      assert(!amapNames.includes('终点：卡尔杂'), 'an anchored finish must not be searched on the map');
+      assert(amapNames.filter((name: string | null) => name === '卡尔杂村').length === 1, 'one name resolves once per batch');
+      const villageUrl = amapRequests.find(url => url.searchParams.get('keywords') === '卡尔杂村')!;
+      assert(villageUrl.searchParams.get('city') === '四川省' && villageUrl.searchParams.get('citylimit') === 'true', 'rural names stay scoped to the journey province');
+    } finally { h.dispose(); }
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of savedEnv) { if (value === undefined) Deno.env.delete(name); else Deno.env.set(name, value); }
+  }
+});
+
+// A free map key answers only a few requests per second, and many hamlets live in
+// the address geocoder rather than the POI index. Neither is a reason to leave a
+// day stop without a coordinate, because the driving route needs one.
+Deno.test('a throttled or POI-less stop still gets a provider coordinate', async () => {
+  const savedEnv = ['AMAP_WEB_KEY'].map(name => [name, Deno.env.get(name)] as const);
+  const originalFetch = globalThis.fetch;
+  try {
+    Deno.env.set('AMAP_WEB_KEY', 'test-key');
+    const h = planningHarness('Plan the hike', 'journey');
+    h.context.task = { runId: h.context.runId, journeyId: 'journey', outcome: null, decision: {
+      objective: 'Plan', mode: 'execute', domain: 'hiking', domainQuote: null, authorizationUnconfirmed: false,
+      fullHikingPlan: true, activeHoursPerDay: null, continuation: false, authorizationQuote: 'Plan',
+      operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], destination: null,
+      days: 3, derivedDays: null, plannedDate: null, dateUndecided: true, trackAttachmentName: null, packingMode: 'none', constraints: [],
+    } };
+    h.context.dataContext = { versions: {}, observed: { journey: { journey: 'v1', track: 'v1', itinerary: 'v1' } }, snapshots: {} } as never;
+    const committed: Array<Record<string, any>> = [];
+    const keywordCalls: string[] = [];
+    const poiAttempts = new Map<string, number>();
+    globalThis.fetch = async (input: any) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/v3/place/text') {
+        const keywords = url.searchParams.get('keywords') || '';
+        keywordCalls.push(keywords);
+        if (keywords === '牛场' || keywords === '无名湖') return Response.json({ status: '1', pois: [] });
+        if (keywords === '黑石头村' && (poiAttempts.get(keywords) || 0) === 0) {
+          poiAttempts.set(keywords, 1);
+          return Response.json({ status: '0', info: 'CUQPS_HAS_EXCEEDED_THE_LIMIT' });
+        }
+        return Response.json({ status: '1', pois: [{ name: keywords, pname: '四川省', cityname: '甘孜藏族自治州', adname: '丹巴县', address: '某路2号', location: '101.904486,30.874157' }] });
+      }
+      const address = url.searchParams.get('address') || '';
+      if (address === '无名湖') return Response.json({ status: '1', geocodes: [{ formatted_address: '四川省阿坝藏族羌族自治州茂县无名', province: '四川省', city: '甘孜藏族自治州', district: '茂县', level: '村庄', location: '103.830150,31.849691' }] });
+      return Response.json({ status: '1', geocodes: [{ formatted_address: `四川省甘孜藏族自治州丹巴县${address}`, province: '四川省', city: '甘孜藏族自治州', district: '丹巴县', level: '村庄', location: '101.890540,30.878618' }] });
+    };
+    const client = { from(table: string) {
+      if (table === 'agent_tool_calls') return h.client.from(table);
+      const data = table === 'journeys' ? { id: 'journey', user_id: 'user', region: '四川省 · 甘孜', total_days: 3, track_id: null } : [];
+      const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
+        in: () => Promise.resolve({ data, error: null }),
+        single: async () => ({ data, error: null }), maybeSingle: async () => ({ data: table === 'journeys' ? data : null, error: null }),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve) };
+      return chain;
+    }, rpc: async (_name: string, args: Record<string, any>) => {
+      committed.push(args.p_change);
+      return { data: { output: { added: args.p_change.rows.length }, versions: { journey: 'v1', track: 'v1', itinerary: 'v1' } }, error: null };
+    } };
+    bindRunClient(h.context.runId, client);
+    const item = (day: string, name: string) => ({ day, kind: 'custom' as const, title: name, startLocation: null, routeId: null, timeStart: null, timeEnd: null,
+      location: { name, incomingMode: null, source: 'custom' as const, longitude: null, latitude: null, trackId: null, trackMeters: null, trackLengthMeters: null, address: null } });
+    try {
+      await runAddItinerary({ journeyId: 'journey', groupNotes: [], items: [item('Day 1', '黑石头村'), item('Day 2', '牛场'), item('Day 3', '无名湖')] }, { context: h.context } as never);
+      const rows = committed[0].rows;
+      const throttled = rows.find((row: any) => row.location?.name === '黑石头村').location;
+      assert(throttled.source === 'map' && Number.isFinite(throttled.latitude), 'a throttled answer must be retried, not dropped');
+      assert(keywordCalls.filter(name => name === '黑石头村').length === 2, 'the retry must re-ask the provider for the same name');
+      const addressOnly = rows.find((row: any) => row.location?.name === '牛场').location;
+      assert(addressOnly.source === 'map' && Number.isFinite(addressOnly.longitude), 'a place missing from the POI index must fall back to the address geocoder');
+      assert(String(addressOnly.address).includes('丹巴县'), 'the address geocoder answer must be kept as the address');
+      const namesake = rows.find((row: any) => row.location?.name === '无名湖').location;
+      assert(namesake.latitude === null && namesake.longitude === null, 'a geocoder namesake that does not answer the exact place must not steer the route');
+    } finally { h.dispose(); }
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of savedEnv) { if (value === undefined) Deno.env.delete(name); else Deno.env.set(name, value); }
   }
 });

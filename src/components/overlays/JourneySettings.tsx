@@ -5,7 +5,6 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -24,18 +23,23 @@ import { useNav } from "../../nav/NavContext";
 import { uploadCover } from "../../lib/storage";
 import {
   AppActionDialog,
+  AppMetricStrip,
   DetailPage,
+  layout,
   radius,
   space,
   type,
+  type AppMetric,
 } from "../../design-system";
+import { MeCard, MeSection, SwitchRow } from "../me/parts";
+import { MePushPage } from "../me/MePushPage";
 import { MediaViewer } from "./JourneyTimeline";
 import { JourneyLocationPicker } from "./JourneyLocationPicker";
 import type { RouteGuidePlan } from "../../data/routeGuides";
 import { submitRouteGuide, useMyRouteGuideStatus } from "../../hooks/useRouteGuides";
 import { RouteGuideEquipment, RouteGuideItinerary } from "../discover/RouteGuideContent";
 import { useData } from "../../data/DataContext";
-import { Avatar } from "../Avatar";
+import { Avatar, AvatarStack } from "../Avatar";
 import { useTimeline } from "../../hooks/useTimeline";
 import { useJourneyPacking } from "../../hooks/useJourneyPacking";
 import {
@@ -43,184 +47,15 @@ import {
   locationFromPoi,
 } from "../../lib/amapGeocoding";
 
-function SectionLabel({
-  theme,
-  children,
-}: {
-  theme: Theme;
-  children: React.ReactNode;
-}) {
-  return (
-    <Text
-      style={{
-        fontSize: 16,
-        lineHeight: 22,
-        fontWeight: "700",
-        color: theme.text3,
-        marginBottom: space.sm,
-      }}
-    >
-      {children}
-    </Text>
-  );
-}
-
-function FieldCard({
-  theme,
-  value,
-  onChangeText,
-  placeholder,
-  multiline,
-}: {
-  theme: Theme;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  multiline?: boolean;
-}) {
+function RowDivider({ theme }: { theme: Theme }) {
   return (
     <View
       style={{
-        minHeight: multiline ? 116 : 78,
-        borderRadius: radius.feature,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
-        backgroundColor: theme.surfaceTop,
-        justifyContent: multiline ? "flex-start" : "center",
-        paddingHorizontal: space.lg,
-        paddingVertical: multiline ? space.md : 0,
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: theme.hairline,
+        marginLeft: space.md,
       }}
-    >
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.text3}
-        multiline={multiline}
-        textAlignVertical={multiline ? "top" : "center"}
-        maxLength={multiline ? 280 : 48}
-        style={{
-          minHeight: multiline ? 82 : undefined,
-          fontSize: multiline ? 16 : 18,
-          lineHeight: multiline ? 23 : undefined,
-          fontWeight: multiline ? "400" : "700",
-          color: theme.text,
-          paddingVertical: 0,
-        }}
-      />
-    </View>
-  );
-}
-
-function LocationCard({
-  theme,
-  location,
-  onPress,
-  label,
-}: {
-  theme: Theme;
-  location: JourneyLocationValue;
-  onPress: () => void;
-  label: string;
-}) {
-  return (
-    <Press
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={{
-        minHeight: 82,
-        borderRadius: radius.feature,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
-        backgroundColor: theme.surfaceTop,
-        paddingHorizontal: space.lg,
-        paddingVertical: space.md,
-        flexDirection: "row",
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Text
-          numberOfLines={1}
-          style={{ fontSize: 17, fontWeight: "700", color: theme.text }}
-        >
-          {location.region}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[
-            type.caption,
-            {
-              color: theme.text3,
-              marginTop: space.xs,
-              fontVariant: ["tabular-nums"],
-            },
-          ]}
-        >
-          {location.coord}
-        </Text>
-      </View>
-      <Icon name="chevronR" color={theme.text3} size={18} />
-    </Press>
-  );
-}
-
-function ToggleCard({
-  theme,
-  label,
-  sub,
-  value,
-  onChange,
-}: {
-  theme: Theme;
-  label: string;
-  sub?: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <View
-      style={{
-        minHeight: 78,
-        borderRadius: radius.feature,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.hairline,
-        backgroundColor: theme.surfaceTop,
-        paddingHorizontal: space.lg,
-        paddingVertical: space.md,
-        flexDirection: "row",
-        alignItems: "center",
-      }}
-    >
-      <Press
-        onPress={() => onChange(!value)}
-        scaleTo={1}
-        opacityTo={1}
-        style={{ flex: 1, paddingRight: space.md }}
-      >
-        <Text style={{ fontSize: 17, fontWeight: "600", color: theme.text }}>
-          {label}
-        </Text>
-        {sub ? (
-          <Text
-            style={[
-              type.caption,
-              { color: theme.text3, lineHeight: 18, marginTop: space.xxs },
-            ]}
-          >
-            {sub}
-          </Text>
-        ) : null}
-      </Press>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: theme.progressTrack, true: theme.accent }}
-        thumbColor="#FFFFFF"
-        ios_backgroundColor={theme.progressTrack}
-      />
-    </View>
+    />
   );
 }
 
@@ -274,211 +109,169 @@ function buildTrackPreview(trackCoords?: [number, number][]) {
   };
 }
 
-function HeroModeTile({
+function JourneyPreviewCard({
   theme,
-  mode,
-  selected,
-  disabled = false,
-  coverUri,
+  heroMode,
+  hasTrack,
   trackCoords,
-  title,
-  subtitle,
-  onPress,
+  coverUri,
+  labels,
+  onSelectMode,
+  onPickCover,
+  onPreviewCover,
 }: {
   theme: Theme;
-  mode: "track" | "cover";
-  selected: boolean;
-  disabled?: boolean;
-  coverUri?: string | null;
+  heroMode: "track" | "cover";
+  hasTrack: boolean;
   trackCoords?: [number, number][];
-  title: string;
-  subtitle: string;
-  onPress: () => void;
+  coverUri: string | null;
+  labels: { track: string; cover: string; coverSub: string };
+  onSelectMode: (mode: "track" | "cover") => void;
+  onPickCover: () => void;
+  onPreviewCover: () => void;
 }) {
-  const trackPreview = useMemo(() => buildTrackPreview(trackCoords), [trackCoords]);
-
+  const trackPreview = useMemo(
+    () => (heroMode === "track" ? buildTrackPreview(trackCoords) : null),
+    [heroMode, trackCoords],
+  );
+  const segment = (selected: boolean) => ({
+    backgroundColor: selected ? theme.accentSofter : "transparent",
+    color: selected ? theme.accent : theme.text2,
+  });
   return (
-    <Press
-      accessibilityRole="radio"
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={{
-        flex: 1,
-        minWidth: 0,
-        padding: space.xs,
-        borderRadius: radius.feature,
-        borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth,
-        borderColor: selected ? theme.text : theme.hairline,
-        backgroundColor: theme.surfaceTop,
-        opacity: disabled ? 0.54 : 1,
-      }}
-    >
-      <View
-        style={{
-          height: 96,
-          borderRadius: radius.card,
-          overflow: "hidden",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: theme.fieldSurface,
-        }}
-      >
-        {mode === "cover" ? (
-          coverUri ? (
+    <MeCard theme={theme}>
+      <View style={{ height: 200, backgroundColor: theme.surfaceTop }}>
+        {heroMode === "cover" && coverUri ? (
+          <Press
+            accessibilityRole="button"
+            accessibilityLabel={labels.cover}
+            onPress={onPreviewCover}
+            style={StyleSheet.absoluteFill}
+          >
             <Image
               source={{ uri: coverUri }}
               contentFit="cover"
               style={StyleSheet.absoluteFill}
+              transition={200}
             />
-          ) : (
-            <Icon name="plus" color={theme.text3} size={28} strokeWidth={1.5} />
-          )
-        ) : (
-          <>
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: theme.fieldSurface },
-              ]}
-            />
-            {trackPreview ? (
-              <Svg width="100%" height="100%" viewBox="0 0 160 96">
-                <Path
-                  d={trackPreview.path}
-                  fill="none"
-                  stroke={theme.surfaceTop}
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <Path
-                  d={trackPreview.path}
-                  fill="none"
-                  stroke={theme.accent}
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <Circle
-                  cx={trackPreview.start.x}
-                  cy={trackPreview.start.y}
-                  r="4"
-                  fill={theme.surfaceTop}
-                  stroke={theme.accent}
-                  strokeWidth="2"
-                />
-                <Circle
-                  cx={trackPreview.end.x}
-                  cy={trackPreview.end.y}
-                  r="4"
-                  fill={theme.text}
-                  stroke={theme.surfaceTop}
-                  strokeWidth="2"
-                />
-              </Svg>
-            ) : (
-              <Icon name="route" color={theme.text3} size={28} />
-            )}
-          </>
-        )}
-        {selected ? (
+          </Press>
+        ) : trackPreview ? (
           <View
-            style={{
-              position: "absolute",
-              right: space.xs,
-              top: space.xs,
-              width: 22,
-              height: 22,
-              borderRadius: radius.pill,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: theme.text,
-              borderWidth: 2,
-              borderColor: theme.surfaceTop,
-            }}
+            pointerEvents="none"
+            style={{ position: "absolute", top: 16, left: space.xl, right: space.xl, bottom: 16 }}
           >
-            <Icon name="check" color={theme.bg} size={12} strokeWidth={2.5} />
+            <Svg width="100%" height="100%" viewBox="0 0 160 96" preserveAspectRatio="xMidYMid meet">
+              <Path
+                d={trackPreview.path}
+                fill="none"
+                stroke={theme.progressTrack}
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <Path
+                d={trackPreview.path}
+                fill="none"
+                stroke={theme.accent}
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <Circle cx={trackPreview.start.x} cy={trackPreview.start.y} r="3" fill={theme.surfaceTop} stroke={theme.accent} strokeWidth="1.5" />
+              <Circle cx={trackPreview.end.x} cy={trackPreview.end.y} r="3" fill={theme.text} stroke={theme.surfaceTop} strokeWidth="1.5" />
+            </Svg>
           </View>
-        ) : null}
+        ) : (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Icon name={heroMode === "cover" ? "camera" : "route"} color={theme.text3} size={30} />
+          </View>
+        )}
       </View>
-      <Text
-        numberOfLines={1}
-        style={[
-          type.cardTitle,
-          {
-            color: theme.text,
-            marginTop: space.sm,
-            marginHorizontal: space.xxs,
-          },
-        ]}
+      <RowDivider theme={theme} />
+      <View
+        accessibilityRole="radiogroup"
+        style={{ flexDirection: "row", justifyContent: "center", paddingVertical: space.sm }}
       >
-        {title}
-      </Text>
-      <Text
-        numberOfLines={2}
-        style={[
-          type.caption,
-          {
-            color: theme.text3,
-            lineHeight: 16,
-            marginTop: space.xxs,
-            marginHorizontal: space.xxs,
-            marginBottom: space.xxs,
-          },
-        ]}
-      >
-        {subtitle}
-      </Text>
-    </Press>
-  );
-}
-
-function CoverTile({
-  theme,
-  uri,
-  onPreview,
-  onReplace,
-}: {
-  theme: Theme;
-  uri: string;
-  onPreview: () => void;
-  onReplace: () => void;
-}) {
-  return (
-    <View style={{ width: 112, height: 112, marginTop: space.sm }}>
-      <Press onPress={onPreview} style={StyleSheet.absoluteFill}>
         <View
           style={{
-            flex: 1,
-            borderRadius: 22,
-            overflow: 'hidden',
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: theme.hairline,
+            flexDirection: "row",
+            alignItems: "center",
+            height: 34,
+            borderRadius: radius.pill,
+            padding: 3,
             backgroundColor: theme.fieldSurface,
           }}
         >
-          <Image source={{ uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+          <Press
+            accessibilityRole="radio"
+            accessibilityState={{ selected: heroMode === "track", disabled: !hasTrack }}
+            disabled={!hasTrack}
+            onPress={() => onSelectMode("track")}
+            scaleTo={1}
+            opacityTo={1}
+            style={{
+              paddingHorizontal: space.md,
+              height: 28,
+              borderRadius: radius.pill,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: segment(heroMode === "track").backgroundColor,
+              opacity: hasTrack ? 1 : 0.45,
+            }}
+          >
+            <Text style={[type.small, { fontWeight: "700", color: segment(heroMode === "track").color }]}>
+              {labels.track}
+            </Text>
+          </Press>
+          <Press
+            accessibilityRole="radio"
+            accessibilityState={{ selected: heroMode === "cover" }}
+            onPress={() => onSelectMode("cover")}
+            scaleTo={1}
+            opacityTo={1}
+            style={{
+              paddingHorizontal: space.md,
+              height: 28,
+              borderRadius: radius.pill,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: segment(heroMode === "cover").backgroundColor,
+            }}
+          >
+            <Text style={[type.small, { fontWeight: "700", color: segment(heroMode === "cover").color }]}>
+              {labels.cover}
+            </Text>
+          </Press>
         </View>
-      </Press>
+      </View>
+      <RowDivider theme={theme} />
       <Press
         accessibilityRole="button"
-        onPress={onReplace}
-        style={{
-          position: 'absolute',
-          right: space.xs,
-          bottom: space.xs,
-          width: 32,
-          height: 32,
-          borderRadius: radius.pill,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.52)',
-        }}
+        onPress={onPickCover}
+        scaleTo={1}
+        opacityTo={1}
       >
-        <Icon name="camera" color="#FFFFFF" size={16} />
+        <View
+          style={{
+            minHeight: layout.listRowMinHeight,
+            paddingHorizontal: space.md,
+            paddingVertical: space.md,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.md,
+          }}
+        >
+          <Icon name="camera" color={theme.accent} size={20} />
+          <View style={{ flex: 1 }}>
+            <Text style={[type.cardTitle, { color: theme.text }]}>{labels.cover}</Text>
+            <Text style={[type.caption, { color: theme.text2, marginTop: space.xxs }]}>
+              {labels.coverSub}
+            </Text>
+          </View>
+          <Icon name="chevronR" color={theme.text3} size={15} />
+        </View>
       </Press>
-    </View>
+    </MeCard>
   );
 }
 
@@ -496,6 +289,20 @@ export function JourneySettings({
   const { t } = useI18n();
   const { userId } = useData();
   const nav = useNav();
+  const insets = useSafeAreaInsets();
+  const companionCount = poi.companionList?.length || poi.companions || 0;
+  const journeyStats = useMemo(() => {
+    const stats: AppMetric[] = [];
+    const bare = (value: string) => value.replace(/\s+/g, "").replace(/(km|m)$/i, "");
+    if (poi.dist?.trim()) stats.push({ label: "距离 km", value: bare(poi.dist) });
+    if (poi.asc?.trim()) stats.push({ label: "爬升 m", value: bare(poi.asc) });
+    if (poi.days?.trim()) stats.push({ label: "天数", value: poi.days.trim() });
+    return stats;
+  }, [
+    poi.asc,
+    poi.days,
+    poi.dist,
+  ]);
   const originalPhotos = useMemo(() => poi.photoUris ?? [], [poi.photoUris]);
   const [selectedCover, setSelectedCover] = useState<string | null>(
     originalPhotos[0] ?? null,
@@ -631,26 +438,25 @@ export function JourneySettings({
       accessibilityState={{ disabled: !hasChanges || saving }}
       onPress={() => void save()}
       disabled={!hasChanges || saving}
+      scaleTo={1}
+      opacityTo={1}
       style={{
-        width: 42,
-        height: 42,
-        borderRadius: 21,
+        minWidth: 54,
+        height: 34,
+        paddingHorizontal: space.sm,
+        borderRadius: radius.pill,
+        backgroundColor: theme.accentSoft,
         alignItems: "center",
         justifyContent: "center",
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.fieldBorder,
-        backgroundColor: theme.controlSurface,
+        opacity: hasChanges && !saving ? 1 : 0.45,
       }}
     >
       {saving ? (
-        <ActivityIndicator size="small" color={theme.text} />
+        <ActivityIndicator size="small" color={theme.accent} />
       ) : (
-        <Icon
-          name="check"
-          color={hasChanges ? theme.text : theme.text3}
-          size={20}
-          strokeWidth={2.2}
-        />
+        <Text style={{ fontSize: 13, fontWeight: "700", color: theme.accent }}>
+          {t("common.save")}
+        </Text>
       )}
     </Press>
   );
@@ -662,230 +468,294 @@ export function JourneySettings({
         { zIndex: 190, backgroundColor: theme.groupedBg },
       ]}
     >
-      <DetailPage
+      <MePushPage
         theme={theme}
         title={t("journey.settings.title")}
         onBack={onClose}
         right={saveButton}
-        backgroundColor={theme.groupedBg}
-        flatChrome
       >
-        <View style={{ paddingHorizontal: space.xl, paddingTop: space.lg }}>
-          <View style={{ marginBottom: space.xxl }}>
-            <SectionLabel theme={theme}>
-              {t("journey.settings.heroSection")}
-            </SectionLabel>
-            <View
-              accessibilityRole="radiogroup"
-              style={{ flexDirection: "row", gap: space.sm }}
+        <View style={{ paddingHorizontal: space.xl, paddingTop: space.xs }}>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder={t("record.hero.namePlaceholder")}
+            placeholderTextColor={theme.text3}
+            maxLength={48}
+            style={{ padding: 0, height: 42, ...type.pageTitle, lineHeight: 36, color: theme.text }}
+          />
+          {[location.region, location.coord].filter(Boolean).length ? (
+            <Text
+              numberOfLines={1}
+              style={[
+                type.caption,
+                { color: theme.text2, marginTop: space.xs, fontVariant: ["tabular-nums"] },
+              ]}
             >
-              <HeroModeTile
-                theme={theme}
-                mode="track"
-                trackCoords={poi.trackCoords}
-                selected={heroMode === "track"}
-                disabled={!hasTrack}
-                title={t("journey.settings.heroTrack")}
-                subtitle={
-                  hasTrack
-                    ? t("journey.settings.heroTrackSub")
-                    : t("journey.settings.heroTrackUnavailable")
-                }
-                onPress={() => setHeroMode("track")}
-              />
-              <HeroModeTile
-                theme={theme}
-                mode="cover"
-                selected={heroMode === "cover"}
-                coverUri={selectedCover}
-                title={t("journey.settings.heroCover")}
-                subtitle={t("journey.settings.heroCoverSub")}
-                onPress={() =>
-                  selectedCover ? setHeroMode("cover") : void pickCover()
-                }
-              />
-            </View>
-            {heroMode === "cover" && selectedCover ? (
-              <CoverTile
-                theme={theme}
-                uri={selectedCover}
-                onPreview={() => setCoverViewerOpen(true)}
-                onReplace={() => void pickCover()}
-              />
-            ) : null}
-          </View>
+              {[location.region, location.coord].filter(Boolean).join("  ")}
+            </Text>
+          ) : null}
+        </View>
 
-          <View style={{ marginBottom: space.xxl }}>
-            <SectionLabel theme={theme}>
-              {t("journeyEdit.fieldName")}
-            </SectionLabel>
-            <FieldCard
-              theme={theme}
-              value={name}
-              onChangeText={setName}
-              placeholder={t("record.hero.namePlaceholder")}
-            />
-          </View>
+        <MeSection theme={theme} title={t("journey.settings.heroSection")} first>
+          <JourneyPreviewCard
+            theme={theme}
+            heroMode={heroMode}
+            hasTrack={hasTrack}
+            trackCoords={poi.trackCoords}
+            coverUri={selectedCover}
+            labels={{
+              track: t("journey.settings.heroTrack"),
+              cover: t("journey.settings.heroCover"),
+              coverSub: t("journey.settings.heroCoverSub"),
+            }}
+            onSelectMode={(mode) =>
+              mode === "cover" && !selectedCover ? void pickCover() : setHeroMode(mode)
+            }
+            onPickCover={() => void pickCover()}
+            onPreviewCover={() => setCoverViewerOpen(true)}
+          />
+        </MeSection>
 
-          <View style={{ marginBottom: space.xxl }}>
-            <SectionLabel theme={theme}>
-              {t("journey.settings.locationSection")}
-            </SectionLabel>
-            <LocationCard
-              theme={theme}
-              location={location}
-              label={t("journey.settings.locationOpen")}
+        <MeSection theme={theme} title={t("journey.settings.locationSection")}>
+          <MeCard theme={theme}>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={t("journey.settings.locationOpen")}
               onPress={() => setLocationPickerOpen(true)}
-            />
-          </View>
+              scaleTo={1}
+              opacityTo={1}
+            >
+              <View
+                style={{
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.md,
+                }}
+              >
+                <Icon name="pin" color={theme.accent} size={20} />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={[type.cardTitle, { color: theme.text }]}
+                  >
+                    {location.region || t("journey.settings.locationOpen")}
+                  </Text>
+                  {location.coord ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        type.caption,
+                        {
+                          color: theme.text2,
+                          marginTop: space.xxs,
+                          fontVariant: ["tabular-nums"],
+                        },
+                      ]}
+                    >
+                      {location.coord}
+                    </Text>
+                  ) : null}
+                </View>
+                <Icon name="chevronR" color={theme.text3} size={15} />
+              </View>
+            </Press>
+            {journeyStats.length ? (
+              <>
+                <RowDivider theme={theme} />
+                <View style={{ paddingHorizontal: space.md, paddingVertical: space.sm }}>
+                  <AppMetricStrip theme={theme} stats={journeyStats} />
+                </View>
+              </>
+            ) : null}
+          </MeCard>
+        </MeSection>
 
-          <View style={{ marginBottom: space.xxl }}>
-            <SectionLabel theme={theme}>
-              {t("journeyEdit.sectionDesc")}
-            </SectionLabel>
-            <FieldCard
-              theme={theme}
+        <MeSection theme={theme} title={t("journeyEdit.sectionDesc")}>
+          <MeCard theme={theme}>
+            <TextInput
               value={desc}
               onChangeText={setDesc}
               placeholder={t("journeyEdit.descFooter")}
+              placeholderTextColor={theme.text3}
               multiline
-            />
-          </View>
-
-          <View style={{ marginBottom: space.xxl }}>
-            <SectionLabel theme={theme}>
-              {t("journey.settings.participantsSection")}
-            </SectionLabel>
-            <Press
-              onPress={openParticipants}
-              accessibilityRole="button"
+              textAlignVertical="top"
+              maxLength={280}
               style={{
-                minHeight: 64,
+                minHeight: 84,
                 paddingHorizontal: space.md,
-                paddingVertical: space.sm,
-                borderRadius: radius.feature,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.hairline,
-                backgroundColor: theme.surfaceTop,
-                flexDirection: "row",
-                alignItems: "center",
+                paddingVertical: space.md,
+                fontSize: 15,
+                lineHeight: 23,
+                color: theme.text,
               }}
+            />
+          </MeCard>
+        </MeSection>
+
+        <MeSection theme={theme} title={t("journey.settings.participantsSection")}>
+          <MeCard theme={theme}>
+            <Press
+              accessibilityRole="button"
+              onPress={openParticipants}
+              scaleTo={1}
+              opacityTo={1}
             >
-              <Icon name="people" color={theme.text2} size={20} />
-              <Text
+              <View
                 style={{
-                  flex: 1,
-                  marginLeft: space.sm,
-                  color: theme.text,
-                  fontSize: 16,
-                  fontWeight: "600",
+                  minHeight: layout.listRowMinHeight,
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.md,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.sm,
                 }}
               >
-                {t("journey.manage.pageTitle")}
-              </Text>
-              <Text
-                style={[
-                  type.caption,
-                  { color: theme.text3, marginRight: space.xs },
-                ]}
-              >
-                {t("journey.manage.totalCount", {
-                  count: poi.companionList?.length || poi.companions || 0,
-                })}
-              </Text>
-              <Icon name="chevronR" color={theme.text3} size={16} />
-            </Press>
-          </View>
-
-          {hasTrack ? (
-            <View style={{ marginBottom: space.xxl }}>
-              <SectionLabel theme={theme}>
-                {t("journey.settings.exploreSection")}
-              </SectionLabel>
-              <View style={{ gap: space.sm }}>
-                <ToggleCard
-                  theme={theme}
-                  label={t("journey.settings.trackPublic")}
-                  sub={t("journey.settings.trackPublicSub")}
-                  value={trackPublic}
-                  onChange={setTrackPublic}
+                <AvatarStack
+                  people={poi.companionList ?? []}
+                  size={28}
+                  ringColor={theme.surfaceTop}
                 />
-                {trackPublic ? (
-                  <>
-                    <ToggleCard
-                      theme={theme}
-                      label={t("journey.settings.routeShowPhotos")}
-                      sub={t("journey.settings.routeShowPhotosSub")}
-                      value={routeShowPhotos}
-                      onChange={setRouteShowPhotos}
-                    />
-                    <ToggleCard
-                      theme={theme}
-                      label={t("journey.settings.routeShowTimeline")}
-                      sub={t("journey.settings.routeShowTimelineSub")}
-                      value={routeShowTimeline}
-                      onChange={setRouteShowTimeline}
-                    />
-                  </>
-                ) : null}
+                <Text style={[type.cardTitle, { flex: 1, color: theme.text }]}>
+                  {t("journey.manage.pageTitle")}
+                </Text>
+                <Text style={[type.caption, { color: theme.text2 }]}>
+                  {t("journey.manage.totalCount", { count: companionCount })}
+                </Text>
+                <Icon name="chevronR" color={theme.text3} size={15} />
               </View>
-            </View>
-          ) : null}
+            </Press>
+          </MeCard>
+        </MeSection>
 
-          {poi.routeId ? (
-            <View style={{ marginBottom: space.xxl }}>
-              {!hasTrack ? <SectionLabel theme={theme}>{t("journey.settings.exploreSection")}</SectionLabel> : null}
+        {hasTrack ? (
+          <MeSection theme={theme} title={t("journey.settings.exploreSection")}>
+            <MeCard theme={theme}>
+              <SwitchRow
+                theme={theme}
+                label={t("journey.settings.trackPublic")}
+                sub={t("journey.settings.trackPublicSub")}
+                value={trackPublic}
+                onChange={setTrackPublic}
+              />
+              {trackPublic ? (
+                <>
+                  <RowDivider theme={theme} />
+                  <SwitchRow
+                    theme={theme}
+                    label={t("journey.settings.routeShowPhotos")}
+                    sub={t("journey.settings.routeShowPhotosSub")}
+                    value={routeShowPhotos}
+                    onChange={setRouteShowPhotos}
+                  />
+                  <RowDivider theme={theme} />
+                  <SwitchRow
+                    theme={theme}
+                    label={t("journey.settings.routeShowTimeline")}
+                    sub={t("journey.settings.routeShowTimelineSub")}
+                    value={routeShowTimeline}
+                    onChange={setRouteShowTimeline}
+                  />
+                </>
+              ) : null}
+            </MeCard>
+          </MeSection>
+        ) : null}
+
+        {poi.routeId ? (
+          <MeSection theme={theme} title="路线攻略">
+            <MeCard theme={theme}>
               <Press
                 accessibilityRole="button"
                 accessibilityLabel="发布为路线攻略"
                 onPress={() => setGuidePublishOpen(true)}
-                style={{
-                  minHeight: 78,
-                  borderRadius: radius.feature,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: theme.hairline,
-                  backgroundColor: theme.surfaceTop,
-                  paddingHorizontal: space.lg,
-                  flexDirection: "row",
-                  alignItems: "center",
-                }}
+                scaleTo={1}
+                opacityTo={1}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontSize: 17, fontWeight: "600" }}>{guideStatus?.status === "approved" ? "路线攻略已通过" : guideStatus?.status === "pending" ? "路线攻略审核中" : guideStatus?.status === "rejected" ? "攻略审核未通过，可重新提交" : "发布为路线攻略"}</Text>
-                  <Text style={{ color: theme.text3, fontSize: 11.5, lineHeight: 18, marginTop: 3 }}>{guideStatus?.status === "approved" ? "已展示在路线卡片的大家的攻略中" : guideStatus?.status === "pending" ? "审核通过后会展示给其他人，请勿重复提交" : guideStatus?.status === "rejected" ? ("驳回原因：" + (guideStatus.rejectionReason || "请修改后重新提交")) : "整理旅程、装备与复盘，提交审核后展示给其他人"}</Text>
+                <View
+                  style={{
+                    minHeight: layout.listRowMinHeight,
+                    paddingHorizontal: space.md,
+                    paddingVertical: space.md,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.sm,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[type.cardTitle, { color: theme.text }]}>
+                      {guideStatus?.status === "approved" ? "路线攻略已通过" : guideStatus?.status === "pending" ? "路线攻略审核中" : guideStatus?.status === "rejected" ? "攻略审核未通过，可重新提交" : "发布为路线攻略"}
+                    </Text>
+                    <Text
+                      style={[
+                        type.caption,
+                        { color: theme.text2, lineHeight: 18, marginTop: space.xxs },
+                      ]}
+                    >
+                      {guideStatus?.status === "approved" ? "已展示在路线卡片的大家的攻略中" : guideStatus?.status === "pending" ? "审核通过后会展示给其他人，请勿重复提交" : guideStatus?.status === "rejected" ? ("驳回原因：" + (guideStatus.rejectionReason || "请修改后重新提交")) : "整理旅程、装备与复盘，提交审核后展示给其他人"}
+                    </Text>
+                  </View>
+                  {guideStatus ? (
+                    <View
+                      style={{
+                        paddingHorizontal: space.sm,
+                        paddingVertical: space.xxs,
+                        borderRadius: radius.pill,
+                        backgroundColor:
+                          guideStatus.status === "approved"
+                            ? theme.accentSofter
+                            : theme.fieldSurface,
+                      }}
+                    >
+                      <Text
+                        style={[
+                          type.eyebrow,
+                          {
+                            color:
+                              guideStatus.status === "approved"
+                                ? theme.accent
+                                : theme.text2,
+                          },
+                        ]}
+                      >
+                        {guideStatus.status === "approved" ? "已发布" : guideStatus.status === "pending" ? "审核中" : "未通过"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {guideStatus?.status === "rejected" || !guideStatus ? (
+                    <Icon name="chevronR" color={theme.text3} size={15} />
+                  ) : null}
                 </View>
-                {guideStatus?.status === "rejected" || !guideStatus ? <Icon name="chevronR" color={theme.text3} size={16} /> : null}
               </Press>
-            </View>
-          ) : null}
+            </MeCard>
+          </MeSection>
+        ) : null}
 
-          {poi.mine ? <Press
-            onPress={confirmDelete}
-            style={{
-              alignSelf: "stretch",
-              height: 72,
-              marginTop: space.xs,
-              marginBottom: space.xxxl,
-              paddingHorizontal: space.lg,
-              borderRadius: radius.feature,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: theme.hairline,
-              backgroundColor: theme.surfaceTop,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: space.sm,
-            }}
-          >
-            <Icon name="trash" color={theme.danger} size={20} />
-            <Text
-              style={{ fontSize: 16, fontWeight: "700", color: theme.danger }}
+        {poi.mine ? (
+          <View style={{ paddingHorizontal: space.xl, marginTop: layout.sectionGap, marginBottom: space.xl }}>
+            <Press
+              accessibilityRole="button"
+              onPress={confirmDelete}
+              scaleTo={1}
+              opacityTo={1}
+              style={{
+                height: 48,
+                alignItems: "center",
+                justifyContent: "center",
+                gap: space.xs,
+                flexDirection: "row",
+              }}
             >
-              {t("journey.settings.deleteJourney")}
-            </Text>
-          </Press> : null}
-        </View>
-      </DetailPage>
+              <Icon name="trash" color={theme.text3} size={16} />
+              <Text style={[type.small, { color: theme.text3 }]}>
+                {t("journey.settings.deleteJourney")}
+              </Text>
+            </Press>
+          </View>
+        ) : null}
+      </MePushPage>
       {locationPickerOpen ? (
         <JourneyLocationPicker
           theme={theme}

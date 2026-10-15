@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
-import { Heart } from 'lucide-react-native';
+import { Heart, Trash2 } from 'lucide-react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEventListener } from 'expo';
 import { radius, space } from '../../design-system';
@@ -13,14 +13,25 @@ import type { Theme } from '../../theme/theme';
 import { Avatar } from '../Avatar';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
+import { MeBadge } from './RouteGuideContent';
 import { markRouteConditionHelpful } from '../../hooks/useRouteConditions';
 
-export function RouteConditionCard({ theme, report, compact = false, onPress }: { theme: Theme; report: RouteCondition; compact?: boolean; onPress?: () => void }) {
+export function RouteConditionCard({ theme, report, compact = false, onPress, onDelete, showMeBadge = false }: { theme: Theme; report: RouteCondition; compact?: boolean; onPress?: () => void; onDelete?: () => void; showMeBadge?: boolean }) {
   const { resolved } = useI18n();
   const [width, setWidth] = useState(0);
   const [helpful, setHelpful] = useState(report.helpfulMarked ?? false);
   const [helpfulCount, setHelpfulCount] = useState(report.helpful ?? 0);
   const helpfulPending = useRef(false);
+  const confirmDelete = () => {
+    Alert.alert(
+      resolved === 'zh' ? '删除这条实况？' : 'Delete this observation?',
+      resolved === 'zh' ? '删除后无法恢复。' : 'This cannot be undone.',
+      [
+        { text: resolved === 'zh' ? '取消' : 'Cancel', style: 'cancel' },
+        { text: resolved === 'zh' ? '删除' : 'Delete', style: 'destructive', onPress: () => onDelete?.() },
+      ],
+    );
+  };
   useEffect(() => {
     setHelpful(report.helpfulMarked ?? false);
     setHelpfulCount(report.helpful ?? 0);
@@ -39,27 +50,34 @@ export function RouteConditionCard({ theme, report, compact = false, onPress }: 
     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm }}>
       <Avatar size={28} uri={report.authorAvatarUrl || undefined} />
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{guideText(report.author, resolved)}</Text>
+      {showMeBadge ? <MeBadge theme={theme} /> : null}
     </View>
     <Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 20, marginTop: space.xs }}>{formatObservationDate(report.publishedAt, resolved)}</Text>
     {guideText(report.body, resolved).trim() ? <Text style={{ color: theme.text, fontSize: 13, lineHeight: 23, marginTop: space.sm }}>{guideText(report.body, resolved)}</Text> : null}
     {(report.media?.length || report.photos.length) && width > 0 ? <View style={{ marginTop: space.md }}><ConditionMediaStrip theme={theme} report={report} /></View> : null}
-    <Press accessibilityRole="button" accessibilityState={{ selected: helpful }} onPress={() => {
-      if (helpfulPending.current) return;
-      helpfulPending.current = true;
-      const previousHelpful = helpful;
-      setHelpful(!previousHelpful);
-      setHelpfulCount((count) => Math.max(0, count + (previousHelpful ? -1 : 1)));
-      void markRouteConditionHelpful(report.id).then((updated) => {
-        setHelpful(updated.helpfulMarked ?? false);
-        setHelpfulCount(updated.helpful ?? 0);
-      }).catch(() => {
-        setHelpful(report.helpfulMarked ?? false);
-        setHelpfulCount(report.helpful ?? 0);
-      }).finally(() => { helpfulPending.current = false; });
-    }} style={styles.helpfulAction}>
-      <Heart color={helpful ? theme.like : theme.text2} fill={helpful ? theme.like : 'transparent'} size={16} />
-      <Text style={{ color: helpful ? theme.like : theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '有帮助' : 'Helpful'} {helpfulCount}</Text>
-    </Press>
+    <View style={styles.cardActions}>
+      <Press accessibilityRole="button" accessibilityState={{ selected: helpful }} onPress={() => {
+        if (helpfulPending.current) return;
+        helpfulPending.current = true;
+        const previousHelpful = helpful;
+        setHelpful(!previousHelpful);
+        setHelpfulCount((count) => Math.max(0, count + (previousHelpful ? -1 : 1)));
+        void markRouteConditionHelpful(report.id).then((updated) => {
+          setHelpful(updated.helpfulMarked ?? false);
+          setHelpfulCount(updated.helpful ?? 0);
+        }).catch(() => {
+          setHelpful(report.helpfulMarked ?? false);
+          setHelpfulCount(report.helpful ?? 0);
+        }).finally(() => { helpfulPending.current = false; });
+      }} style={styles.helpfulAction}>
+        <Heart color={helpful ? theme.like : theme.text2} fill={helpful ? theme.like : 'transparent'} size={16} />
+        <Text style={{ color: helpful ? theme.like : theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '有帮助' : 'Helpful'} {helpfulCount}</Text>
+      </Press>
+      {onDelete ? <Press accessibilityRole="button" accessibilityLabel={resolved === 'zh' ? '删除实况' : 'Delete observation'} onPress={confirmDelete} style={styles.deleteAction}>
+        <Trash2 color={theme.text2} size={16} />
+        <Text style={{ color: theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '删除' : 'Delete'}</Text>
+      </Press> : null}
+    </View>
   </>;
   const style = { paddingVertical: space.md };
   return <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
@@ -213,7 +231,7 @@ const styles = StyleSheet.create({
   preview: { flexDirection: 'row', alignItems: 'flex-start', gap: space.lg, paddingTop: space.sm, paddingBottom: space.md },
   previewText: { flex: 1, minWidth: 0 },
   previewBody: { fontSize: 14, lineHeight: 23 },
-  previewMeta: { fontSize: 11.5, lineHeight: 19, marginTop: space.sm },
+  previewMeta: { fontSize: 11.5, lineHeight: 19 },
   previewPhoto: { width: 64, height: 64, borderRadius: radius.card },
   previewLiveIcon: { position: 'absolute', left: space.sm, bottom: space.sm },
   previewVideoIcon: { position: 'absolute', right: space.xs, top: space.xs, width: 26, height: 26, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.48)' },
@@ -228,5 +246,7 @@ const styles = StyleSheet.create({
   viewerMediaBadge: { position: 'absolute', top: 52, left: 0, right: 0, zIndex: 5, alignItems: 'center' },
   viewerMediaBadgeInner: { minWidth: 76, height: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xxs, backgroundColor: 'rgba(22,22,24,0.42)' },
   viewerMediaBadgeText: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '700' },
-  helpfulAction: { alignSelf: 'flex-start', minHeight: 36, marginTop: space.sm, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  helpfulAction: { minHeight: 36, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: space.md, alignSelf: 'flex-start', marginTop: space.sm },
+  deleteAction: { minHeight: 36, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
 });
