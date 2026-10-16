@@ -24,11 +24,11 @@ export async function openNotificationTargetById(
     return false;
   }
 
-  if (kind === 'observation_like') {
+  if (kind === 'observation_like' || kind === 'comment_like' || kind === 'comment_reply') {
     const route = routes.find((candidate) => candidate.id === targetId);
     if (route) {
       nav.openPoint(route);
-      nav.openRouteGuide({ route, view: 'conditions' });
+      nav.openRouteGuide({ route, view: 'comments' });
       return true;
     }
     return false;

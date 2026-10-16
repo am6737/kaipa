@@ -118,15 +118,23 @@ Deno.serve(async (req) => {
         const deleted = await service.from('inspo_media').delete().eq('id', body.id).select('id').maybeSingle();
         if (deleted.error) throw deleted.error;
         if (!deleted.data) return json({ error: 'content_not_found' }, 404);
-      } else if (body.action === 'moderate-route-observation') {
-        if (!['approved', 'rejected', 'pending'].includes(body.moderation_status || '')) return json({ error: 'invalid_observation_status' }, 400);
-        const updated = await service.from('route_observations').update({ moderation_status: body.moderation_status, updated_at: new Date().toISOString() }).eq('id', body.id).select('id').maybeSingle();
+      } else if (body.action === 'moderate-route-comment') {
+        // Restoring or hiding settles the open reports, so the 3-report auto-hide starts counting afresh.
+        if (!['visible', 'hidden'].includes(body.status || '')) return json({ error: 'invalid_comment_status' }, 400);
+        const now = new Date().toISOString();
+        const updated = await service.from('route_comments').update({ status: body.status, updated_at: now }).eq('id', body.id).neq('status', 'deleted').select('id').maybeSingle();
         if (updated.error) throw updated.error;
-        if (!updated.data) return json({ error: 'route_observation_not_found' }, 404);
-      } else if (body.action === 'delete-route-observation') {
-        const deleted = await service.from('route_observations').delete().eq('id', body.id).select('id').maybeSingle();
+        if (!updated.data) return json({ error: 'route_comment_not_found' }, 404);
+        const resolved = await service.from('route_comment_reports').update({ resolved_at: now }).eq('comment_id', body.id).is('resolved_at', null);
+        if (resolved.error) throw resolved.error;
+      } else if (body.action === 'dismiss-route-comment-reports') {
+        const resolved = await service.from('route_comment_reports').update({ resolved_at: new Date().toISOString() }).eq('comment_id', body.id).is('resolved_at', null).select('comment_id');
+        if (resolved.error) throw resolved.error;
+      } else if (body.action === 'delete-route-comment') {
+        // Hard delete; replies go with a top-level comment through the foreign key cascade.
+        const deleted = await service.from('route_comments').delete().eq('id', body.id).select('id').maybeSingle();
         if (deleted.error) throw deleted.error;
-        if (!deleted.data) return json({ error: 'route_observation_not_found' }, 404);
+        if (!deleted.data) return json({ error: 'route_comment_not_found' }, 404);
       } else if (body.action === 'moderate-route-guide') {
         if (!['approved', 'rejected', 'pending'].includes(body.status || '')) return json({ error: 'invalid_guide_status' }, 400);
         if (body.status === 'rejected' && !body.rejection_reason?.trim()) return json({ error: 'rejection_reason_required' }, 400);
@@ -357,23 +365,34 @@ Deno.serve(async (req) => {
       if (result.error) throw result.error;
       return json({ data: result.data || [] });
     }
-    if (resource === 'routeObservations') {
-      const result = await service.from('route_observations')
-        .select('id,route_id,user_id,author_name,visited_at,section,body,media,moderation_status,helpful_count,created_at,updated_at')
+    if (resource === 'routeComments') {
+      const result = await service.from('route_comments')
+        .select('id,route_id,user_id,parent_id,reply_to_user_id,author_name,body,media,status,like_count,reply_count,report_count,created_at,updated_at,reports:route_comment_reports(reporter_id,reason,created_at,resolved_at)')
         .order('created_at', { ascending: false }).limit(1000);
       if (result.error) throw result.error;
       const rows: any[] = result.data || [];
       const routeIds = [...new Set(rows.map((row) => row.route_id).filter(Boolean))];
-      const userIds = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
-      const [routes, profiles] = await Promise.all([
+      const userIds = [...new Set(rows.flatMap((row) => [row.user_id, row.reply_to_user_id]).filter(Boolean))];
+      const loadedIds = new Set(rows.map((row) => row.id));
+      const missingParentIds = [...new Set(rows.map((row) => row.parent_id).filter((id) => id && !loadedIds.has(id)))];
+      const [routes, profiles, parents] = await Promise.all([
         routeIds.length ? service.from('routes').select('id,name').in('id', routeIds) : Promise.resolve({ data: [], error: null }),
         userIds.length ? service.from('profiles').select('id,display_name,nick,username,avatar_url').in('id', userIds) : Promise.resolve({ data: [], error: null }),
+        missingParentIds.length ? service.from('route_comments').select('id,body,status,author_name').in('id', missingParentIds) : Promise.resolve({ data: [], error: null }),
       ]);
-      if (routes.error || profiles.error) throw routes.error || profiles.error;
+      if (routes.error || profiles.error || parents.error) throw routes.error || profiles.error || parents.error;
       const routeById = new Map((routes.data || []).map((route) => [route.id, route]));
       const profileById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+      const parentById = new Map([...rows, ...(parents.data || [])].map((row: any) => [row.id, { id: row.id, body: row.body, status: row.status, author_name: row.author_name }]));
       await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: rows.length } });
-      return json({ data: rows.map((row) => ({ ...row, route: routeById.get(row.route_id) || null, user: profileById.get(row.user_id) || null })) });
+      return json({ data: rows.map((row) => ({
+        ...row,
+        route: routeById.get(row.route_id) || null,
+        user: profileById.get(row.user_id) || null,
+        reply_to: row.reply_to_user_id ? profileById.get(row.reply_to_user_id) || null : null,
+        parent: row.parent_id ? parentById.get(row.parent_id) || null : null,
+        open_report_count: (row.reports || []).filter((report: any) => !report.resolved_at).length,
+      })) });
     }
     if (resource === 'routeGuides') {
       const result = await service.from('route_guides').select('id,route_id,author_id,title,intro,reflection,plan,status,rejection_reason,helpful_count,submitted_at,reviewed_at,updated_at').order('submitted_at', { ascending: false }).limit(1000);
@@ -411,7 +430,7 @@ Deno.serve(async (req) => {
     const result = await query;
     if (result.error) throw result.error;
     await service.from('admin_audit_logs').insert({ actor_id: auth.user.id, action: 'read', resource_type: resource, metadata: { count: result.data?.length || 0 } });
-    const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'routeObservations', 'agentRuns'].includes(resource) ? 'user_id' : null;
+    const userKey = resource === 'routes' ? 'created_by' : resource === 'audit' ? 'actor_id' : ['journeys', 'gear', 'tracks', 'notifications', 'content', 'agentRuns'].includes(resource) ? 'user_id' : null;
     if (userKey) {
       const rows: any[] = result.data || [];
       const userIds = [...new Set(rows.map((row) => row[userKey]).filter(Boolean))];

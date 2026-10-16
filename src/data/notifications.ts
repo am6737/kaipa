@@ -1,7 +1,7 @@
 import { Tone } from './tones';
 import { useData } from './DataContext';
 
-export type NotifKind = 'invite' | 'join' | 'photo' | 'trip' | 'like' | 'observation_like' | 'guide_like' | 'system' | 'safety';
+export type NotifKind = 'invite' | 'join' | 'photo' | 'trip' | 'like' | 'observation_like' | 'comment_like' | 'comment_reply' | 'guide_like' | 'system' | 'safety';
 
 export interface Notif {
   id: string;

@@ -96,19 +96,8 @@ reflection and back navigation. The creation flow saved three days, nine
 itinerary items and fifteen unpacked personal gear items, confirmed by reading
 the database as that test user. The test account and its data were removed.
 
-## Recent observations: product design
+## Recent observations → route comments
 
-Route weather and recent observations have separate sections and detail entries.
-The observations entry currently shows local fixtures, with two entries on the
-route card and four in the list. Photo viewing reuses the existing carousel.
-Publishing and official verification are not implemented. Existing journey media uploads support images
-and videos but do not make journey content into public route observations.
-
-The intended publishing form records the route, visited/captured time, trail
-section or location, text and optional photos/videos. Text-only reports are valid.
-List entries show visited time separately from published time and sort primarily
-by visited time. Older posts belong in history rather than appearing current.
-Source (user or official) and verification (unverified or officially checked,
-with verifier/time) are separate fields. Users cannot grant verification badges
-themselves. Official verification should identify the checked observation and
-time, rather than implying that the entire route is currently passable.
+Superseded on 2026-10-16: recent observations (近期实况) became route comments.
+See `docs/route-comments.md`. The notes earlier in this file describe the old
+fixtures and are kept for history.

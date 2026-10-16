@@ -13,8 +13,8 @@ import { Press } from '../Press';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 import { RouteGuideRow, RouteGuideSectionHeader, RouteWeatherCard } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
-import { RouteConditionCard } from './RouteConditionCard';
-import { useRouteConditions } from '../../hooks/useRouteConditions';
+import { RouteCommentPreviewRow } from './RouteCommentItem';
+import { useRouteComments } from '../../hooks/useRouteComments';
 
 export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean }) {
   const nav = useNav();
@@ -23,7 +23,8 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   const route = nav.merged(poi);
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
   const { guides, loading: guidesLoading } = useRouteGuides(route.id);
-  const { reports, loading: reportsLoading } = useRouteConditions(route.id);
+  const { comments, total: commentTotal, loading: commentsLoading } = useRouteComments(route.id, { preview: true, pageSize: 2 });
+  const openComments = (compose = false) => nav.openRouteGuide({ route, view: 'comments', compose });
 
 
   return (
@@ -69,8 +70,8 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         <RouteWeatherCard theme={theme} lng={route.lng} lat={route.lat} onPress={() => nav.openRouteGuide({ route, view: 'weather' })} />
       </View>
       <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.conditions} tight action={c.allConditions} onAction={() => nav.openRouteGuide({ route, view: 'conditions' })} />
-        {reportsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : reports.length ? reports.slice(0, 2).map((report) => <RouteConditionCard key={report.id} theme={theme} report={report} compact onPress={() => nav.openRouteGuide({ route, view: 'conditions' })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noReports}</Text></View>}
+        <RouteGuideSectionHeader theme={theme} title={commentTotal ? `${c.comments} ${commentTotal}` : c.comments} tight action={c.allComments} onAction={() => openComments()} />
+        {commentsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : comments.length ? comments.map((comment, index) => <View key={comment.id} style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderTopColor: theme.hairline }}><RouteCommentPreviewRow theme={theme} comment={comment} onPress={() => openComments()} /></View>) : <Press accessibilityRole="button" onPress={() => openComments(true)} style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noComments}</Text><Text style={[type.note, { color: theme.text3, textAlign: 'center' }]}>{c.noCommentsHint}</Text></Press>}
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />

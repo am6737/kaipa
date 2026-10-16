@@ -1,93 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Alert, Animated, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
-import { Heart, Trash2 } from 'lucide-react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEventListener } from 'expo';
 import { radius, space } from '../../design-system';
-import { useI18n } from '../../i18n';
-import { guideText } from '../../data/routeGuides';
-import type { RouteCondition } from '../../data/routeConditions';
-import type { Theme } from '../../theme/theme';
-import { Avatar } from '../Avatar';
+import type { RouteCommentMedia } from '../../data/routeComments';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
-import { MeBadge } from './RouteGuideContent';
-import { markRouteConditionHelpful } from '../../hooks/useRouteConditions';
 
-export function RouteConditionCard({ theme, report, compact = false, onPress, onDelete, showMeBadge = false }: { theme: Theme; report: RouteCondition; compact?: boolean; onPress?: () => void; onDelete?: () => void; showMeBadge?: boolean }) {
-  const { resolved } = useI18n();
-  const [width, setWidth] = useState(0);
-  const [helpful, setHelpful] = useState(report.helpfulMarked ?? false);
-  const [helpfulCount, setHelpfulCount] = useState(report.helpful ?? 0);
-  const helpfulPending = useRef(false);
-  const confirmDelete = () => {
-    Alert.alert(
-      resolved === 'zh' ? '删除这条实况？' : 'Delete this observation?',
-      resolved === 'zh' ? '删除后无法恢复。' : 'This cannot be undone.',
-      [
-        { text: resolved === 'zh' ? '取消' : 'Cancel', style: 'cancel' },
-        { text: resolved === 'zh' ? '删除' : 'Delete', style: 'destructive', onPress: () => onDelete?.() },
-      ],
-    );
-  };
-  useEffect(() => {
-    setHelpful(report.helpfulMarked ?? false);
-    setHelpfulCount(report.helpful ?? 0);
-  }, [report.id, report.helpfulMarked, report.helpful]);
-  if (compact) {
-    const preview = <View style={styles.preview}>
-      <View style={styles.previewText}>
-        {guideText(report.body, resolved).trim() ? <Text numberOfLines={2} style={[styles.previewBody, { color: theme.text }]}>{guideText(report.body, resolved)}</Text> : null}
-        <Text numberOfLines={1} style={[styles.previewMeta, { color: theme.text2, marginTop: guideText(report.body, resolved).trim() ? space.sm : 0 }]}>{formatObservationDate(report.publishedAt, resolved)}</Text>
-      </View>
-      {report.photos[0] ? <View style={styles.previewPhoto}><Image source={{ uri: report.photos[0] }} contentFit="cover" style={[StyleSheet.absoluteFill, { backgroundColor: theme.groupedBg }]} />{report.media?.[0]?.kind === 'livePhoto' ? <View pointerEvents="none" style={styles.previewLiveIcon}><Icon name="livePhoto" color="#fff" size={26} /></View> : report.media?.[0]?.kind === 'video' ? <View pointerEvents="none" style={styles.previewVideoIcon}><Icon name="play" color="#fff" size={12} /></View> : null}</View> : null}
-    </View>;
-    return onPress ? <Press accessibilityRole="button" onPress={onPress}>{preview}</Press> : preview;
-  }
-  const content = <>
-    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm }}>
-      <Avatar size={28} uri={report.authorAvatarUrl || undefined} />
-      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{guideText(report.author, resolved)}</Text>
-      {showMeBadge ? <MeBadge theme={theme} /> : null}
-    </View>
-    <Text style={{ color: theme.text2, fontSize: 11.5, lineHeight: 20, marginTop: space.xs }}>{formatObservationDate(report.publishedAt, resolved)}</Text>
-    {guideText(report.body, resolved).trim() ? <Text style={{ color: theme.text, fontSize: 13, lineHeight: 23, marginTop: space.sm }}>{guideText(report.body, resolved)}</Text> : null}
-    {(report.media?.length || report.photos.length) && width > 0 ? <View style={{ marginTop: space.md }}><ConditionMediaStrip theme={theme} report={report} /></View> : null}
-    <View style={styles.cardActions}>
-      <Press accessibilityRole="button" accessibilityState={{ selected: helpful }} onPress={() => {
-        if (helpfulPending.current) return;
-        helpfulPending.current = true;
-        const previousHelpful = helpful;
-        setHelpful(!previousHelpful);
-        setHelpfulCount((count) => Math.max(0, count + (previousHelpful ? -1 : 1)));
-        void markRouteConditionHelpful(report.id).then((updated) => {
-          setHelpful(updated.helpfulMarked ?? false);
-          setHelpfulCount(updated.helpful ?? 0);
-        }).catch(() => {
-          setHelpful(report.helpfulMarked ?? false);
-          setHelpfulCount(report.helpful ?? 0);
-        }).finally(() => { helpfulPending.current = false; });
-      }} style={styles.helpfulAction}>
-        <Heart color={helpful ? theme.like : theme.text2} fill={helpful ? theme.like : 'transparent'} size={16} />
-        <Text style={{ color: helpful ? theme.like : theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '有帮助' : 'Helpful'} {helpfulCount}</Text>
-      </Press>
-      {onDelete ? <Press accessibilityRole="button" accessibilityLabel={resolved === 'zh' ? '删除实况' : 'Delete observation'} onPress={confirmDelete} style={styles.deleteAction}>
-        <Trash2 color={theme.text2} size={16} />
-        <Text style={{ color: theme.text2, fontSize: 12 }}>{resolved === 'zh' ? '删除' : 'Delete'}</Text>
-      </Press> : null}
-    </View>
-  </>;
-  const style = { paddingVertical: space.md };
-  return <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-    {onPress ? <Press accessibilityRole="button" onPress={onPress} style={style}>{content}</Press> : <View style={style}>{content}</View>}
-  </View>;
-}
-
-function ConditionMediaStrip({ theme, report }: { theme: Theme; report: RouteCondition }) {
+export function CommentMediaStrip({ media }: { media: RouteCommentMedia[] }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const media: NonNullable<RouteCondition['media']> = report.media?.length ? report.media : report.photos.map((uri) => ({ uri, kind: 'image' as const }));
   return <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaStrip}>
       {media.map((item, index) => <Press key={`${item.uri}-${index}`} onPress={() => setSelectedIndex(index)} style={styles.mediaPreview}>
@@ -95,11 +18,11 @@ function ConditionMediaStrip({ theme, report }: { theme: Theme; report: RouteCon
         {item.kind === 'livePhoto' ? <View pointerEvents="none" style={styles.mediaLiveIcon}><Icon name="livePhoto" color="#fff" size={26} /></View> : item.kind === 'video' ? <View pointerEvents="none" style={styles.mediaVideoIcon}><Icon name="play" color="#fff" size={12} /></View> : null}
       </Press>)}
     </ScrollView>
-    {selectedIndex !== null ? <ConditionMediaViewer media={media} initialIndex={selectedIndex} onClose={() => setSelectedIndex(null)} /> : null}
+    {selectedIndex !== null ? <CommentMediaViewer media={media} initialIndex={selectedIndex} onClose={() => setSelectedIndex(null)} /> : null}
   </>;
 }
 
-function ConditionMediaViewer({ media, initialIndex, onClose }: { media: NonNullable<RouteCondition['media']>[number][]; initialIndex: number; onClose: () => void }) {
+function CommentMediaViewer({ media, initialIndex, onClose }: { media: RouteCommentMedia[]; initialIndex: number; onClose: () => void }) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const { width, height } = viewport;
   const [activeIndex, setActiveIndex] = useState(initialIndex);
@@ -150,14 +73,14 @@ function ConditionMediaViewer({ media, initialIndex, onClose }: { media: NonNull
         style={styles.viewerPager}
         contentContainerStyle={{ height }}
       >
-        {media.map((item, index) => <View key={`${item.uri}-${index}`} style={[styles.viewerPage, { width, height }]}>{item.kind === 'livePhoto' ? <ZoomableConditionImage uri={item.uri} width={width} height={height} active={index === activeIndex} dragY={dragY} onDismiss={onClose} onDismissGestureChange={(activeGesture) => setPagingEnabled(!activeGesture)} onLongPress={index === activeIndex ? startLive : undefined} onPressRelease={index === activeIndex ? stopLive : undefined}>{index === activeIndex && livePlaying && liveReady ? <View pointerEvents="none" style={StyleSheet.absoluteFill}><VideoView player={livePlayer} nativeControls={false} contentFit="contain" style={StyleSheet.absoluteFill} /></View> : null}</ZoomableConditionImage> : item.kind === 'image' ? <ZoomableConditionImage uri={item.uri} width={width} height={height} active={index === activeIndex} dragY={dragY} onDismiss={onClose} onDismissGestureChange={(activeGesture) => setPagingEnabled(!activeGesture)} /> : index === activeIndex ? <ConditionVideoPlayer uri={item.uri} thumbnail={item.thumbnail} /> : <ConditionImage uri={item.thumbnail || item.uri} />}</View>)}
+        {media.map((item, index) => <View key={`${item.uri}-${index}`} style={[styles.viewerPage, { width, height }]}>{item.kind === 'livePhoto' ? <ZoomableCommentImage uri={item.uri} width={width} height={height} active={index === activeIndex} dragY={dragY} onDismiss={onClose} onDismissGestureChange={(activeGesture) => setPagingEnabled(!activeGesture)} onLongPress={index === activeIndex ? startLive : undefined} onPressRelease={index === activeIndex ? stopLive : undefined}>{index === activeIndex && livePlaying && liveReady ? <View pointerEvents="none" style={StyleSheet.absoluteFill}><VideoView player={livePlayer} nativeControls={false} contentFit="contain" style={StyleSheet.absoluteFill} /></View> : null}</ZoomableCommentImage> : item.kind === 'image' ? <ZoomableCommentImage uri={item.uri} width={width} height={height} active={index === activeIndex} dragY={dragY} onDismiss={onClose} onDismissGestureChange={(activeGesture) => setPagingEnabled(!activeGesture)} /> : index === activeIndex ? <CommentVideoPlayer uri={item.uri} thumbnail={item.thumbnail} /> : <CommentImage uri={item.thumbnail || item.uri} />}</View>)}
       </ScrollView> : null}
     </Animated.View>
     </View>
   </Modal>;
 }
 
-function ConditionVideoPlayer({ uri, thumbnail }: { uri: string; thumbnail?: string }) {
+function CommentVideoPlayer({ uri, thumbnail }: { uri: string; thumbnail?: string }) {
   const player = useVideoPlayer(uri, (value) => { value.loop = true; value.play(); });
   const [ready, setReady] = useState(player.status === 'readyToPlay');
   useEventListener(player, 'statusChange', ({ status }) => setReady(status === 'readyToPlay'));
@@ -165,7 +88,7 @@ function ConditionVideoPlayer({ uri, thumbnail }: { uri: string; thumbnail?: str
   return <View style={StyleSheet.absoluteFill}><Image source={{ uri: thumbnail || uri }} contentFit="contain" style={StyleSheet.absoluteFill} />{ready ? <VideoView player={player} nativeControls contentFit="contain" style={StyleSheet.absoluteFill} /> : <ActivityIndicator color="#fff" style={StyleSheet.absoluteFill} />}</View>;
 }
 
-function ZoomableConditionImage({ uri, width, height, active, dragY, onDismiss, onDismissGestureChange, onLongPress, onPressRelease, children }: { uri: string; width: number; height: number; active: boolean; dragY: Animated.Value; onDismiss: () => void; onDismissGestureChange: (active: boolean) => void; onLongPress?: () => void; onPressRelease?: () => void; children?: React.ReactNode }) {
+function ZoomableCommentImage({ uri, width, height, active, dragY, onDismiss, onDismissGestureChange, onLongPress, onPressRelease, children }: { uri: string; width: number; height: number; active: boolean; dragY: Animated.Value; onDismiss: () => void; onDismissGestureChange: (active: boolean) => void; onLongPress?: () => void; onPressRelease?: () => void; children?: React.ReactNode }) {
   const zoomRef = useRef<ReactNativeZoomableView>(null);
   const dismissActive = useRef(false);
   const longPressTriggered = useRef(false);
@@ -196,22 +119,22 @@ function ZoomableConditionImage({ uri, width, height, active, dragY, onDismiss, 
   </ReactNativeZoomableView>;
 }
 
-function ConditionImage({ uri }: { uri: string }) {
+function CommentImage({ uri }: { uri: string }) {
   return <Image source={{ uri }} contentFit="contain" contentPosition="center" style={StyleSheet.absoluteFill} />;
 }
 
-function formatObservationDate(value: string, locale: 'zh' | 'en') {
+export function formatCommentTime(value: string, locale: 'zh' | 'en') {
   const date = new Date(value.replace(' ', 'T'));
   if (Number.isNaN(date.getTime())) return value;
   const now = new Date();
   const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86400000);
   if (locale === 'zh' && days >= 0 && days <= 2) {
     const label = days === 0 ? '今天' : days === 1 ? '昨天' : '前天';
-    return `${label} ${formatObservationClock(date)}`;
+    return `${label} ${formatCommentClock(date)}`;
   }
   if (locale === 'en' && days >= 0 && days <= 2) {
     const label = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : '2 days ago';
-    return `${label} ${formatObservationClock(date)}`;
+    return `${label} ${formatCommentClock(date)}`;
   }
   if (locale === 'zh' && days > 2 && days < 7) return `${days}天前`;
   if (locale === 'en' && days > 2 && days < 7) return `${days} days ago`;
@@ -221,22 +144,15 @@ function formatObservationDate(value: string, locale: 'zh' | 'en') {
     : { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function formatObservationClock(date: Date) {
+function formatCommentClock(date: Date) {
   return [date.getHours(), date.getMinutes()]
     .map((part) => String(part).padStart(2, '0'))
     .join(':');
 }
 
 const styles = StyleSheet.create({
-  preview: { flexDirection: 'row', alignItems: 'flex-start', gap: space.lg, paddingTop: space.sm, paddingBottom: space.md },
-  previewText: { flex: 1, minWidth: 0 },
-  previewBody: { fontSize: 14, lineHeight: 23 },
-  previewMeta: { fontSize: 11.5, lineHeight: 19 },
-  previewPhoto: { width: 64, height: 64, borderRadius: radius.card },
-  previewLiveIcon: { position: 'absolute', left: space.sm, bottom: space.sm },
-  previewVideoIcon: { position: 'absolute', right: space.xs, top: space.xs, width: 26, height: 26, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.48)' },
   mediaStrip: { gap: space.sm },
-  mediaPreview: { width: 160, height: 160, borderRadius: radius.card, overflow: 'hidden', backgroundColor: '#222' },
+  mediaPreview: { width: 120, height: 120, borderRadius: radius.card, overflow: 'hidden', backgroundColor: '#222' },
   mediaLiveIcon: { position: 'absolute', left: space.sm, bottom: space.sm },
   mediaVideoIcon: { position: 'absolute', right: space.xs, top: space.xs, width: 26, height: 26, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.48)' },
   viewer: { flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
@@ -246,7 +162,4 @@ const styles = StyleSheet.create({
   viewerMediaBadge: { position: 'absolute', top: 52, left: 0, right: 0, zIndex: 5, alignItems: 'center' },
   viewerMediaBadgeInner: { minWidth: 76, height: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xxs, backgroundColor: 'rgba(22,22,24,0.42)' },
   viewerMediaBadgeText: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '700' },
-  helpfulAction: { minHeight: 36, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  cardActions: { flexDirection: 'row', alignItems: 'center', gap: space.md, alignSelf: 'flex-start', marginTop: space.sm },
-  deleteAction: { minHeight: 36, paddingHorizontal: space.xs, flexDirection: 'row', alignItems: 'center', gap: space.xs },
 });

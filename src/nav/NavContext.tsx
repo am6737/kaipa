@@ -34,9 +34,11 @@ interface OverlayCfg {
 
 export interface RouteGuideRequest {
   route: Poi;
-  view: 'plan' | 'guides' | 'guide' | 'weather' | 'conditions';
+  view: 'plan' | 'guides' | 'guide' | 'weather' | 'comments';
   planId?: string;
   guideId?: string;
+  /** Focus the comment composer when opening the comments view. */
+  compose?: boolean;
 }
 
 export interface ItineraryPreviewRequest {

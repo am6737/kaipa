@@ -22,8 +22,8 @@ import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedRouteCommentsRouteImport } from './routes/_authenticated/route-comments'
 import { Route as AuthenticatedRouteGuidesRouteImport } from './routes/_authenticated/route-guides'
-import { Route as AuthenticatedRouteObservationsRouteImport } from './routes/_authenticated/route-observations'
 import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authenticated/settings/route'
 import { Route as ClerkauthRouteRouteImport } from './routes/clerk/(auth)/route'
 import { Route as ClerkAuthenticatedRouteRouteImport } from './routes/clerk/_authenticated/route'
@@ -119,16 +119,16 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRouteCommentsRoute =
+  AuthenticatedRouteCommentsRouteImport.update({
+    id: '/route-comments',
+    path: '/route-comments',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRouteGuidesRoute =
   AuthenticatedRouteGuidesRouteImport.update({
     id: '/route-guides',
     path: '/route-guides',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedRouteObservationsRoute =
-  AuthenticatedRouteObservationsRouteImport.update({
-    id: '/route-observations',
-    path: '/route-observations',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedSettingsRouteRoute =
@@ -314,8 +314,8 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/route-comments': typeof AuthenticatedRouteCommentsRoute
   '/route-guides': typeof AuthenticatedRouteGuidesRoute
-  '/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/operations/features': typeof AuthenticatedOperationsFeaturesRoute
   '/operations/resources': typeof AuthenticatedOperationsResourcesRoute
@@ -356,8 +356,8 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/route-comments': typeof AuthenticatedRouteCommentsRoute
   '/route-guides': typeof AuthenticatedRouteGuidesRoute
-  '/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/': typeof AuthenticatedIndexRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/operations/features': typeof AuthenticatedOperationsFeaturesRoute
@@ -404,8 +404,8 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_authenticated/route-comments': typeof AuthenticatedRouteCommentsRoute
   '/_authenticated/route-guides': typeof AuthenticatedRouteGuidesRoute
-  '/_authenticated/route-observations': typeof AuthenticatedRouteObservationsRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/operations/features': typeof AuthenticatedOperationsFeaturesRoute
@@ -451,8 +451,8 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/route-comments'
     | '/route-guides'
-    | '/route-observations'
     | '/errors/$error'
     | '/operations/features'
     | '/operations/resources'
@@ -493,8 +493,8 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/route-comments'
     | '/route-guides'
-    | '/route-observations'
     | '/'
     | '/errors/$error'
     | '/operations/features'
@@ -540,8 +540,8 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_authenticated/route-comments'
     | '/_authenticated/route-guides'
-    | '/_authenticated/route-observations'
     | '/_authenticated/'
     | '/_authenticated/errors/$error'
     | '/_authenticated/operations/features'
@@ -680,18 +680,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/route-comments': {
+      id: '/_authenticated/route-comments'
+      path: '/route-comments'
+      fullPath: '/route-comments'
+      preLoaderRoute: typeof AuthenticatedRouteCommentsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/route-guides': {
       id: '/_authenticated/route-guides'
       path: '/route-guides'
       fullPath: '/route-guides'
       preLoaderRoute: typeof AuthenticatedRouteGuidesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/route-observations': {
-      id: '/_authenticated/route-observations'
-      path: '/route-observations'
-      fullPath: '/route-observations'
-      preLoaderRoute: typeof AuthenticatedRouteObservationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/settings': {
@@ -934,8 +934,8 @@ const AuthenticatedSettingsRouteRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
+  AuthenticatedRouteCommentsRoute: typeof AuthenticatedRouteCommentsRoute
   AuthenticatedRouteGuidesRoute: typeof AuthenticatedRouteGuidesRoute
-  AuthenticatedRouteObservationsRoute: typeof AuthenticatedRouteObservationsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedOperationsFeaturesRoute: typeof AuthenticatedOperationsFeaturesRoute
@@ -959,8 +959,8 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRouteRoute: AuthenticatedSettingsRouteRouteWithChildren,
+  AuthenticatedRouteCommentsRoute: AuthenticatedRouteCommentsRoute,
   AuthenticatedRouteGuidesRoute: AuthenticatedRouteGuidesRoute,
-  AuthenticatedRouteObservationsRoute: AuthenticatedRouteObservationsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedOperationsFeaturesRoute: AuthenticatedOperationsFeaturesRoute,
