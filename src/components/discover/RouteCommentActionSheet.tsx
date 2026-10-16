@@ -16,7 +16,7 @@ import { routeGuideCopy } from './routeGuideCopy';
 
 type Action = { key: string; label: string; icon: React.ReactNode; destructive?: boolean; onPress: () => void };
 
-/** Bottom sheet for a comment's 更多 menu: the comment in context, round quick actions, and an in-place report step. */
+/** Bottom sheet for a comment's 更多 menu: the comment in context, an action list, and an in-place report step. */
 export function RouteCommentActionSheet({ theme, comment, mine, signedIn, onClose, onReply, onDelete }: { theme: Theme; comment: RouteComment; mine: boolean; signedIn: boolean; onClose: () => void; onReply: (target: RouteComment) => void; onDelete: (target: RouteComment) => void }) {
   const nav = useNav();
   const { resolved } = useI18n();
@@ -60,13 +60,11 @@ export function RouteCommentActionSheet({ theme, comment, mine, signedIn, onClos
     });
   });
 
-  const iconColor = (destructive?: boolean) => destructive ? theme.danger : theme.text;
   const actions: Action[] = [
-    ...(comment.status === 'visible' ? [{ key: 'reply', label: c.reply, icon: <CornerUpLeft color={theme.text} size={21} />, onPress: () => dismiss(() => onReply(comment)) }] : []),
-    ...(comment.body ? [{ key: 'copy', label: c.copyComment, icon: <Copy color={theme.text} size={20} />, onPress: () => dismiss(() => { void Clipboard.setStringAsync(comment.body).then(() => nav.showToast(c.commentCopied)); }) }] : []),
-    mine
-      ? { key: 'delete', label: c.deleteComment, destructive: true, icon: <Trash2 color={iconColor(true)} size={20} />, onPress: () => dismiss(() => onDelete(comment)) }
-      : { key: 'report', label: c.reportComment, destructive: true, icon: <Flag color={iconColor(true)} size={20} />, onPress: () => { if (!signedIn) { dismiss(() => nav.showToast(c.signInToComment)); return; } setStep('report'); } },
+    ...(comment.status === 'visible' ? [{ key: 'reply', label: c.reply, icon: <CornerUpLeft color={theme.text2} size={20} />, onPress: () => dismiss(() => onReply(comment)) }] : []),
+    ...(comment.body ? [{ key: 'copy', label: c.copyComment, icon: <Copy color={theme.text2} size={20} />, onPress: () => dismiss(() => { void Clipboard.setStringAsync(comment.body).then(() => nav.showToast(c.commentCopied)); }) }] : []),
+    ...(comment.status === 'visible' ? [{ key: 'report', label: c.reportComment, destructive: true, icon: <Flag color={theme.danger} size={20} />, onPress: () => { if (!signedIn) { dismiss(() => nav.showToast(c.signInToComment)); return; } setStep('report'); } }] : []),
+    ...(mine ? [{ key: 'delete', label: c.deleteComment, destructive: true, icon: <Trash2 color={theme.danger} size={20} />, onPress: () => dismiss(() => onDelete(comment)) }] : []),
   ];
   const reasons = [['spam', c.reportSpam], ['false_info', c.reportFalseInfo], ['abuse', c.reportAbuse], ['other', c.reportOther]] as const;
 
@@ -86,10 +84,12 @@ export function RouteCommentActionSheet({ theme, comment, mine, signedIn, onClos
             </View>
             <Text numberOfLines={2} style={[type.step, { color: comment.body ? theme.text : theme.text3, marginTop: space.xs }]}>{comment.body || (comment.status === 'deleted' ? c.deletedComment : `[${c.addMedia}]`)}</Text>
           </View>
-          <View style={styles.actions}>
-            {actions.map((action) => <Press key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={action.onPress} style={styles.action}>
-              <View style={[styles.actionIcon, { backgroundColor: theme.surfaceTop, borderColor: theme.fieldBorder }]}>{action.icon}</View>
-              <Text style={[type.caption, { color: action.destructive ? theme.danger : theme.text }]}>{action.label}</Text>
+          <View style={[styles.group, { marginTop: space.md, backgroundColor: theme.surfaceTop, borderColor: theme.hairline }]}>
+            {actions.map((action, index) => <Press key={action.key} accessibilityRole="button" onPress={action.onPress} style={styles.row}>
+              <View style={styles.rowIcon}>{action.icon}</View>
+              <View style={[styles.rowLabel, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.hairline }]}>
+                <Text style={[type.body, { color: action.destructive ? theme.danger : theme.text }]}>{action.label}</Text>
+              </View>
             </Press>)}
           </View>
         </> : <>
@@ -119,9 +119,9 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   quote: { borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, padding: space.md },
   quoteAuthor: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  actions: { flexDirection: 'row', justifyContent: 'space-around', marginTop: space.xl },
-  action: { flex: 1, maxWidth: 96, alignItems: 'center', gap: space.xs },
-  actionIcon: { width: 52, height: 52, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'stretch', minHeight: 52 },
+  rowIcon: { width: 52, alignItems: 'center', justifyContent: 'center' },
+  rowLabel: { flex: 1, justifyContent: 'center', paddingRight: space.lg },
   reportHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.md },
   back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   group: { borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },

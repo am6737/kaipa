@@ -66,17 +66,13 @@ exception when insufficient_privilege then null;
 end $$;
 select pg_temp.check((select like_count = 0 from public.route_comments where id = current_setting('test.root')::uuid), 'Like count must be unchanged');
 
--- 举报：同一人只算一次，不能举报自己。
+-- 举报：同一人只算一次，作者也能举报自己的评论。
 select pg_temp.check(public.report_route_comment(current_setting('test.root')::uuid, 'spam'), 'First report should count');
 select pg_temp.check(not public.report_route_comment(current_setting('test.root')::uuid, 'abuse'), 'Repeat report should not count');
 select pg_temp.check((select report_count = 1 and status = 'visible' from public.route_comments where id = current_setting('test.root')::uuid), 'One report should not hide');
 select pg_temp.act_as('test.author');
-do $$ begin
-  perform public.report_route_comment(current_setting('test.root')::uuid, 'spam');
-  raise exception 'Self report should be rejected';
-exception when raise_exception then
-  if sqlerrm <> 'cannot report own comment' then raise; end if;
-end $$;
+select pg_temp.check(public.report_route_comment(current_setting('test.root')::uuid, 'other'), 'Self report should count');
+select pg_temp.check((select report_count = 2 and status = 'visible' from public.route_comments where id = current_setting('test.root')::uuid), 'Two reports should not hide');
 
 -- 有回复的顶层评论删除后留占位；最后一条回复删掉后占位一并清理。
 select pg_temp.check(public.delete_route_comment(current_setting('test.root')::uuid) = 'tombstoned', 'Root with replies should be tombstoned');

@@ -26,7 +26,7 @@ The old design had these problems:
   Text is at most 500 characters.
 - **Moderation:** comments publish first and are reviewed afterwards. Users can
   report a comment (广告或引流 / 不实路况信息 / 辱骂或人身攻击 / 其他). Each
-  user counts once and can't report their own comment. Three open reports hide
+  user counts once; authors can report their own comment too. Three open reports hide
   the comment automatically. Admins restore, hide or delete comments under
   后台 → 路线评论. Restoring or hiding settles the open reports.
 - **Deletion:** an author can delete their own comment. A top-level comment that
