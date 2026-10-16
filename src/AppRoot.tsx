@@ -40,6 +40,7 @@ import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
 import { RouteGuidePage } from './components/discover/RouteGuidePage';
+import { OfficialItineraryPreview } from './components/itinerary/OfficialItineraryPreview';
 import { RouteGuideImportRetry } from './components/discover/RouteGuideImportRetry';
 import type { RouteGuideJourneyTemplate } from './data/routeGuides';
 import { applyRouteGuideTemplate } from './lib/routeGuideImport';
@@ -200,6 +201,7 @@ function AppShell() {
       {nav.routeGuide && (
         <RouteGuidePage key={nav.routeGuide.route.id} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} />
       )}
+      {nav.itineraryPreview && <OfficialItineraryPreview key={`${nav.itineraryPreview.entry}-${nav.itineraryPreview.route.id}-${nav.itineraryPreview.planId ?? ''}`} theme={theme} request={nav.itineraryPreview} onClose={nav.closeItineraryPreview} />}
       {nav.newJourneyOpen && (
         <NewJourneySheet
           key={`new-journey-${nav.newJourneyPreset?.id ?? 'blank'}`}

@@ -7,6 +7,9 @@
 // as Chinese data and is intentionally not translated.
 
 export const zh = {
+  officialItinerary: {
+    title: '官方方案', summary: '方案说明（官方）', season: '季节提醒', switchPlan: '换方案', notes: '注意事项（官方）', source: '资料', save: '保存为旅程', saving: '保存中…', changeDate: '改日期', trekStart: '徒步首日', datePending: '日期待定', difficulty: '强度', audience: '适合', day: 'Day {count}', distance: '{count} km', ascent: '爬升 {count} m', descent: '下降 {count} m', stay: '住：{name}', tip: '官方提示：{text}', loading: '正在读取官方方案…', loadError: '方案读取失败', retry: '重试', updatedTitle: '方案已更新', updatedMessage: '这份方案已更新，请刷新后重新选择。', saveError: '保存失败，请稍后重试', confirmDate: '确定', unsetDate: '日期待定', hikeDays: '徒步 {count} 天', accessDays: '进出山 {count} 天',
+  },
   app: { name: "开爬" },
   membership: {
     campaignSince: '{date} 起限时开放',

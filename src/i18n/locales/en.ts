@@ -4,6 +4,9 @@ import type { zh } from "./zh";
 import type { SameShape } from "../types";
 
 export const en: SameShape<typeof zh> = {
+  officialItinerary: {
+    title: 'Official plan', summary: 'Official overview', season: 'Season', switchPlan: 'Change plan', notes: 'Official notes', source: 'Source', save: 'Save as journey', saving: 'Saving…', changeDate: 'Change date', trekStart: 'First hiking day', datePending: 'Date pending', difficulty: 'Difficulty', audience: 'Suitable for', day: 'Day {count}', distance: '{count} km', ascent: 'Ascent {count} m', descent: 'Descent {count} m', stay: 'Stay: {name}', tip: 'Official tip: {text}', loading: 'Loading official plans…', loadError: 'Could not load plans', retry: 'Retry', updatedTitle: 'Plan updated', updatedMessage: 'This plan has changed. Refresh and choose again.', saveError: 'Could not save the journey. Please try again.', confirmDate: 'Done', unsetDate: 'Date pending', hikeDays: '{count} hiking days', accessDays: '{count} access days',
+  },
   app: { name: "kaipa" },
   membership: {
     campaignSince: 'Since {date} · Limited-time access',

@@ -23,6 +23,8 @@ import { shadow } from '../../theme/shadow';
 import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
 import { useData } from '../../data/DataContext';
+import { useNav } from '../../nav/NavContext';
+import { useOfficialItineraries } from '../../hooks/useOfficialItineraries';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
@@ -927,8 +929,9 @@ function journeyDateSummary(start: Date, durationMins: number | undefined, local
 // Main flow
 // ──────────────────────────────────────────────────────────────
 export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onSmartPlan: (poi: Poi, prompt: string) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
+  const nav = useNav();
   const { t, resolved } = useI18n();
-  const { userId, profile, createTrack } = useData();
+  const { userId, profile, createTrack, routes } = useData();
   const selfCompanion = useMemo<Companion>(() => ({
     ...SELF,
     ini: profile.nick?.trim()?.slice(0, 1) || SELF.ini,
@@ -979,6 +982,8 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     return [{ ...location, name: presetRoute.name, route: presetRoute }];
   });
   const selectedLocation = selectedLocations[0] || null;
+  const officialRouteId = selectedLocations.length === 1 && selectedLocation?.route && !selectedLocation.route.custom ? (selectedLocation.route.routeId ?? selectedLocation.route.id) : null;
+  const { plans: officialPlans, loading: officialLoading, error: officialError, refetch: refetchOfficial } = useOfficialItineraries(officialRouteId);
   const routeSearchResults = useMemo(() => {
     const query = locationQuery.trim();
     if (!query) return [];
@@ -1040,6 +1045,20 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
   const submit = async (mode: 'manual' | 'smart') => {
     if (!nameValid || creatingMode) return;
+    if (mode === 'smart' && officialRouteId && officialLoading) return;
+    if (mode === 'smart' && officialRouteId && officialError) {
+      onToast(t('officialItinerary.loadError'));
+      void refetchOfficial();
+      return;
+    }
+    if (mode === 'smart' && officialRouteId && officialPlans.length && !officialLoading) {
+      const selectedRoute = selectedLocation?.route;
+      if (selectedRoute) {
+        nav.openItineraryPreview({ route: routes.find(item => item.id === officialRouteId) ?? selectedRoute as Poi, entry: 'form', preferredHikeDays: totalDays,
+          trekStartDate: hasExplicitStart && !flexibleDates ? `${startDt.getFullYear()}-${String(startDt.getMonth() + 1).padStart(2, '0')}-${String(startDt.getDate()).padStart(2, '0')}` : null });
+        return;
+      }
+    }
     setCreatingMode(mode);
     const destinationNames = selectedLocations.length
       ? selectedLocations.map((location) => location.name).join('、')

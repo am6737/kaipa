@@ -39,6 +39,14 @@ export interface RouteGuideRequest {
   guideId?: string;
 }
 
+export interface ItineraryPreviewRequest {
+  route: Poi;
+  entry: 'guide' | 'form';
+  planId?: string;
+  trekStartDate?: string | null;
+  preferredHikeDays?: number;
+}
+
 export interface NavValue {
   mainTab: MainTab;
   setMainTab: (t: MainTab) => void;
@@ -89,6 +97,9 @@ export interface NavValue {
   routeGuide: RouteGuideRequest | null;
   openRouteGuide: (request: RouteGuideRequest) => void;
   closeRouteGuide: () => void;
+  itineraryPreview: ItineraryPreviewRequest | null;
+  openItineraryPreview: (request: ItineraryPreviewRequest) => void;
+  closeItineraryPreview: () => void;
 
   // overlays
   actionSheet: ActionSheetConfig | null;
@@ -245,6 +256,7 @@ export function NavProvider({
   const [routeRequestOpen, setRouteRequestOpen] = useState(false);
   const [routeRequestPrefill, setRouteRequestPrefill] = useState<string>();
   const [routeGuide, setRouteGuide] = useState<RouteGuideRequest | null>(null);
+  const [itineraryPreview, setItineraryPreview] = useState<ItineraryPreviewRequest | null>(null);
   const [newJourneyOpen, setNewJourneyOpen] = useState(false);
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [journeyInviteScannerOpen, setJourneyInviteScannerOpen] = useState(false);
@@ -286,6 +298,7 @@ export function NavProvider({
 
   const blockingOverlayOpen = Boolean(
     routeGuide ||
+    itineraryPreview ||
     actionSheet ||
     addRouteOpen ||
     routeRequestOpen ||
@@ -317,6 +330,7 @@ export function NavProvider({
 
   const closeOverlays = () => {
     setRouteGuide(null);
+    setItineraryPreview(null);
     setActionSheet(null);
     setAddRouteOpen(false);
     setRouteRequestOpen(false);
@@ -461,6 +475,9 @@ export function NavProvider({
       routeGuide,
       openRouteGuide: (request) => setRouteGuide(request),
       closeRouteGuide: () => setRouteGuide(null),
+      itineraryPreview,
+      openItineraryPreview: (request) => setItineraryPreview(request),
+      closeItineraryPreview: () => setItineraryPreview(null),
       actionSheet,
       openActionSheet: (c) => setActionSheet(c),
       closeActionSheet: () => setActionSheet(null),
@@ -623,6 +640,7 @@ export function NavProvider({
       newJourneyOpen,
       newJourneyPreset,
       routeGuide,
+      itineraryPreview,
       journeyInviteScannerOpen,
       journeyCodeEntryOpen,
       elevFull,

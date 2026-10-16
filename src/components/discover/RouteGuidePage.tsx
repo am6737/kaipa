@@ -7,7 +7,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { CalendarDays, Heart, ImagePlus, Plus, Share2, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
-import { DetailPage, radius, space, type } from '../../design-system';
+import { DetailPage, layout, radius, space, type } from '../../design-system';
 import { getRouteGuidePlans, guideText, sortRouteGuides, toRouteGuideTemplate } from '../../data/routeGuides';
 import type { RouteCondition } from '../../data/routeConditions';
 import { buildGuideDocument } from '../../lib/routeGuideExport';
@@ -24,13 +24,15 @@ import { RouteConditionCard } from './RouteConditionCard';
 import { GuideDocument, RouteGuideExportSheet } from './RouteGuideExportSheet';
 import { RouteGuideShareSheet } from './RouteGuideShareSheet';
 import { useRouteGuides } from '../../hooks/useRouteGuides';
+import { useOfficialItineraries } from '../../hooks/useOfficialItineraries';
 
 type Page = { view: RouteGuideRequest['view'] | 'condition-compose'; planId?: string; guideId?: string };
 
 export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; request: RouteGuideRequest; onClose: () => void }) {
-  const nav = useNav(); const { resolved } = useI18n(); const c = routeGuideCopy[resolved];
+  const nav = useNav(); const { t, resolved } = useI18n(); const c = routeGuideCopy[resolved];
   const insets = useSafeAreaInsets();
   const plans = useMemo(() => getRouteGuidePlans(request.route), [request.route.id, request.route.name]);
+  const { plans: officialPlans, loading: officialLoading, error: officialError, refetch: refetchOfficial } = useOfficialItineraries(request.route.id);
   const { reports, loading: reportsLoading, refresh: refreshReports, currentUserId } = useRouteConditions(request.route.id);
   const { guides, loading: guidesLoading, toggleHelpful, currentUserId: currentGuideUserId } = useRouteGuides(request.route.id);
   const [stack, setStack] = useState<Page[]>([{ view: request.view, planId: request.planId, guideId: request.guideId }]);
@@ -82,6 +84,11 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
     setConditionMedia((old) => [...old, ...accepted].slice(0, 9));
   };
   const create = () => {
+    if (officialLoading || officialError) { if (officialError) void refetchOfficial(); return; }
+    if (officialPlans.length) {
+      nav.openItineraryPreview({ route: request.route, entry: 'guide', planId: officialPlans[0].id });
+      return;
+    }
     const preset = { ...request.route, planningTemplate: toRouteGuideTemplate(plan, resolved) };
     onClose(); nav.openNewJourney(preset);
   };
@@ -138,7 +145,14 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
           </> : page.view === 'weather' ? <>
             {weather.loading ? <View style={styles.weatherState}><ActivityIndicator color={theme.accent} /><Text style={[styles.caption, { color: theme.text2 }]}>{c.weather}</Text></View> : weather.forecast ? <RouteWeatherDetails theme={theme} forecast={weather.forecast} routeName={request.route.name} /> : <View style={styles.weatherState}><Text style={{ color: theme.text2 }}>{c.weatherUnavailable}</Text><Press accessibilityRole="button" onPress={weather.retry} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.accent }}>{c.retry}</Text></Press></View>}
           </> : <>
-            {page.view === 'plan' ? <Text style={[styles.caption, { color: theme.text2, marginBottom: space.md }]}>{c.draft}</Text> : null}
+            {page.view === 'plan' && officialPlans.length ? <>
+              <Text style={[type.pageTitle, { color: theme.text }]}>{request.route.name}</Text>
+              <View style={{ marginTop: space.xxl }}>{officialPlans.map((item) => <Press key={item.id} accessibilityRole="button" onPress={() => nav.openItineraryPreview({ route: request.route, entry: 'guide', planId: item.id })} style={{ minHeight: layout.listRowMinHeight, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}><Text style={[type.planRowTitle, { color: theme.text }]}>{item.payload.name}</Text><Text style={[type.meta, { color: theme.text2, marginTop: space.xxs }]}>{t('officialItinerary.hikeDays', { count: item.payload.days.filter(day => day.kind === 'hike').length })}  {t('officialItinerary.accessDays', { count: item.payload.days.filter(day => day.kind === 'access_in' || day.kind === 'access_out').length })}  {t('officialItinerary.difficulty')}：{item.payload.difficulty}</Text></Press>)}</View>
+            </> : null}
+            {page.view === 'plan' && officialLoading ? <ActivityIndicator color={theme.accent} /> : null}
+            {page.view === 'plan' && officialError ? <Press onPress={() => void refetchOfficial()}><Text style={[type.body, { color: theme.danger }]}>{t('officialItinerary.loadError')}  {t('officialItinerary.retry')}</Text></Press> : null}
+            {page.view === 'plan' && !officialLoading && !officialError && !officialPlans.length ? <Text style={[styles.caption, { color: theme.text2, marginBottom: space.md }]}>{c.draft}</Text> : null}
+            {page.view === 'plan' && (officialLoading || officialError || officialPlans.length) ? null : <>
             <Text style={[type.pageTitle, { color: theme.text, lineHeight: 36 }]}>{guideText(page.view === 'guide' ? guide.title : plan.title, resolved)}</Text>
             {page.view === 'guide' ? <>
               <View style={styles.authorRow}><Avatar size={28} uri={guide.authorAvatarUrl || undefined} /><Text style={[styles.author, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>{Boolean(currentGuideUserId) && guide.authorId === currentGuideUserId ? <MeBadge theme={theme} /> : null}</View>
@@ -155,6 +169,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
               <RouteGuideEquipment theme={theme} plan={plan} />
             </View>
             {page.view === 'guide' ? <View style={{ marginTop: space.xxl }}><Text style={[type.sectionTitle, { color: theme.text, marginBottom: space.lg }]}>{c.reviewTitle}</Text><Text style={[styles.body, { color: theme.text2 }]}>{guideText(guide.review, resolved)}</Text></View> : null}
+            </>}
           </>}
         </View>
         </ScrollView>
