@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import * as Clipboard from 'expo-clipboard';
+import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -11,10 +10,11 @@ import { AppActionDialog, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import type { Poi } from '../../data/pois';
-import type { RouteComment, RouteCommentMedia, RouteCommentReportReason, RouteCommentSort } from '../../data/routeComments';
+import type { RouteComment, RouteCommentMedia, RouteCommentSort } from '../../data/routeComments';
 import type { Theme } from '../../theme/theme';
-import { deleteRouteComment, reportRouteComment, submitRouteComment, useRouteComments } from '../../hooks/useRouteComments';
+import { deleteRouteComment, submitRouteComment, useRouteComments } from '../../hooks/useRouteComments';
 import { Press } from '../Press';
+import { RouteCommentActionSheet } from './RouteCommentActionSheet';
 import { fillCopy, RouteCommentThread } from './RouteCommentItem';
 import { routeGuideCopy } from './routeGuideCopy';
 
@@ -23,7 +23,7 @@ const MAX_BODY = 500;
 const errorMessage = (error: unknown) => String((error as { message?: unknown } | null)?.message ?? '');
 
 /** Full comment page: sortable thread list with a reply-aware composer pinned to the bottom. */
-export function RouteCommentsView({ theme, route, backgroundColor, autoFocus = false }: { theme: Theme; route: Poi; backgroundColor: string; autoFocus?: boolean }) {
+export function RouteCommentsView({ theme, route, autoFocus = false }: { theme: Theme; route: Poi; autoFocus?: boolean }) {
   const nav = useNav();
   const { resolved } = useI18n();
   const c = routeGuideCopy[resolved];
@@ -34,6 +34,7 @@ export function RouteCommentsView({ theme, route, backgroundColor, autoFocus = f
   const [deleteTarget, setDeleteTarget] = useState<RouteComment | null>(null);
   const [deleting, setDeleting] = useState(false);
   const composerRef = useRef<TextInput>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
 
   const reply = (target: RouteComment) => {
     if (target.status !== 'visible') return;
@@ -54,14 +55,15 @@ export function RouteCommentsView({ theme, route, backgroundColor, autoFocus = f
     }
   };
 
-  return <KeyboardAvoidingView behavior="padding" automaticOffset style={{ flex: 1 }}>
+  return <View style={{ flex: 1 }}>
+    <KeyboardAvoidingView behavior="padding" automaticOffset style={{ flex: 1 }}>
     <FlatList
       data={comments}
       keyExtractor={(item) => item.id}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.list}
+      contentContainerStyle={[styles.list, { paddingBottom: composerHeight + space.xl }]}
       onEndReachedThreshold={0.4}
       onEndReached={() => { void loadMore(); }}
       ListHeaderComponent={<View style={styles.header}>
@@ -83,13 +85,15 @@ export function RouteCommentsView({ theme, route, backgroundColor, autoFocus = f
       </Press>}
       ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.accent} style={{ marginVertical: space.lg }} /> : null}
     />
-    <RouteCommentComposer theme={theme} routeId={route.id} backgroundColor={backgroundColor} inputRef={composerRef} autoFocus={autoFocus} signedIn={Boolean(currentUserId)} replyTarget={replyTarget} onCancelReply={() => setReplyTarget(null)} onSent={() => setReplyTarget(null)} />
+    </KeyboardAvoidingView>
+    <RouteCommentComposer theme={theme} routeId={route.id} onHeight={setComposerHeight} inputRef={composerRef} autoFocus={autoFocus} signedIn={Boolean(currentUserId)} replyTarget={replyTarget} onCancelReply={() => setReplyTarget(null)} onSent={() => setReplyTarget(null)} />
     {sheetTarget ? <RouteCommentActionSheet theme={theme} comment={sheetTarget} mine={Boolean(currentUserId) && sheetTarget.userId === currentUserId} signedIn={Boolean(currentUserId)} onClose={() => setSheetTarget(null)} onReply={reply} onDelete={setDeleteTarget} /> : null}
     <AppActionDialog theme={theme} visible={Boolean(deleteTarget)} title={c.deleteCommentTitle} message={c.deleteCommentMessage} confirmLabel={c.deleteComment} cancelLabel={c.cancel} destructive confirming={deleting} onConfirm={() => void confirmDelete()} onCancel={() => { if (!deleting) setDeleteTarget(null); }} />
-  </KeyboardAvoidingView>;
+  </View>;
 }
 
-function RouteCommentComposer({ theme, routeId, backgroundColor, inputRef, autoFocus, signedIn, replyTarget, onCancelReply, onSent }: { theme: Theme; routeId: string; backgroundColor: string; inputRef: React.RefObject<TextInput | null>; autoFocus: boolean; signedIn: boolean; replyTarget: RouteComment | null; onCancelReply: () => void; onSent: () => void }) {
+/** Floating pill pinned above the page bottom (or the keyboard); the list scrolls underneath. */
+function RouteCommentComposer({ theme, routeId, onHeight, inputRef, autoFocus, signedIn, replyTarget, onCancelReply, onSent }: { theme: Theme; routeId: string; onHeight: (height: number) => void; inputRef: React.RefObject<TextInput | null>; autoFocus: boolean; signedIn: boolean; replyTarget: RouteComment | null; onCancelReply: () => void; onSent: () => void }) {
   const nav = useNav();
   const { resolved } = useI18n();
   const c = routeGuideCopy[resolved];
@@ -143,21 +147,20 @@ function RouteCommentComposer({ theme, routeId, backgroundColor, inputRef, autoF
     }
   };
 
-  return <View style={[styles.composerWrap, { backgroundColor, borderTopColor: theme.hairline, paddingBottom: Math.max(insets.bottom, space.sm) }]}>
-    {replyTarget ? <View style={styles.replyBar}>
-      <Text numberOfLines={1} style={[type.note, { flex: 1, color: theme.text2 }]}>{fillCopy(c.replyPlaceholder, { name: replyTarget.author })}{replyTarget.body ? `：${replyTarget.body}` : ''}</Text>
-      <Press accessibilityRole="button" accessibilityLabel={c.cancelReply} hitSlop={8} onPress={onCancelReply} style={styles.replyClose}><X color={theme.text3} size={16} /></Press>
-    </View> : null}
-    {allowMedia && media.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow} keyboardShouldPersistTaps="handled">
-      {media.map((asset, index) => <View key={`${asset.assetId ?? asset.uri}-${index}`} style={styles.mediaTile}>
+  const bottomGap = Math.max(insets.bottom, space.sm);
+  return <KeyboardStickyView pointerEvents="box-none" offset={{ opened: bottomGap - space.sm }} onLayout={(event) => onHeight(event.nativeEvent.layout.height)} style={[styles.composerWrap, { paddingBottom: bottomGap }]}>
+    {allowMedia && media.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mediaScroll} contentContainerStyle={styles.mediaRow} keyboardShouldPersistTaps="handled">
+      {media.map((asset, index) => <View key={`${asset.assetId ?? asset.uri}-${index}`} style={[styles.mediaTile, { backgroundColor: theme.fieldSurface, borderColor: theme.hairline }]}>
         <ExpoImage source={{ uri: previews[asset.uri] ?? asset.uri }} contentFit="cover" style={StyleSheet.absoluteFill} />
         <Press accessibilityRole="button" accessibilityLabel={c.removeMedia} onPress={() => setMedia((old) => old.filter((_, i) => i !== index))} style={styles.mediaRemove}><X color="#fff" size={12} /></Press>
       </View>)}
     </ScrollView> : null}
-    <View style={[styles.composer, { backgroundColor: theme.controlSurface, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }]}>
-      {allowMedia ? <Press accessibilityRole="button" accessibilityLabel={c.addMedia} accessibilityState={{ disabled: media.length >= MAX_MEDIA }} disabled={media.length >= MAX_MEDIA} onPress={() => { if (!signedIn) { nav.showToast(c.signInToComment); return; } void pickMedia(); }} style={styles.composerSide}>
+    <View style={[styles.composer, { backgroundColor: theme.controlSurface, borderColor: theme.hairline, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }]}>
+      {replyTarget ? <Press accessibilityRole="button" accessibilityLabel={c.cancelReply} onPress={onCancelReply} style={styles.composerSide}>
+        <X color={theme.text2} size={20} />
+      </Press> : <Press accessibilityRole="button" accessibilityLabel={c.addMedia} accessibilityState={{ disabled: media.length >= MAX_MEDIA }} disabled={media.length >= MAX_MEDIA} onPress={() => { if (!signedIn) { nav.showToast(c.signInToComment); return; } void pickMedia(); }} style={styles.composerSide}>
         <ImagePlus color={media.length >= MAX_MEDIA ? theme.text3 : theme.text2} size={20} />
-      </Press> : <View style={{ width: space.md }} />}
+      </Press>}
       <TextInput
         ref={inputRef}
         value={draft}
@@ -173,75 +176,24 @@ function RouteCommentComposer({ theme, routeId, backgroundColor, inputRef, autoF
         {sending ? <ActivityIndicator color="#fff" size="small" /> : <ArrowUp color={canSend ? '#fff' : theme.text3} size={18} strokeWidth={2.4} />}
       </Press>
     </View>
-  </View>;
-}
-
-function RouteCommentActionSheet({ theme, comment, mine, signedIn, onClose, onReply, onDelete }: { theme: Theme; comment: RouteComment; mine: boolean; signedIn: boolean; onClose: () => void; onReply: (target: RouteComment) => void; onDelete: (target: RouteComment) => void }) {
-  const nav = useNav();
-  const { resolved } = useI18n();
-  const c = routeGuideCopy[resolved];
-  const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<'actions' | 'report'>('actions');
-  const report = async (reason: RouteCommentReportReason) => {
-    onClose();
-    try {
-      await reportRouteComment(comment, reason);
-      nav.showToast(c.reported);
-    } catch (error) {
-      const message = errorMessage(error);
-      nav.showToast(message.includes('authentication') ? c.signInToComment : c.reportFailed);
-    }
-  };
-  const rows: { label: string; destructive?: boolean; onPress: () => void }[] = step === 'actions' ? [
-    ...(comment.status === 'visible' ? [{ label: c.reply, onPress: () => { onClose(); onReply(comment); } }] : []),
-    ...(comment.body ? [{ label: c.copyComment, onPress: () => { onClose(); void Clipboard.setStringAsync(comment.body).then(() => nav.showToast(c.commentCopied)); } }] : []),
-    mine
-      ? { label: c.deleteComment, destructive: true, onPress: () => { onClose(); onDelete(comment); } }
-      : { label: c.reportComment, destructive: true, onPress: () => { if (!signedIn) { onClose(); nav.showToast(c.signInToComment); return; } setStep('report'); } },
-  ] : ([['spam', c.reportSpam], ['false_info', c.reportFalseInfo], ['abuse', c.reportAbuse], ['other', c.reportOther]] as const).map(([reason, label]) => ({ label, onPress: () => void report(reason) }));
-  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-    <View style={styles.sheetRoot}>
-      <Pressable accessibilityRole="button" accessibilityLabel={c.cancel} style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
-      <View style={[styles.sheet, { backgroundColor: theme.groupedBg, borderColor: theme.border, paddingBottom: Math.max(insets.bottom, space.md) }]}>
-        <View style={styles.grabberArea}><View style={[styles.grabber, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }]} /></View>
-        {step === 'report' ? <Text style={[type.cardTitle, styles.sheetTitle, { color: theme.text }]}>{c.reportTitle}</Text> : comment.body ? <Text numberOfLines={2} style={[type.note, styles.sheetTitle, { color: theme.text3 }]}>{comment.author}：{comment.body}</Text> : null}
-        <View style={[styles.sheetGroup, { backgroundColor: theme.surfaceTop }]}>
-          {rows.map((row, index) => <Press key={row.label} accessibilityRole="button" onPress={row.onPress} style={[styles.sheetRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.hairline }]}>
-            <Text style={[type.body, { color: row.destructive ? theme.danger : theme.text }]}>{row.label}</Text>
-          </Press>)}
-        </View>
-        <Press accessibilityRole="button" onPress={onClose} style={[styles.sheetGroup, styles.sheetRow, { backgroundColor: theme.surfaceTop, marginTop: space.sm }]}>
-          <Text style={[type.body, { color: theme.text2 }]}>{c.cancel}</Text>
-        </Press>
-      </View>
-    </View>
-  </Modal>;
+  </KeyboardStickyView>;
 }
 
 const styles = StyleSheet.create({
-  list: { paddingHorizontal: space.xl, paddingBottom: space.xl, flexGrow: 1 },
+  list: { paddingHorizontal: space.xl, flexGrow: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, marginTop: space.xs },
   sort: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   sortOption: { minHeight: 44, minWidth: 44, paddingHorizontal: space.xs, alignItems: 'center', justifyContent: 'center' },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 40 },
   state: { minHeight: 220, alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.xl },
   retry: { minHeight: 44, justifyContent: 'center' },
-  composerWrap: { paddingHorizontal: space.lg, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth },
-  replyBar: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 28, marginBottom: space.xs, paddingHorizontal: space.xs },
-  replyClose: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  mediaRow: { gap: space.sm, paddingBottom: space.sm },
-  mediaTile: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden', backgroundColor: '#222' },
+  composerWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.lg },
+  mediaScroll: { marginBottom: space.sm, overflow: 'visible' },
+  mediaRow: { gap: space.sm },
+  mediaTile: { width: 64, height: 64, borderRadius: radius.control, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   mediaRemove: { position: 'absolute', right: 3, top: 3, width: 20, height: 20, borderRadius: radius.pill, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 48, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, paddingRight: space.xxs + 2, paddingVertical: space.xxs + 2 },
   composerSide: { width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, maxHeight: 120, paddingTop: 10, paddingBottom: 10, paddingHorizontal: 0 },
   send: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', marginLeft: space.xs, marginBottom: 2 },
-  sheetRoot: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { backgroundColor: 'rgba(0,0,0,0.48)' },
-  sheet: { borderTopLeftRadius: radius.showcase, borderTopRightRadius: radius.showcase, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.lg },
-  grabberArea: { paddingTop: space.sm, paddingBottom: space.sm, alignItems: 'center' },
-  grabber: { width: 30, height: 4, borderRadius: radius.pill },
-  sheetTitle: { textAlign: 'center', marginBottom: space.md, paddingHorizontal: space.lg },
-  sheetGroup: { borderRadius: radius.card, overflow: 'hidden' },
-  sheetRow: { minHeight: 52, alignItems: 'center', justifyContent: 'center' },
 });
