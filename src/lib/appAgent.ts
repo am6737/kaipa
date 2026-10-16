@@ -66,6 +66,12 @@ export interface AgentStage {
 }
 
 export interface AgentMessageUi {
+  itineraryCard?: {
+    routeId: string; routeName: string;
+    planId: string; planVersion: number; planName: string; hikeDays: number;
+    trekStartDate: string | null;
+    preferredHikeDays: number | null;
+  };
   travelContext?: import('../../supabase/functions/app-agent/travel-context').TravelContext | null;
   requestId?: string;
   quickReplies?: AgentQuickReply[];

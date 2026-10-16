@@ -67,6 +67,12 @@ export type AgentUndoAction = {
 };
 
 export type AgentMessageUi = {
+  itineraryCard?: {
+    routeId: string; routeName: string;
+    planId: string; planVersion: number; planName: string; hikeDays: number;
+    trekStartDate: string | null;
+    preferredHikeDays: number | null;
+  };
   travelContext?: import('./travel-context.ts').TravelContext | null;
   taskOutcome?: import('./task.ts').TaskOutcome;
   requestId?: string;

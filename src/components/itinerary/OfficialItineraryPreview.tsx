@@ -66,6 +66,7 @@ export function OfficialItineraryPreview({ theme, request, onClose }: { theme: T
       if (!saved) throw new Error(t('officialItinerary.saveError'));
       onClose();
       if (request.entry === 'form') nav.closeNewJourney();
+      else if (request.entry === 'chat') nav.closeAssistant();
       else nav.closeRouteGuide();
       nav.openPoint(saved);
     } catch (caught) {

@@ -201,7 +201,6 @@ function AppShell() {
       {nav.routeGuide && (
         <RouteGuidePage key={nav.routeGuide.route.id} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} />
       )}
-      {nav.itineraryPreview && <OfficialItineraryPreview key={`${nav.itineraryPreview.entry}-${nav.itineraryPreview.route.id}-${nav.itineraryPreview.planId ?? ''}`} theme={theme} request={nav.itineraryPreview} onClose={nav.closeItineraryPreview} />}
       {nav.newJourneyOpen && (
         <NewJourneySheet
           key={`new-journey-${nav.newJourneyPreset?.id ?? 'blank'}`}
@@ -434,6 +433,7 @@ function AppShell() {
           nav.openGearPage(page);
         }}
       />
+      {nav.itineraryPreview && <OfficialItineraryPreview key={`${nav.itineraryPreview.entry}-${nav.itineraryPreview.route.id}-${nav.itineraryPreview.planId ?? ''}`} theme={theme} request={nav.itineraryPreview} onClose={nav.closeItineraryPreview} />}
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {pendingGuideImport && nav.pointInfo?.id === pendingGuideImport.journeyId && !nav.blockingOverlayOpen ? <RouteGuideImportRetry
         theme={theme} journeyId={pendingGuideImport.journeyId} template={pendingGuideImport.template}

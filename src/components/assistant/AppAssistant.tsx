@@ -10,6 +10,7 @@ import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedVa
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useData } from '../../data/DataContext';
+import { useNav } from '../../nav/NavContext';
 import { AppActionDialog, layout, motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import type { TKey } from '../../i18n';
@@ -44,6 +45,7 @@ type Turn = {
   quickReplies?: AgentQuickReply[];
   sources?: AgentSource[];
   planPreview?: AgentPlanPreview;
+  itineraryCard?: AgentMessageUi['itineraryCard'];
   activities?: AgentRunActivity[];
   modelMetrics?: AgentModelMetric[];
   runTiming?: AgentMessageUi['runTiming'];
@@ -808,6 +810,23 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
   );
 }
 
+function ItineraryCard({ theme, card, onOpen }: { theme: Theme; card: NonNullable<AgentMessageUi['itineraryCard']>; onOpen: () => void }) {
+  const { t } = useI18n();
+  const date = card.trekStartDate?.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  const dateLabel = date
+    ? t('officialItinerary.cardDate', { month: Number(date[1]), day: Number(date[2]) })
+    : t('officialItinerary.datePending');
+  return <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }]}>
+    <Text style={[styles.planMeta, { color: theme.text2 }]}>{card.routeName}</Text>
+    <Text style={[styles.planTitle, { color: theme.text }]}>{card.planName}</Text>
+    <Text style={[styles.planMeta, { color: theme.text3 }]}>{t('officialItinerary.hikeDays', { count: card.hikeDays })}  {dateLabel}</Text>
+    <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={t('officialItinerary.cardOpen')} style={styles.viewJourney}>
+      <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
+      <Text style={[styles.viewJourneyText, { color: theme.text }]}>{t('officialItinerary.cardOpen')}</Text>
+    </Press>
+  </View>;
+}
+
 function ActionResultCard({ theme, title, detail, openLabel, onOpen }: { theme: Theme; title: string; detail: string; openLabel: string; onOpen: () => void }) {
   return (
     <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${openLabel}：${title}`} style={[styles.actionResultCard, { backgroundColor: theme.surfaceTop }]}>
@@ -858,6 +877,7 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
     travelContext: message.ui?.travelContext,
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
+    itineraryCard: message.ui?.itineraryCard,
     activities: message.ui?.activities,
     modelMetrics: message.ui?.modelMetrics,
     runTiming: message.ui?.runTiming,
@@ -868,8 +888,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext }) => ({
-    role, text, quickReplies, sources, planPreview, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext }) => ({
+    role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext,
   })));
 }
 
@@ -964,6 +984,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
 }) {
   const { resolved, t } = useI18n();
   const data = useData();
+  const nav = useNav();
+  const openItineraryCard = (card: NonNullable<AgentMessageUi['itineraryCard']>) => {
+    const route = data.routes.find(item => item.id === card.routeId);
+    if (!route) {
+      nav.showToast(t('officialItinerary.routeUnavailable'));
+      return;
+    }
+    nav.openItineraryPreview({ route, entry: 'chat', planId: card.planId,
+      trekStartDate: card.trekStartDate, preferredHikeDays: card.preferredHikeDays ?? undefined });
+  };
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
@@ -1350,6 +1380,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           travelContext: message.ui?.travelContext,
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
+          itineraryCard: message.ui?.itineraryCard,
           activities: message.ui?.activities,
           modelMetrics: message.ui?.modelMetrics,
           runTiming: message.ui?.runTiming,
@@ -1436,7 +1467,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
+    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
@@ -2030,6 +2061,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               ) : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
               {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} /> : null}
+              {turn.itineraryCard ? <ItineraryCard theme={theme} card={turn.itineraryCard} onOpen={() => openItineraryCard(turn.itineraryCard!)} /> : null}
               {turn.role === 'assistant' && actionResultForTurn(turn) ? (() => {
                 const result = actionResultForTurn(turn)!;
                 return <ActionResultCard

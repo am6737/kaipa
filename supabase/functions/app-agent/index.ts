@@ -4,6 +4,7 @@ declare const Deno: { env: { get(name: string): string | undefined }; serve(hand
 // @ts-ignore Deno npm specifier
 import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { AGENT_VERSION, createAgentRuntime } from './agent.ts';
+import { buildItineraryCard, extractItineraryBrief } from './itinerary-card.ts';
 import { SupabaseAgentSession } from './session.ts';
 import { bindRunClient, parseJsonString, releaseRunClient } from './tools.ts';
 import { bindPackingDraftStore, releasePackingDraftStore, readPackingDraft } from './packing-draft-store.ts';
@@ -825,6 +826,45 @@ Deno.serve(async (req) => {
       shouldPersistFailure = false;
       return json({ threadId, runId, status: 'completed', message: output.text,
         quickReplies: ui.quickReplies, ui } satisfies AgentResponse);
+    }
+    if (task.decision.mode === 'execute' && task.decision.fullHikingPlan === true && !resolvedCurrentJourneyId) {
+      const itineraryCard = await buildItineraryCard({ message: effectiveMessage, temporalContext,
+        currentJourneyId: resolvedCurrentJourneyId }, {
+        extract: input => extractItineraryBrief(interpretation, input),
+        loadPlans: async () => {
+          const plans = [];
+          for (let offset = 0; ; offset += 500) {
+            const result = await jobAdmin.from('route_itineraries')
+              .select('id,version,route_id,is_default,payload').eq('status', 'published')
+              .order('id').range(offset, offset + 499);
+            if (result.error) throw result.error;
+            plans.push(...(result.data || []));
+            if ((result.data?.length || 0) < 500) break;
+          }
+          return plans;
+        },
+        loadRoutes: async ids => {
+          if (!ids.length) return [];
+          const result = await jobAdmin.from('routes').select('id,name').in('id', ids);
+          if (result.error) throw result.error;
+          return result.data || [];
+        },
+      });
+      if (itineraryCard) {
+        const message = body.locale === 'en'
+          ? `${itineraryCard.routeName} has an official plan. Open it to review and save it as a journey.`
+          : `${itineraryCard.routeName}有官方方案，点开查看后可以保存为旅程。`;
+        const ui: AgentMessageUi = { requestId: runId, itineraryCard,
+          taskOutcome: { status: 'completed', pendingQuestion: null, draft: null, missingOperations: [] } };
+        const finalized = await client.rpc('finalize_agent_run', {
+          target_run_id: runId, assistant_message: message, message_ui: ui,
+        });
+        if (finalized.error) throw finalized.error;
+        const finished = await jobAdmin.rpc('finish_agent_job', { p_run_id: runId, p_lease: jobLease });
+        if (finished.error) throw finished.error;
+        shouldPersistFailure = false;
+        return json({ threadId, runId, status: 'completed', message, ui } satisfies AgentResponse);
+      }
     }
     if (task.decision.mode === 'execute' && (task.decision.fullHikingPlan || task.decision.packingMode === 'full' || task.decision.domain === 'transport')) {
       const reservation = await resourceRpc(jobAdmin,'reserve_resource',{p_user:user.id,p_resource:'ai_plans',p_request_key:'run:'+runId,p_amount:1,p_ttl_seconds:3600});

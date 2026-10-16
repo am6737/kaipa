@@ -41,7 +41,7 @@ export interface RouteGuideRequest {
 
 export interface ItineraryPreviewRequest {
   route: Poi;
-  entry: 'guide' | 'form';
+  entry: 'guide' | 'form' | 'chat';
   planId?: string;
   trekStartDate?: string | null;
   preferredHikeDays?: number;
