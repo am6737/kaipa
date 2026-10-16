@@ -4,6 +4,8 @@ import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
 import { useRouteGuides } from '../../hooks/useRouteGuides';
+import { useOfficialItineraries } from '../../hooks/useOfficialItineraries';
+import { mergeGuideList } from '../../data/guideList';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
@@ -23,6 +25,8 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   const route = nav.merged(poi);
   const difficultyLabel = route.diff ? ({ 易: '轻松', 中: '适中', 中高: '进阶', 高: '挑战' } as const)[route.diff] : undefined;
   const { guides, loading: guidesLoading } = useRouteGuides(route.id);
+  const { plans: officialPlans, loading: officialLoading } = useOfficialItineraries(route.id);
+  const guideEntries = mergeGuideList(officialPlans, guides);
   const { comments, total: commentTotal, loading: commentsLoading } = useRouteComments(route.id, { preview: true, pageSize: 2 });
   const openComments = (compose = false) => nav.openRouteGuide({ route, view: 'comments', compose });
 
@@ -75,7 +79,7 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       </View>
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
-        {guidesLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guides.length ? guides.slice(0, 2).map((guide) => <RouteGuideRow key={guide.id} theme={theme} guide={guide} compact onPress={() => nav.openRouteGuide({ route, view: 'guide', guideId: guide.id })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
+        {guidesLoading || officialLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guideEntries.length ? guideEntries.slice(0, 2).map((entry) => <RouteGuideRow key={entry.id} theme={theme} guide={entry.kind === 'community' ? entry.guide : undefined} officialTitle={entry.kind === 'official' ? entry.plan.payload.name : undefined} compact onPress={() => entry.kind === 'official' ? nav.openItineraryPreview({ route, entry: 'guide', planId: entry.plan.id }) : nav.openRouteGuide({ route, view: 'guide', guideId: entry.guide.id })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
       </View>
       {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} onNavigate={onNavigate} navigationActive={navigationActive} /> : null}
       {onFeedback ? (

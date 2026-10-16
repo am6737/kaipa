@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { Backpack, Check, ChevronRight, CloudSun, Heart } from 'lucide-react-native';
+import { ChevronRight, CloudSun, Heart } from 'lucide-react-native';
 import type { Theme } from '../../theme/theme';
 import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
@@ -30,26 +30,6 @@ export function RouteGuideTabs<T extends string>({ theme, value, options, onChan
   </View>;
 }
 
-export function RouteReferencePlanCard({ theme, plans, selectedId, onSelect, onOpen }: { theme: Theme; plans: RouteGuidePlan[]; selectedId: string; onSelect: (id: string) => void; onOpen: (plan: RouteGuidePlan) => void }) {
-  const { resolved } = useI18n();
-  const c = routeGuideCopy[resolved];
-  const plan = plans.find((item) => item.id === selectedId) ?? plans[0];
-  return <View style={[styles.plan, { backgroundColor: theme.groupedBg }]}>
-    <View style={styles.label}><Check color={theme.accent} size={14} /><Text style={[type.caption, { color: theme.text2 }]}>{c.draft}</Text></View>
-    <Text style={[styles.planTitle, { color: theme.text }]}>{guideText(plan.title, resolved)}</Text>
-    <Text style={[styles.caption, { color: theme.text2 }]}>{guideText(plan.description, resolved)}</Text>
-    <View style={{ marginTop: space.lg, marginBottom: space.xl }}><RouteGuideTabs theme={theme} value={plan.id} options={plans.map((p) => ({ id: p.id, label: guideText(p.shortTitle, resolved) }))} onChange={onSelect} /></View>
-    {plan.days.map((day, index) => <View key={index} style={[styles.day, index < plan.days.length - 1 && { paddingBottom: space.xl }]}>
-      {index < plan.days.length - 1 ? <View style={[styles.dayLine, { backgroundColor: theme.hairline }]} /> : null}
-      <View style={[styles.dayNumber, { backgroundColor: theme.progressTrack }]}><Text style={[type.indexMono, { color: theme.text2 }]}>{index + 1}</Text></View>
-      <View style={{ flex: 1 }}><Text style={[type.rowTitle, { color: theme.text }]}>{isGenericDayLabel(guideText(day.title, resolved), index) ? journeyDayDisplayLabel(`Day ${index + 1}`, resolved) : guideText(day.title, resolved)}</Text>{isGenericDayLabel(guideText(day.summary, resolved), index) ? null : <Text style={[styles.caption, { color: theme.text2, marginTop: space.xxs }]}>{guideText(day.summary, resolved)}</Text>}</View>
-    </View>)}
-    <View style={[styles.gearPeek, { borderTopColor: theme.hairline }]}><Backpack color={theme.text2} size={16} /><Text numberOfLines={2} style={[styles.caption, { color: theme.text2, flex: 1 }]}>{plan.gear.slice(0, 4).map((g) => guideText(g.name, resolved)).join('、')}…</Text></View>
-    <Press onPress={() => onOpen(plan)} accessibilityRole="button" style={styles.openPlan}><Text style={[type.labelStrong, { color: theme.text }]}>{c.viewPlan}</Text><ChevronRight color={theme.text2} size={17} /></Press>
-    <Text style={[styles.caption, { color: theme.text3 }]}>{c.draftNote}</Text>
-  </View>;
-}
-
 export function MeBadge({ theme }: { theme: Theme }) {
   const { t } = useI18n();
   return <View style={styles.meBadge}>
@@ -59,24 +39,27 @@ export function MeBadge({ theme }: { theme: Theme }) {
   </View>;
 }
 
-export function RouteGuideRow({ theme, guide, onPress, helpful, compact = false, showMeBadge = false }: { theme: Theme; guide: RouteCommunityGuide; onPress: () => void; helpful?: number; compact?: boolean; showMeBadge?: boolean }) {
+export function RouteGuideRow({ theme, guide, officialTitle, onPress, helpful, compact = false, showMeBadge = false }: { theme: Theme; guide?: RouteCommunityGuide; officialTitle?: string; onPress: () => void; helpful?: number; compact?: boolean; showMeBadge?: boolean }) {
   const { resolved } = useI18n();
+  const c = routeGuideCopy[resolved];
   return <Press onPress={onPress} accessibilityRole="button" style={[styles.guide, compact && styles.compactGuide]}>
     <View>
-      <Text numberOfLines={2} style={[compact ? type.guideTitleCompact : type.guideTitle, { color: theme.text }]}>{guideText(guide.title, resolved)}</Text>
+      <Text numberOfLines={2} style={[compact ? type.guideTitleCompact : type.guideTitle, { color: theme.text }]}>{officialTitle ?? (guide && guideText(guide.title, resolved))}</Text>
       {compact ? <View style={styles.compactAuthorRow}>
-        <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
-        <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{guideText(guide.author, resolved)}</Text>
+        <Avatar size={22} uri={guide?.authorAvatarUrl || undefined} />
+        <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{officialTitle ? c.officialAuthor : guide && guideText(guide.author, resolved)}</Text>
+        {officialTitle ? <Text style={[type.caption, { color: theme.accent }]}>{c.officialBadge}</Text> : null}
         {showMeBadge ? <MeBadge theme={theme} /> : null}
-        <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
+        {guide ? <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View> : null}
       </View> : <View style={styles.authorRow}>
         <View style={styles.authorGroup}>
-          <Avatar size={22} uri={guide.authorAvatarUrl || undefined} />
-          <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>
+          <Avatar size={22} uri={guide?.authorAvatarUrl || undefined} />
+          <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{officialTitle ? c.officialAuthor : guide && guideText(guide.author, resolved)}</Text>
+          {officialTitle ? <Text style={[type.caption, { color: theme.accent }]}>{c.officialBadge}</Text> : null}
           {showMeBadge ? <MeBadge theme={theme} /> : null}
         </View>
-        <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text>
-        <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View>
+        {guide ? <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text> : null}
+        {guide ? <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View> : null}
       </View>}
     </View>
   </Press>;
@@ -157,16 +140,9 @@ const styles = StyleSheet.create({
   sectionAction: { flexDirection: 'row', alignItems: 'center', gap: space.xxs, minHeight: 44 },
   tabs: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, gap: space.sm },
   tab: { flex: 1, minHeight: 44, paddingVertical: space.sm, borderBottomWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  plan: { padding: space.lg, paddingTop: space.xl, borderRadius: radius.feature },
   label: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  planTitle: { ...type.planHeading, marginTop: space.lg, marginBottom: space.xs },
-  caption: { ...type.meta }, body: { ...type.reading },
-  day: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
-  dayNumber: { width: 24, height: 24, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  dayLine: { position: 'absolute', left: 11.5, top: 26, bottom: 0, width: StyleSheet.hairlineWidth },
-  gearPeek: { marginTop: space.xl, paddingTop: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.xs, borderTopWidth: StyleSheet.hairlineWidth },
+  caption: { ...type.meta },
   gearTitleRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: space.xl }, gearCategoryHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm, marginBottom: space.xs }, gearCategoryTitle: { flex: 1, minWidth: 0, ...type.gearCategory }, gearCategorySummary: { flexShrink: 0, textAlign: 'right', ...type.gearSummary },
-  openPlan: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
   guide: { paddingVertical: space.xl }, compactGuide: { paddingVertical: space.lg, paddingTop: space.md }, compactAuthorRow: { marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.sm }, authorRow: { marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.lg }, authorGroup: { flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1 }, metaAuthor: { flexShrink: 1 },
   gearItem: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 1 },
   gearName: { flex: 1, minWidth: 0, ...type.tableName },

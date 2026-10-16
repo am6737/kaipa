@@ -32,6 +32,7 @@ import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
 import { routeGuideCopy } from '../discover/routeGuideCopy';
+import type { RouteGuideJourneyTemplate } from '../../data/routeGuides';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
 import { TrailSheet, type TrailSheetHandle } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
@@ -665,7 +666,7 @@ function NJPresetPlanner({
   creatingMode,
   onManualPlan,
   onSmartPlan,
-  planningTemplateTitle,
+  planningTemplate,
 }: {
   theme: Theme;
   route: NJRoute;
@@ -687,7 +688,7 @@ function NJPresetPlanner({
   creatingMode: 'manual' | 'smart' | null;
   onManualPlan: () => void;
   onSmartPlan: () => void;
-  planningTemplateTitle?: string;
+  planningTemplate?: RouteGuideJourneyTemplate;
 }) {
   const { t, resolved } = useI18n();
   const insets = useSafeAreaInsets();
@@ -696,7 +697,7 @@ function NJPresetPlanner({
   // keep enough sheet height for both controls without clipping the footer.
   // The card top also carries a compact identity header — the minimized display
   // left visible when the card collapses, like the journey detail sheet.
-  const plannerHeight = Math.min(Math.max(height * 0.56, 450), 500);
+  const plannerHeight = Math.min(Math.max(height * (planningTemplate ? 0.72 : 0.56), planningTemplate ? 560 : 450), planningTemplate ? 660 : 500);
   const minimizedHeight = Math.round(height * 0.15);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
@@ -820,16 +821,27 @@ function NJPresetPlanner({
               <Icon name="chevronR" color={theme.text3} size={15} />
             </Press>
           </View>
+          {planningTemplate ? <View style={{ marginTop: layout.sectionGap }}>
+            <Text style={[type.pageTitle, { color: theme.text }]}>{routeGuideCopy[resolved].templateSection}</Text>
+            <View style={{ marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.md, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, gap: space.sm }}>
+              <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{planningTemplate.title}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <Avatar size={22} uri={planningTemplate.authorAvatarUrl || undefined} />
+                <Text numberOfLines={1} style={[type.meta, { color: theme.text2, flexShrink: 1 }]}>{planningTemplate.authorName}</Text>
+                <Text style={[type.meta, { color: theme.text2 }]}>{routeGuideCopy[resolved].templateDaysCount.replace('{n}', String(planningTemplate.days.length))}</Text>
+              </View>
+              <Text style={[type.caption, { color: theme.text2 }]}>{routeGuideCopy[resolved].templateImportCaption}</Text>
+            </View>
+          </View> : null}
         </View>
 
         <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) - (24 + insets.bottom) }}>
-          {planningTemplateTitle ? <Text numberOfLines={2} style={{ color: theme.text2, fontSize: 11.5, lineHeight: 19, marginBottom: space.sm }}>{planningTemplateTitle}{'\n'}{routeGuideCopy[resolved].templateHint}</Text> : null}
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onManualPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
               {creatingMode === 'manual' ? <ActivityIndicator color={theme.text} /> : null}
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : planningTemplateTitle ? routeGuideCopy[resolved].templateManual : t('journeyEdit.form.manualPlan')}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : planningTemplate ? routeGuideCopy[resolved].templateManual : t('journeyEdit.form.manualPlan')}</Text>
             </Press>
-            {!planningTemplateTitle ? <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
+            {!planningTemplate ? <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
               {creatingMode === 'smart' ? <ActivityIndicator color="#FFFFFF" /> : <AssistantMark color={nameValid ? '#FFFFFF' : theme.text3} accentColor={nameValid ? '#FFFFFF' : theme.text3} size={18} />}
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? '#FFFFFF' : theme.text3 }}>{creatingMode === 'smart' ? t('journeyEdit.form.planning') : t('journeyEdit.form.smartPlan')}</Text>
             </Press> : null}
@@ -1294,7 +1306,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
           onOpenTimePicker={openTimePicker}
           onClose={onClose}
           creatingMode={creatingMode}
-          planningTemplateTitle={preset?.planningTemplate?.title}
+          planningTemplate={preset?.planningTemplate}
           onManualPlan={() => void submit('manual')}
           onSmartPlan={() => void submit('smart')}
         />
