@@ -1,0 +1,73 @@
+{
+  "routeId": "trk014",
+  "plans": [
+    {
+      "id": "91e28c5b-eadd-4e5b-92b3-e5140e4248a0",
+      "isDefault": true,
+      "origin": "ai_draft",
+      "status": "draft",
+      "payload": {
+        "name": "4 天 3 晚扎营穿越（下则通村至则巴村）",
+        "direction": "下则通村至则巴村",
+        "lodging": "camp",
+        "difficulty": "中高",
+        "audience": "有多日扎营经验",
+        "summary": "从理塘进村，翻越垭口到日照金山营地，经新冷古寺和格聂一棵树下到夯达营地，次日步行出山到则巴村。第 2 天爬升 1200 m，是全程最难的一天。",
+        "notes": ["费用不含餐食、驮包和摩托车接驳"],
+        "bestMonths": null,
+        "seasonNote": null,
+        "days": [
+          {
+            "kind": "access_in", "title": "理塘 → 下则通村", "distanceKm": null, "ascentM": null, "descentM": null, "duration": null,
+            "transfers": [{ "from": "理塘", "to": "下则通村", "mode": "shared", "duration": null, "costRef": "60 元/人", "booking": null, "position": "start" }],
+            "stay": { "name": "下则通村", "type": "homestay", "altitudeM": null, "water": null, "costRef": "民宿床位 70 元/人，扎营免费", "signal": null },
+            "supply": null, "tip": null, "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "下则通村 → 日照金山营地", "distanceKm": 13, "ascentM": 1200, "descentM": null, "duration": null,
+            "transfers": [],
+            "stay": { "name": "日照金山营地", "type": "camp", "altitudeM": 4360, "water": null, "costRef": "25 元/人", "signal": null },
+            "supply": "可乐、矿泉水、泡面", "tip": "垭口较陡，爬升集中，建议 08:00 前出发", "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "日照金山营地 → 新冷古寺 → 格聂一棵树 → 夯达营地", "distanceKm": 17, "ascentM": null, "descentM": null, "duration": null,
+            "transfers": [],
+            "stay": { "name": "夯达营地", "type": "camp", "altitudeM": 3900, "water": "有自然水源", "costRef": "25 元/人", "signal": "有" },
+            "supply": "新冷古寺附近可吃饭，买泡面和饮料", "tip": null, "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "夯达营地 → 则巴村", "distanceKm": 2, "ascentM": null, "descentM": null, "duration": null,
+            "transfers": [{ "from": "则巴村", "to": "理塘", "mode": "shared", "duration": "约 3 小时", "costRef": "100 元/人", "booking": null, "position": "end" }],
+            "stay": null, "supply": null, "tip": null, "bailout": null, "source": "official"
+          }
+        ]
+      },
+      "draftSources": [
+        { "path": "name", "ref": "trk014.md#行程" },
+        { "path": "summary", "ref": "trk014.md#行程" },
+        { "path": "days[0].transfers[0].costRef", "ref": "trk014.md#费用" },
+        { "path": "days[0].stay.costRef", "ref": "trk014.md#费用" },
+        { "path": "days[1].distanceKm", "ref": "trk014.md#行程" },
+        { "path": "days[1].ascentM", "ref": "trk014.md#行程" },
+        { "path": "days[1].stay.altitudeM", "ref": "trk014.md#行程" },
+        { "path": "days[1].stay.costRef", "ref": "trk014.md#费用" },
+        { "path": "days[1].tip", "ref": "trk014.md#季节与风险" },
+        { "path": "days[2].distanceKm", "ref": "trk014.md#行程" },
+        { "path": "days[2].stay.altitudeM", "ref": "trk014.md#行程" },
+        { "path": "days[2].stay.costRef", "ref": "trk014.md#费用" },
+        { "path": "days[3].distanceKm", "ref": "trk014.md#行程" },
+        { "path": "days[3].transfers[0].duration", "ref": "trk014.md#交通" },
+        { "path": "days[3].transfers[0].costRef", "ref": "trk014.md#费用" }
+      ],
+      "reviewNotes": [
+        "按样板保留 4 天 3 晚：去掉成都往返大交通，从理塘进山，最后由则巴村接驳回理塘。",
+        "第 4 天有 2 km 步行，归为徒步日，返程接驳挂在当天结尾，不另设出山日。",
+        "下则通村可住民宿或村旁扎营；按样板以扎营命名，住宿类型字段暂列民宿，需确认正式住宿口径。",
+        "推荐月份暂沿用目录的 5～10 月，季节说明沿用目录的 6～7 月花海；素材另推荐 7～8 月，待核实。",
+        "逐日距离合计 32 km，素材概述约 30 km，目录 GPX 为 28.2 km，发布前需核对走法与距离。",
+        "第 2 天下降、第 3 天爬升和下降、各天用时均未收录；费用、接驳和补给信息需复核。",
+        "已移除样板中理塘回成都的拼车提醒（属于大交通说明），注意事项只保留费用排除项。"
+      ]
+    }
+  ]
+}

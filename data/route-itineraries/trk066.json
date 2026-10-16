@@ -1,0 +1,80 @@
+{
+  "routeId": "trk066",
+  "plans": [
+    {
+      "id": "081561d7-8cef-4a49-9f3b-e35339843dbf",
+      "isDefault": true,
+      "origin": "ai_draft",
+      "status": "draft",
+      "payload": {
+        "name": "5 天 4 晚扎营穿越（圣水门至景区出口）",
+        "direction": "圣水门至景区出口",
+        "lodging": "camp",
+        "difficulty": "高",
+        "audience": "有高海拔多日重装徒步经验",
+        "summary": "从圣水门进入，经波拥措、贡嘎扎则、新果牛场和蛇湖营地，翻越松多垭口，经牛奶海、五色海及洛绒牛场出景区。杂巴拉垭口一日爬升和下降都大，首晚营地海拔高。",
+        "notes": ["入园门票需提前预约，接驳安排需核实", "营地饮水建议净化后使用", "高海拔营地和天气变化需提前准备"],
+        "bestMonths": null,
+        "seasonNote": null,
+        "days": [
+          {
+            "kind": "hike", "title": "圣水门 → 巴玉营地 → 波拥措营地", "distanceKm": 8, "ascentM": 700, "descentM": null, "duration": null,
+            "transfers": [{ "from": "景区入口", "to": "圣水门", "mode": "shuttle", "duration": null, "costRef": null, "booking": "入园门票需提前预约", "position": "start" }],
+            "stay": { "name": "波拥措营地", "type": "camp", "altitudeM": 4750, "water": "有水源", "costRef": null, "signal": null },
+            "supply": null, "tip": "首晚营地海拔高，注意高海拔适应。", "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "波拥措营地 → 且萨嘎丁垭口 → 贡嘎扎则营地", "distanceKm": 17, "ascentM": 400, "descentM": 1145, "duration": null,
+            "transfers": [], "stay": { "name": "贡嘎扎则营地", "type": "camp", "altitudeM": 4100, "water": "有水源", "costRef": null, "signal": null },
+            "supply": null, "tip": null, "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "贡嘎扎则营地 → 杂巴拉垭口 → 新果牛场营地", "distanceKm": 18, "ascentM": 1100, "descentM": 1100, "duration": null,
+            "transfers": [], "stay": { "name": "新果牛场营地", "type": "camp", "altitudeM": 4250, "water": "有水源", "costRef": null, "signal": null },
+            "supply": null, "tip": "爬升和下降集中，按体力和天气选择途中营地。", "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "新果牛场营地 → 黑湖垭口 → 蝴蝶石 → 蛇湖营地", "distanceKm": 13, "ascentM": 550, "descentM": 350, "duration": null,
+            "transfers": [], "stay": { "name": "蛇湖营地", "type": "camp", "altitudeM": 4500, "water": "有水源", "costRef": null, "signal": null },
+            "supply": "蝴蝶石有热食补给", "tip": "天气和行程允许时，可在蛇湖多留一天。", "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "蛇湖营地 → 牛奶海 → 五色海 → 洛绒牛场 → 景区出口", "distanceKm": 8, "ascentM": 270, "descentM": 600, "duration": null,
+            "transfers": [], "stay": null, "supply": null, "tip": null, "bailout": null, "source": "official"
+          }
+        ]
+      },
+      "draftSources": [
+        { "path": "name", "ref": "trk066.md#行程" },
+        { "path": "days[0].distanceKm", "ref": "trk066.md#行程" },
+        { "path": "days[0].ascentM", "ref": "trk066.md#行程" },
+        { "path": "days[0].stay.altitudeM", "ref": "trk066.md#住宿与营地" },
+        { "path": "days[1].distanceKm", "ref": "trk066.md#行程" },
+        { "path": "days[1].ascentM", "ref": "trk066.md#行程" },
+        { "path": "days[1].descentM", "ref": "trk066.md#行程" },
+        { "path": "days[1].stay.altitudeM", "ref": "trk066.md#住宿与营地" },
+        { "path": "days[2].distanceKm", "ref": "trk066.md#行程" },
+        { "path": "days[2].ascentM", "ref": "trk066.md#行程" },
+        { "path": "days[2].descentM", "ref": "trk066.md#行程" },
+        { "path": "days[2].stay.altitudeM", "ref": "trk066.md#住宿与营地" },
+        { "path": "days[3].distanceKm", "ref": "trk066.md#行程" },
+        { "path": "days[3].ascentM", "ref": "trk066.md#行程" },
+        { "path": "days[3].descentM", "ref": "trk066.md#行程" },
+        { "path": "days[3].stay.altitudeM", "ref": "trk066.md#住宿与营地" },
+        { "path": "days[4].distanceKm", "ref": "trk066.md#行程" },
+        { "path": "days[4].ascentM", "ref": "trk066.md#行程" },
+        { "path": "days[4].descentM", "ref": "trk066.md#行程" }
+      ],
+      "reviewNotes": [
+        "素材题名为 5 天 4 晚，逐日却含因个人机票安排而增加的蛇湖休整日；方案采用 5 个行走日，蛇湖多留一天作为可选提示。",
+        "首日景区接驳挂在徒步日开头；景区入口的具体站名、时长、费用和预约规则均待核实。",
+        "未另设进山日或出山日；素材没有支持从县城或机场到景区的独立过夜安排。",
+        "逐日距离合计 64 km，目录 GPX 为 66.5 km；累计爬升逐日合计 3020 m，目录 GPX 为 3947 m，需核对变体与轨迹。",
+        "所有营地水源依据单份记录；30 元/帐并未指明各营地，未分配到具体住宿费用。",
+        "强度暂评为高，依据第 3 行走日爬升与下降各 1100 m 和首晚海拔 4750 m，待官方核定。",
+        "末日标题保留牛奶海、五色海和洛绒牛场三个中途节点；松多垭口写入方案说明。",
+        "各天用时、部分下降和接驳详情未收录；补给、信号及季节信息需核实。"
+      ]
+    }
+  ]
+}

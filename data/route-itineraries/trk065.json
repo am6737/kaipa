@@ -1,0 +1,57 @@
+{
+  "routeId": "trk065",
+  "plans": [
+    {
+      "id": "10c68f50-1432-44cb-a8a1-dedc2539f1e4",
+      "isDefault": true,
+      "origin": "ai_draft",
+      "status": "draft",
+      "payload": {
+        "name": "3 天 2 晚扎营穿越（多日阿嘎莫二村至中谷村）",
+        "direction": "多日阿嘎莫二村至中谷村",
+        "lodging": "camp",
+        "difficulty": "中高",
+        "audience": "有高海拔重装徒步和扎营经验",
+        "summary": "从多日阿嘎莫二村翻越雅拉垭口，到热浪谷营地过夜；次日经雅拉景区到姊妹湖营地，再经新店子下行至中谷村。首日垭口碎石坡费力，末日下山路段较长。",
+        "notes": ["垭口碎石坡湿滑时谨慎通过", "高海拔营地夜间寒冷，注意保暖", "泡温泉时照看营地并及时穿暖"],
+        "bestMonths": null,
+        "seasonNote": null,
+        "days": [
+          {
+            "kind": "hike", "title": "多日阿嘎莫二村 → 雅拉垭口 → 热浪谷营地", "distanceKm": 15, "ascentM": 900, "descentM": null, "duration": null,
+            "transfers": [], "stay": { "name": "热浪谷营地", "type": "camp", "altitudeM": null, "water": null, "costRef": null, "signal": null },
+            "supply": null, "tip": "雅拉垭口为碎石坡，建议尽早通过。食物收好，避免动物翻找。", "bailout": null, "source": "official"
+          },
+          {
+            "kind": "hike", "title": "热浪谷营地 → 雅拉景区 → 姊妹湖营地", "distanceKm": 12, "ascentM": 300, "descentM": null, "duration": null,
+            "transfers": [], "stay": { "name": "姊妹湖营地", "type": "camp", "altitudeM": null, "water": null, "costRef": null, "signal": null },
+            "supply": "雅拉景区有补给点", "tip": "尽早出发，关注天气变化。", "bailout": "雅拉景区可作为特殊情况下的提前下撤点。", "source": "official"
+          },
+          {
+            "kind": "hike", "title": "姊妹湖营地 → 新店子 → 中谷村", "distanceKm": 19, "ascentM": 60, "descentM": 1000, "duration": null,
+            "transfers": [], "stay": null, "supply": null, "tip": "下山路段较长，预留体力并留意湿滑路面。", "bailout": null, "source": "official"
+          }
+        ]
+      },
+      "draftSources": [
+        { "path": "name", "ref": "trk065.md#行程" },
+        { "path": "days[0].distanceKm", "ref": "trk065.md#行程" },
+        { "path": "days[0].ascentM", "ref": "trk065.md#行程" },
+        { "path": "days[1].distanceKm", "ref": "trk065.md#行程" },
+        { "path": "days[1].ascentM", "ref": "trk065.md#行程" },
+        { "path": "days[2].distanceKm", "ref": "trk065.md#行程" },
+        { "path": "days[2].ascentM", "ref": "trk065.md#行程" },
+        { "path": "days[2].descentM", "ref": "trk065.md#行程" }
+      ],
+      "reviewNotes": [
+        "只编入多日阿嘎莫二村至中谷村的三日徒步；成都至康定属于大交通，康定至进山口未有独立过夜安排，未设进山日。",
+        "素材提出反向行走可能更省力，但没有反向逐日数据，暂不另建反向方案。",
+        "逐日距离合计 46 km，目录 GPX 为 46.3 km；逐日爬升合计约 1260 m，目录 GPX 为 1435 m，需核对轨迹和约数口径。",
+        "首日约 15 km、约 900 m，末日约 19 km、约 60 m 和约 1000 m 均为素材约数，字段仅能存数字；发布前需确认呈现口径。",
+        "强度暂评中高，依据首日高海拔垭口碎石坡和末日长距离下降，待官方核定。",
+        "康定到进山口拼车约 2 小时、300 元/车未写入逐日，审核时确认是否增加可选进山接驳日。",
+        "营地海拔、水源、信号、费用和各天用时未收录；景区下撤条件、补给和野温泉安全建议需核实。"
+      ]
+    }
+  ]
+}
