@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 
 export interface UserPlanningProfile {
   heightCm: number | null;
@@ -24,14 +25,14 @@ function optionalNumber(value: unknown) {
 }
 
 export function usePlanningProfile(userId: string | undefined) {
-  const [planningProfile, setPlanningProfile] = useState<UserPlanningProfile>(EMPTY_PLANNING_PROFILE);
+  const [planningProfile, setPlanningProfile, cached] = useOfflineState<UserPlanningProfile>(userId, 'planningProfile', EMPTY_PLANNING_PROFILE);
   const [loading, setLoading] = useState(true);
   const requestId = useRef(0);
 
   const fetch = useCallback(async () => {
     const currentRequestId = ++requestId.current;
-    setPlanningProfile(emptyPlanningProfile());
     if (!userId) {
+      setPlanningProfile(emptyPlanningProfile());
       setLoading(false);
       return;
     }
@@ -87,5 +88,5 @@ export function usePlanningProfile(userId: string | undefined) {
     setPlanningProfile(normalized);
   }, [userId]);
 
-  return { planningProfile, loading, savePlanningProfile, refetch: fetch };
+  return { planningProfile, loading: loading && !cached, savePlanningProfile, refetch: fetch };
 }

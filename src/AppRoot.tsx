@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Platform, View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
-import type { Session } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
 import { useI18n } from './i18n';
 import { NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
 import { MembershipProvider } from './membership/MembershipContext';
-import { supabase } from './lib/supabase';
+import { authStorageKey, supabase } from './lib/supabase';
+import { clearOfflineCache } from './lib/offlineCache';
 import { upgradeCurrentAnonymousSession } from './lib/auth';
 import { buildTrackDraft, parseTrackFile, TrackFileError } from './lib/trackImport';
 import { countRender, markTabCommit } from './lib/tabSwitchProbe';
@@ -467,6 +469,20 @@ function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAcco
   );
 }
 
+// The signed-in session as it was last saved on this device. getSession()
+// refreshes an expired access token first, and offline that refresh retries
+// for half a minute before giving up, so launch reads storage directly and
+// lets supabase-js catch up once the network is back.
+async function readStoredSession(): Promise<Session | null> {
+  try {
+    const raw = await AsyncStorage.getItem(authStorageKey);
+    const stored = raw ? JSON.parse(raw) as Session : null;
+    return stored?.user?.id && stored.refresh_token && !stored.user.is_anonymous ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AppRoot() {
   const theme = useTheme();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -474,7 +490,12 @@ export function AppRoot() {
   useEffect(() => {
     let active = true;
     const initialize = async () => {
-      const { data } = await supabase.auth.getSession();
+      const stored = await readStoredSession();
+      if (active && stored) setSession(stored);
+      const { data, error } = await supabase.auth.getSession();
+      // Offline: the refresh failed but supabase-js kept the session, and will
+      // emit TOKEN_REFRESHED once it gets through. Stay signed in meanwhile.
+      if (stored && error && isAuthRetryableFetchError(error)) return;
       let nextSession = data.session;
       if (nextSession?.user.is_anonymous) {
         const upgraded = await upgradeCurrentAnonymousSession();
@@ -489,7 +510,10 @@ export function AppRoot() {
     };
     void initialize();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // A failed offline refresh reports INITIAL_SESSION as null without
+      // signing out; initialize() above decides the launch session.
+      if (event === 'INITIAL_SESSION') return;
       if (!nextSession?.user.is_anonymous) setSession(nextSession);
     });
     return () => {
@@ -499,13 +523,15 @@ export function AppRoot() {
   }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (!error) await clearOfflineCache();
   };
 
   const handleDeleteAccount = async () => {
     const { error } = await supabase.functions.invoke('delete-account', { body: {} });
     if (error) throw error;
     await supabase.auth.signOut({ scope: 'local' });
+    await clearOfflineCache();
   };
 
   const userId = session?.user?.id;
@@ -515,7 +541,7 @@ export function AppRoot() {
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
       <PushBootstrap userId={userId} />
       {session === undefined ? null : session && userId ? (
-        <DataProvider userId={userId}>
+        <DataProvider key={userId} userId={userId}>
           <MembershipProvider userId={userId}>
             <OnboardingGate theme={theme}>
               <NavBridge signOut={handleSignOut} deleteAccount={handleDeleteAccount} />

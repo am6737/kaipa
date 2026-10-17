@@ -17,6 +17,7 @@ Kaipa is an Expo SDK 56 + React Native + TypeScript app.
 - Web guest app: `App.web.tsx`, `src/web/`.
 - UI/navigation state: `src/nav/NavContext.tsx`.
 - Supabase data hooks: `src/hooks/`, composed by `src/data/DataContext.tsx`.
+- The app must open and show cached data offline. Data hooks keep their last good server state in `useOfflineState` (`src/lib/offlineCache.ts`); a failed fetch keeps that state instead of clearing it, and launch reads the stored session rather than blocking on a token refresh.
 - `admin/` is a separate Vite app (kaipa-admin) with its own `package.json`; it is not part of the Expo app.
 - Native maps use MapKit on iOS and AMap on Android; Expo Go should keep fallback behavior.
 - `modules/` holds app-local Expo native modules (registered via `expo.autolinking.nativeModulesDir` in `package.json`); they need a prebuild/dev build and cannot ship through `expo-updates`. Rulers and wheels get their detent feel from `modules/haptics-engine`, which falls back to `expo-haptics` when the binary predates it.

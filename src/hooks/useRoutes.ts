@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { toRoutePoi } from '../lib/mappers';
 import { ensureCloudMedia } from '../lib/storage';
 import type { Poi } from '../data/pois';
@@ -25,7 +26,7 @@ function routePatchToRow(patch: Partial<Poi>) {
 }
 
 export function useRoutes(userId: string | undefined) {
-  const [routes, setRoutes] = useState<Poi[]>([]);
+  const [routes, setRoutes, cached] = useOfflineState<Poi[]>(userId, 'routes', []);
   const [loading, setLoading] = useState(true);
 
   const refetch = useCallback(async () => {
@@ -76,5 +77,5 @@ export function useRoutes(userId: string | undefined) {
     setRoutes((prev) => prev.map((p) => (p.id === id ? { ...p, fav: next } : p)));
   };
 
-  return { routes, loading, updateRoute, toggleFavorite, refetch };
+  return { routes, loading: loading && !cached, updateRoute, toggleFavorite, refetch };
 }

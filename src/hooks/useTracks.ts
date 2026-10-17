@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { toTrack } from '../lib/mappers';
 import { removeMedia } from '../lib/storage';
 import type { Track } from '../data/tracks';
@@ -30,8 +31,10 @@ function draftToRow(draft: Partial<TrackDraft>) {
 }
 
 export function useTracks(userId: string | undefined) {
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks, cached] = useOfflineState<Track[]>(userId, 'tracks', []);
   const [loading, setLoading] = useState(true);
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
 
   const refetch = useCallback(async () => {
     if (!userId) return [] as Track[];
@@ -41,9 +44,11 @@ export function useTracks(userId: string | undefined) {
       .select('*')
       .order('created_at', { ascending: false });
     if (error) console.warn('[useTracks] fetch error:', error.message);
-    const next = data ? data.map(toTrack) : [];
-    if (data) setTracks(next);
     setLoading(false);
+    // Offline: hand back what is on screen rather than an empty list.
+    if (!data) return tracksRef.current;
+    const next = data.map(toTrack);
+    setTracks(next);
     return next;
   }, [userId]);
 
@@ -100,5 +105,5 @@ export function useTracks(userId: string | undefined) {
 
   const deleteTrack = useCallback((id: string) => deleteTracks([id]), [deleteTracks]);
 
-  return { tracks, loading, createTrack, updateTrack, deleteTrack, deleteTracks, refetch };
+  return { tracks, loading: loading && !cached, createTrack, updateTrack, deleteTrack, deleteTracks, refetch };
 }

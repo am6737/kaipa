@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 
 export type JourneyHomeTab = { id: string; label: string; filter?: 'all' | 'planned' | 'active' | 'completed' };
 export type JourneyHomeCard = {
@@ -53,7 +54,8 @@ function normalize(value: unknown): JourneyHomeContent {
 }
 
 export function useJourneyHomeContent() {
-  const [content, setContent] = useState<JourneyHomeContent>(DEFAULT_JOURNEY_HOME_CONTENT);
+  // Shared across accounts, so it is cached under its own scope.
+  const [content, setContent, cached] = useOfflineState<JourneyHomeContent>('shared', 'journeyHomeContent', DEFAULT_JOURNEY_HOME_CONTENT);
   const [loading, setLoading] = useState(true);
   const refetch = useCallback(async () => {
     const { data, error } = await supabase.from('journey_home_content').select('title,tabs,cards').eq('key', 'default').eq('enabled', true).maybeSingle();
@@ -62,5 +64,5 @@ export function useJourneyHomeContent() {
     setLoading(false);
   }, []);
   useEffect(() => { void refetch(); }, [refetch]);
-  return { content, loading, refetch };
+  return { content, loading: loading && !cached, refetch };
 }

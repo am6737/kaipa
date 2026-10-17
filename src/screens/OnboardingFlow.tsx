@@ -115,7 +115,9 @@ export function OnboardingGate({ theme, children }: { theme: Theme; children: Re
   if (checking || data.profileLoading || data.planningProfileLoading) {
     return <View style={[styles.loading, { backgroundColor: theme.bg }]}><ActivityIndicator color={theme.accent} /></View>;
   }
-  if (data.profile.onboardedAt) return <>{children}</>;
+  // Offline with nothing cached we cannot tell a new account from an old one;
+  // let them in rather than replay onboarding, which needs the network anyway.
+  if (data.profile.onboardedAt || data.profileStale) return <>{children}</>;
 
   const finish = async () => {
     await data.completeOnboarding();

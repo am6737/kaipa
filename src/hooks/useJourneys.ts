@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { supabase } from "../lib/supabase";
+import { useOfflineState } from "../lib/offlineCache";
 import { toJourneyPoi, toTrack, trackProjection } from "../lib/mappers";
 import { ensureCloudMedia } from "../lib/storage";
 import { MAX_JOURNEY_PARTICIPANTS, type Poi } from "../data/pois";
@@ -21,9 +22,11 @@ async function embeddedTrack(trackId: string | undefined) {
 }
 
 export function useJourneys(userId: string | undefined, profile?: UserProfile) {
-  const [journeys, setJourneys] = useState<Poi[]>([]);
-  const [trashedJourneys, setTrashedJourneys] = useState<Poi[]>([]);
+  const [journeys, setJourneys, cached] = useOfflineState<Poi[]>(userId, "journeys", []);
+  const [trashedJourneys, setTrashedJourneys] = useOfflineState<Poi[]>(userId, "journeys.trashed", []);
   const [loading, setLoading] = useState(true);
+  const journeysRef = useRef(journeys);
+  journeysRef.current = journeys;
 
   const fetchJourneys = useCallback(async () => {
     if (!userId) return [];
@@ -80,7 +83,13 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
       error = fallback.error;
     }
 
-    if (error) console.warn("[useJourneys] fetch error:", error.message);
+    if (error) {
+      console.warn("[useJourneys] fetch error:", error.message);
+      // Without the owned list nothing below can be trusted (offline, most
+      // often), so keep showing the cached journeys instead of an empty tab.
+      setLoading(false);
+      return journeysRef.current;
+    }
     // Older journeys may have a placeholder self companion (for example the
     // prototype's 陈泽宇) and no avatar URL. Resolve the current user's
     // profile here so every journey card can render the same identity.
@@ -545,7 +554,7 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
   return {
     journeys,
     trashedJourneys,
-    loading,
+    loading: loading && !cached,
     createJourney,
     updateJourney,
     deleteJourney,

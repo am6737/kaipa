@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { resourceUsageChanged } from '../lib/resourceClient';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { toGearCat, toGearItem, toGearSet } from '../lib/mappers';
 import { ensureCloudGearMedia, removeMedia } from '../lib/storage';
 import type { GearCat, GearItem, GearSet, GearSetOverride } from '../data/gear';
 
 export function useGear(userId: string | undefined) {
-  const [cats, setCats] = useState<GearCat[]>([]);
-  const [items, setItems] = useState<GearItem[]>([]);
-  const [sets, setSets] = useState<GearSet[]>([]);
+  const [cats, setCats, catsCached] = useOfflineState<GearCat[]>(userId, 'gear.cats', []);
+  const [items, setItems] = useOfflineState<GearItem[]>(userId, 'gear.items', []);
+  const [sets, setSets] = useOfflineState<GearSet[]>(userId, 'gear.sets', []);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -36,6 +37,12 @@ export function useGear(userId: string | undefined) {
         .select('*, gear_set_items(item_id)')
         .eq('user_id', userId)
         .order('created_at');
+    }
+
+    // Offline every request fails; keep the cached gear rather than blanking it.
+    if (catRes.error && itemRes.error && setRes.error) {
+      setLoading(false);
+      return;
     }
 
     const dbCats = (catRes.data ?? []).map(toGearCat);
@@ -186,7 +193,7 @@ export function useGear(userId: string | undefined) {
   };
 
   return {
-    cats, items, sets, loading,
+    cats, items, sets, loading: loading && !catsCached,
     addCat, updateCat, deleteCat,
     addItem, updateItem, deleteItem,
     addSet, updateSet, deleteSet,

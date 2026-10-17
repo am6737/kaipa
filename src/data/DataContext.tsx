@@ -20,6 +20,8 @@ export interface DataValue {
   userId: string;
   profile: UserProfile;
   profileLoading: boolean;
+  /** The last profile read failed (usually offline); `profile` is cached or empty. */
+  profileStale: boolean;
   updateProfile: (field: string, value: string) => Promise<void>;
   completeOnboarding: () => Promise<void>;
   updateAvatar: (localUri: string) => Promise<void>;
@@ -81,7 +83,7 @@ const DataContext = createContext<DataValue | null>(null);
 
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
   const {
-    profile, loading: profileLoading, updateProfile, completeOnboarding, updateAvatar,
+    profile, loading: profileLoading, stale: profileStale, updateProfile, completeOnboarding, updateAvatar,
   } = useProfile(userId);
   const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
@@ -127,7 +129,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
 
   const value: DataValue = {
     userId,
-    profile, profileLoading, updateProfile, completeOnboarding, updateAvatar,
+    profile, profileLoading, profileStale, updateProfile, completeOnboarding, updateAvatar,
     planningProfile, planningProfileLoading, savePlanningProfile,
     routes, routesLoading,
     routeRequests, routeRequestsLoading, createRouteRequest, deleteRouteRequest, refetchRouteRequests,

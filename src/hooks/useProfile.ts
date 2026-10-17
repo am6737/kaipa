@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { uploadAvatar as uploadAvatarFile, removeMedia } from '../lib/storage';
 import type { WeightUnit } from '../data/gear';
 
@@ -37,16 +38,26 @@ const EMPTY: UserProfile = {
 };
 
 export function useProfile(userId: string | undefined) {
-  const [profile, setProfile] = useState<UserProfile>(EMPTY);
+  const [profile, setProfile, cached] = useOfflineState<UserProfile>(userId, 'profile', EMPTY);
   const [loading, setLoading] = useState(true);
+  // The last read failed for a reason other than "no such row" — offline,
+  // most often. The profile on screen (cached or empty) is not authoritative.
+  const [stale, setStale] = useState(false);
 
   const fetch = useCallback(async () => {
     if (!userId) return;
 
-    const [{ data: row }, { data: { user } }] = await Promise.all([
+    const [{ data: row, error: rowError }, { data: { user } }] = await Promise.all([
       supabase.from('profiles').select('display_name, nick, username, bio, avatar_url, created_at, gear_weight_unit, onboarded_at').eq('id', userId).single(),
       supabase.auth.getUser(),
     ]);
+
+    if (rowError && rowError.code !== 'PGRST116') {
+      setStale(true);
+      setLoading(false);
+      return;
+    }
+    setStale(false);
 
     const metadata = user?.user_metadata as { guest_email?: string; nickname?: string } | undefined;
     setProfile({
@@ -117,5 +128,5 @@ export function useProfile(userId: string | undefined) {
     setProfile((current) => ({ ...current, avatarUrl }));
   }, [userId]);
 
-  return { profile, loading, updateProfile, completeOnboarding, updateAvatar, refetch: fetch };
+  return { profile, loading: loading && !cached, stale, updateProfile, completeOnboarding, updateAvatar, refetch: fetch };
 }

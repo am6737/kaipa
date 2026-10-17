@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useOfflineState } from "../lib/offlineCache";
 import type { Track } from "../data/tracks";
 export type RouteRequestAttachment = { url: string; name: string; mime: string };
 export type RouteRequest = {
@@ -37,7 +38,7 @@ const map = (r: any): RouteRequest => ({
   updatedAt: r.updated_at,
 });
 export function useRouteRequests(userId?: string) {
-  const [requests, setRequests] = useState<RouteRequest[]>([]);
+  const [requests, setRequests, cached] = useOfflineState<RouteRequest[]>(userId, "routeRequests", []);
   const [loading, setLoading] = useState(Boolean(userId));
   const refresh = useCallback(async () => {
     if (!userId) {
@@ -109,5 +110,5 @@ export function useRouteRequests(userId?: string) {
     if (error) throw error;
     setRequests((v) => v.filter((x) => x.id !== id));
   }, []);
-  return { requests, loading, refresh, createRequest, deleteRequest };
+  return { requests, loading: loading && !cached, refresh, createRequest, deleteRequest };
 }

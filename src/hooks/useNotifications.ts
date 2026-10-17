@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { useOfflineState } from '../lib/offlineCache';
 import { toNotif } from '../lib/mappers';
 import { getDooPush } from '../lib/doopushNative';
 import type { Notif } from '../data/notifications';
@@ -24,7 +25,7 @@ async function withLiveAvatars(rows: Notif[]): Promise<Notif[]> {
 }
 
 export function useNotifications(userId: string | undefined) {
-  const [list, setList] = useState<Notif[]>([]);
+  const [list, setList] = useOfflineState<Notif[]>(userId, 'notifications', []);
   const [loading, setLoading] = useState(true);
 
   const fetchNotifs = useCallback(async () => {

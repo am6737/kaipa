@@ -1,6 +1,7 @@
 import { MAX_TIMELINE_GROUP_NOTE_LENGTH } from '../data/timeline';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { readOfflineCache, writeOfflineCache } from '../lib/offlineCache';
 import { toTLRow } from '../lib/mappers';
 import type { TLRow, TimelineGroupRoute } from '../data/timeline';
 
@@ -26,7 +27,9 @@ function getState(key: string): TLState {
 }
 
 function setState(key: string, updater: (prev: TLState) => TLState) {
-  cache.set(key, updater(getState(key)));
+  const next = updater(getState(key));
+  cache.set(key, next);
+  writeOfflineCache('timeline', key, next);
   listeners.get(key)?.forEach((fn) => fn());
 }
 
@@ -47,7 +50,15 @@ function loadJourneyTimeline(journeyId: string) {
       ]);
       if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
       if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
-      if (!rowsResult.data) return;
+      if (!rowsResult.data) {
+        // Offline: fall back to the copy saved the last time this journey loaded.
+        const saved = await readOfflineCache<TLState>('timeline', journeyId);
+        if (saved && !getState(journeyId).rows.length) {
+          cache.set(journeyId, saved);
+          listeners.get(journeyId)?.forEach((fn) => fn());
+        }
+        return;
+      }
       const mapped = rowsResult.data.map(toTLRow);
       setState(journeyId, (prev) => {
         const groupRows = groupsResult.data;
