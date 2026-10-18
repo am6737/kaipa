@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>装包模式 效果预览</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:#070a09; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif; color:#fff; }
+  body { display:flex; align-items:center; justify-content:center; }
+  .phone { width:390px; height:844px; max-height:100vh; border-radius:44px; overflow:hidden; position:relative;
+    background:radial-gradient(110% 62% at 50% 44%, #42564b 0%, #1d2822 46%, #0b100e 100%); box-shadow:0 30px 80px rgba(0,0,0,.5); }
+  @media (max-width:430px){ .phone{ width:100vw; height:100vh; border-radius:0; } }
+
+  .top { position:absolute; top:0; left:0; right:0; padding:56px 18px 0; display:flex; align-items:center; gap:12px; z-index:2; }
+  .ib { width:38px; height:38px; border-radius:19px; border:0; background:rgba(255,255,255,.1); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+    display:grid; place-items:center; color:#fff; cursor:pointer; flex:none; transition:opacity .2s, background .2s, color .2s; }
+  .ib.on { background:rgba(255,255,255,.88); color:#111; }
+  .ib:disabled { opacity:.25; cursor:default; }
+  .segs { flex:1; display:flex; gap:3px; }
+  .segs i { flex:1; height:4px; border-radius:2px; background:rgba(255,255,255,.14); transition:background .4s; }
+
+  .stage { position:absolute; top:100px; bottom:140px; left:8px; right:8px; perspective:900px; display:flex; align-items:center; justify-content:center; }
+  .bagwrap { width:100%; height:100%; transform-style:preserve-3d; will-change:transform; }
+  .bagwrap svg { width:100%; height:100%; overflow:visible; }
+  .item { pointer-events:none; }
+  .ghost { pointer-events:none; }
+  .ghost .hit { pointer-events:all; cursor:pointer; }
+  .ghost .outline { animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:.3 } }
+  .ghost .pin { animation:float 1.2s ease-in-out infinite; }
+  @keyframes float { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-3px) } }
+  .zones { opacity:0; transition:opacity .25s; pointer-events:none; }
+  .zones.on { opacity:1; }
+
+  .dock { position:absolute; left:14px; right:14px; bottom:30px; z-index:2; padding:12px; border-radius:30px; display:flex; align-items:center; gap:12px;
+    background:rgba(255,255,255,.1); -webkit-backdrop-filter:blur(20px) saturate(1.4); backdrop-filter:blur(20px) saturate(1.4); border:1px solid rgba(255,255,255,.12); }
+  .dock.swap { animation:swap .35s ease; }
+  @keyframes swap { from{ opacity:0; transform:translateY(14px) } to{ opacity:1; transform:none } }
+  .dock .icon { width:58px; height:58px; border-radius:20px; flex:none; display:grid; place-items:center; }
+  .dock .icon svg { width:46px; height:46px; overflow:visible; filter:drop-shadow(0 4px 8px rgba(0,0,0,.35)); }
+  .dock .txt { flex:1; min-width:0; }
+  .dock .name { font-size:18px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dock .tip { font-size:13px; color:rgba(255,255,255,.6); margin-top:3px; }
+  .later { width:42px; height:42px; border-radius:21px; border:0; background:rgba(255,255,255,.1); color:rgba(255,255,255,.75); display:grid; place-items:center; cursor:pointer; flex:none; }
+  .go { width:58px; height:58px; border-radius:29px; border:0; background:#fff; color:#111; display:grid; place-items:center; cursor:pointer; flex:none; box-shadow:0 6px 20px rgba(0,0,0,.35); transition:transform .12s; }
+  .go:active, .later:active { transform:scale(.92); }
+  .miss { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .miss button { border:0; font:inherit; font-size:12px; font-weight:600; padding:4px 10px; border-radius:12px; background:rgba(255,149,0,.2); color:#FFB340; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="top">
+    <button class="ib" aria-label="关闭"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="segs" id="segs"></div>
+    <button class="ib" id="undo" aria-label="撤销"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <button class="ib" id="zonesBtn" aria-label="分区"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
+  </div>
+  <div class="stage" id="stage">
+    <div class="bagwrap" id="bagwrap">
+      <svg id="svg" viewBox="0 0 280 386"></svg>
+    </div>
+  </div>
+  <div class="dock" id="dock"></div>
+</div>
+
+<script>
+const ITEMS = [
+  { id:'sleep', name:'羽绒睡袋', sub:'Nemo Disco 15', zone:'底部', kg:0.96, color:'#5856D6', shape:'cylH', x:90, y:284, w:114, h:38, area:'body',
+    tip:'轻软垫底，撑出包形' },
+  { id:'tent', name:'帐篷主体', sub:'Copper Spur UL2', zone:'核心区 贴背', kg:1.32, color:'#FF9500', shape:'cylV', x:90, y:206, w:28, h:76, area:'body',
+    tip:'重物居中，紧贴后背' },
+  { id:'food', name:'食物袋', sub:'3 天口粮', zone:'核心区 贴背', kg:2.4, color:'#B08A5A', shape:'box', kind:'food', x:120, y:226, w:44, h:56, area:'body',
+    tip:'最重的放肩胛骨高度' },
+  { id:'pot', name:'锅具套装', sub:'TOAKS 750ml', zone:'核心区', kg:0.36, color:'#00A8A0', shape:'cylV', kind:'pot', x:166, y:246, w:36, h:36, area:'body',
+    tip:'硬物居中，软物塞缝' },
+  { id:'gas', name:'气罐 230g', sub:'扁罐', zone:'核心区', kg:0.36, color:'#3A6EA5', shape:'cylV', kind:'gas', x:170, y:212, w:28, h:32, area:'body',
+    tip:'阀门朝上，竖着放' },
+  { id:'fleece', name:'抓绒中层', sub:'保暖层', zone:'上部', kg:0.3, color:'#34C759', shape:'fold', x:90, y:172, w:114, h:31, area:'body',
+    tip:'休息要加衣，放上部' },
+  { id:'shell', name:'冲锋衣', sub:'Beta AR', zone:'上部 最上层', kg:0.44, color:'#1F7A45', shape:'fold', kind:'shell', x:90, y:137, w:114, h:33, area:'body',
+    tip:'变天先穿，放最上面' },
+  { id:'lamp', name:'头灯', sub:'Petzl Actik Core', zone:'顶包', kg:0.08, color:'#32ADE6', shape:'lamp', x:100, y:68, w:40, h:22, area:'lid',
+    tip:'随手要用，放顶包' },
+  { id:'aid', name:'急救包', sub:'个人急救', zone:'顶包', kg:0.28, color:'#FF2D55', shape:'box', kind:'aid', x:148, y:64, w:44, h:30, area:'lid',
+    tip:'放顶包，告诉同伴' },
+  { id:'bottle', name:'水壶 1L', sub:'左侧袋', zone:'侧袋', kg:1.0, color:'#007AFF', shape:'cylV', kind:'bottle', x:229, y:212, w:20, h:86, area:'out', dy:-120,
+    tip:'边走边喝，放侧袋' },
+  { id:'pad', name:'防潮垫', sub:'蛋巢垫', zone:'外挂 底部', kg:0.4, color:'#F2B705', shape:'cylH', kind:'pad', x:70, y:338, w:182, h:30, area:'out', dx:160, dy:0,
+    tip:'轻而大，挂在包底' },
+  { id:'phone', name:'手机', sub:'腰带包', zone:'腰带包', kg:0.2, color:'#2C2C2E', shape:'phone', x:34, y:298, w:20, h:30, area:'out', dx:-80, dy:0,
+    tip:'常用小物，放腰带包' },
+];
+
+const ZONES = [
+  { name:'顶包', c:'#32ADE6', d:'M92,62 H198 V96 H92 Z', lx:145, ly:82 },
+  { name:'上部 常用衣物', c:'#34C759', d:'M88,134 H204 V204 H88 Z', lx:146, ly:172 },
+  { name:'核心区 重物贴背', c:'#FF9500', d:'M88,204 H204 V284 H88 Z', lx:146, ly:247 },
+  { name:'底部 睡眠', c:'#5856D6', d:'M88,284 H204 V324 H88 Z', lx:146, ly:307 },
+  { name:'侧袋', c:'#007AFF', d:'M224,262 L257,246 L258,318 L224,344 Z', lx:241, ly:300 },
+  { name:'腰带包', c:'#8E8E93', d:'M26,304 C40,298 52,296 66,296 L66,324 C50,324 38,328 26,334 Z', lx:46, ly:318 },
+  { name:'外挂', c:'#F2B705', d:'M70,340 H252 V370 H70 Z', lx:161, ly:358 },
+];
+
+// ---- colour helpers
+function hex2rgb(h){ h=h.replace('#',''); return [0,2,4].map(i=>parseInt(h.slice(i,i+2),16)); }
+function shade(h,p){ const [r,g,b]=hex2rgb(h); const t=p>0?255:0, a=Math.abs(p);
+  return '#'+[r,g,b].map(v=>Math.round(v+(t-v)*a).toString(16).padStart(2,'0')).join(''); }
+function lg(id,stops,vertical=true){
+  return `<linearGradient id="${id}" x1="0" y1="0" x2="${vertical?0:1}" y2="${vertical?1:0}">`+
+    stops.map(([o,c])=>`<stop offset="${o}" stop-color="${c}"/>`).join('')+`</linearGradient>`; }
+
+// ---- 2.5D item shapes
+function shape(it,p){
+  const {x,y,w,h,color:c}=it, id=p+it.id; let defs='', g='';
+  if (it.shape==='cylH'){
+    const r=h/2;
+    defs+=lg(id+'a',[[0,shade(c,.35)],[.45,c],[1,shade(c,-.38)]]);
+    g+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="url(#${id}a)"/>`;
+    g+=`<rect x="${x+r*.7}" y="${y+h*.16}" width="${w-r*2.2}" height="${h*.12}" rx="${h*.06}" fill="#fff" opacity=".28"/>`;
+    const straps = it.kind==='pad' ? [] : [.32,.62];
+    if (it.kind==='pad') for(let i=1;i<9;i++) g+=`<line x1="${x+r+i*(w-2*r)/9}" y1="${y+3}" x2="${x+r+i*(w-2*r)/9}" y2="${y+h-3}" stroke="${shade(c,-.25)}" stroke-width="1"/>`;
+    straps.forEach(s=>{ g+=`<rect x="${x+w*s}" y="${y-1}" width="5" height="${h+2}" rx="1.5" fill="${shade(c,-.5)}" opacity=".75"/>`; });
+    g+=`<ellipse cx="${x+w-r*.55}" cy="${y+r}" rx="${r*.55}" ry="${r-1}" fill="${shade(c,.12)}" stroke="${shade(c,-.3)}"/>`;
+    g+=`<ellipse cx="${x+w-r*.55}" cy="${y+r}" rx="${r*.25}" ry="${r*.45}" fill="${shade(c,-.15)}"/>`;
+    if (it.kind==='pad') [96,196].forEach(sx=>{ g+=`<rect x="${sx}" y="${y-8}" width="7" height="${h+12}" rx="2" fill="#1d2622"/><rect x="${sx-1}" y="${y+h-2}" width="9" height="7" rx="1.5" fill="#55615b"/>`; });
+  } else if (it.shape==='cylV'){
+    const e=Math.min(6,w*.22);
+    defs+=lg(id+'a',[[0,shade(c,-.3)],[.32,shade(c,.32)],[.62,c],[1,shade(c,-.4)]],false);
+    g+=`<path d="M${x},${y+e} L${x},${y+h-e} A${w/2},${e} 0 0 0 ${x+w},${y+h-e} L${x+w},${y+e} Z" fill="url(#${id}a)"/>`;
+    g+=`<ellipse cx="${x+w/2}" cy="${y+e}" rx="${w/2}" ry="${e}" fill="${shade(c,.3)}" stroke="${shade(c,-.15)}" stroke-width=".8"/>`;
+    if (!it.kind) [.3,.68].forEach(s=>{ g+=`<rect x="${x-1}" y="${y+h*s}" width="${w+2}" height="5" rx="1.5" fill="${shade(c,-.5)}" opacity=".7"/>`; });
+    if (it.kind==='pot') g+=`<path d="M${x+w},${y+e+4} q9,2 10,8" stroke="#2b2b2b" stroke-width="2.5" fill="none" stroke-linecap="round"/><ellipse cx="${x+w/2}" cy="${y+e}" rx="${w/2-4}" ry="${e-2}" fill="${shade(c,-.35)}"/>`;
+    if (it.kind==='gas') g+=`<rect x="${x+w/2-4}" y="${y-4}" width="8" height="7" rx="1.5" fill="#9aa0a6"/><rect x="${x+2}" y="${y+h*.45}" width="${w-4}" height="8" fill="#fff" opacity=".8"/>`;
+    if (it.kind==='bottle') g+=`<rect x="${x+w*.22}" y="${y-7}" width="${w*.56}" height="9" rx="2" fill="#1c1c1e"/><rect x="${x}" y="${y+h*.42}" width="${w}" height="${h*.18}" fill="#fff" opacity=".22"/>`;
+  } else if (it.shape==='box'){
+    const d=Math.min(8,h*.25);
+    defs+=lg(id+'a',[[0,shade(c,.12)],[1,shade(c,-.2)]]);
+    g+=`<polygon points="${x},${y+d} ${x+d},${y} ${x+w},${y} ${x+w-d},${y+d}" fill="${shade(c,.35)}"/>`;
+    g+=`<polygon points="${x+w-d},${y+d} ${x+w},${y} ${x+w},${y+h-d} ${x+w-d},${y+h}" fill="${shade(c,-.32)}"/>`;
+    g+=`<rect x="${x}" y="${y+d}" width="${w-d}" height="${h-d}" rx="2.5" fill="url(#${id}a)"/>`;
+    if (it.kind==='food') g+=`<rect x="${x}" y="${y+d}" width="${w-d}" height="9" fill="${shade(c,-.3)}"/><rect x="${x+(w-d)/2-6}" y="${y+d+2}" width="12" height="5" rx="1" fill="#222"/>`;
+    if (it.kind==='aid'){ const cx=x+(w-d)/2, cy=y+d+(h-d)/2; g+=`<rect x="${cx-2.5}" y="${cy-7}" width="5" height="14" fill="#fff"/><rect x="${cx-7}" y="${cy-2.5}" width="14" height="5" fill="#fff"/>`; }
+  } else if (it.shape==='fold'){
+    defs+=lg(id+'a',[[0,shade(c,.3)],[.5,c],[1,shade(c,-.3)]]);
+    g+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="9" fill="url(#${id}a)"/>`;
+    g+=`<path d="M${x+10},${y+h*.52} Q${x+w/2},${y+h*.52+4} ${x+w-10},${y+h*.52}" stroke="${shade(c,-.35)}" stroke-width="1.4" fill="none"/>`;
+    g+=`<rect x="${x+12}" y="${y+4}" width="${w-24}" height="4" rx="2" fill="#fff" opacity=".25"/>`;
+    if (it.kind==='shell') g+=`<line x1="${x+w*.7}" y1="${y+5}" x2="${x+w*.7}" y2="${y+h-5}" stroke="#0d3b20" stroke-width="1.6" stroke-dasharray="1.5 1.5"/>`;
+  } else if (it.shape==='lamp'){
+    defs+=lg(id+'a',[[0,shade(c,.3)],[1,shade(c,-.3)]]);
+    defs+=`<radialGradient id="${id}l" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#FFD54A"/></radialGradient>`;
+    g+=`<rect x="${x}" y="${y+h*.32}" width="${w}" height="${h*.38}" rx="${h*.19}" fill="url(#${id}a)"/>`;
+    g+=`<rect x="${x+w*.28}" y="${y+1}" width="${w*.44}" height="${h-2}" rx="5" fill="#2c2c2e"/>`;
+    g+=`<circle cx="${x+w/2}" cy="${y+h/2}" r="${h*.28}" fill="url(#${id}l)" stroke="#111" stroke-width="1"/>`;
+  } else if (it.shape==='phone'){
+    defs+=lg(id+'a',[[0,'#4b6cb7'],[1,'#182848']]);
+    g+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="#1c1c1e"/><rect x="${x+1.8}" y="${y+2}" width="${w-3.6}" height="${h-4}" rx="2.5" fill="url(#${id}a)"/>`;
+  }
+  return { defs, g };
+}
+
+// ---- static bag
+const BODY='M70,100 Q70,92 78,92 L212,92 Q220,92 220,100 L224,330 Q224,344 210,344 L80,344 Q66,344 66,330 Z';
+const WIN='M96,108 L196,108 Q206,108 206,118 L206,316 Q206,326 196,326 L96,326 Q86,326 86,316 L86,118 Q86,108 96,108 Z';
+const LID='M62,102 Q60,64 98,54 L192,54 Q228,64 226,102 Z';
+const LIDWIN='M100,62 L190,62 Q198,62 198,70 L198,88 Q198,96 190,96 L100,96 Q92,96 92,88 L92,70 Q92,62 100,62 Z';
+
+function buildSvg(){
+  let defs=`
+    ${lg('gBody',[[0,'#4E6B5B'],[1,'#3A5245']],false)}
+    ${lg('gSide',[[0,'#2C4136'],[1,'#22332A']],false)}
+    ${lg('gLining',[[0,'#151c18'],[.5,'#26302b'],[1,'#1a221e']],false)}
+    ${lg('gLid',[[0,'#E06A3E'],[1,'#B9482A']],false)}
+    ${lg('gBelt',[[0,'#2A3A31'],[1,'#3A5245']],false)}
+    <radialGradient id="gShadow"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <pattern id="mesh" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0,0 L4,4 M4,0 L0,4" stroke="rgba(255,255,255,.28)" stroke-width=".6"/></pattern>
+    <clipPath id="clipBody"><path d="${WIN}"/></clipPath>
+    <clipPath id="clipLid"><path d="${LIDWIN}"/></clipPath>`;
+  const parts={};
+  ITEMS.forEach(it=>{ const s=shape(it,'b'); defs+=s.defs;
+    parts[it.id]=`<g class="item" id="it-${it.id}" opacity="0">${s.g}</g>`; });
+  const zip=(d)=>`<path d="${d}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="3.2"/><path d="${d}" fill="none" stroke="#cfd6d2" stroke-width="1.1" stroke-dasharray="1.6 2.2"/>`;
+  const strap=(x,y)=>`<rect x="${x}" y="${y}" width="24" height="6" rx="1.5" fill="#1d2622"/><rect x="${x+8}" y="${y-1.5}" width="8" height="9" rx="1.5" fill="#55615b"/>`;
+  const zones=ZONES.map(z=>`<path d="${z.d}" fill="${z.c}" fill-opacity=".28" stroke="${z.c}" stroke-width="1.2" stroke-dasharray="3 2"/>
+      <g><rect x="${z.lx-z.name.length*5.6/2-6}" y="${z.ly-8}" width="${z.name.length*5.6+12}" height="15" rx="7.5" fill="#fff" opacity=".95"/>
+      <text x="${z.lx}" y="${z.ly+3}" font-size="9" font-weight="600" text-anchor="middle" fill="#1c1c1e">${z.name}</text></g>`).join('');
+
+  return `<defs>${defs}</defs>
+  <g id="bagRoot">
+    <ellipse cx="150" cy="374" rx="132" ry="12" fill="url(#gShadow)"/>
+    <path d="M220,100 L250,86 Q256,86 256,94 L258,316 Q258,322 252,326 L224,344 Z" fill="url(#gSide)"/>
+    <path d="M232,120 L252,110 M232,200 L254,190" stroke="#1d2622" stroke-width="5" stroke-linecap="round"/>
+    <path d="M68,286 C44,288 28,298 22,314 L24,338 C38,330 52,326 68,326 Z" fill="url(#gBelt)"/>
+    ${parts.phone}
+    <path d="M26,304 C40,298 52,296 66,296 L66,324 C50,324 38,328 26,334 Z" fill="rgba(20,30,25,.45)"/>
+    <path d="M26,304 C40,298 52,296 66,296 L66,324 C50,324 38,328 26,334 Z" fill="url(#mesh)"/>
+    <path d="M26,304 C40,298 52,296 66,296" stroke="#111" stroke-width="2" fill="none"/>
+    ${parts.pad}
+    <path d="${WIN}" fill="url(#gLining)"/>
+    <path d="M90,112 L90,322" stroke="rgba(255,255,255,.06)" stroke-width="6"/>
+    <g clip-path="url(#clipBody)">${['sleep','tent','food','pot','gas','fleece','shell'].map(k=>parts[k]).join('')}</g>
+    <path d="${BODY} ${WIN}" fill="url(#gBody)" fill-rule="evenodd"/>
+    ${zip(WIN)}
+    ${strap(63,170)}${strap(63,262)}${strap(201,170)}${strap(201,262)}
+    <rect x="133" y="332" width="26" height="8" rx="2" fill="#E06A3E"/>
+    <text x="146" y="338.4" font-size="5.6" font-weight="800" text-anchor="middle" fill="#fff" letter-spacing=".6">KAIPA</text>
+    ${parts.bottle}
+    <path d="M224,262 L257,246 L258,316 Q258,322 252,326 L224,344 Z" fill="rgba(20,30,25,.5)"/>
+    <path d="M224,262 L257,246 L258,316 Q258,322 252,326 L224,344 Z" fill="url(#mesh)"/>
+    <path d="M224,262 L257,246" stroke="#111" stroke-width="2.4"/>
+    <path d="M194,54 L222,42 Q256,54 256,92 L226,102 Q228,64 194,54 Z" fill="#9E3C22"/>
+    <path d="${LIDWIN}" fill="url(#gLining)"/>
+    <g clip-path="url(#clipLid)">${parts.lamp}${parts.aid}</g>
+    <path d="${LID} ${LIDWIN}" fill="url(#gLid)" fill-rule="evenodd"/>
+    ${zip(LIDWIN)}
+    <path d="M130,54 q15,-14 30,0" stroke="#1d2622" stroke-width="4" fill="none" stroke-linecap="round"/>
+  </g>
+  <g class="zones" id="zones">${zones}</g>
+  <g class="ghost" id="ghost"></g>`;
+}
+
+// ---- state
+const svg=document.getElementById('svg');
+svg.innerHTML=buildSvg();
+const state=ITEMS.map(()=> 'todo');
+const history=[];
+let zonesOn=false;
+
+function curIndex(){ return state.indexOf('todo'); }
+
+// Pulsing slot plus a bouncing chevron; tapping the slot also packs the item.
+function renderGhost(i){
+  const g=document.getElementById('ghost');
+  if (i<0 || zonesOn){ g.innerHTML=''; return; }
+  const it=ITEMS[i], pad=4, px=it.x+it.w/2, py=it.y-pad-5;
+  g.innerHTML=`<rect class="outline" x="${it.x-pad}" y="${it.y-pad}" width="${it.w+pad*2}" height="${it.h+pad*2}" rx="8"
+      fill="#fff" fill-opacity=".14" stroke="#fff" stroke-width="2" stroke-dasharray="5 3.5"/>
+    <g class="pin"><path d="M${px-6},${py-7} L${px},${py-1} L${px+6},${py-7}" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <rect class="hit" x="${it.x-pad-6}" y="${it.y-pad-6}" width="${it.w+pad*2+12}" height="${it.h+pad*2+12}" fill="transparent"/>`;
+  g.querySelector('.hit').addEventListener('click',()=>place(i));
+}
+
+function iconSvg(it){
+  const s=shape(it,'i'), m=8, vb=Math.max(it.w,it.h)+m*2;
+  return `<svg viewBox="${it.x+it.w/2-vb/2} ${it.y+it.h/2-vb/2} ${vb} ${vb}"><defs>${s.defs}</defs>${s.g}</svg>`;
+}
+
+const ICON={
+  later:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  check:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  again:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+};
+
+let lastFocus=null;
+function render(){
+  const i=curIndex();
+  document.getElementById('segs').innerHTML=ITEMS.map((it,k)=>{
+    const bg=state[k]==='done'?it.color:state[k]==='skip'?'rgba(255,149,0,.55)':'';
+    return `<i${bg?` style="background:${bg}"`:''}></i>`; }).join('');
+  document.getElementById('undo').disabled=!history.length;
+  renderGhost(i);
+  const dock=document.getElementById('dock');
+  if (i>=0){
+    const it=ITEMS[i];
+    dock.innerHTML=`<div class="icon" style="background:${it.color}33">${iconSvg(it)}</div>
+      <div class="txt"><div class="name">${it.name}</div><div class="tip">${it.tip}</div></div>
+      <button class="later" id="later" aria-label="稍后">${ICON.later}</button>
+      <button class="go" id="put" aria-label="已装入">${ICON.check}</button>`;
+    document.getElementById('put').onclick=()=>place(i);
+    document.getElementById('later').onclick=()=>{ state[i]='skip'; render(); };
+  } else {
+    const miss=ITEMS.map((it,k)=>[it,k]).filter(([,k])=>state[k]==='skip');
+    const done=state.filter(x=>x==='done').length;
+    const kg=ITEMS.reduce((a,it,k)=>a+(state[k]==='done'?it.kg:0),0);
+    dock.innerHTML=`<div class="icon" style="background:${miss.length?'rgba(255,149,0,.22)':'rgba(52,199,89,.25)'};color:${miss.length?'#FFB340':'#30D158'}">${ICON.check}</div>
+      <div class="txt"><div class="name">${miss.length?`还差 ${miss.length} 件`:'全部装好'}</div>
+        ${miss.length?`<div class="miss">${miss.map(([it,k])=>`<button data-k="${k}">${it.name}</button>`).join('')}</div>`:`<div class="tip">${done} 件 ${kg.toFixed(1)} kg</div>`}</div>
+      <button class="go" id="again" aria-label="重新开始">${ICON.again}</button>`;
+    dock.querySelectorAll('.miss button').forEach(b=>b.onclick=()=>{ state[+b.dataset.k]='todo'; render(); });
+    document.getElementById('again').onclick=reset;
+  }
+  if (lastFocus!==i){ lastFocus=i; dock.classList.remove('swap'); void dock.offsetWidth; dock.classList.add('swap'); }
+}
+
+function place(i){
+  state[i]='done'; history.push(i);
+  const it=ITEMS[i];
+  dropIn(document.getElementById('it-'+it.id), it.dx||0, it.dy??(it.area==='lid'?-90:-230));
+  setTimeout(bump, 480);
+  render();
+}
+// Frame-driven tweens on SVG attributes (no CSS animation), so every engine keeps placed items visible.
+function tween(dur, step){ const t0=performance.now();
+  (function f(t){ const p=Math.min(1,(t-t0)/dur); step(p); if(p<1) requestAnimationFrame(f); })(t0); }
+function dropIn(el, dx, dy){
+  const out=p=>{ const c=1.3, q=p-1; return 1+(c+1)*q*q*q+c*q*q; };
+  tween(650, p=>{ const k=1-out(p);
+    el.setAttribute('opacity', Math.min(1,p*3).toFixed(3));
+    if (p<1) el.setAttribute('transform',`translate(${(dx*k).toFixed(2)},${(dy*k).toFixed(2)})`);
+    else { el.setAttribute('opacity','1'); el.removeAttribute('transform'); } });
+}
+function bump(){
+  const root=document.getElementById('bagRoot');
+  tween(420, p=>{ const a=Math.sin(p*Math.PI*2)*(1-p)*.02;
+    if (p<1) root.setAttribute('transform',`translate(140,372) scale(${1+a},${1-a}) translate(-140,-372)`);
+    else root.removeAttribute('transform'); });
+}
+function undo(){
+  const i=history.pop(); if(i==null) return;
+  state[i]='todo'; document.getElementById('it-'+ITEMS[i].id).setAttribute('opacity','0'); render();
+}
+function reset(){
+  history.length=0; state.fill('todo');
+  document.querySelectorAll('.item').forEach(e=>{ e.setAttribute('opacity','0'); e.removeAttribute('transform'); }); render();
+}
+document.getElementById('undo').onclick=undo;
+document.getElementById('zonesBtn').onclick=()=>{
+  zonesOn=!zonesOn;
+  document.getElementById('zonesBtn').classList.toggle('on',zonesOn);
+  document.getElementById('zones').classList.toggle('on',zonesOn);
+  renderGhost(curIndex());
+};
+
+// ---- 2.5D tilt: idle sway + follow pointer
+const wrap=document.getElementById('bagwrap'), stage=document.getElementById('stage');
+let tx=0, ty=0, px=0, py=0, last=0;
+stage.addEventListener('pointermove',e=>{ const r=stage.getBoundingClientRect();
+  tx=((e.clientX-r.left)/r.width-.5)*28; ty=-((e.clientY-r.top)/r.height-.5)*14; last=performance.now(); });
+stage.addEventListener('pointerleave',()=>{ last=0; });
+(function loop(t){
+  const idle=performance.now()-last>1500;
+  const gx=idle?Math.sin(t/1600)*9:tx, gy=idle?Math.sin(t/2300)*3:ty;
+  px+=(gx-px)*.08; py+=(gy-py)*.08;
+  wrap.style.transform=`rotateY(${px}deg) rotateX(${py}deg)`;
+  requestAnimationFrame(loop);
+})(0);
+
+render();
+</script>
+</body>
+</html>

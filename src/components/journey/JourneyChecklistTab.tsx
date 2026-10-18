@@ -7,7 +7,9 @@ import { RECOMMENDED_PACKING_TEMPLATES, type RecommendedPackingTemplate } from '
 import type { Poi } from '../../data/pois';
 import { useData } from '../../data/DataContext';
 import { AppHeaderSearch, AppIconButton, AppProgressBar, DetailPage, layout, motion, radius, space, type } from '../../design-system';
-import { useJourneyPacking, type JourneyPackingController } from '../../hooks/useJourneyPacking';
+import { refetchJourneyPacking, useJourneyPacking, type JourneyPackingController } from '../../hooks/useJourneyPacking';
+import { supabase } from '../../lib/supabase';
+import * as Crypto from 'expo-crypto';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { MONO } from '../../theme/fonts';
@@ -91,6 +93,9 @@ function JourneyChecklistTabComponent({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<'gear' | 'sets' | 'templates' | null>(null);
   const [customItemOpen, setCustomItemOpen] = useState(false);
+  const [guideGearCount, setGuideGearCount] = useState(0);
+  const [importingGuideGear, setImportingGuideGear] = useState(false);
+  const importingGuideGearRef = useRef(false);
   const [selectedItem, setSelectedItem] = useState<JourneyPackingItem | null>(null);
   const [gearDetailItem, setGearDetailItem] = useState<GearItem | null>(null);
   const gearItemsById = useMemo(() => new Map(gearItems.map((item) => [item.id, item])), [gearItems]);
@@ -117,6 +122,35 @@ function JourneyChecklistTabComponent({
   const isHost = Boolean(journey.mine || controller.currentCompanion.host);
   const canEdit = !readOnly && Boolean(isMine || isHost);
   const canCheck = canEdit;
+  useEffect(() => {
+    if (!canEdit || preview || controller.items.length) { setGuideGearCount(0); return; }
+    let active = true;
+    void (async () => {
+      const receipt = await supabase.from('journey_guide_imports').select('template_id').eq('journey_id', journey.id).maybeSingle();
+      const guideId = receipt.data?.template_id;
+      if (receipt.error || !guideId || guideId.includes('@')) { if (active) setGuideGearCount(0); return; }
+      const guide = await supabase.from('route_guides').select('plan').eq('id', guideId).eq('status', 'approved').maybeSingle();
+      const gear = (guide.data?.plan as { gear?: unknown } | null)?.gear;
+      if (active) setGuideGearCount(!guide.error && Array.isArray(gear) ? gear.length : 0);
+    })();
+    return () => { active = false; };
+  }, [canEdit, preview, controller.items.length, journey.id]);
+
+  const importGuideGear = async () => {
+    if (importingGuideGearRef.current) return;
+    importingGuideGearRef.current = true;
+    setImportingGuideGear(true);
+    try {
+      const { error } = await supabase.rpc('journey_import_route_guide_gear', { p_journey_id: journey.id, p_request_id: Crypto.randomUUID() });
+      if (error) throw error;
+      await refetchJourneyPacking(journey.id);
+    } catch (error) {
+      Alert.alert(t('journey.packing.importFailed'), error instanceof Error ? error.message : String(error));
+    } finally {
+      importingGuideGearRef.current = false;
+      setImportingGuideGear(false);
+    }
+  };
   const orderedViews = useMemo(
     () =>
       [...memberViews].sort((a, b) => {
@@ -243,6 +277,13 @@ function JourneyChecklistTabComponent({
           onSelectList={onFilterMenuOpenChange && !selectionMode ? () => onFilterMenuOpenChange(true) : undefined}
           emptyBody={canEdit ? t('journey.packing.emptyBody') : t('journey.packing.emptyTeammate')}
         />
+        {canEdit && !preview && !controller.items.length ? (
+          <View style={{ marginTop: space.md, gap: space.xs }}>
+            {guideGearCount > 0 ? <Press onPress={() => void importGuideGear()} disabled={importingGuideGear} style={{ minHeight: layout.fieldHeight, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.control, backgroundColor: theme.fieldSurface }}><Text style={[type.body, { color: theme.accent }]}>{t('journey.packing.importGuideGear', { count: guideGearCount })}</Text></Press> : null}
+            <Press onPress={() => setSourceMode('gear')} style={{ minHeight: layout.fieldHeight, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.control, backgroundColor: theme.fieldSurface }}><Text style={[type.body, { color: theme.accent }]}>{t('journey.packing.pickFromLibrary')}</Text></Press>
+            <Press onPress={() => nav.openAssistant(t('journeyHome.hero.packingPlanPrompt'), journey.id)} style={{ minHeight: layout.fieldHeight, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.control, backgroundColor: theme.fieldSurface }}><Text style={[type.body, { color: theme.accent }]}>{t('journey.packing.generateWithAi')}</Text></Press>
+          </View>
+        ) : null}
         {!canEdit ? <Text style={[type.caption, { color: theme.text2, marginTop: space.sm }]}>{t('journey.packing.viewOnly')}</Text> : null}
         {displayItems.length ? (
           <View style={{ marginTop: layout.sectionGap }}>

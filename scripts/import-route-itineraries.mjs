@@ -145,7 +145,8 @@ export function validateItineraryFile(file) {
 export function planUpsert(plan, existingRows) {
   const versions = existingRows.filter(row => row.id === plan.id);
   const latest = versions.reduce((best, row) => !best || row.version > best.version ? row : best, null);
-  const insert = !latest || versions.some(row => row.status === 'published') || !['draft', 'review'].includes(latest.status);
+  // Published versions are immutable, but a pending draft above one is the revision to keep editing.
+  const insert = !latest || !['draft', 'review'].includes(latest.status);
   const version = insert ? (latest?.version ?? 0) + 1 : latest.version;
   return { action: insert ? 'insert' : 'update', row: { id: plan.id, version, route_id: plan.routeId, status: plan.status, is_default: plan.isDefault, origin: plan.origin, payload: plan.payload, draft_sources: plan.draftSources } };
 }

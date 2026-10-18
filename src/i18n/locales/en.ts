@@ -6,7 +6,7 @@ import type { SameShape } from "../types";
 export const en: SameShape<typeof zh> = {
   officialItinerary: {
     cardDate: 'First hiking day: {month}/{day}', cardOpen: 'View plan', routeUnavailable: 'This route is unavailable. Please try again later.',
-    title: 'Official plan', summary: 'Official overview', season: 'Season', switchPlan: 'Change plan', notes: 'Official notes', source: 'Source', save: 'Save as journey', saving: 'Saving…', changeDate: 'Change date', trekStart: 'First hiking day', datePending: 'Date pending', difficulty: 'Difficulty', audience: 'Suitable for', day: 'Day {count}', distance: '{count} km', ascent: 'Ascent {count} m', descent: 'Descent {count} m', stay: 'Stay: {name}', tip: 'Official tip: {text}', loading: 'Loading official plans…', loadError: 'Could not load plans', retry: 'Retry', updatedTitle: 'Plan updated', updatedMessage: 'This plan has changed. Refresh and choose again.', saveError: 'Could not save the journey. Please try again.', confirmDate: 'Done', unsetDate: 'Date pending', hikeDays: '{count} hiking days', accessDays: '{count} access days',
+    summary: 'Official overview', season: 'Season', notes: 'Official notes', source: 'Source', datePending: 'Date pending', difficulty: 'Difficulty', audience: 'Suitable for', day: 'Day {count}', distance: '{count} km', ascent: 'Ascent {count} m', descent: 'Descent {count} m', stay: 'Stay: {name}', tip: 'Official tip: {text}', loading: 'Loading official plans…', loadError: 'Could not load plans', retry: 'Retry', updatedTitle: 'Plan updated', updatedMessage: 'This plan has changed. Refresh and choose again.', saveError: 'Could not save the journey. Please try again.', hikeDays: '{count} hiking days', accessDays: '{count} access days', recommendedMonths: 'Recommended months: {months}', created: 'Trip created with its daily itinerary',
   },
   app: { name: "kaipa" },
   membership: {
@@ -1252,6 +1252,10 @@ export const en: SameShape<typeof zh> = {
       localMode: "Using local checklist records",
       emptyBody:
         "Add gear from your library, existing lists, or community lists",
+      importGuideGear: "Import guide gear list ({count} items)",
+      pickFromLibrary: "Choose from my gear library",
+      generateWithAi: "Generate for this route with AI",
+      importFailed: "Could not import guide gear",
       emptyTeammate: "No gear has been added yet",
       add: "Add gear",
       oneItem: "1 item",
@@ -1576,6 +1580,7 @@ export const en: SameShape<typeof zh> = {
       deleteGroupTitle: 'Delete group "{name}"?',
       deleteGroupMessage:
         "{count} items in this group will also be deleted. This cannot be undone.",
+      deleteDayShift: "Following days move forward. The journey becomes {count} days.",
       emptyTitle: "No itinerary yet",
       addManually: "Add itinerary",
       smartPlan: "Smart plan",

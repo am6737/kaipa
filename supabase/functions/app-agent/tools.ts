@@ -1034,14 +1034,17 @@ export const updateJourneyScheduleParams = z.object({
     toDay: z.number().int().min(1).max(365),
   })).max(365),
 });
-export const runUpdateJourneySchedule = async (args: z.infer<typeof updateJourneyScheduleParams>, runContext?: RunContext): Promise<unknown> => mutate('update_journey_schedule', args, runContext, async (client, context) => {
-  await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
-  if (args.plannedDate != null && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
+export const runUpdateJourneySchedule = async (args: z.infer<typeof updateJourneyScheduleParams>, runContext?: RunContext): Promise<unknown> => {
   // Null from the model must mean "keep the current date", exactly like an
-  // omitted field; never persist it as a cleared date.
+  // omitted field; never persist it as a cleared date. The recorded call
+  // arguments must equal the change, or the database rejects it.
   const change = args.plannedDate == null ? { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments } : args;
-  return commitJourneyChange(client, context, args.journeyId, change, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
-});
+  return mutate('update_journey_schedule', change, runContext, async (client, context) => {
+    await assertJourneyWriteAccess(client, context, args.journeyId, 'editTimeline');
+    if (args.plannedDate != null && !validIsoDate(args.plannedDate)) throw new Error('出发日期必须是有效的 YYYY-MM-DD 日期');
+    return commitJourneyChange(client, context, args.journeyId, change, { journeyId: args.journeyId, totalDays: args.totalDays, dayAssignments: args.dayAssignments });
+  });
+};
 export const updateJourneySchedule = tool({
   name: 'update_journey_schedule',
   description: 'Atomically update an existing journey start date, total days, and move whole day groups without recreating items. Read journey and itinerary sections first. Supply every existing day/group name exactly once in dayAssignments, including unchanged groups; assign each a distinct target day. Preserve relative hiking order and route endpoints. Only move custom groups when the user requests it. Omit plannedDate to keep the current date. Ask only when the intended date or move is ambiguous, not for manual editing.',

@@ -80,9 +80,14 @@ test('planUpsert updates latest draft or review in place', () => {
     assert.equal(result.action, 'update'); assert.equal(result.row.version, 2);
   }
 });
-test('planUpsert creates a new version after archived or any published version', () => {
+test('planUpsert updates a pending draft above a published version', () => {
   const plan = { ...file().plans[0], routeId: 'trk014' };
-  for (const rows of [[{ id: ID, version: 2, status: 'archived' }], [{ id: ID, version: 1, status: 'published' }, { id: ID, version: 3, status: 'draft' }]]) {
+  const result = planUpsert(plan, [{ id: ID, version: 1, status: 'published' }, { id: ID, version: 3, status: 'draft' }]);
+  assert.equal(result.action, 'update'); assert.equal(result.row.version, 3);
+});
+test('planUpsert creates a new version when the latest is archived or published', () => {
+  const plan = { ...file().plans[0], routeId: 'trk014' };
+  for (const rows of [[{ id: ID, version: 2, status: 'archived' }], [{ id: ID, version: 1, status: 'archived' }, { id: ID, version: 2, status: 'published' }]]) {
     const before = clone(rows); const result = planUpsert(plan, rows);
     assert.equal(result.action, 'insert'); assert.equal(result.row.version, Math.max(...rows.map(row => row.version)) + 1); assert.deepEqual(rows, before);
   }

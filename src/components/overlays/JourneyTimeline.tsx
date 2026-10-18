@@ -1332,7 +1332,7 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
 export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onGroupCollapseChange, onReorderActiveChange }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onGroupCollapseChange?: (change: { collapsed: boolean; delta: number }) => void; onReorderActiveChange?: (active: boolean) => void }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
-  const { userId } = useData();
+  const { userId, refetchJourneys } = useData();
   const tl = useTimeline(info.id, userId, preview);
   const [activeDay, setActiveDay] = useState<string>(ALL_DAYS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1402,17 +1402,25 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
 
   const confirmDeleteGroup = (g: TLGroup) => {
     const label = dayLabel(g);
+    const ordinal = journeyDayOrdinal(g.key);
+    const dayCount = Math.max(1, info.totalDays || Number.parseInt(info.days || '', 10) || 1);
+    const followingDay = ordinal != null && groups.some((group) => (journeyDayOrdinal(group.key) ?? 0) > ordinal);
     Alert.alert(
       t('journey.timeline.deleteGroupTitle', { name: label }),
-      t('journey.timeline.deleteGroupMessage', { count: g.rows.length }),
+      t('journey.timeline.deleteGroupMessage', { count: g.rows.length })
+        + (followingDay ? `\n${t('journey.timeline.deleteDayShift', { count: Math.max(1, dayCount - 1) })}` : ''),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
-            void tl.removeGroup(g.key).catch(reportGroupFailure);
-            if (currentDay === g.key) setActiveDay(ALL_DAYS);
+            void (ordinal == null ? tl.removeGroup(g.key) : tl.removeDay(g.key))
+              .then(async () => {
+                await refetchJourneys();
+                setActiveDay(ALL_DAYS);
+              })
+              .catch(reportGroupFailure);
           },
         },
       ],

@@ -1,6 +1,7 @@
 import { presentItinerary, removeOutOfRangeArrivals } from './itinerary-presentation.ts';
 import { addTrackDayLocations, type ItineraryTrack } from './itinerary-track-locations.ts';
 import { carryDailyStarts } from './itinerary-locations.ts';
+import { chooseOfficialPlan, loadOfficialPlans, officialPlanDocument, officialTowns, type OfficialSelection } from './official-plan.ts';
 // Staged pipeline for the tasks that used to blow a single model-loop budget.
 //
 // A full plan is minutes of model work: research, an itinerary over a real
@@ -169,12 +170,15 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   if (research.aborted) return aborted();
 
   const multiRoute = isMultiRouteRequest(pipeline.task.decision.destination);
+  const official = pipeline.task.decision.fullHikingPlan && !multiRoute
+    ? await selectOfficialPlan(pipeline, needsMainTravel ? 2 : 0) : null;
+  if (official) pipeline.task.decision.derivedDays = official.totalDays;
   const transportPlan = multiRoute || needsMainTravel ? await runStage<TransportPlan>({
     name: 'transport', state, pipeline,
     execute: async signal => {
       const interRoute = multiRoute ? await runTransport(pipeline, signal, research.artifact) : transportPlanSchema.parse({});
       if (!needsMainTravel) return interRoute;
-      const mainTravel = await runMainTransport(pipeline, signal, research.artifact);
+      const mainTravel = await runMainTransport(pipeline, signal, research.artifact, official);
       return transportPlanSchema.parse({ ...interRoute, mainTravel });
     },
   }) : { artifact: null as TransportPlan | null, aborted: false };
@@ -186,14 +190,16 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   if (pipeline.task.decision.days == null) {
     // Route recording durations do not include the user's journey to/from
     // the trail. Let the planner estimate the complete trip after travel reads.
-    pipeline.task.decision.derivedDays = pipeline.task.decision.fullHikingPlan
+    pipeline.task.decision.derivedDays = official ? official.totalDays
+      : pipeline.task.decision.fullHikingPlan
       ? transportPlan.artifact?.mainTravel?.suggestedDays ?? null
       : transportPlan.artifact?.recommendedDays ?? research.artifact?.suggestedDays ?? null;
   }
 
   let plan = await runStage<PlanDocument>({
     name: 'plan', state, pipeline,
-    execute: signal => runPlan(pipeline, signal, research.artifact, transport, transportPlan.artifact),
+    execute: async signal => official ? officialPlanDocument(official)
+      : runPlan(pipeline, signal, research.artifact, transport, transportPlan.artifact),
     degrade: plan => planDegradeReason(plan, Boolean(boundJourneyId(pipeline.context))),
   });
   if (plan.aborted) return aborted();
@@ -203,7 +209,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   // local transfers/hiking, not invented ticket rows.
   if (needsMainTravel && plan.artifact && transportPlan.artifact?.mainTravel) {
     const main = transportPlan.artifact.mainTravel;
-    plan.artifact.itineraryItems = mergeMainTransportItems(plan.artifact.itineraryItems, main, mainTransportMergeOptions(pipeline, plan.artifact.journey?.days));
+    plan.artifact.itineraryItems = mergeMainTransportItems(plan.artifact.itineraryItems, main, mainTransportMergeOptions(pipeline, plan.artifact.journey?.days ?? official?.totalDays));
     reconcileCandidateDays(plan.artifact, pipeline);
     plan.artifact.itineraryItems = removeOutOfRangeArrivals(plan.artifact.itineraryItems, plan.artifact.journey?.days);
     plan.artifact.unverified = [...main.unresolved, ...plan.artifact.unverified].slice(0, 30);
@@ -824,7 +830,35 @@ async function runTransport(pipeline: PipelineDeps, signal: AbortSignal, researc
   });
 }
 
-async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null): Promise<MainTransport> {
+// The bound journey's route decides whether an official plan replaces the
+// model's day split. Any failure here keeps the model planner.
+async function selectOfficialPlan(pipeline: PipelineDeps, travelDays: number): Promise<OfficialSelection | null> {
+  const journeyId = boundJourneyId(pipeline.context);
+  if (!journeyId) return null;
+  try {
+    const journey = await pipeline.client.from('journeys').select('route_id,lng,lat').eq('id', journeyId).maybeSingle();
+    if (journey.error) throw journey.error;
+    const routeId = journey.data?.route_id as string | null | undefined;
+    if (!routeId) return null;
+    const loaded = await loadOfficialPlans(pipeline.admin, routeId);
+    if (!loaded) return null;
+    const plan = chooseOfficialPlan(loaded.plans, pipeline.task.decision.days ?? null, travelDays);
+    if (!plan) return null;
+    // Like the one-tap creation, an official plan sets no track day endpoints:
+    // its days follow the guide, which may walk the track in either direction.
+    // A journey created from the route already sits at the route's location.
+    const located = journey.data?.lng != null && journey.data?.lat != null;
+    pipeline.task.decision.requiredOperations = pipeline.task.decision.requiredOperations.filter(operation =>
+      operation !== 'set_itinerary_group_endpoints' && (operation !== 'set_journey_map_location' || !located));
+    return { plan, routeId, routeName: loaded.routeName, travelDays, totalDays: plan.payload.days.length + travelDays,
+      requestedDays: pipeline.task.decision.days ?? null };
+  } catch (error) {
+    console.warn('[AppAgent] official plan lookup failed, using the model planner', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, research: ResearchBrief | null, official: OfficialSelection | null = null): Promise<MainTransport> {
   const request = resolveTravelRequest(pipeline.task.decision.travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentLocation);
   const agent = pipeline.stageAgent({
     name: 'Kaipa Main Transport Endpoints', model: pipeline.flashModel, stage: 'transport', temperature: 0,
@@ -835,13 +869,14 @@ async function runMainTransport(pipeline: PipelineDeps, signal: AbortSignal, res
   try {
     endpoints = await stageCall(pipeline, agent, `${pipeline.userInput}
 已确认大交通需求：${JSON.stringify(request)}
-路线事实：${JSON.stringify(research)}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
+路线事实：${JSON.stringify(research)}${official ? `
+开爬官方方案：${official.plan.payload.name}，进山前在${officialTowns(official.plan).start ?? '未知'}集合，出山后回到${officialTowns(official.plan).end ?? '未知'}；全程 ${official.totalDays} 天（含往返交通）。大交通枢纽按这两个地点选择。` : ''}`, { maxTurns: 1, signal }, value => transportEndpointsSchema.parse(value));
   } catch (error) {
     if (signal.aborted) throw error;
     console.warn('[AppAgent] transport endpoints unavailable, falling back to ground estimates', String(error instanceof Error ? error.message : error).slice(0, 300));
     endpoints = transportEndpointsSchema.parse({ endpoints: [], unresolved: ['大交通查询枢纽未能确定。'] });
   }
-  return collectMainTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, days: pipeline.task.decision.days,
+  return collectMainTransport({ request, endpoints, plannedDate: pipeline.task.decision.plannedDate, days: official?.totalDays ?? pipeline.task.decision.days,
     fallbackDestination: research?.routes[0]?.start?.name || research?.destination || null,
     query: async query => {
       if (signal.aborted) throw signal.reason;

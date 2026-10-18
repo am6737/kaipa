@@ -24,15 +24,12 @@ import { MONO } from '../../theme/fonts';
 import { Poi, Companion } from '../../data/pois';
 import { useData } from '../../data/DataContext';
 import { useNav } from '../../nav/NavContext';
-import { useOfficialItineraries } from '../../hooks/useOfficialItineraries';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
 import { Icon } from '../Icon';
 import { Avatar } from '../Avatar';
 import { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF, NJWheelPicker, NJ_TIME_OPTIONS, njFormatTime } from './NewJourneyParts';
 import { useI18n, TKey, TVars } from '../../i18n';
-import { routeGuideCopy } from '../discover/routeGuideCopy';
-import type { RouteGuideJourneyTemplate } from '../../data/routeGuides';
 import { AppCard, AppIconButton, layout, radius, space, type } from '../../design-system';
 import { TrailSheet, type TrailSheetHandle } from '../Sheet';
 import { JourneyDateRangePicker } from './JourneyDateRangePicker';
@@ -666,7 +663,6 @@ function NJPresetPlanner({
   creatingMode,
   onManualPlan,
   onSmartPlan,
-  planningTemplate,
 }: {
   theme: Theme;
   route: NJRoute;
@@ -688,7 +684,6 @@ function NJPresetPlanner({
   creatingMode: 'manual' | 'smart' | null;
   onManualPlan: () => void;
   onSmartPlan: () => void;
-  planningTemplate?: RouteGuideJourneyTemplate;
 }) {
   const { t, resolved } = useI18n();
   const insets = useSafeAreaInsets();
@@ -697,7 +692,7 @@ function NJPresetPlanner({
   // keep enough sheet height for both controls without clipping the footer.
   // The card top also carries a compact identity header — the minimized display
   // left visible when the card collapses, like the journey detail sheet.
-  const plannerHeight = Math.min(Math.max(height * (planningTemplate ? 0.72 : 0.56), planningTemplate ? 560 : 450), planningTemplate ? 660 : 500);
+  const plannerHeight = Math.min(Math.max(height * 0.56, 450), 500);
   const minimizedHeight = Math.round(height * 0.15);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
@@ -821,30 +816,18 @@ function NJPresetPlanner({
               <Icon name="chevronR" color={theme.text3} size={15} />
             </Press>
           </View>
-          {planningTemplate ? <View style={{ marginTop: layout.sectionGap }}>
-            <Text style={[type.pageTitle, { color: theme.text }]}>{routeGuideCopy[resolved].templateSection}</Text>
-            <View style={{ marginTop: space.sm, paddingHorizontal: space.md, paddingVertical: space.md, borderRadius: radius.feature, backgroundColor: theme.surfaceTop, gap: space.sm }}>
-              <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{planningTemplate.title}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                <Avatar size={22} uri={planningTemplate.authorAvatarUrl || undefined} />
-                <Text numberOfLines={1} style={[type.meta, { color: theme.text2, flexShrink: 1 }]}>{planningTemplate.authorName}</Text>
-                <Text style={[type.meta, { color: theme.text2 }]}>{routeGuideCopy[resolved].templateDaysCount.replace('{n}', String(planningTemplate.days.length))}</Text>
-              </View>
-              <Text style={[type.caption, { color: theme.text2 }]}>{routeGuideCopy[resolved].templateImportCaption}</Text>
-            </View>
-          </View> : null}
         </View>
 
         <View style={{ position: 'absolute', left: space.md, right: space.md, bottom: keyboardHeight + Math.max(insets.bottom, space.md) - (24 + insets.bottom) }}>
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onManualPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
               {creatingMode === 'manual' ? <ActivityIndicator color={theme.text} /> : null}
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : planningTemplate ? routeGuideCopy[resolved].templateManual : t('journeyEdit.form.manualPlan')}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? theme.text : theme.text3 }}>{creatingMode === 'manual' ? t('journeyEdit.form.creating') : t('journeyEdit.form.manualPlan')}</Text>
             </Press>
-            {!planningTemplate ? <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
+            <Press disabled={!nameValid || Boolean(creatingMode)} onPress={onSmartPlan} style={{ flex: 1, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.xs, backgroundColor: nameValid ? theme.accent : theme.fieldSurface }}>
               {creatingMode === 'smart' ? <ActivityIndicator color="#FFFFFF" /> : <AssistantMark color={nameValid ? '#FFFFFF' : theme.text3} accentColor={nameValid ? '#FFFFFF' : theme.text3} size={18} />}
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={{ fontSize: 15.5, fontWeight: '700', color: nameValid ? '#FFFFFF' : theme.text3 }}>{creatingMode === 'smart' ? t('journeyEdit.form.planning') : t('journeyEdit.form.smartPlan')}</Text>
-            </Press> : null}
+            </Press>
           </View>
         </View>
         </View>
@@ -943,7 +926,7 @@ function journeyDateSummary(start: Date, durationMins: number | undefined, local
 export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast, preset }: { theme: Theme; onClose: () => void; onCreate: (poi: Poi) => Promise<boolean>; onSmartPlan: (poi: Poi, prompt: string) => Promise<boolean>; onToast: (m: string) => void; preset?: Poi | null }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
-  const { userId, profile, createTrack, routes } = useData();
+  const { userId, profile, createTrack } = useData();
   const selfCompanion = useMemo<Companion>(() => ({
     ...SELF,
     ini: profile.nick?.trim()?.slice(0, 1) || SELF.ini,
@@ -972,7 +955,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
   // supplied, including for route presets, which currently carry route data
   // rather than an existing journey schedule.
   const [hasExplicitStart, setHasExplicitStart] = useState(false);
-  const [durationMins, setDurationMins] = useState<number | undefined>(() => preset?.planningTemplate ? preset.planningTemplate.days.length * 24 * 60 : undefined);
+  const [durationMins, setDurationMins] = useState<number | undefined>();
   // Start with a concrete date range; users can switch to duration-only planning
   // from the "什么时候出发" picker when the trip dates are not decided yet.
   const [flexibleDates, setFlexibleDates] = useState(false);
@@ -994,8 +977,6 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     return [{ ...location, name: presetRoute.name, route: presetRoute }];
   });
   const selectedLocation = selectedLocations[0] || null;
-  const officialRouteId = selectedLocations.length === 1 && selectedLocation?.route && !selectedLocation.route.custom ? (selectedLocation.route.routeId ?? selectedLocation.route.id) : null;
-  const { plans: officialPlans, loading: officialLoading, error: officialError, refetch: refetchOfficial } = useOfficialItineraries(officialRouteId);
   const routeSearchResults = useMemo(() => {
     const query = locationQuery.trim();
     if (!query) return [];
@@ -1055,22 +1036,10 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
 
   const nameValid = tripName.trim().length > 0;
   const totalDays = durationMins == null ? undefined : Math.max(1, Math.round(durationMins / (24 * 60)));
+  // A route with an official plan still opens the planning chat; the agent
+  // takes the day-by-day itinerary from that plan.
   const submit = async (mode: 'manual' | 'smart') => {
     if (!nameValid || creatingMode) return;
-    if (mode === 'smart' && officialRouteId && officialLoading) return;
-    if (mode === 'smart' && officialRouteId && officialError) {
-      onToast(t('officialItinerary.loadError'));
-      void refetchOfficial();
-      return;
-    }
-    if (mode === 'smart' && officialRouteId && officialPlans.length && !officialLoading) {
-      const selectedRoute = selectedLocation?.route;
-      if (selectedRoute) {
-        nav.openItineraryPreview({ route: routes.find(item => item.id === officialRouteId) ?? selectedRoute as Poi, entry: 'form', preferredHikeDays: totalDays,
-          trekStartDate: hasExplicitStart && !flexibleDates ? `${startDt.getFullYear()}-${String(startDt.getMonth() + 1).padStart(2, '0')}-${String(startDt.getDate()).padStart(2, '0')}` : null });
-        return;
-      }
-    }
     setCreatingMode(mode);
     const destinationNames = selectedLocations.length
       ? selectedLocations.map((location) => location.name).join('、')
@@ -1091,19 +1060,6 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     // the saved journey. Manual creation keeps the existing concrete default.
     const journeyFlexibleDates = flexibleDates || (mode === 'smart' && !hasExplicitStart);
     const poi = buildJourney(effectiveRoute, destinationNames, startDt, durationMins, journeyFlexibleDates, t, selfCompanion);
-    if (preset?.planningTemplate) {
-      if (effectiveRoute.routeId !== preset.planningTemplate.routeId || selectedLocations.length !== 1) {
-        onToast(routeGuideCopy[resolved].templateMismatch);
-        setCreatingMode(null);
-        return;
-      }
-      if (poi.totalDays !== preset.planningTemplate.days.length) {
-        onToast(routeGuideCopy[resolved].templateDays);
-        setCreatingMode(null);
-        return;
-      }
-      poi.planningTemplate = preset.planningTemplate;
-    }
     if (trackSource && userId) {
       try {
         // The track row has to exist before the journey can point at it.
@@ -1158,7 +1114,7 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
         ? `${selectedLocations.map((location, index) => `${index + 1}. ${location.name}`).join('；')}；${trackLabel}`
         : trackLabel,
     });
-    const created = mode === 'smart' && !poi.planningTemplate ? await onSmartPlan(poi, prompt) : await onCreate(poi);
+    const created = mode === 'smart' ? await onSmartPlan(poi, prompt) : await onCreate(poi);
     if (!created) setCreatingMode(null);
   };
 
@@ -1306,7 +1262,6 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
           onOpenTimePicker={openTimePicker}
           onClose={onClose}
           creatingMode={creatingMode}
-          planningTemplate={preset?.planningTemplate}
           onManualPlan={() => void submit('manual')}
           onSmartPlan={() => void submit('smart')}
         />

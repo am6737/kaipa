@@ -126,6 +126,22 @@ export function sortItineraries(list: PublishedItinerary[]): PublishedItinerary[
   );
 }
 
+export function chooseItinerary(plans: PublishedItinerary[], preferredHikeDays?: number): PublishedItinerary | undefined {
+  const sorted = sortItineraries(plans);
+  if (preferredHikeDays == null) return sorted[0];
+  return sorted.reduce<PublishedItinerary | undefined>((best, plan) => {
+    if (!best) return plan;
+    const distance = Math.abs(hikeDays(plan.payload) - preferredHikeDays);
+    const bestDistance = Math.abs(hikeDays(best.payload) - preferredHikeDays);
+    return distance < bestDistance ? plan : best;
+  }, undefined);
+}
+
+export function guideSeason(plan: PublishedItinerary, route: RouteSeason): { months: string | null; note: string | null } {
+  const months = plan.payload.bestMonths ?? route.bestMonths;
+  return { months: months?.length ? monthsLabel(months) : null, note: plan.payload.seasonNote ?? route.seasonNote };
+}
+
 function hikeDays(payload: ItineraryPayload): number {
   return payload.days.filter(day => day.kind === 'hike').length;
 }

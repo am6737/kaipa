@@ -855,20 +855,8 @@ function GuidePublishSheet({
       detail: pair(''),
       items: timeline.rows.filter((row) => row.day === group).map((row) => pair(row.title)),
     }));
-    const days = timelineDays.length ? timelineDays : (poi.planningTemplate?.days ?? []).map((day) => ({
-      title: pair(day.title),
-      summary: pair(day.title),
-      detail: pair(''),
-      items: day.items.map(pair),
-    }));
-    const gear = packing.items.length ? packing.items.map((item) => ({
-      name: pair(item.name),
-      category: pair(item.categoryName || '装备'),
-      note: pair(item.note || ''),
-      quantity: Math.max(1, item.quantity || 1),
-      weightKg: item.weightKg,
-      carryStatus: item.carryStatus,
-    })) : (poi.planningTemplate?.gear ?? []).map((item) => ({
+    const days = timelineDays;
+    const gear = packing.items.map((item) => ({
       name: pair(item.name),
       category: pair(item.categoryName || '装备'),
       note: pair(item.note || ''),
@@ -887,7 +875,7 @@ function GuidePublishSheet({
       gear,
       draft: true,
     };
-  }, [existing?.plan, packing.items, poi.id, poi.name, poi.planningTemplate, poi.routeId, timeline.knownGroups, timeline.rows]);
+  }, [existing?.plan, packing.items, poi.id, poi.name, poi.routeId, timeline.knownGroups, timeline.rows]);
   // Match the journey creation form's text field card: one shared white
   // surface, 14px corner radius, and the same horizontal/vertical insets.
   const guideTextCard = { minHeight: 96, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.feature, backgroundColor: theme.surfaceTop } as const;

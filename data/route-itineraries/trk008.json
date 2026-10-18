@@ -3,39 +3,412 @@
   "plans": [
     {
       "id": "f0695591-a7c5-4209-a6cb-c4df10c54c22",
-      "isDefault": true,
+      "isDefault": false,
       "origin": "ai_draft",
       "status": "draft",
       "payload": {
         "name": "1 天 0 晚三湖穿越（卡尔杂村至党岭村）",
         "direction": "卡尔杂村至党岭村",
         "lodging": "lodge",
-        "difficulty": "高",
+        "difficulty": "中高",
         "audience": "有长距离高海拔徒步和碎石坡行走经验",
-        "summary": "从卡尔杂村出发，经甲玉拉措、卓雍措和葫芦海到党岭村。湖间有碎石陡坡，末段下山距离较长；冰雪季节需特别留意暗冰。",
-        "notes": ["根据积雪和结冰情况准备冰爪、雪套", "体力不足时可评估葫芦海至党岭村的摩托车下山方式", "起点清洁费与交通价格需在出行前核实"],
+        "summary": "从卡尔杂村出发，经甲玉拉措翻越约 4550 m 的垭口，再经卓雍措和葫芦海下到党岭村，全程约 20 km，累计爬升约 900 m。两端各约 5 km 可乘摩托车，最短步行约 10 km。目录 GPX 为 19.5 km、累计爬升 1614 m，口径不同。",
+        "notes": [
+          "根据积雪和结冰情况准备冰爪、雪套",
+          "门票参考：卡尔杂村 20 元/人，党岭村 30 元/人",
+          "卡尔杂村住宿少，前一晚住宿需提前预订",
+          "摩托车价格变动大，以当地实际报价为准"
+        ],
         "bestMonths": null,
         "seasonNote": null,
         "days": [
           {
-            "kind": "hike", "title": "卡尔杂村 → 甲玉拉措 → 卓雍措 → 葫芦海 → 党岭村", "distanceKm": null, "ascentM": null, "descentM": null, "duration": null,
-            "transfers": [], "stay": null, "supply": null,
-            "tip": "湖间有碎石陡坡；冰雪季节留意暗冰，预留末段下山体力。",
-            "bailout": "葫芦海可评估乘摩托车下至党岭村，报价和运营情况需核实。", "source": "official"
+            "kind": "hike",
+            "title": "卡尔杂村 → 甲玉拉措 → 卓雍措 → 葫芦海 → 党岭村",
+            "distanceKm": 20,
+            "ascentM": 900,
+            "descentM": null,
+            "duration": null,
+            "transfers": [
+              {
+                "from": "党岭村",
+                "to": "丹巴",
+                "mode": "shared",
+                "duration": "约 2.5 小时",
+                "costRef": "拼车约 80 元/人，包车 300～400 元/车",
+                "booking": null,
+                "position": "end"
+              }
+            ],
+            "stay": null,
+            "supply": "甲玉拉措和葫芦海有小卖部",
+            "tip": "卡尔杂村至甲玉拉措可乘摩托车，往返参考 160 元/人。甲玉拉措至垭口是主要爬升，碎石陡坡多；冰雪季留意暗冰，预留下山体力。",
+            "bailout": "葫芦海可乘摩托车下至党岭村，往返参考 300 元/人，单程价格以当地为准",
+            "source": "official"
           }
         ]
       },
       "draftSources": [
-        { "path": "name", "ref": "trk008.md#行程" }
+        {
+          "path": "name",
+          "ref": "trk008.md#行程"
+        },
+        {
+          "path": "summary",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "days[0].distanceKm",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "days[0].ascentM",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "days[0].transfers[0]",
+          "ref": "video:野心户外党岭徒步攻略#交通"
+        },
+        {
+          "path": "days[0].tip",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[0].bailout",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[0].supply",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "notes[1]",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "notes[2]",
+          "ref": "video:野心户外党岭徒步攻略#吃住"
+        }
       ],
       "reviewNotes": [
-        "只编入卡尔杂村至党岭村的一日穿越；成都往返大交通和前一晚在卡尔杂村住宿不纳入方案。",
-        "单日无方案内住宿，住宿方式暂填住宿，表示进山前可在村内住宿；需确认零晚方案的住宿枚举口径。",
-        "分段 5 km、约 7 km、约 3 km、约 7.8 km 相加为 22.8 km，素材概述约 20 km，目录 GPX 为 19.5 km；全天距离留空，待核对。",
-        "分段仅记录起步后爬升约 300 m，不能作为全天爬升；目录累计爬升 1614 m 属不同口径，全天爬升和下降均留空。",
-        "强度暂评高，依据长距离、碎石陡坡、冰雪风险及目录爬升，待官方核定。",
-        "2025 年 11 月的暗冰、积雪、清洁费和摩托车信息可能不适用于其他季节，需复核；未给出摩托车报价。",
-        "单日用时未收录；末段约 2～3 小时不能推作全天用时。"
+        "只编入卡尔杂村至党岭村的一日穿越；成都往返大交通和前一晚在卡尔杂村住宿不纳入方案，出山接驳党岭村至丹巴挂在当天结尾。",
+        "距离填 20 km：视频和 trk008.md 概述都记约 20 km；trk008.md 分段相加 22.8 km，目录 GPX 19.5 km，已在方案说明写明 GPX 口径。",
+        "爬升填 900 m（视频口径），与卡尔杂村约 3700 m 至垭口约 4550 m 的海拔差相符；目录 GPX 累计爬升 1614 m，差异较大，待用轨迹核对。下降未收录。",
+        "视频记葫芦海至党岭村约 5 km 可乘摩托车，trk008.md 记该段约 7.8 km，冲突待核；最短步行约 10 km 依视频口径。",
+        "摩托车单程价格未收录，视频只有往返价（卡尔杂村至甲玉拉措 160 元/人，党岭村至葫芦海 300 元/人）。",
+        "强度由高改为中高：视频称反穿比正穿难度低，两端可乘摩托车，最短步行约 10 km；但海拔高、碎石坡多，新手需谨慎。",
+        "单日用时未收录；视频称反穿一般一日走完。",
+        "2025 年 11 月的暗冰、积雪记录及视频的门票、车价可能已变，旺季前复核。"
+      ]
+    },
+    {
+      "id": "ac5bc016-3d56-4a0f-8b90-7da5a4970854",
+      "isDefault": false,
+      "origin": "ai_draft",
+      "status": "draft",
+      "payload": {
+        "name": "3 天 2 晚住宿三湖往返",
+        "direction": null,
+        "lodging": "lodge",
+        "difficulty": "中",
+        "audience": "第一次来党岭、不想背重装的徒步者",
+        "summary": "在党岭村住两晚，分两天往返看湖：第 2 天经葫芦海到卓雍措后原路返回，第 3 天乘车到卡尔杂村往返甲玉拉措。两天徒步合计约 26 km，大部分路段可乘摩托车，不想多走可只步行湖间路段。",
+        "notes": [
+          "门票参考：党岭村 30 元/人，卡尔杂村 20 元/人",
+          "摩托车费用另计，以当地实际报价为准",
+          "出发前查看天气，霜降前后常有大雪"
+        ],
+        "bestMonths": null,
+        "seasonNote": null,
+        "days": [
+          {
+            "kind": "access_in",
+            "title": "丹巴 → 党岭村",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [
+              {
+                "from": "丹巴",
+                "to": "党岭村",
+                "mode": "shared",
+                "duration": "约 2.5 小时",
+                "costRef": "拼车约 80 元/人，包车 300～400 元/车",
+                "booking": null,
+                "position": "start"
+              }
+            ],
+            "stay": {
+              "name": "党岭村",
+              "type": "inn",
+              "altitudeM": 3400,
+              "water": null,
+              "costRef": null,
+              "signal": null
+            },
+            "supply": "村内有餐馆和小卖部，价格偏高",
+            "tip": "党岭村住宿选择少，旺季提前预订。当晚早休息，适应约 3400 m 的海拔。",
+            "bailout": null,
+            "source": "official"
+          },
+          {
+            "kind": "hike",
+            "title": "党岭村 → 葫芦海 → 卓雍措 → 葫芦海 → 党岭村",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [],
+            "stay": {
+              "name": "党岭村",
+              "type": "inn",
+              "altitudeM": 3400,
+              "water": null,
+              "costRef": null,
+              "signal": null
+            },
+            "supply": "葫芦海有小卖部",
+            "tip": "党岭村至葫芦海可乘摩托车往返，参考 300 元/人，只走葫芦海至卓雍措一段即可。",
+            "bailout": "葫芦海可乘摩托车下至党岭村",
+            "source": "official"
+          },
+          {
+            "kind": "hike",
+            "title": "党岭村 → 卡尔杂村 → 甲玉拉措 → 卡尔杂村",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [
+              {
+                "from": "党岭村",
+                "to": "卡尔杂村",
+                "mode": "charter",
+                "duration": null,
+                "costRef": null,
+                "booking": null,
+                "position": "start"
+              },
+              {
+                "from": "卡尔杂村",
+                "to": "丹巴",
+                "mode": "charter",
+                "duration": null,
+                "costRef": null,
+                "booking": null,
+                "position": "end"
+              }
+            ],
+            "stay": null,
+            "supply": "甲玉拉措有小卖部",
+            "tip": "卡尔杂村至甲玉拉措可乘摩托车往返，参考 160 元/人。",
+            "bailout": "甲玉拉措可乘摩托车下至卡尔杂村",
+            "source": "official"
+          }
+        ]
+      },
+      "draftSources": [
+        {
+          "path": "summary",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "notes[0]",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[0].transfers[0]",
+          "ref": "video:野心户外党岭徒步攻略#交通"
+        },
+        {
+          "path": "days[0].stay.altitudeM",
+          "ref": "video:野心户外党岭徒步攻略#吃住"
+        },
+        {
+          "path": "days[1].stay.altitudeM",
+          "ref": "video:野心户外党岭徒步攻略#吃住"
+        },
+        {
+          "path": "days[1].tip",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[1].supply",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "days[2].tip",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[2].supply",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        }
+      ],
+      "reviewNotes": [
+        "素材只给两天徒步合计约 26 km，未分天，也未给爬升；逐日距离、爬升和用时留空，不按天平分。",
+        "党岭村至卡尔杂村的车程和费用、卡尔杂村回丹巴的车程和费用均未收录。",
+        "强度暂评中：可全程乘摩托车减到约 4 km 步行，但全步行两天约 26 km 且在 4000 m 以上，待官方核定。",
+        "素材称当地处于建设期、管理较乱，门票和摩托车价格变动可能较大，旺季前复核。",
+        "成都至丹巴大巴（茶店子客运站，约 140 元、约 6 小时）属大交通，不写入逐日。",
+        "素材称最高海拔约 4300 m，但同一素材记卓雍措营地约 4350 m，口径冲突，方案说明暂不写最高海拔。",
+        "素材称约 22 km 可乘摩托车、最短步行约 4 km，但已有素材记葫芦海至卓雍措单程约 3 km，往返已超 4 km；方案说明暂不写最短步行距离，待核实。",
+        "素材为语音转写，卓雍措在原文中写法不一，需确认往返到达的确是卓雍措。",
+        "推荐月份和季节说明沿用路线目录（已改为 10～11 月彩林季）。"
+      ]
+    },
+    {
+      "id": "1ad81120-afee-4c6c-b933-3225fc02facf",
+      "isDefault": true,
+      "origin": "ai_draft",
+      "status": "draft",
+      "payload": {
+        "name": "3 天 2 晚重装正穿（党岭村至卡尔杂村）",
+        "direction": "党岭村至卡尔杂村",
+        "lodging": "mixed",
+        "difficulty": "高",
+        "audience": "有重装扎营和高海拔徒步经验",
+        "summary": "从党岭村上山，经葫芦海到卓雍措扎营，次日翻越约 4550 m 的垭口，经甲玉拉措下到卡尔杂村。两天徒步约 20 km，累计爬升约 1200 m。第 2 天背重装爬升约 950 m，当晚睡在约 4350 m，是最难的一天；第 3 天以碎石陡坡下降为主。",
+        "notes": [
+          "门票参考：党岭村 30 元/人，卡尔杂村 20 元/人",
+          "头痛加重、呕吐等高反症状要立即下撤",
+          "下载离线轨迹，结伴同行，不要单人穿越",
+          "霜降前后常有大雪，备好冰雪装备"
+        ],
+        "bestMonths": null,
+        "seasonNote": null,
+        "days": [
+          {
+            "kind": "access_in",
+            "title": "丹巴 → 党岭村",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [
+              {
+                "from": "丹巴",
+                "to": "党岭村",
+                "mode": "shared",
+                "duration": "约 2.5 小时",
+                "costRef": "拼车约 80 元/人，包车 300～400 元/车",
+                "booking": null,
+                "position": "start"
+              }
+            ],
+            "stay": {
+              "name": "党岭村",
+              "type": "inn",
+              "altitudeM": 3400,
+              "water": null,
+              "costRef": null,
+              "signal": null
+            },
+            "supply": "村内有餐馆和小卖部，价格偏高",
+            "tip": "党岭村住宿选择少，旺季提前预订。当晚早休息，适应约 3400 m 的海拔。",
+            "bailout": null,
+            "source": "official"
+          },
+          {
+            "kind": "hike",
+            "title": "党岭村 → 葫芦海 → 卓雍措营地",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [],
+            "stay": {
+              "name": "卓雍措营地",
+              "type": "camp",
+              "altitudeM": 4350,
+              "water": "有水源",
+              "costRef": null,
+              "signal": null
+            },
+            "supply": "葫芦海有小卖部，卓雍措营地无补给",
+            "tip": "当晚睡眠海拔比前一晚高约 950 m，易高反，可乘摩托车到葫芦海省体力。葫芦海营地约 4160 m，位置有限，可能管控入营。",
+            "bailout": "葫芦海可乘摩托车下至党岭村；出现高反可退到飞机坪营地（约 3780 m，有水和小卖部）过夜",
+            "source": "official"
+          },
+          {
+            "kind": "hike",
+            "title": "卓雍措营地 → 垭口 → 甲玉拉措 → 卡尔杂村",
+            "distanceKm": null,
+            "ascentM": null,
+            "descentM": null,
+            "duration": null,
+            "transfers": [
+              {
+                "from": "卡尔杂村",
+                "to": "丹巴",
+                "mode": "charter",
+                "duration": null,
+                "costRef": null,
+                "booking": null,
+                "position": "end"
+              }
+            ],
+            "stay": null,
+            "supply": "甲玉拉措有小卖部",
+            "tip": "先爬约 200 m 到约 4550 m 的垭口，之后一路碎石陡坡下降，注意护膝和脚下。甲玉拉措至卡尔杂村约 5 km 可乘摩托车。",
+            "bailout": "甲玉拉措可乘摩托车下至卡尔杂村",
+            "source": "official"
+          }
+        ]
+      },
+      "draftSources": [
+        {
+          "path": "summary",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "notes[0]",
+          "ref": "video:野心户外党岭徒步攻略#政策与门票"
+        },
+        {
+          "path": "days[0].transfers[0]",
+          "ref": "video:野心户外党岭徒步攻略#交通"
+        },
+        {
+          "path": "days[0].stay.altitudeM",
+          "ref": "video:野心户外党岭徒步攻略#吃住"
+        },
+        {
+          "path": "days[1].stay.altitudeM",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "days[1].tip",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "days[2].tip",
+          "ref": "video:野心户外党岭徒步攻略#徒步路线"
+        },
+        {
+          "path": "days[2].supply",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "days[1].bailout",
+          "ref": "video:野心户外党岭徒步攻略#营地"
+        },
+        {
+          "path": "summary",
+          "ref": "derived:党岭村 3400 m、卓雍措营地 4350 m、垭口 4550 m 海拔差"
+        }
+      ],
+      "reviewNotes": [
+        "素材只给两天合计约 20 km、爬升约 1200 m，未分天；逐日距离、爬升、下降和用时留空。目录 GPX 为 19.5 km、累计爬升 1614 m，与素材口径不同。",
+        "素材写营地放在葫芦海或卓雍措，按规范合并为一个方案：住宿填卓雍措营地（宽敞、不受管控影响），葫芦海营地写进官方提示。待官方定默认营地。",
+        "第 1 晚住党岭村、第 2 晚扎营，住宿方式填混合；去掉进山日后只剩扎营。",
+        "卡尔杂村回丹巴的车程和费用未收录；甲玉拉措至卡尔杂村单程摩托车价格未收录（素材只有往返 160 元/人）。",
+        "垭口名称素材未给，暂写垭口，需与目录轨迹标注点核对。",
+        "第 2 天约 950 m、第 3 天约 200 m 爬升和约 850 m 下降是按素材海拔差估算的口径，未写入逐日数字字段，仅用于方案说明和提示；与素材总爬升约 1200 m 吻合。",
+        "营地保留卓雍措，睡眠海拔一天抬高约 950 m，已在提示和注意事项写明高反风险并给出飞机坪营地下撤点。葫芦海营地是否改为默认待官方定。",
+        "党岭村至葫芦海摩托车单程价格未收录（素材只有往返 300 元/人）。",
+        "推荐月份和季节说明沿用路线目录（已改为 10～11 月彩林季）。"
       ]
     }
   ]

@@ -92,6 +92,7 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const hasQuery = normalizedQuery.length > 0;
   const source = scope === 'china' ? CHINA_REGIONS : INTERNATIONAL_REGIONS;
+  const [chipsWidth, setChipsWidth] = useState(0);
   const places = useMemo(
     () => source.filter((region) => !normalizedQuery || region.toLocaleLowerCase().includes(normalizedQuery)),
     [normalizedQuery, source],
@@ -260,10 +261,10 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
       <View style={[styles.sheet, { backgroundColor: theme.surfaceStrong }]}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + space.xl }]}>
           {!hasQuery ? (
-            <View style={styles.chips}>
+            <View style={styles.chips} onLayout={(e) => setChipsWidth(e.nativeEvent.layout.width)}>
               {places.map((region) => (
                 <Press key={region} onPress={() => choosePlace(region)} accessibilityRole="button" accessibilityState={{ selected: nav.discoverRegion === region }}
-                  style={[styles.chip, { backgroundColor: nav.discoverRegion === region ? theme.accent : 'transparent' }]}>
+                  style={[styles.chip, chipsWidth > 0 && { width: (chipsWidth - space.sm * (PLACE_COLUMNS - 1)) / PLACE_COLUMNS }, { backgroundColor: nav.discoverRegion === region ? theme.accent : 'transparent' }]}>
                   <Text numberOfLines={1} style={{ color: nav.discoverRegion === region ? '#FFFFFF' : theme.text, fontSize: 15, fontWeight: nav.discoverRegion === region ? '700' : '500' }}>{region}</Text>
                 </Press>
               ))}
@@ -283,6 +284,8 @@ export function SearchScreen({ theme, onOpaqueChange }: { theme: Theme; onOpaque
   );
 }
 
+const PLACE_COLUMNS = 4;
+
 const styles = StyleSheet.create({
   header: { paddingTop: space.sm, paddingHorizontal: space.md, paddingBottom: space.md, flexDirection: 'row', alignItems: 'center' },
   backButton: { width: 40, height: SEARCH_FIELD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
@@ -297,7 +300,7 @@ const styles = StyleSheet.create({
   sheet: { flex: 1, marginTop: space.sm, marginHorizontal: space.md, marginBottom: space.md, borderRadius: 28, overflow: 'hidden' },
   sheetContent: { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xxl },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  chip: { minWidth: 84, paddingHorizontal: space.md, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  chip: { minWidth: 72, paddingHorizontal: space.xs, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   section: { marginBottom: space.xl },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
   sectionTitle: { fontSize: 15, fontWeight: '700' },

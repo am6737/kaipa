@@ -42,11 +42,6 @@ import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
 import { RouteGuidePage } from './components/discover/RouteGuidePage';
-import { OfficialItineraryPreview } from './components/itinerary/OfficialItineraryPreview';
-import { RouteGuideImportRetry } from './components/discover/RouteGuideImportRetry';
-import type { RouteGuideJourneyTemplate } from './data/routeGuides';
-import { applyRouteGuideTemplate } from './lib/routeGuideImport';
-import { routeGuideCopy } from './components/discover/routeGuideCopy';
 import { AppAssistant } from './components/assistant/AppAssistant';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { fetchJourneyPoiById } from './lib/journeyInvite';
@@ -56,12 +51,11 @@ import { PushBootstrap, PushNavigator } from './push/PushBootstrap';
 function AppShell() {
   countRender('AppShell');
   const theme = useTheme();
-  const { t, resolved } = useI18n();
+  const { t } = useI18n();
   const nav = useNav();
   const data = useData();
   const { userId, journeys } = data;
   const [trackLoading, setTrackLoading] = useState(false);
-  const [pendingGuideImport, setPendingGuideImport] = useState<{ journeyId: string; template: RouteGuideJourneyTemplate } | null>(null);
   const [sharePosterPoi, setSharePosterPoi] = useState<typeof nav.sharePanel>(null);
   const [passphrasePoi, setPassphrasePoi] = useState<typeof nav.sharePanel>(null);
   const [assistantReturnJourneyId, setAssistantReturnJourneyId] = useState<string>();
@@ -200,7 +194,7 @@ function AppShell() {
         />
       )}
       {nav.routeRequestOpen && <RouteRequestSheet theme={theme} prefill={nav.routeRequestPrefill} onClose={nav.closeRouteRequest} onDone={nav.showToast} />}
-      {nav.routeGuide && (
+      {nav.routeGuide && nav.routeGuide.entry !== 'chat' && (
         <RouteGuidePage key={nav.routeGuide.route.id} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} />
       )}
       {nav.newJourneyOpen && (
@@ -216,18 +210,8 @@ function AppShell() {
               nav.showToast(t('appShell.toastJourneyCreateFailed'));
               return false;
             }
-            let imported = false;
-            if (poi.planningTemplate) {
-              try {
-                await applyRouteGuideTemplate(saved.id, poi.planningTemplate);
-                imported = true;
-              } catch (error) {
-                console.warn('[RouteGuide] import failed:', error instanceof Error ? error.message : 'Unknown error');
-                setPendingGuideImport({ journeyId: saved.id, template: poi.planningTemplate });
-              }
-            }
             nav.closeNewJourney();
-            nav.showToast(poi.planningTemplate ? routeGuideCopy[resolved][imported ? 'imported' : 'importFailed'] : t('appShell.toastJourneyCreated'));
+            nav.showToast(t('appShell.toastJourneyCreated'));
             nav.openPoint(saved);
             return true;
           }}
@@ -435,13 +419,7 @@ function AppShell() {
           nav.openGearPage(page);
         }}
       />
-      {nav.itineraryPreview && <OfficialItineraryPreview key={`${nav.itineraryPreview.entry}-${nav.itineraryPreview.route.id}-${nav.itineraryPreview.planId ?? ''}`} theme={theme} request={nav.itineraryPreview} onClose={nav.closeItineraryPreview} />}
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
-      {pendingGuideImport && nav.pointInfo?.id === pendingGuideImport.journeyId && !nav.blockingOverlayOpen ? <RouteGuideImportRetry
-        theme={theme} journeyId={pendingGuideImport.journeyId} template={pendingGuideImport.template}
-        onDone={() => { setPendingGuideImport(null); nav.showToast(routeGuideCopy[resolved].imported); }}
-        onDismiss={() => setPendingGuideImport(null)}
-      /> : null}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>
   );

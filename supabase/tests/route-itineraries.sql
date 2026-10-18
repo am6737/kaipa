@@ -62,7 +62,7 @@ update public.route_itineraries set status = 'published', is_default = true, ver
 where id = (select id from itinerary_test_data) and version = 1;
 select pg_temp.reject(format('insert into public.route_itineraries(id,version,route_id,status,origin,payload,verified_by,verified_on) values (%L,2,%L,%L,%L,%L::jsonb,%L,current_date)', (select id from itinerary_test_data), (select route_id from itinerary_test_data), 'published', 'manual', (select payload from itinerary_test_data), '审核人'), 'route_itineraries_one_published_version');
 select pg_temp.reject(format('insert into public.route_itineraries(version,route_id,status,is_default,origin,payload,verified_by,verified_on) values (1,%L,%L,true,%L,%L::jsonb,%L,current_date)', (select route_id from itinerary_test_data), 'published', 'manual', (select payload from itinerary_test_data), '审核人'), 'route_itineraries_one_default_per_route');
-select pg_temp.reject(format('update public.route_itineraries set payload = jsonb_set(payload, %L, %L::jsonb) where id = %L', '{name}', '"修改"', (select id from itinerary_test_data)), 'published itinerary can only be archived');
+select pg_temp.reject(format('update public.route_itineraries set payload = jsonb_set(payload, %L, %L::jsonb) where id = %L', '{name}', '"修改"', (select id from itinerary_test_data)), 'published itinerary can only be archived or change its default');
 select pg_temp.reject(format('delete from public.route_itineraries where id = %L', (select id from itinerary_test_data)), 'published itinerary cannot be deleted');
 
 insert into public.route_itineraries(version, route_id, status, origin, payload, verified_by, verified_on)
@@ -71,6 +71,18 @@ insert into public.route_itineraries(version, route_id, origin, payload)
 select 1, route_id, 'manual', payload from itinerary_test_data;
 select pg_temp.check((select count(*) = 2 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'RPC published only');
 select pg_temp.check((select is_default from public.route_itineraries_published((select route_id from itinerary_test_data)) limit 1), 'RPC default first');
+
+-- The default moves between published plans without a new version.
+create temporary table second_plan as
+select id from public.route_itineraries
+where route_id = (select route_id from itinerary_test_data) and status = 'published' and id <> (select id from itinerary_test_data);
+select pg_temp.reject(format('update public.route_itineraries set is_default = true where id = %L', (select id from second_plan)), 'route_itineraries_one_default_per_route');
+select pg_temp.reject(format('update public.route_itineraries set is_default = false, payload = jsonb_set(payload, %L, %L::jsonb) where id = %L', '{name}', '"修改"', (select id from itinerary_test_data)), 'published itinerary can only be archived or change its default');
+select pg_temp.reject(format('update public.route_itineraries set status = %L where id = %L', 'draft', (select id from itinerary_test_data)), 'published itinerary can only be archived or change its default');
+update public.route_itineraries set is_default = false where id = (select id from itinerary_test_data) and version = 1;
+update public.route_itineraries set is_default = true where id = (select id from second_plan);
+select pg_temp.check((select id = (select id from second_plan) and version = 1 from public.route_itineraries_published((select route_id from itinerary_test_data)) limit 1), 'default moved without a new version');
+select pg_temp.check((select count(*) = 2 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'both plans stay published');
 update public.route_itineraries set status = 'archived' where id = (select id from itinerary_test_data) and version = 1;
 select pg_temp.check((select count(*) = 1 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'RPC excludes archived');
 

@@ -30,6 +30,7 @@ import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
 import { journeyDayDisplayLabel } from '../../lib/journeyDays';
 import { TwoStageSwipeable } from '../TwoStageSwipeable';
 import { useSpeechRecognitionInput, type SpeechRecognitionInputError } from './useSpeechRecognitionInput';
+import { RouteGuidePage } from '../discover/RouteGuidePage';
 
 type PendingAgentRequest = {
   args: Parameters<typeof sendAgentTurn>[0] & { clientRunId: string };
@@ -991,8 +992,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       nav.showToast(t('officialItinerary.routeUnavailable'));
       return;
     }
-    nav.openItineraryPreview({ route, entry: 'chat', planId: card.planId,
-      trekStartDate: card.trekStartDate, preferredHikeDays: card.preferredHikeDays ?? undefined });
+    nav.openRouteGuide({ route, view: 'guide', entry: 'chat', planId: card.planId,
+      trekStartDate: card.trekStartDate });
   };
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -2297,6 +2298,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           }}
         />
         </KeyboardAvoidingView>
+        {nav.routeGuide?.entry === 'chat' ? <RouteGuidePage key={`chat-${nav.routeGuide.route.id}-${nav.routeGuide.planId ?? ''}`} theme={theme} request={nav.routeGuide} onClose={nav.closeRouteGuide} /> : null}
       </GestureHandlerRootView>
     </Modal>
   );

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 // @ts-ignore Node built-in module is available at test runtime.
 import { readFileSync } from 'node:fs';
 // @ts-ignore Node requires this extension; the Expo tsconfig disallows it.
-import { assembleItinerary, fromPublishedRow, sortItineraries } from './officialItinerary.ts';
+import { assembleItinerary, chooseItinerary, fromPublishedRow, guideSeason, sortItineraries } from './officialItinerary.ts';
 import type { PublishedItinerary } from './officialItinerary.ts';
 
 function fixture(routeId: string): PublishedItinerary {
@@ -77,6 +77,22 @@ test('default plan sorts first and RPC row maps to camelCase', () => {
     id: first.id, version: first.version, route_id: first.routeId,
     is_default: first.isDefault, payload: first.payload, verified_on: first.verifiedOn,
   }), first);
+});
+
+test('form selection uses closest hike days, default ties, then shorter hike', () => {
+  const base = fixture('trk014');
+  const two = { ...base, id: 'two', isDefault: false, payload: { ...base.payload, days: base.payload.days.slice(0, 3) } };
+  const four = { ...base, id: 'four', isDefault: false, payload: { ...base.payload, days: [...base.payload.days, base.payload.days[1]] } };
+  assert.equal(chooseItinerary([four, two], 3)?.id, 'two');
+  assert.equal(chooseItinerary([{ ...four, isDefault: true }, two], 3)?.id, 'four');
+  assert.equal(chooseItinerary([four, two], 4)?.id, 'four');
+  assert.equal(chooseItinerary([four, base])?.id, base.id);
+});
+
+test('guide season shows months without comparing to a trek date', () => {
+  const season = guideSeason(fixture('trk066'), { bestMonths: [5, 6, 9, 10], seasonNote: '秋季天气稳定' });
+  assert.equal(season.months, '5～6 月、9～10 月');
+  assert.ok(season.note);
 });
 
 test('UTC calendar arithmetic crosses month and year boundaries', () => {

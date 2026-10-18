@@ -9,7 +9,7 @@
 export const zh = {
   officialItinerary: {
     cardDate: '徒步首日 {month} 月 {day} 日', cardOpen: '查看方案', routeUnavailable: '线路暂不可用，请稍后再试',
-    title: '官方方案', summary: '方案说明（官方）', season: '季节提醒', switchPlan: '换方案', notes: '注意事项（官方）', source: '资料', save: '保存为旅程', saving: '保存中…', changeDate: '改日期', trekStart: '徒步首日', datePending: '日期待定', difficulty: '强度', audience: '适合', day: 'Day {count}', distance: '{count} km', ascent: '爬升 {count} m', descent: '下降 {count} m', stay: '住：{name}', tip: '官方提示：{text}', loading: '正在读取官方方案…', loadError: '方案读取失败', retry: '重试', updatedTitle: '方案已更新', updatedMessage: '这份方案已更新，请刷新后重新选择。', saveError: '保存失败，请稍后重试', confirmDate: '确定', unsetDate: '日期待定', hikeDays: '徒步 {count} 天', accessDays: '进出山 {count} 天',
+    summary: '方案说明（官方）', season: '季节提醒', notes: '注意事项（官方）', source: '资料', datePending: '日期待定', difficulty: '强度', audience: '适合', day: 'Day {count}', distance: '{count} km', ascent: '爬升 {count} m', descent: '下降 {count} m', stay: '住：{name}', tip: '官方提示：{text}', loading: '正在读取官方方案…', loadError: '方案读取失败', retry: '重试', updatedTitle: '方案已更新', updatedMessage: '这份方案已更新，请刷新后重新选择。', saveError: '保存失败，请稍后重试', hikeDays: '徒步 {count} 天', accessDays: '进出山 {count} 天', recommendedMonths: '推荐月份：{months}', created: '旅程已创建，每日行程已带入',
   },
   app: { name: "开爬" },
   membership: {
@@ -1241,6 +1241,10 @@ export const zh = {
       progress: "{ready} / {total} 已准备",
       localMode: "当前使用本地清单记录",
       emptyBody: "从装备库、已有清单或清单广场添加装备",
+      importGuideGear: "带入攻略的装备清单（{count} 件）",
+      pickFromLibrary: "从我的装备库挑选",
+      generateWithAi: "让 AI 按这条线生成",
+      importFailed: "带入攻略装备失败",
       emptyTeammate: "对方还没有添加装备",
       add: "添加装备",
       oneItem: "1 件",
@@ -1554,6 +1558,7 @@ export const zh = {
       deleteGroupTitle: "删除分组「{name}」？",
       deleteGroupMessage:
         "该分组下的 {count} 条旅程也会被一起删除，此操作不可撤销。",
+      deleteDayShift: "之后的日子依次提前，旅程变为 {count} 天",
       emptyTitle: "还没有旅程安排",
       addManually: "添加旅程",
       smartPlan: "智能规划",

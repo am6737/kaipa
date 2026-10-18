@@ -2211,13 +2211,18 @@ export function SelectedPoiCard({ theme, poi, fullBleed, embedded, onTrackSelect
           <View style={{ marginTop: space.xxs, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             <Press
               onPress={readOnly ? undefined : () => setTimePickerOpen(true)}
-              accessibilityRole="button"
+              accessibilityRole={readOnly ? undefined : 'button'}
               accessibilityLabel={`${journeyTimingLabel} ${journeyTimingValue}`}
               style={{ minWidth: 0, minHeight: 40, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.xs }}
             >
               <Icon name={hasSpecificJourneyDate ? 'calendar' : 'clock'} color={theme.text3} size={15} />
               <Text numberOfLines={1} style={[type.body, { flexShrink: 1, color: theme.text2, fontWeight: '600' }]}>{journeyDurationValue}</Text>
             </Press>
+            {!hasSpecificJourneyDate ? (
+              <Press onPress={readOnly ? undefined : () => setTimePickerOpen(true)} accessibilityRole={readOnly ? undefined : 'button'} style={{ minHeight: 40, justifyContent: 'center' }}>
+                <Text style={[type.body, { color: theme.text2, fontWeight: '600' }]}>{t('journeyEdit.time.datePending')}</Text>
+              </Press>
+            ) : null}
             <Press
               onPress={readOnly ? undefined : () => setDistanceEditorOpen(true)}
               accessibilityRole="button"

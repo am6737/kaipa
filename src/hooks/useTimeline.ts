@@ -296,6 +296,16 @@ export function useTimeline(
     }));
   };
 
+  const removeDay = async (day: string) => {
+    if (!journeyId || !userId) return;
+    const { error } = await supabase.rpc('journey_remove_timeline_day', {
+      p_journey_id: journeyId,
+      p_day: day,
+    });
+    if (error) throw error;
+    await loadJourneyTimeline(journeyId);
+  };
+
   const addGroup = async (day: string) => {
     const next = day.trim();
     if (!next) return;
@@ -376,5 +386,5 @@ export function useTimeline(
     }
   };
 
-  return { groupNotes: state.groupNotes, saveGroupNote, rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, renameGroup, addGroup, reorder };
+  return { groupNotes: state.groupNotes, saveGroupNote, rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, removeDay, renameGroup, addGroup, reorder };
 }
