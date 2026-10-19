@@ -86,6 +86,16 @@ export type AgentMessageUi = {
   undoAction?: AgentUndoAction;
   createJourneyFlow?: { step: 'collect_date' | 'collect_duration' | 'collect_date_and_duration' | 'ask_track'; originalMessage: string };
   trackPrompt?: { message: string; intent?: AgentIntent };
+  departurePrompt?: DeparturePrompt;
+};
+
+// A departure question the app renders as a card. `request` is a plan the app
+// held back before any run; without it a run stopped to ask, and the answer
+// resumes that task.
+export type DeparturePrompt = {
+  status: 'pending' | 'answered';
+  place?: string;
+  request?: { message: string; intent?: AgentIntent };
 };
 
 export type AgentRunActivity = {

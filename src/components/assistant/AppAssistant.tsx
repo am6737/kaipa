@@ -24,7 +24,7 @@ import { AssistantMark } from './AssistantMark';
 import { activityDetails, hasResearchActivity } from './activityDetails';
 import { startAgentRecovery } from '../../lib/agentRecovery';
 import { confirmedDeparture, getAgentLocation, requestsCurrentLocation, transportLocationIntent, type AgentLocation, type AgentLocationIntent } from '../../lib/agentLocation';
-import { DeparturePicker } from './DeparturePicker';
+import { DepartureCard } from './DepartureCard';
 import { retryAgentRun } from '../../lib/appAgent';
 import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
 import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
@@ -43,6 +43,7 @@ type Turn = {
   travelContext?: AgentMessageUi['travelContext'];
   // The task stopped to ask the user something; nothing was written.
   waiting?: boolean;
+  departurePrompt?: AgentMessageUi['departurePrompt'];
   id: string;
   role: 'user' | 'assistant';
   text: string;
@@ -67,17 +68,13 @@ type Turn = {
 const storageKey = (userId: string, journeyId?: string) => `kaipa_agent_thread_v1:${userId}:${journeyId || 'global'}`;
 const departuresKey = (userId: string) => `kaipa_agent_departures_v1:${userId}`;
 
-// A request held until the user picks a departure. `resume` answers a plan
-// that already stopped to ask; otherwise the held message is sent with it.
-type DepartureRequest = {
-  message: string;
-  displayMessage?: string;
-  intent?: AgentIntent;
-  locationIntent?: AgentLocationIntent;
-  attachments?: LocalAgentAttachment[];
-  retryTurnId?: string;
-  resume: boolean;
-};
+// Runs that stopped for an origin before the card existed stored only the
+// location reply; they ask the same question.
+function departurePromptOf(ui?: AgentMessageUi): AgentMessageUi['departurePrompt'] {
+  if (ui?.departurePrompt) return ui.departurePrompt;
+  return ui?.taskOutcome?.status === 'waiting' && ui.quickReplies?.some((reply) => reply.action === 'request_location')
+    ? { status: 'pending' } : undefined;
+}
 
 function createRunId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
@@ -895,6 +892,7 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
     quickReplies: message.ui?.quickReplies,
     travelContext: message.ui?.travelContext,
     waiting: message.ui?.taskOutcome?.status === 'waiting' || undefined,
+    departurePrompt: departurePromptOf(message.ui),
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
     itineraryCard: message.ui?.itineraryCard,
@@ -908,8 +906,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting }) => ({
-    role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting, departurePrompt }) => ({
+    role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting, departurePrompt,
   })));
 }
 
@@ -1056,7 +1054,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const pendingRequestRef = useRef<PendingAgentRequest | undefined>(undefined);
   const [retryingPending, setRetryingPending] = useState(false);
   const [requestPhase, setRequestPhase] = useState<'locating' | 'sending' | 'queued' | 'planning' | 'reconnecting' | 'unconfirmed'>('sending');
-  const [departureRequest, setDepartureRequest] = useState<DepartureRequest>();
+  // The departure question the composer stopped answering, by turn id.
+  const [departureReplyDismissed, setDepartureReplyDismissed] = useState<string>();
   const [recentDepartures, setRecentDepartures] = useState<string[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
@@ -1401,6 +1400,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           quickReplies: message.ui?.quickReplies,
           travelContext: message.ui?.travelContext,
           waiting: message.ui?.taskOutcome?.status === 'waiting' || undefined,
+          departurePrompt: departurePromptOf(message.ui),
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
           itineraryCard: message.ui?.itineraryCard,
@@ -1490,7 +1490,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, waiting: response.ui?.taskOutcome?.status === 'waiting' || undefined, sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
+    setTurns((current) => [...current, { id: response.messageId || `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, waiting: response.ui?.taskOutcome?.status === 'waiting' || undefined, departurePrompt: departurePromptOf(response.ui), sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
@@ -1580,11 +1580,34 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
   };
 
+  // Only the newest turn's departure question is open; the composer answers it
+  // until the user dismisses the reply.
+  const lastTurn = turns.at(-1);
+  const pendingDepartureTurn = lastTurn?.role === 'assistant' && lastTurn.departurePrompt?.status === 'pending' ? lastTurn : undefined;
+  const departureReplying = Boolean(pendingDepartureTurn && departureReplyDismissed !== pendingDepartureTurn.id);
+
+  const answerDeparture = (place: string, location?: AgentLocation) => {
+    const prompt = pendingDepartureTurn;
+    if (!prompt || loading || attachmentUploading || requestInFlightRef.current) return;
+    const recents = [place, ...recentDepartures.filter((item) => item !== place)].slice(0, 3);
+    setRecentDepartures(recents);
+    void AsyncStorage.setItem(departuresKey(data.userId), JSON.stringify(recents));
+    setTurns((current) => current.map((turn) => turn.id === prompt.id && turn.departurePrompt
+      ? { ...turn, departurePrompt: { ...turn.departurePrompt, status: 'answered', place } } : turn));
+    // The server answers the newest question: a held plan starts, a stopped one resumes.
+    void submit(t('agent.departure.message', { place }), undefined, true, [], undefined, undefined, undefined, { place, location });
+  };
+
   const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent, departure?: { place: string; location?: AgentLocation }) => {
     const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
     const typedMessage = (preset ?? input).trim();
     const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
     const visibleMessage = displayMessage?.trim() || message;
+    if (preset === undefined && !departure && departureReplying && typedMessage && !pendingAttachments.length) {
+      // "我从成都出发" answers with 成都; the origin feeds rail and flight queries.
+      answerDeparture((typedMessage.replace(/^我?[从在]/, '').replace(/(出发|走)[。.!！]?$/, '').trim() || typedMessage).slice(0, 200));
+      return;
+    }
     if (!message || loading || uploadInFlightRef.current || attachmentUploading || (trackPicking && !attachmentOverride)) return;
     const pendingHasTrackAttachment = pendingAttachments.some((attachment) => isTrackAttachmentName(attachment.name) || isTrackAttachmentName(attachment.uri));
     const lastTrackPromptTurn = turns.at(-1) && isTrackPromptTurn(turns.at(-1)!) ? turns.at(-1) : undefined;
@@ -1608,14 +1631,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
     const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
     const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' ? 'transport' : undefined);
-    // Round-trip transport needs a departure. Ask for it here, before any
-    // model work, instead of letting the run stop halfway to ask.
-    if (!departure && effectiveLocationIntent === 'transport' && !confirmedDeparture(travel, activeJourneyId)) {
-      setDepartureRequest({ message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, intent, locationIntent,
-        attachments: attachmentOverride, retryTurnId, resume: false });
-      setAttachmentTrayOpen(false);
-      return;
-    }
+    // Round-trip transport needs a departure. The server stores the request
+    // with a departure question instead of running it, so the plan runs once
+    // and the question stays in the conversation.
+    const askDeparture = !departure && effectiveLocationIntent === 'transport' && !confirmedDeparture(travel, activeJourneyId);
     const optimisticUpload = pendingHasTrackAttachment;
     const generation = ++submitGenerationRef.current;
     const userTurnId = retryTurnId || `u_${createRunId()}`;
@@ -1676,7 +1695,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         if (generation !== submitGenerationRef.current) return;
         setRequestPhase('sending');
       }
-      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
+      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, askDeparture: askDeparture || undefined, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
       const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
       pendingRequestRef.current = pending;
       await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
@@ -1740,28 +1759,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     return () => { active = false; };
   }, [data.userId]);
 
-  // A held request belongs to the conversation it was made in.
-  useEffect(() => { setDepartureRequest(undefined); }, [currentJourneyId, visible]);
-
-  const confirmDeparture = (place: string, location?: AgentLocation) => {
-    const request = departureRequest;
-    if (!request) return;
-    setDepartureRequest(undefined);
-    const recents = [place, ...recentDepartures.filter((item) => item !== place)].slice(0, 3);
-    setRecentDepartures(recents);
-    void AsyncStorage.setItem(departuresKey(data.userId), JSON.stringify(recents));
-    const line = t('agent.departure.message', { place });
-    if (request.resume) void submit(line, undefined, true, undefined, undefined, undefined, undefined, { place, location });
-    else void submit(request.message, request.intent, true, request.attachments, `${request.displayMessage || request.message}\n${line}`, request.retryTurnId, request.locationIntent, { place, location });
-  };
-
-  const cancelDeparture = () => {
-    const request = departureRequest;
-    setDepartureRequest(undefined);
-    // An app-started plan has no composer text; keep it so it is not lost.
-    if (request && !request.resume && !request.retryTurnId && !input.trim()) setInput(request.displayMessage || request.message);
-  };
-
   useEffect(() => {
     if (!visible || restoring || loading || attachmentUploading || trackPicking) return;
     const prompt = pendingAutoSubmitRef.current;
@@ -1783,7 +1780,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const newChat = () => {
     if (requestInFlightRef.current || attachmentUploading || pendingRequestRef.current) return;
     submitGenerationRef.current++;
-    setDepartureRequest(undefined);
     setActiveRunId(undefined);
     runActivitiesRef.current = [];
     setRunActivities([]);
@@ -1822,7 +1818,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       return;
     }
     submitGenerationRef.current++;
-    setDepartureRequest(undefined);
     setThreadsLoading(true);
     try {
       const history = await getAgentHistory(thread.id);
@@ -1968,7 +1963,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
 
   const quickRepliesForTurn = (turn: Turn) => {
     if (isTrackPromptTurn(turn)) return [];
-    return (turn.quickReplies || []).filter((reply) => reply.action === 'supplement_plan'
+    // The departure card asks this question.
+    return (turn.quickReplies || []).filter((reply) => reply.action !== 'request_location').filter((reply) => reply.action === 'supplement_plan'
       ? turn === turns[turns.length - 1] && !turn.undoAction?.undoneAt
       : !turn.undoAction);
   };
@@ -2117,7 +2113,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                           if (reply.action === 'retry_run' && reply.runId) void continueAgentRun(reply.runId);
                           else if (isTrackUploadReply) void chooseTrackForPlan(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
                           else if (isSkipTrackReply) continuePlanWithoutTrack(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
-                          else if (reply.action === 'request_location') setDepartureRequest({ message: reply.message, resume: true });
                           else void submit(reply.message, undefined, false, undefined, undefined, undefined, transportLocationIntent(reply));
                         }}
                         style={[styles.quickReply, { backgroundColor: theme.accentSofter }, disabled && styles.quickReplyDisabled]}
@@ -2130,6 +2125,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                   })}
                 </View>
               ) : null}
+              {turn === pendingDepartureTurn ? <DepartureCard theme={theme} recents={recentDepartures} disabled={loading || attachmentUploading || trackPicking} onAnswer={answerDeparture} /> : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
               {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} /> : null}
               {turn.itineraryCard ? <ItineraryCard theme={theme} card={turn.itineraryCard} onOpen={() => openItineraryCard(turn.itineraryCard!)} /> : null}
@@ -2206,13 +2202,20 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         >
           <View style={styles.composerWrap}>
             {voiceMode ? <Text style={[styles.voiceGestureHint, { color: voiceCancelling ? theme.danger : theme.text3 }]}>{t(voiceCancelling ? 'agent.voiceReleaseToCancel' : voiceHolding ? 'agent.voiceReleaseToSend' : 'agent.voiceListening')}</Text> : null}
-            {departureRequest ? <DeparturePicker theme={theme} recents={recentDepartures} onConfirm={confirmDeparture} onCancel={cancelDeparture} /> : (
+            {departureReplying && pendingDepartureTurn ? (
+              <View style={styles.replying}>
+                <Text style={[type.hint, { color: theme.text2 }]}>{t('agent.departure.replying')}</Text>
+                <Press onPress={() => setDepartureReplyDismissed(pendingDepartureTurn.id)} accessibilityRole="button" accessibilityLabel={t('common.cancel')} hitSlop={8}>
+                  <X size={16} color={theme.text3} strokeWidth={2} />
+                </Press>
+              </View>
+            ) : null}
             <View style={[styles.composer, { backgroundColor: theme.controlSurface }]}>
               <Press pointerEvents={voiceHolding ? 'none' : 'auto'} onPress={openAddMenu} accessibilityRole="button" accessibilityLabel={t('agent.addContext')} style={[styles.composerAction, voiceHolding && styles.voiceActionHidden]}>
                 {attachmentTrayOpen ? <X size={24} color={theme.text} strokeWidth={1.9} /> : <Plus size={27} color={theme.text} strokeWidth={1.8} />}
               </Press>
               <View style={styles.inputWrap}>
-                <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t('agent.placeholder')} placeholderTextColor={theme.text3} multiline maxLength={1000} editable={!voiceMode} style={[styles.input, { color: theme.text }, voiceMode && styles.voiceInputHidden]} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
+                <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t(departureReplying ? 'agent.departure.placeholder' : 'agent.placeholder')} placeholderTextColor={theme.text3} multiline maxLength={1000} editable={!voiceMode} style={[styles.input, { color: theme.text }, voiceMode && styles.voiceInputHidden]} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
                 {voiceMode ? <VoiceListeningIndicator theme={theme} label={t('agent.voiceListening')} cancelling={voiceCancelling} /> : null}
                 {!inputFocused ? (
                   <Press
@@ -2248,7 +2251,6 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                   : <Mic size={24} color={theme.text} strokeWidth={1.9} />}
               </Press>
             </View>
-            )}
           </View>
           <Text style={[styles.generatedNotice, { color: theme.text3 }]}>{t('agent.disclaimer')}</Text>
           {selectedAttachments.length ? (
@@ -2463,6 +2465,7 @@ const styles = StyleSheet.create({
   loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },
   composerWrap: { paddingHorizontal: space.lg },
+  replying: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.sm, marginBottom: space.xs },
   pendingAttachmentsWrap: { paddingHorizontal: space.lg, paddingTop: space.sm },
   pendingAttachments: { gap: space.xs, paddingBottom: space.xs },
   pendingAttachment: { width: 64, height: 64, borderRadius: radius.control, overflow: 'hidden' },

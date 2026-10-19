@@ -2125,13 +2125,12 @@ export const en: SameShape<typeof zh> = {
       retry: "Check status and retry",
     },
     departure: {
-      title: "Where are you leaving from?",
-      hint: "Used to plan the round trip",
       useLocation: "Use current location",
       locating: "Getting your location…",
-      located: "Located. Edit if needed, then confirm",
+      located: "Located: {place}",
+      useThis: "Use this",
       placeholder: "Enter a departure city, e.g. Chengdu",
-      confirm: "Confirm departure",
+      replying: "Answering: departure",
       message: "Departure: {place}",
       failed: {
         permissionDenied: "Location access is off. Enter a departure city",

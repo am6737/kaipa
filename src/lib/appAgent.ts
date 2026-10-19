@@ -85,6 +85,8 @@ export interface AgentMessageUi {
   undoAction?: AgentUndoAction;
   createJourneyFlow?: { step: 'collect_date' | 'collect_duration' | 'collect_date_and_duration' | 'ask_track'; originalMessage: string };
   trackPrompt?: { message: string; intent?: AgentIntent };
+  // A departure question answered on a card; `request` is a plan held for it.
+  departurePrompt?: { status: 'pending' | 'answered'; place?: string; request?: { message: string; intent?: AgentIntent } };
 }
 
 export interface AgentRunActivity {
@@ -106,6 +108,8 @@ export interface AgentTurnResponse {
   message?: string;
   quickReplies?: AgentQuickReply[];
   ui?: AgentMessageUi;
+  /** The stored assistant message, for replies written without a run. */
+  messageId?: string;
 }
 
 export interface AgentHistoryMessage {
@@ -146,7 +150,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; askDeparture?: boolean; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 

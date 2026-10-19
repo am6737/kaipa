@@ -85,22 +85,29 @@ preserving the saved hike. No SQL migration is required.
 ## Location and Confirmation
 
 - Smart planning and the transport quick-reply need a departure. Without a
-  confirmed one for the journey, the app asks before sending: an inline
-  departure picker replaces the composer and offers the current location,
-  recent departures (kept on the device) and manual entry. Nothing reaches the
-  agent until the user confirms, so planning runs once with a known origin.
-- "Use current location" requests OS permission in place and fills the field
-  with the region/city/district, which stays editable. Coordinates are sent
-  only when the confirmed text is still the located place name.
-- The picked place is sent as the structured `departure` turn field. It becomes
-  the confirmed `travelContext` origin (and the return place unless one was set
-  explicitly) and outranks any device fix.
+  confirmed one for the journey, the app sends the turn with `askDeparture`.
+  The server stores the user message and an assistant question whose
+  `ui.departurePrompt` holds the plan request, and runs no model. The question is
+  a conversation message, so it syncs across devices like any other turn.
+- The app renders the newest pending `departurePrompt` as a card under the
+  question: "use current location" (permission requested in place, then a
+  located place to accept) and recent departures (kept on the device). The
+  composer answers it too, marked with a dismissible "回答出发地" hint; dismissing
+  it sends the next message as an ordinary turn.
+- The answer is sent as the structured `departure` turn field and shown as
+  "出发地：{place}". The server applies it to the newest assistant message
+  only: a stored request starts that plan (its message and intent, interpreted
+  once); a question from a stopped run resumes the run's task. The prompt is then
+  marked `answered`. Coordinates go along only with a located place. The place
+  becomes the confirmed `travelContext` origin (and the return place unless one
+  was set explicitly) and outranks any device fix.
 - A typed request can still reach planning without an origin. The run then stops
   with status `waiting`, shows no journey card, and its question states the real
-  reason (never "无法获取" when location was simply not requested). Its
-  `request_location` button opens the same picker; the answer resumes the
-  waiting task's interpreted decision without another topic check or
-  interpretation (`resumeWaitingPlan` in `task-store.ts`).
+  reason (never "无法获取" when location was simply not requested). `finalize`
+  adds a `departurePrompt` without a request, so the same card appears; the
+  answer resumes the waiting task's interpreted decision without another topic
+  check or interpretation (`resumeWaitingPlan` in `task-store.ts`). The
+  `request_location` reply stays in the message for older apps.
 - Ordinary messages that ask for the device location still sample it, under a
   separate "正在获取位置" status rather than "正在发送".
 - An explicit user place overrides a device location; location refusal is respected.

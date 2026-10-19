@@ -2100,13 +2100,12 @@ export const zh = {
       retry: "确认状态并重试",
     },
     departure: {
-      title: "从哪里出发？",
-      hint: "用于安排往返交通",
       useLocation: "使用当前位置",
       locating: "正在获取位置…",
-      located: "已定位，可修改后确认",
+      located: "已定位：{place}",
+      useThis: "用这个",
       placeholder: "输入出发城市，如 成都",
-      confirm: "确认出发地",
+      replying: "回答出发地",
       message: "出发地：{place}",
       failed: {
         permissionDenied: "没有定位权限，请输入出发城市",

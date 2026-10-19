@@ -19,6 +19,7 @@ import { latestTravelContext, travelContextSchema } from './travel-context-schem
 import type { TravelContext } from './travel-context.ts';
 import { prepareAgentContext } from './context.ts';
 import { prepareTask } from './task-store.ts';
+import { answeredDeparturePrompt, departurePromptUi, departureQuestion, pendingDeparturePrompt, stoppedRunDeparturePrompt } from './departure-prompt.ts';
 import { checkTopic, offTopicResponse } from './topic-boundary.ts';
 import { runPipeline, useStagedPipeline } from './pipeline.ts';
 import { renderTaskResponse } from './response-presentation.ts';
@@ -451,6 +452,11 @@ Deno.serve(async (req) => {
       // Departure the user picked in the app before planning; it confirms the
       // trip's origin without another model turn.
       departure?: unknown;
+      // Store a departure question for this plan request instead of running
+      // it; the answer starts the plan.
+      askDeparture?: boolean;
+      // Set by the server on queued payloads only.
+      resumeWaitingPlan?: boolean;
       intent?: AgentIntent;
       locale?: 'zh' | 'en';
       attachments?: AgentAttachment[];
@@ -469,7 +475,8 @@ Deno.serve(async (req) => {
       if (featureState === 'disabled') throw new ResourceError('feature_disabled', 503);
     }
 
-    if (!body.action || body.action === 'turn' || body.action === 'retry_run') await rate(serviceClient(),'ai',user.id);
+    // A stored departure question runs no model, so it is not AI usage.
+    if (((!body.action || body.action === 'turn') && !body.askDeparture) || body.action === 'retry_run') await rate(serviceClient(),'ai',user.id);
 
     if (body.action === 'retry_run') {
       const retried = await client.rpc('retry_agent_job', { p_run_id: body.runId });
@@ -691,6 +698,13 @@ Deno.serve(async (req) => {
         return json({ runId: run.id, threadId: run.thread_id, status: run.status, message: run.final_output,
           ui, quickReplies: ui?.quickReplies });
       }
+      if (body.askDeparture) {
+        const asked = await client.from('agent_messages').select('id,thread_id,content,ui').eq('role', 'assistant')
+          .contains('ui', { requestId: body.clientRunId }).maybeSingle();
+        if (asked.error) throw asked.error;
+        if (asked.data) return json({ runId: body.clientRunId, threadId: asked.data.thread_id, status: 'completed',
+          message: asked.data.content, ui: asked.data.ui, messageId: asked.data.id });
+      }
     }
     const displayMessage = body.displayMessage?.trim() || body.message.trim();
     let threadId = body.threadId;
@@ -748,22 +762,57 @@ Deno.serve(async (req) => {
     let attachments = (latestTrack
       ? [latestTrack, ...availableAttachments.filter((attachment) => !isTrackAttachment(attachment))]
       : availableAttachments).slice(0, 6);
-    const effectiveMessage = body.message.trim();
+    let effectiveMessage = body.message.trim();
     const departure = typeof body.departure === 'string' ? body.departure.trim().slice(0, 200) : '';
-
     const runId = validClientRunId(body.clientRunId) || crypto.randomUUID();
+
+    if (!jobLease && body.askDeparture) {
+      const ui = departurePromptUi({ message: effectiveMessage, intent: body.intent }, runId, body.locale);
+      const question = departureQuestion(body.locale);
+      // Separate statements, so the question sorts after the request.
+      const asked = await client.from('agent_messages').insert({ thread_id: threadId, user_id: user.id, role: 'user', content: displayMessage, ui: { attachments: uploadedNow } });
+      if (asked.error) throw asked.error;
+      const prompt = await client.from('agent_messages').insert({ thread_id: threadId, user_id: user.id, role: 'assistant', content: question, ui }).select('id').single();
+      if (prompt.error) throw prompt.error;
+      const touched = await client.from('agent_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId);
+      if (touched.error) throw touched.error;
+      return json({ threadId, runId, status: 'completed', message: question, ui, messageId: prompt.data.id });
+    }
+
+    // A departure answers the newest question. One stored with a plan request
+    // starts that plan; one a stopped run asked resumes the run's task.
+    let resumeWaitingPlan = jobLease ? (body.resumeWaitingPlan ?? Boolean(departure)) : Boolean(departure);
+    let answeredPrompt: { id: string; ui: AgentMessageUi } | null = null;
+    if (!jobLease && departure) {
+      const latest = await client.from('agent_messages').select('id,ui').eq('thread_id', threadId).eq('role', 'assistant')
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (latest.error) throw latest.error;
+      const prompt = pendingDeparturePrompt(latest.data);
+      if (prompt && latest.data) {
+        answeredPrompt = latest.data;
+        if (prompt.request) {
+          effectiveMessage = prompt.request.message;
+          body.intent = isAgentIntent(prompt.request.intent) ? prompt.request.intent : undefined;
+          resumeWaitingPlan = false;
+        }
+      }
+    }
     await failStaleRuns(client, user.id, threadId);
     if (!jobLease) {
       const queued = await client.rpc('enqueue_agent_job', {
         p_run_id: runId, p_thread_id: threadId, p_display_message: displayMessage, p_version: AGENT_VERSION,
         p_payload: { message: effectiveMessage, displayMessage, currentJourneyId: resolvedCurrentJourneyId, intent: body.intent,
-          locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), departure: departure || undefined, attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
+          locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), departure: departure || undefined, resumeWaitingPlan, attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
           clientTimeZone: body.clientTimeZone, clientTimestamp: body.clientTimestamp },
       });
       if (queued.error) {
         const code = ['quota_exceeded','concurrency_exceeded'].find(code=>queued.error.message.includes(code));
         if (code) throw new ResourceError(code);
         throw queued.error;
+      }
+      if (answeredPrompt) {
+        const answered = await client.from('agent_messages').update({ ui: answeredDeparturePrompt(answeredPrompt.ui, departure) }).eq('id', answeredPrompt.id);
+        if (answered.error) console.warn('Could not mark the departure question answered', answered.error);
       }
       return json(queued.data, 202);
     }
@@ -786,7 +835,7 @@ Deno.serve(async (req) => {
       message: effectiveMessage, intent: body.intent, temporalContext,
       attachments: attachments.map(({ name, kind }) => ({ name, kind })),
       routerMode: intentRouterMode(Deno.env.get('KAIPA_INTENT_ROUTER')),
-      resumeWaitingPlan: Boolean(departure),
+      resumeWaitingPlan,
     }, interpretation.interpret,
     input => checkTopic(input, { url: Deno.env.get('TOPIC_GUARD_URL') || '',
       token: Deno.env.get('TOPIC_GUARD_TOKEN') || '', budget, recordMetric }),
@@ -976,6 +1025,7 @@ Deno.serve(async (req) => {
       // Nothing was written while the task waits on the user; the bound
       // journey's card would read as a finished plan.
       if (ui.taskOutcome.status === 'waiting') delete ui.planPreview;
+      ui.departurePrompt = stoppedRunDeparturePrompt(ui);
       if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
         ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
       }
