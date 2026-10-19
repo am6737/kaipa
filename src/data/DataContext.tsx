@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef } from 'react';
 import { useRoutes } from '../hooks/useRoutes';
 import { useTracks, type TrackDraft } from '../hooks/useTracks';
 import { useJourneys } from '../hooks/useJourneys';
@@ -81,6 +81,18 @@ export interface DataValue {
 
 const DataContext = createContext<DataValue | null>(null);
 
+/**
+ * A callback with a fixed identity that always runs the latest `fn`. Several
+ * data hooks rebuild their mutators every render; without this the context
+ * value would change on every DataProvider render and re-render every
+ * `useData()` consumer (all four tab screens included) even when no data moved.
+ */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(fn);
+  latest.current = fn;
+  return useCallback((...args: A) => latest.current(...args), []);
+}
+
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
   const {
     profile, loading: profileLoading, stale: profileStale, updateProfile, completeOnboarding, updateAvatar,
@@ -127,21 +139,71 @@ export function DataProvider({ userId, children }: { userId: string; children: R
     }
   }, [deleteTracks, journeys, refetchJourneys]);
 
-  const value: DataValue = {
-    userId,
-    profile, profileLoading, profileStale, updateProfile, completeOnboarding, updateAvatar,
-    planningProfile, planningProfileLoading, savePlanningProfile,
-    routes, routesLoading,
-    routeRequests, routeRequestsLoading, createRouteRequest, deleteRouteRequest, refetchRouteRequests,
-    tracks, tracksLoading, createTrack, updateTrack, deleteTrack, deleteTracks: removeTracks, refetchTracks,
-    journeys, trashedJourneys, journeysLoading, createJourney, updateJourney, updateRoute, toggleRouteFavorite, deleteJourney, restoreJourney, permanentlyDeleteJourney, leaveJourney, toggleFav, refetchJourneys, refetchRoutes, journeyHomeContent, journeyHomeContentLoading, refetchJourneyHomeContent,
-    cats, items, sets, gearLoading,
-    addCat, updateCat, deleteCat,
-    addItem, updateItem, deleteItem,
-    addSet, updateSet, deleteSet,
-    refetchGear,
-    notifList, notifUnread, markNotifRead, markAllNotifsRead,
+  const stable = {
+    updateProfile: useStable(updateProfile),
+    completeOnboarding: useStable(completeOnboarding),
+    updateAvatar: useStable(updateAvatar),
+    savePlanningProfile: useStable(savePlanningProfile),
+    createRouteRequest: useStable(createRouteRequest),
+    deleteRouteRequest: useStable(deleteRouteRequest),
+    refetchRouteRequests: useStable(refetchRouteRequests),
+    createTrack: useStable(createTrack),
+    updateTrack: useStable(updateTrack),
+    deleteTrack: useStable(deleteTrack),
+    deleteTracks: useStable(removeTracks),
+    refetchTracks: useStable(refetchTracks),
+    createJourney: useStable(createJourney),
+    updateJourney: useStable(updateJourney),
+    updateRoute: useStable(updateRoute),
+    toggleRouteFavorite: useStable(toggleRouteFavorite),
+    deleteJourney: useStable(deleteJourney),
+    restoreJourney: useStable(restoreJourney),
+    permanentlyDeleteJourney: useStable(permanentlyDeleteJourney),
+    leaveJourney: useStable(leaveJourney),
+    toggleFav: useStable(toggleFav),
+    refetchJourneys: useStable(refetchJourneys),
+    refetchRoutes: useStable(refetchRoutes),
+    refetchJourneyHomeContent: useStable(refetchJourneyHomeContent),
+    addCat: useStable(addCat),
+    updateCat: useStable(updateCat),
+    deleteCat: useStable(deleteCat),
+    addItem: useStable(addItem),
+    updateItem: useStable(updateItem),
+    deleteItem: useStable(deleteItem),
+    addSet: useStable(addSet),
+    updateSet: useStable(updateSet),
+    deleteSet: useStable(deleteSet),
+    refetchGear: useStable(refetchGear),
+    markNotifRead: useStable(markNotifRead),
+    markAllNotifsRead: useStable(markAllNotifsRead),
   };
+  // Every function in `stable` keeps its identity, so only data changes are deps.
+  const stableRef = useRef(stable);
+
+  const value = useMemo<DataValue>(() => ({
+    ...stableRef.current,
+    userId,
+    profile, profileLoading, profileStale,
+    planningProfile, planningProfileLoading,
+    routes, routesLoading,
+    routeRequests, routeRequestsLoading,
+    tracks, tracksLoading,
+    journeys, trashedJourneys, journeysLoading,
+    journeyHomeContent, journeyHomeContentLoading,
+    cats, items, sets, gearLoading,
+    notifList, notifUnread,
+  }), [
+    userId,
+    profile, profileLoading, profileStale,
+    planningProfile, planningProfileLoading,
+    routes, routesLoading,
+    routeRequests, routeRequestsLoading,
+    tracks, tracksLoading,
+    journeys, trashedJourneys, journeysLoading,
+    journeyHomeContent, journeyHomeContentLoading,
+    cats, items, sets, gearLoading,
+    notifList, notifUnread,
+  ]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

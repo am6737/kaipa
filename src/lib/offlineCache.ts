@@ -69,6 +69,25 @@ export async function clearOfflineCache() {
   }
 }
 
+/** Structural equality for the JSON-shaped rows these hooks hold. */
+export function sameData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameData(a[i], b[i])) return false;
+    return true;
+  }
+  if (Array.isArray(b) || Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  if (a instanceof Date) return a.getTime() === (b as Date).getTime();
+  if (Object.getPrototypeOf(a) !== Object.prototype && Object.getPrototypeOf(a) !== null) return false;
+  const keysA = Object.keys(a);
+  const recordB = b as Record<string, unknown>;
+  if (keysA.length !== Object.keys(recordB).length) return false;
+  const recordA = a as Record<string, unknown>;
+  return keysA.every((key) => Object.prototype.hasOwnProperty.call(recordB, key) && sameData(recordA[key], recordB[key]));
+}
+
 /**
  * `useState` that is seeded from, and mirrored to, the offline cache.
  *
@@ -97,10 +116,15 @@ export function useOfflineState<T>(scope: string | undefined, name: string, init
     if (scope && touched.current) writeOfflineCache(scope, name, value);
   }, [scope, name, value]);
 
+  // A refetch that returns what we already hold keeps the old reference, so
+  // it neither re-renders every consumer nor rewrites the cache file.
   const set = useCallback((next: T | ((prev: T) => T)) => {
     touched.current = true;
     setHydrated(true);
-    setValue(next);
+    setValue((prev) => {
+      const resolved = typeof next === 'function' ? (next as (prev: T) => T)(prev) : next;
+      return sameData(prev, resolved) ? prev : resolved;
+    });
   }, []);
 
   return [value, set, hydrated] as const;

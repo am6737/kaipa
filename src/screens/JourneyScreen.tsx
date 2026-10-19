@@ -82,7 +82,7 @@ function JourneySwipeActions({
   );
 }
 
-export function JourneyScreen({ theme }: { theme: Theme }) {
+function JourneyScreenView({ theme }: { theme: Theme }) {
   countRender('Journey');
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -505,3 +505,7 @@ const styles = StyleSheet.create({
   emptyState: { paddingHorizontal: space.xxxl, paddingVertical: 70, alignItems: 'center' },
   emptyBody: { marginTop: space.xs, lineHeight: 21, textAlign: 'center' },
 });
+
+// Kept mounted under AppShell for every tab; skip re-renders the shell makes
+// for its own state. Context changes (useNav/useData) still reach it.
+export const JourneyScreen = React.memo(JourneyScreenView);

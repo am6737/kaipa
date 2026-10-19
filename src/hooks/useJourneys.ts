@@ -15,6 +15,20 @@ const has = (obj: object, key: keyof Poi) =>
 // before the next refetch lands.
 const TRACK_COLUMNS = "coords, elevation, duration_ms, waypoints, file_url, file_name";
 
+const COMPANION_COLUMNS = "id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order";
+const LEGACY_COMPANION_COLUMNS = "id, ini, name, role, color, tone, trips, is_host, is_self, sort_order";
+
+const journeySelect = (companions: string, withTrack = true) =>
+  `*, companions ( ${companions} )${withTrack ? `, tracks ( ${TRACK_COLUMNS} )` : ""}`;
+
+const REALTIME_REFRESH_DELAY_MS = 600;
+const FOREGROUND_REFRESH_MIN_MS = 30_000;
+
+type JourneyRows = { data: any[] | null; error: { message: string } | null };
+
+const missingCompanionColumn = (error: { message: string } | null) =>
+  Boolean(error && (error.message.includes("avatar_url") || error.message.includes("user_id")));
+
 async function embeddedTrack(trackId: string | undefined) {
   if (!trackId) return null;
   const { data } = await supabase.from("tracks").select(TRACK_COLUMNS).eq("id", trackId).maybeSingle();
@@ -28,60 +42,83 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
   const journeysRef = useRef(journeys);
   journeysRef.current = journeys;
 
-  const fetchJourneys = useCallback(async () => {
+  // Coalesces overlapping refreshes (realtime bursts, foreground, explicit
+  // refetches): one request set at a time, plus at most one more run that picks
+  // up whatever changed while the first was in flight.
+  const inflight = useRef<Promise<Poi[]> | null>(null);
+  const rerun = useRef(false);
+  const lastLoadedAt = useRef(0);
+
+  const loadJourneys = useCallback(async (): Promise<Poi[]> => {
     if (!userId) return [];
-    let { data, error } = await supabase
-      .from("journeys")
-      .select(
-        `
-        *,
-        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
-        tracks ( ${TRACK_COLUMNS} )
-      `,
-      )
-      .eq("user_id", userId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
-
-    // Keep older deployments readable until the trash migration is applied.
-    if (error?.message.includes("deleted_at")) {
-      const legacy = await supabase
+    // Owned journeys, the viewer's profile, memberships and the trash do not
+    // depend on each other, so they go out together instead of one by one.
+    const ownedRequest = (async (): Promise<JourneyRows> => {
+      let result: JourneyRows = await supabase
         .from("journeys")
-        .select(`
-          *,
-          companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
-          tracks ( ${TRACK_COLUMNS} )
-        `)
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      data = legacy.data;
-      error = legacy.error;
-    }
-
-    // Keep journey/map data available while an older database is still waiting
-    // for supabase/applied/companion-avatar-url.sql. PostgREST rejects the entire nested
-    // query when one selected companion column is missing, which otherwise makes
-    // the journey tab look empty (including every map avatar).
-    if (
-      error &&
-      (error.message.includes("avatar_url") ||
-        error.message.includes("user_id"))
-    ) {
-      const fallback = await supabase
-        .from("journeys")
-        .select(
-          `
-          *,
-          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
-          tracks ( ${TRACK_COLUMNS} )
-        `,
-        )
+        .select(journeySelect(COMPANION_COLUMNS))
         .eq("user_id", userId)
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
-      data = fallback.data;
-      error = fallback.error;
-    }
+
+      // Keep older deployments readable until the trash migration is applied.
+      if (result.error?.message.includes("deleted_at")) {
+        result = await supabase
+          .from("journeys")
+          .select(journeySelect(COMPANION_COLUMNS))
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+      }
+
+      // Keep journey/map data available while an older database is still waiting
+      // for supabase/applied/companion-avatar-url.sql. PostgREST rejects the entire nested
+      // query when one selected companion column is missing, which otherwise makes
+      // the journey tab look empty (including every map avatar).
+      if (missingCompanionColumn(result.error)) {
+        result = await supabase
+          .from("journeys")
+          .select(journeySelect(LEGACY_COMPANION_COLUMNS))
+          .eq("user_id", userId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false });
+      }
+      return result;
+    })();
+    const viewerRequest = supabase
+      .from("profiles")
+      .select("nick, display_name, avatar_url")
+      .eq("id", userId)
+      .maybeSingle();
+    const membershipRequest = supabase
+      .from("companions")
+      .select("journey_id")
+      .eq("user_id", userId);
+    // The trash page only lists names, and a restored journey is refetched, so
+    // trashed rows skip the GPS track (the bulk of every journey row).
+    const trashedRequest = (async (): Promise<JourneyRows> => {
+      let result: JourneyRows = await supabase
+        .from("journeys")
+        .select(journeySelect(COMPANION_COLUMNS, false))
+        .eq("user_id", userId)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false });
+      if (missingCompanionColumn(result.error)) {
+        result = await supabase
+          .from("journeys")
+          .select(journeySelect(LEGACY_COMPANION_COLUMNS, false))
+          .eq("user_id", userId)
+          .not("deleted_at", "is", null)
+          .order("deleted_at", { ascending: false });
+      }
+      return result;
+    })();
+
+    const [{ data, error }, { data: viewerProfile }, membershipRes, trashedResult] = await Promise.all([
+      ownedRequest,
+      viewerRequest,
+      membershipRequest,
+      trashedRequest,
+    ]);
 
     if (error) {
       console.warn("[useJourneys] fetch error:", error.message);
@@ -93,11 +130,6 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
     // Older journeys may have a placeholder self companion (for example the
     // prototype's 陈泽宇) and no avatar URL. Resolve the current user's
     // profile here so every journey card can render the same identity.
-    const { data: viewerProfile } = await supabase
-      .from("profiles")
-      .select("nick, display_name, avatar_url")
-      .eq("id", userId)
-      .maybeSingle();
     const viewerName = viewerProfile?.nick || viewerProfile?.display_name || undefined;
     const normalizeCompanions = (companions: any[] | null | undefined, owned: boolean) =>
       (companions ?? []).map((companion) =>
@@ -116,10 +148,6 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
       mine: true,
     }));
     let joinedRows: any[] = [];
-    const membershipRes = await supabase
-      .from("companions")
-      .select("journey_id")
-      .eq("user_id", userId);
     if (!membershipRes.error) {
       const ownedIds = new Set(ownedRows.map((journey: any) => journey.id));
       const joinedIds = [
@@ -128,32 +156,16 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
         ),
       ].filter((journeyId) => !ownedIds.has(journeyId));
       if (joinedIds.length) {
-        let joinedRes = await supabase
+        let joinedRes: JourneyRows = await supabase
           .from("journeys")
-          .select(
-            `
-            *,
-            companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
-            tracks ( ${TRACK_COLUMNS} )
-          `,
-          )
+          .select(journeySelect(COMPANION_COLUMNS))
           .in("id", joinedIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false });
-        if (
-          joinedRes.error &&
-          (joinedRes.error.message.includes("avatar_url") ||
-            joinedRes.error.message.includes("user_id"))
-        ) {
+        if (missingCompanionColumn(joinedRes.error)) {
           joinedRes = await supabase
             .from("journeys")
-            .select(
-              `
-              *,
-              companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
-              tracks ( ${TRACK_COLUMNS} )
-            `,
-            )
+            .select(journeySelect(LEGACY_COMPANION_COLUMNS))
             .in("id", joinedIds)
             .is("deleted_at", null)
             .order("created_at", { ascending: false });
@@ -169,32 +181,6 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
     const nextJourneys = [...ownedRows, ...joinedRows].map((j: any) =>
       toJourneyPoi({ ...j, asc: j.asc_ }, undefined, userId),
     );
-    let trashedResult = await supabase
-      .from("journeys")
-      .select(`
-        *,
-        companions ( id, user_id, ini, name, role, color, tone, avatar_url, trips, is_host, is_self, sort_order ),
-        tracks ( ${TRACK_COLUMNS} )
-      `)
-      .eq("user_id", userId)
-      .not("deleted_at", "is", null)
-      .order("deleted_at", { ascending: false });
-    if (
-      trashedResult.error &&
-      (trashedResult.error.message.includes("avatar_url") ||
-        trashedResult.error.message.includes("user_id"))
-    ) {
-      trashedResult = await supabase
-        .from("journeys")
-        .select(`
-          *,
-          companions ( id, ini, name, role, color, tone, trips, is_host, is_self, sort_order ),
-          tracks ( ${TRACK_COLUMNS} )
-        `)
-        .eq("user_id", userId)
-        .not("deleted_at", "is", null)
-        .order("deleted_at", { ascending: false });
-    }
     if (trashedResult.error) {
       if (!trashedResult.error.message.includes("deleted_at")) {
         console.warn("[useJourneys] trash fetch error:", trashedResult.error.message);
@@ -209,8 +195,29 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
     }
     setJourneys(nextJourneys);
     setLoading(false);
+    lastLoadedAt.current = Date.now();
     return nextJourneys;
   }, [userId, profile?.nick, profile?.avatarUrl]);
+
+  const fetchJourneys = useCallback((): Promise<Poi[]> => {
+    if (inflight.current) {
+      rerun.current = true;
+      return inflight.current;
+    }
+    const run = async () => {
+      let result: Poi[];
+      do {
+        rerun.current = false;
+        result = await loadJourneys();
+      } while (rerun.current);
+      return result;
+    };
+    const request = run().finally(() => {
+      inflight.current = null;
+    });
+    inflight.current = request;
+    return request;
+  }, [loadJourneys]);
 
   useEffect(() => {
     fetchJourneys();
@@ -219,9 +226,11 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
   useEffect(() => {
     if (!userId) return;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    // Every save of our own echoes back here as one or more change events, and
+    // the optimistic update already shows it, so a burst only needs one refetch.
     const scheduleRefresh = () => {
       if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => { void fetchJourneys(); }, 120);
+      refreshTimer = setTimeout(() => { void fetchJourneys(); }, REALTIME_REFRESH_DELAY_MS);
     };
     const channel = supabase
       .channel(`journey-data:${userId}`)
@@ -237,7 +246,9 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
       )
       .subscribe();
     const appStateSubscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") scheduleRefresh();
+      // Android also reports "active" when a system picker or permission
+      // dialog closes; realtime covers changes made while we were that close.
+      if (state === "active" && Date.now() - lastLoadedAt.current > FOREGROUND_REFRESH_MIN_MS) scheduleRefresh();
     });
 
     return () => {
@@ -521,6 +532,8 @@ export function useJourneys(userId: string | undefined, profile?: UserProfile) {
       const { deletedAt: _deletedAt, ...activeJourney } = restored;
       setJourneys((prev) => [activeJourney, ...prev]);
     }
+    // Trashed rows are read without their track, so pick it back up.
+    void fetchJourneys();
   };
 
   const permanentlyDeleteJourney = async (id: string) => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View, StyleSheet } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
@@ -427,17 +427,19 @@ function AppShell() {
 
 function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAccount: () => Promise<void> }) {
   const data = useData();
+  // DataContext keeps these functions stable, so the bridge object is too.
+  const db = useMemo(() => ({
+    updateJourney: data.updateJourney,
+    updateRoute: data.updateRoute,
+    deleteJourney: data.deleteJourney,
+    toggleFav: data.toggleFav,
+    toggleRouteFavorite: data.toggleRouteFavorite,
+    createJourney: data.createJourney,
+  }), [data.updateJourney, data.updateRoute, data.deleteJourney, data.toggleFav, data.toggleRouteFavorite, data.createJourney]);
   return (
     <NavProvider
       auth={{ signOut, deleteAccount }}
-      db={{
-        updateJourney: data.updateJourney,
-        updateRoute: data.updateRoute,
-        deleteJourney: data.deleteJourney,
-        toggleFav: data.toggleFav,
-        toggleRouteFavorite: data.toggleRouteFavorite,
-        createJourney: data.createJourney,
-      }}
+      db={db}
     >
       <MapPresentationProvider>
         <PushNavigator />

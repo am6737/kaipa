@@ -1739,7 +1739,7 @@ function JourneysPage({
   );
 }
 
-export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
+function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   countRender("Me");
   const theme = makeMeTheme(baseTheme);
   const insets = useSafeAreaInsets();
@@ -2720,3 +2720,7 @@ export function MeScreen({ theme: baseTheme }: { theme: Theme }) {
     </View>
   );
 }
+
+// Kept mounted under AppShell for every tab; skip re-renders the shell makes
+// for its own state. Context changes (useNav/useData) still reach it.
+export const MeScreen = React.memo(MeScreenView);

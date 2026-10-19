@@ -539,7 +539,7 @@ const NO_ROUTE_WAYPOINT_MARKERS: NativeMapMarker[] = [];
 // second `Discover` render).
 const NO_SELECTION: Set<string> = new Set();
 
-export function DiscoverScreen({
+function DiscoverScreenView({
   theme,
   active = true,
   keepMapWarm = false,
@@ -3353,3 +3353,7 @@ export function DiscoverScreen({
     </View>
   );
 }
+
+// Kept mounted under AppShell for every tab; skip re-renders the shell makes
+// for its own state. Context changes (useNav/useData) still reach it.
+export const DiscoverScreen = React.memo(DiscoverScreenView);
