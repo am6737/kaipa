@@ -34,17 +34,28 @@ export function resolveTravelRequest(input: TravelRequest | null | undefined, co
   return request;
 }
 
-export function travelIntake(request: TravelRequest, location?: AgentLocation, declined = false, locale = 'zh'): { question: string; quickReplies: AgentQuickReply[] } | null {
+const intakeReasons: Record<string, { zh: string; en: string }> = {
+  permission_denied: { zh: '没有定位权限，', en: 'Location access is off, so ' },
+  services_disabled: { zh: '手机定位服务已关闭，', en: 'Location services are disabled, so ' },
+  timeout: { zh: '这次没能获取到位置，', en: 'Your location could not be found this time, so ' },
+  unavailable: { zh: '这次没能获取到位置，', en: 'Your location could not be found this time, so ' },
+  stale: { zh: '这次没能获取到位置，', en: 'Your location could not be found this time, so ' },
+  available: { zh: '定位成功，但没能识别所在城市，', en: 'Your city could not be identified from your location, so ' },
+};
+
+// Only reached when the plan needs round-trip transport and no departure is
+// known. The app answers with its departure picker, which offers the current
+// location and manual entry; the question states the real reason rather than
+// reporting a failure when location was simply never requested.
+export function travelIntake(request: TravelRequest, location?: AgentLocation, locale = 'zh'): { question: string; quickReplies: AgentQuickReply[] } | null {
+  if (request.origin) return null;
   const en = locale.startsWith('en');
-  if (!request.origin) {
-    const question = en
-      ? 'Your current departure location is unavailable. Enable location access or enter your departure city.'
-      : '暂时无法获取当前出发位置，请开启定位或填写出发城市。';
-    return { question, quickReplies: !declined && (!location || location.status === 'permission_required')
-      ? [{ label: en ? 'Use my location' : '获取当前位置', message: en ? 'Use my current location for departure.' : '获取当前位置作为出发地。', action: 'request_location' as const }]
-      : [] };
-  }
-  return null;
+  const reason = location ? intakeReasons[location.status] : undefined;
+  const question = en
+    ? `${reason?.en ?? ''}${reason ? 'please' : 'Please'} set your departure place so I can plan the round trip.`
+    : `${reason?.zh ?? ''}请设置出发地，我再安排往返交通。`;
+  return { question, quickReplies: [{ label: en ? 'Set departure' : '设置出发地',
+    message: en ? 'Use my current location for departure.' : '获取当前位置作为出发地。', action: 'request_location' as const }] };
 }
 
 export function travelContextFromRequest(request: TravelRequest, previous: TravelContext | null | undefined, journeyId: string | null): TravelContext {

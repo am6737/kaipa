@@ -158,3 +158,40 @@ Deno.test('task preparation passes the router mode through', async () => {
     if (task.decision.operations.join() !== 'add_gear' || task.routing?.applied) throw new Error(`${routerMode}: decision changed`);
   }
 });
+
+Deno.test('a picked departure resumes the waiting plan without another topic check or interpretation', async () => {
+  const decision = taskDecisionSchema.parse({ objective: 'Plan full hike', mode: 'execute', continuation: false, authorizationQuote: '帮我规划',
+    operations: ['add_itinerary_items'], requiredOperations: ['add_itinerary_items'], fullHikingPlan: true,
+    days: null, plannedDate: null, dateUndecided: true, destination: '党岭', trackAttachmentName: null, packingMode: 'none', constraints: [] });
+  const topicCheck = { allowed: true, policyVersion: TOPIC_POLICY_VERSION, checkedAt: 'then' };
+  const waiting = { runId: 'old', journeyId: 'journey', decision, topicCheck,
+    outcome: { status: 'waiting', pendingQuestion: '请设置出发地，我再安排往返交通。', missingOperations: [], draft: null } };
+  const run = async (previous: any, resumeWaitingPlan: boolean) => {
+    let inserted: any;
+    let checked = 0;
+    let interpreted = 0;
+    const client = { from(table: string) {
+      let threadQuery = false;
+      const chain = { select: () => chain, eq: (key: string) => { if (key === 'thread_id') threadQuery = true; return chain; },
+        is: () => chain, order: () => chain, limit: () => chain,
+        maybeSingle: () => ({ error: null, data: table === 'agent_task_states' && threadQuery ? { state: previous } : null }),
+        insert: (value: unknown) => { inserted = value; return { error: null }; },
+        then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }) };
+      return chain;
+    } };
+    const task = await prepareTask(client, client, { runId: 'run', threadId: 'thread', userId: 'user', journeyId: 'journey',
+      message: '日期待定，帮我规划一个', temporalContext: 'today', attachments: [], resumeWaitingPlan }, async () => {
+      interpreted++;
+      return decision;
+    }, async () => { checked++; return { ...topicCheck, checkedAt: 'now' }; });
+    return { task, inserted, checked, interpreted };
+  };
+  const resumed = await run(waiting, true);
+  if (resumed.checked || resumed.interpreted) throw new Error('Resumed plan was checked or interpreted again');
+  if (resumed.task.runId !== 'run' || resumed.task.outcome !== null || !resumed.task.decision.fullHikingPlan) throw new Error('Waiting plan not carried over');
+  if (resumed.inserted?.state !== resumed.task) throw new Error('Resumed scope not persisted for retries');
+  const finished = await run({ ...waiting, outcome: { ...waiting.outcome, status: 'completed', pendingQuestion: null } }, true);
+  if (finished.interpreted !== 1) throw new Error('A finished task must not be resumed');
+  const typed = await run(waiting, false);
+  if (typed.interpreted !== 1) throw new Error('Only a picked departure resumes; typed messages are interpreted');
+});

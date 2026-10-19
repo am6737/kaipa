@@ -84,13 +84,26 @@ preserving the saved hike. No SQL migration is required.
 
 ## Location and Confirmation
 
-- The transport quick-reply and smart-planning entry opportunistically collect
-  an already authorized fix. Accommodation and ordinary unrelated messages do not.
-- A confirmed origin or explicit location refusal suppresses this collection for
-  the same journey. New journeys do not inherit these facts.
-- Unrequested OS permission prompts are avoided. `permission_required` lets the
-  agent offer a `request_location` button alongside manual place input.
-- A usable named current device location is the default departure and return place without a confirmation question. Explicit user places override this default; location refusal is respected.
+- Smart planning and the transport quick-reply need a departure. Without a
+  confirmed one for the journey, the app asks before sending: an inline
+  departure picker replaces the composer and offers the current location,
+  recent departures (kept on the device) and manual entry. Nothing reaches the
+  agent until the user confirms, so planning runs once with a known origin.
+- "Use current location" requests OS permission in place and fills the field
+  with the region/city/district, which stays editable. Coordinates are sent
+  only when the confirmed text is still the located place name.
+- The picked place is sent as the structured `departure` turn field. It becomes
+  the confirmed `travelContext` origin (and the return place unless one was set
+  explicitly) and outranks any device fix.
+- A typed request can still reach planning without an origin. The run then stops
+  with status `waiting`, shows no journey card, and its question states the real
+  reason (never "无法获取" when location was simply not requested). Its
+  `request_location` button opens the same picker; the answer resumes the
+  waiting task's interpreted decision without another topic check or
+  interpretation (`resumeWaitingPlan` in `task-store.ts`).
+- Ordinary messages that ask for the device location still sample it, under a
+  separate "正在获取位置" status rather than "正在发送".
+- An explicit user place overrides a device location; location refusal is respected.
 - Reverse geocoding retains only region/city/district. Unsupported or failed
   geocoding keeps the fix; stalled geocoding is bounded. Existing coordinate,
   accuracy, timestamp and stale-fix checks remain in place.

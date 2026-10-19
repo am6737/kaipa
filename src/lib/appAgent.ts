@@ -73,6 +73,7 @@ export interface AgentMessageUi {
     preferredHikeDays: number | null;
   };
   travelContext?: import('../../supabase/functions/app-agent/travel-context').TravelContext | null;
+  taskOutcome?: { status: 'waiting' | 'draft' | 'completed' | 'partial' | 'cancelled'; pendingQuestion: string | null };
   requestId?: string;
   quickReplies?: AgentQuickReply[];
   sources?: AgentSource[];
@@ -145,7 +146,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 

@@ -24,8 +24,11 @@ Deno.test('current location is the default origin without confirmation and expli
   assert(resolveTravelRequest(null, retained, location).origin === '杭州', 'retained trip origin survives a new fix');
   const empty = resolveTravelRequest(null);
   assert(travelIntake(empty)?.quickReplies[0]?.action === 'request_location');
-  assert(!travelIntake(empty, { status: 'permission_denied' })?.quickReplies.length);
-  assert(!travelIntake(empty, undefined, true)?.quickReplies.length);
+  assert(/请设置出发地/.test(travelIntake(empty)?.question || '') && !/无法获取/.test(travelIntake(empty)?.question || ''),
+    'location that was never requested is not reported as a failure');
+  const denied = travelIntake(empty, { status: 'permission_denied' });
+  assert(denied?.question.startsWith('没有定位权限') && denied.quickReplies[0]?.action === 'request_location',
+    'denied location still offers the departure picker, which allows manual entry');
   assert(!resolveTravelRequest(null, { ...retained, origin: null, returnDestination: null, locationDeclined: true }, location).origin);
   assert(!resolveTravelRequest(null, null, { ...location, timestamp: 0 }).origin, 'stale fix cannot silently become departure');
 });

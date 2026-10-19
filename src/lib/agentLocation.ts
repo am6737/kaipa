@@ -12,8 +12,9 @@ export function requestsCurrentLocation(message: string): boolean {
 
 export type AgentLocationIntent = 'transport' | 'request_location';
 
-export function shouldSuggestTransportLocation(travel: TravelContext | null | undefined, journeyId?: string): boolean {
-  return travel?.journeyId !== (journeyId || null) || (!travel?.origin && !travel?.locationDeclined);
+// The departure this conversation already settled for the journey, if any.
+export function confirmedDeparture(travel: TravelContext | null | undefined, journeyId?: string): string | undefined {
+  return travel?.journeyId === (journeyId || null) && travel.origin ? travel.origin : undefined;
 }
 
 export function transportLocationIntent(reply: { action?: string; label: string }): AgentLocationIntent | undefined {

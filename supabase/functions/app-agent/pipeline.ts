@@ -154,7 +154,7 @@ export async function runPipeline(pipeline: PipelineDeps): Promise<{ finalOutput
   const needsMainTravel = pipeline.task.decision.fullHikingPlan === true && pipeline.task.decision.includeRoundTripTransport !== false;
   const travelRequest = resolveTravelRequest(pipeline.task.decision.travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentLocation);
   if (needsMainTravel) {
-    const intake = travelIntake(travelRequest, pipeline.context.currentLocation, pipeline.context.confirmedTravel?.locationDeclined, pipeline.context.locale);
+    const intake = travelIntake(travelRequest, pipeline.context.currentLocation, pipeline.context.locale);
     pipeline.context.confirmedTravel = travelContextFromRequest(travelRequest, pipeline.context.confirmedTravel, pipeline.context.currentJourneyId || null);
     if (intake) return { aborted: false, finalOutput: assistantOutput.parse({
       text: intake.question, pendingQuestion: intake.question, quickReplies: intake.quickReplies,

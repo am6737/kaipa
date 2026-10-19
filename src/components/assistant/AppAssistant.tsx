@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
-import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
+import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, CircleQuestionMark, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -23,7 +23,8 @@ import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
 import { activityDetails, hasResearchActivity } from './activityDetails';
 import { startAgentRecovery } from '../../lib/agentRecovery';
-import { getAgentLocation, shouldSuggestTransportLocation, transportLocationIntent, type AgentLocationIntent } from '../../lib/agentLocation';
+import { confirmedDeparture, getAgentLocation, requestsCurrentLocation, transportLocationIntent, type AgentLocation, type AgentLocationIntent } from '../../lib/agentLocation';
+import { DeparturePicker } from './DeparturePicker';
 import { retryAgentRun } from '../../lib/appAgent';
 import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
 import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
@@ -40,6 +41,8 @@ type PendingAgentRequest = {
 
 type Turn = {
   travelContext?: AgentMessageUi['travelContext'];
+  // The task stopped to ask the user something; nothing was written.
+  waiting?: boolean;
   id: string;
   role: 'user' | 'assistant';
   text: string;
@@ -62,6 +65,19 @@ type Turn = {
 };
 
 const storageKey = (userId: string, journeyId?: string) => `kaipa_agent_thread_v1:${userId}:${journeyId || 'global'}`;
+const departuresKey = (userId: string) => `kaipa_agent_departures_v1:${userId}`;
+
+// A request held until the user picks a departure. `resume` answers a plan
+// that already stopped to ask; otherwise the held message is sent with it.
+type DepartureRequest = {
+  message: string;
+  displayMessage?: string;
+  intent?: AgentIntent;
+  locationIntent?: AgentLocationIntent;
+  attachments?: LocalAgentAttachment[];
+  retryTurnId?: string;
+  resume: boolean;
+};
 
 function createRunId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
@@ -328,7 +344,7 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       const result = activity.output as { status?: string; distanceKm?: number; durationMinutes?: number } | undefined;
       const status = activity.status === 'completed' && result?.status !== 'results' ? 'failed' : activity.status;
       return [{ key, status, text: activity.status === 'running' ? '正在查询高德自驾路径…' : result?.status === 'results'
-        ? `高德路径：${result.distanceKm} 公里 · 估算 ${result.durationMinutes} 分钟` : `自驾路径暂未取得：${result?.status || activity.status}` }];
+        ? `高德路径：${result.distanceKm} 公里，估算 ${result.durationMinutes} 分钟` : `自驾路径暂未取得：${result?.status || activity.status}` }];
     }
     if (activity.toolName === 'search_transport') {
       const rail = activity.arguments.mode === 'rail';
@@ -345,7 +361,7 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
         : rail ? 'agent.research.railNotConnected' : 'agent.research.flightNotConnected';
       const { origin, destination } = activity.arguments;
       const route = typeof origin === 'string' && typeof destination === 'string' && origin && destination
-        ? ` · ${origin} → ${destination}` : '';
+        ? ` ${origin} → ${destination}` : '';
       return [{ key, title: `${rail ? '火车' : '航班'}${route}`, status: activity.status, text: t(label, { count: result?.count ?? result?.offers?.length ?? 0 }) }];
     }
     if (activity.toolName === 'search_travel_web') {
@@ -598,7 +614,7 @@ function LoadingDots({ color }: { color: string }) {
   );
 }
 
-function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, stages, running, showTiming }: { theme: Theme; activities: AgentRunActivity[]; modelMetrics?: AgentModelMetric[]; runTiming?: AgentMessageUi['runTiming']; stages?: AgentStage[]; running: boolean; showTiming: boolean }) {
+function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, stages, running, waiting = false, showTiming }: { theme: Theme; activities: AgentRunActivity[]; modelMetrics?: AgentModelMetric[]; runTiming?: AgentMessageUi['runTiming']; stages?: AgentStage[]; running: boolean; waiting?: boolean; showTiming: boolean }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(running);
   const [now, setNow] = useState(() => Date.now());
@@ -639,13 +655,13 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
   const transportGroup = transportSteps.length ? (
     <View key="transport" style={styles.researchTransportGroup}>
       <View style={styles.researchLine}>
-        <Text style={[styles.researchLineTitle, { color: theme.text }]}>{t('agent.research.transportTitle')}{transportStatus === 'failed' ? ' · 未完成' : ''}</Text>
+        <Text style={[styles.researchLineTitle, { color: theme.text }]}>{t('agent.research.transportTitle')}{transportStatus === 'failed' ? '（未完成）' : ''}</Text>
         {transportStatus === 'running' ? <View style={styles.researchLineIcon}><LoadingDots color={theme.text3} /></View> : null}
       </View>
       {transportSteps.map((step) => (
         <View key={step.key} style={[styles.researchLine, styles.researchTransportRow]}>
           <View style={styles.researchLineCopy}>
-            <Text style={[styles.researchTransportSubtitle, { color: theme.text2 }]}>{researchStepTitle(step)}{step.status === 'failed' ? ' · 未完成' : ''}</Text>
+            <Text style={[styles.researchTransportSubtitle, { color: theme.text2 }]}>{researchStepTitle(step)}{step.status === 'failed' ? '（未完成）' : ''}</Text>
             {researchStepSubtitle(step) ? <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>{researchStepSubtitle(step)}</Text> : null}
           </View>
           {step.status === 'running' ? <View style={styles.researchLineIcon}><LoadingDots color={theme.text3} /></View> : null}
@@ -674,8 +690,10 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
         accessibilityState={{ expanded }}
         style={styles.researchHeader}
       >
-        {running ? <ActivityIndicator size="small" color={theme.text} /> : <CheckCircle2 size={18} color={theme.text2} strokeWidth={2} />}
-        <Text style={[styles.researchTitle, { color: theme.text }]}>{t(running ? 'agent.research.title' : 'agent.research.completed')}{totalElapsed != null ? ` · ${formatElapsed(totalElapsed)}` : ''}</Text>
+        {running ? <ActivityIndicator size="small" color={theme.text} />
+          : waiting ? <CircleQuestionMark size={18} color={theme.text2} strokeWidth={2} />
+          : <CheckCircle2 size={18} color={theme.text2} strokeWidth={2} />}
+        <Text style={[styles.researchTitle, { color: theme.text }]}>{t(running ? 'agent.research.title' : waiting ? 'agent.research.waiting' : 'agent.research.completed')}{totalElapsed != null ? ` ${formatElapsed(totalElapsed)}` : ''}</Text>
         <Animated.View
           style={{
             alignItems: 'center',
@@ -699,7 +717,7 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
         : (
         <View key={step.key} style={styles.researchLine}>
           <View style={styles.researchLineCopy}>
-            <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}{step.status === 'failed' ? ' · 未完成' : ''}</Text>
+            <Text style={[styles.researchLineTitle, { color: theme.text }]}>{researchStepTitle(step)}{step.status === 'failed' ? '（未完成）' : ''}</Text>
             {researchStepSubtitle(step) ? <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>{researchStepSubtitle(step)}</Text> : null}
             {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
             {showTiming && step.elapsed != null && !step.key.startsWith('search_transport_') ? <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text> : null}
@@ -708,11 +726,11 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
       )) : null}
       {expanded && !firstCompletedTransport ? transportGroup : null}
       {showTiming && expanded && (modelElapsed || toolElapsed) ? (
-        <Text style={[styles.researchLineText, { color: theme.text3 }]}>模型合计 {formatElapsed(modelElapsed)} · 工具合计 {formatElapsed(toolElapsed)}</Text>
+        <Text style={[styles.researchLineText, { color: theme.text3 }]}>模型合计 {formatElapsed(modelElapsed)}，工具合计 {formatElapsed(toolElapsed)}</Text>
       ) : null}
       {showTiming && expanded ? aggregatedModelMetrics.map((metric) => (
         <View key={`model_${metric.stage}`} style={styles.researchLine}>
-          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} · {formatElapsed(metric.durationMs)}{metric.degraded ? ' · 部分完成' : metric.success ? '' : ' · 失败'}</Text>
+          <Text style={[styles.researchLineText, { color: theme.text2 }]}>{modelStageLabel(metric.stage)} {formatElapsed(metric.durationMs)}{metric.degraded ? '（部分完成）' : metric.success ? '' : '（失败）'}</Text>
         </View>
       )) : null}
       {expanded ? orderedTimedSteps.filter((step) => step.status === 'running' && !isTransportStep(step)).map((step) => (
@@ -725,7 +743,7 @@ function ResearchActivity({ theme, activities, modelMetrics = [], runTiming, sta
             {step.details.map((detail, index) => <Text selectable key={index} style={[styles.researchLineText, { color: theme.text2 }]}>{detail}</Text>)}
             {researchStepSubtitle(step) ? (
               <Text selectable style={[styles.researchLineText, { color: theme.text2 }]}>
-                {researchStepSubtitle(step)}{step.elapsed != null ? ` · ${formatElapsed(step.elapsed)}` : ''}
+                {researchStepSubtitle(step)}{step.elapsed != null ? ` ${formatElapsed(step.elapsed)}` : ''}
               </Text>
             ) : step.elapsed != null ? (
               <Text style={[styles.researchLineMeta, { color: theme.text3 }]}>{formatElapsed(step.elapsed)}</Text>
@@ -785,7 +803,7 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
     <View style={[styles.planPreview, { backgroundColor: theme.surfaceTop }] }>
       <Text style={[styles.planTitle, { color: theme.text }]}>{preview.title}</Text>
       {preview.dateLabel ? <Text style={[styles.planMeta, { color: theme.text3 }]}>{preview.dateLabel}</Text> : null}
-      <View style={styles.planDays}>
+      {preview.days.length ? <View style={styles.planDays}>
         {preview.days.slice(0, 7).map((day, index) => (
           <View key={`${day.label}_${index}`} style={styles.planDay}>
             <Text style={[styles.planDayTitle, { color: theme.text }]}>{journeyDayDisplayLabel(day.label, resolved)}</Text>
@@ -802,7 +820,7 @@ function PlanPreviewCard({ theme, preview, openLabel, onOpen }: { theme: Theme; 
             })}
           </View>
         ))}
-      </View>
+      </View> : null}
       <Press onPress={() => onOpen(preview.journeyId)} accessibilityRole="button" accessibilityLabel={openLabel} style={styles.viewJourney}>
         <ArrowUpRight size={18} color={theme.text} strokeWidth={2} />
         <Text style={[styles.viewJourneyText, { color: theme.text }]}>{openLabel}</Text>
@@ -876,6 +894,7 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
     text: message.content,
     quickReplies: message.ui?.quickReplies,
     travelContext: message.ui?.travelContext,
+    waiting: message.ui?.taskOutcome?.status === 'waiting' || undefined,
     sources: message.ui?.sources,
     planPreview: message.ui?.planPreview,
     itineraryCard: message.ui?.itineraryCard,
@@ -889,8 +908,8 @@ function historyTurns(history: AgentHistoryResponse): Turn[] {
 }
 
 function synchronizedTurnFingerprint(turns: Turn[]) {
-  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext }) => ({
-    role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext,
+  return JSON.stringify(turns.map(({ role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting }) => ({
+    role, text, quickReplies, sources, planPreview, itineraryCard, activities, modelMetrics, runTiming, attachments, undoAction, createJourneyFlow, travelContext, waiting,
   })));
 }
 
@@ -1036,7 +1055,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const submitGenerationRef = useRef(0);
   const pendingRequestRef = useRef<PendingAgentRequest | undefined>(undefined);
   const [retryingPending, setRetryingPending] = useState(false);
-  const [requestPhase, setRequestPhase] = useState<'sending' | 'queued' | 'planning' | 'reconnecting' | 'unconfirmed'>('sending');
+  const [requestPhase, setRequestPhase] = useState<'locating' | 'sending' | 'queued' | 'planning' | 'reconnecting' | 'unconfirmed'>('sending');
+  const [departureRequest, setDepartureRequest] = useState<DepartureRequest>();
+  const [recentDepartures, setRecentDepartures] = useState<string[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
   const [undoingRunId, setUndoingRunId] = useState<string>();
@@ -1379,6 +1400,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           text: message.content,
           quickReplies: message.ui?.quickReplies,
           travelContext: message.ui?.travelContext,
+          waiting: message.ui?.taskOutcome?.status === 'waiting' || undefined,
           sources: message.ui?.sources,
           planPreview: message.ui?.planPreview,
           itineraryCard: message.ui?.itineraryCard,
@@ -1468,7 +1490,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     if (createdThreadTitle) setThreadTitle(createdThreadTitle);
     void AsyncStorage.setItem(storageKey(data.userId, activeJourneyId), response.threadId);
     if (response.ui?.trackPrompt) setTrackPrompt(response.ui.trackPrompt);
-    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
+    setTurns((current) => [...current, { id: `a_${Date.now()}`, role: 'assistant', text: response.message || t('agent.executed'), quickReplies: response.quickReplies, travelContext: response.ui?.travelContext, waiting: response.ui?.taskOutcome?.status === 'waiting' || undefined, sources: response.ui?.sources, planPreview: response.ui?.planPreview, itineraryCard: response.ui?.itineraryCard, activities, modelMetrics: response.ui?.modelMetrics, runTiming: response.ui?.runTiming, undoAction: response.ui?.undoAction, createJourneyFlow: response.ui?.createJourneyFlow }]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   };
 
@@ -1558,7 +1580,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
   };
 
-  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent) => {
+  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent, departure?: { place: string; location?: AgentLocation }) => {
     const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
     const typedMessage = (preset ?? input).trim();
     const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
@@ -1583,6 +1605,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         continuePlanWithoutTrack(activeTrackPrompt);
         return;
       }
+    }
+    const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
+    const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' ? 'transport' : undefined);
+    // Round-trip transport needs a departure. Ask for it here, before any
+    // model work, instead of letting the run stop halfway to ask.
+    if (!departure && effectiveLocationIntent === 'transport' && !confirmedDeparture(travel, activeJourneyId)) {
+      setDepartureRequest({ message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, intent, locationIntent,
+        attachments: attachmentOverride, retryTurnId, resume: false });
+      setAttachmentTrayOpen(false);
+      return;
     }
     const optimisticUpload = pendingHasTrackAttachment;
     const generation = ++submitGenerationRef.current;
@@ -1635,12 +1667,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setRunActivities([]);
       setRunStages([]);
       const creatingThread = !threadId;
-      const travel = [...turns].reverse().find(turn => turn.role === 'assistant' && turn.travelContext !== undefined)?.travelContext;
-      const effectiveLocationIntent = locationIntent || (intent === 'plan_journey' ? 'transport' : undefined);
-      const skipSuggestedLocation = effectiveLocationIntent === 'transport' && !shouldSuggestTransportLocation(travel, activeJourneyId);
-      const currentLocation = skipSuggestedLocation ? undefined : await getAgentLocation(visibleMessage, 15_000, effectiveLocationIntent);
-      if (generation !== submitGenerationRef.current) return;
-      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
+      // Transport requests reach here with a settled departure. Only a message
+      // that asks for the device location samples it, under its own status.
+      let currentLocation = departure?.location;
+      if (!departure && effectiveLocationIntent !== 'transport' && (effectiveLocationIntent || requestsCurrentLocation(visibleMessage))) {
+        setRequestPhase('locating');
+        currentLocation = await getAgentLocation(visibleMessage, 15_000, effectiveLocationIntent);
+        if (generation !== submitGenerationRef.current) return;
+        setRequestPhase('sending');
+      }
+      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
       const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
       pendingRequestRef.current = pending;
       await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
@@ -1696,6 +1732,37 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   };
 
   useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(departuresKey(data.userId)).then((value) => {
+      const stored: unknown = value ? JSON.parse(value) : [];
+      if (active && Array.isArray(stored)) setRecentDepartures(stored.filter((item): item is string => typeof item === 'string').slice(0, 3));
+    }).catch((error) => console.warn('[AppAgent] recent departures unavailable', error));
+    return () => { active = false; };
+  }, [data.userId]);
+
+  // A held request belongs to the conversation it was made in.
+  useEffect(() => { setDepartureRequest(undefined); }, [currentJourneyId, visible]);
+
+  const confirmDeparture = (place: string, location?: AgentLocation) => {
+    const request = departureRequest;
+    if (!request) return;
+    setDepartureRequest(undefined);
+    const recents = [place, ...recentDepartures.filter((item) => item !== place)].slice(0, 3);
+    setRecentDepartures(recents);
+    void AsyncStorage.setItem(departuresKey(data.userId), JSON.stringify(recents));
+    const line = t('agent.departure.message', { place });
+    if (request.resume) void submit(line, undefined, true, undefined, undefined, undefined, undefined, { place, location });
+    else void submit(request.message, request.intent, true, request.attachments, `${request.displayMessage || request.message}\n${line}`, request.retryTurnId, request.locationIntent, { place, location });
+  };
+
+  const cancelDeparture = () => {
+    const request = departureRequest;
+    setDepartureRequest(undefined);
+    // An app-started plan has no composer text; keep it so it is not lost.
+    if (request && !request.resume && !request.retryTurnId && !input.trim()) setInput(request.displayMessage || request.message);
+  };
+
+  useEffect(() => {
     if (!visible || restoring || loading || attachmentUploading || trackPicking) return;
     const prompt = pendingAutoSubmitRef.current;
     if (!prompt) return;
@@ -1716,6 +1783,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const newChat = () => {
     if (requestInFlightRef.current || attachmentUploading || pendingRequestRef.current) return;
     submitGenerationRef.current++;
+    setDepartureRequest(undefined);
     setActiveRunId(undefined);
     runActivitiesRef.current = [];
     setRunActivities([]);
@@ -1754,6 +1822,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       return;
     }
     submitGenerationRef.current++;
+    setDepartureRequest(undefined);
     setThreadsLoading(true);
     try {
       const history = await getAgentHistory(thread.id);
@@ -1976,7 +2045,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               && /^(上传轨迹|Upload track)$/i.test(turn.text.trim());
             return (
             <View key={turn.id} style={turn.role === 'user' ? styles.userRow : styles.assistantRow}>
-              {turn.role === 'assistant' && (turn.activities?.length || turn.modelMetrics?.length) ? <ResearchActivity theme={theme} activities={turn.activities || []} modelMetrics={turn.modelMetrics} runTiming={turn.runTiming} running={false} showTiming={showTiming} /> : null}
+              {turn.role === 'assistant' && (turn.activities?.length || turn.modelMetrics?.length) ? <ResearchActivity theme={theme} activities={turn.activities || []} modelMetrics={turn.modelMetrics} runTiming={turn.runTiming} running={false} waiting={turn.waiting} showTiming={showTiming} /> : null}
               <View style={[
                 turn.role === 'user' ? styles.userBubble : styles.assistantBubble,
                 turn.role === 'user' ? { backgroundColor: theme.accentSoft } : null,
@@ -2048,6 +2117,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                           if (reply.action === 'retry_run' && reply.runId) void continueAgentRun(reply.runId);
                           else if (isTrackUploadReply) void chooseTrackForPlan(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
                           else if (isSkipTrackReply) continuePlanWithoutTrack(inlineTrackPrompt || trackPrompt || { message: '', intent: undefined });
+                          else if (reply.action === 'request_location') setDepartureRequest({ message: reply.message, resume: true });
                           else void submit(reply.message, undefined, false, undefined, undefined, undefined, transportLocationIntent(reply));
                         }}
                         style={[styles.quickReply, { backgroundColor: theme.accentSofter }, disabled && styles.quickReplyDisabled]}
@@ -2107,7 +2177,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
           {loading ? requestPhase === 'planning' || requestPhase === 'queued' ? <ResearchActivity theme={theme} activities={runActivities} modelMetrics={runModelMetrics} runTiming={runTiming} stages={runStages} running showTiming={showTiming} /> : (
             <View style={styles.researchProgress}>
               <View style={styles.researchHeader}>
-                {requestPhase === 'sending' ? <ActivityIndicator size="small" color={theme.text} />
+                {requestPhase === 'sending' || requestPhase === 'locating' ? <ActivityIndicator size="small" color={theme.text} />
                   : <RotateCcw size={18} color={theme.text2} />}
                 <Text style={[styles.researchTitle, { color: theme.text }]}>{t(`agent.request.${requestPhase}`)}</Text>
               </View>
@@ -2136,6 +2206,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         >
           <View style={styles.composerWrap}>
             {voiceMode ? <Text style={[styles.voiceGestureHint, { color: voiceCancelling ? theme.danger : theme.text3 }]}>{t(voiceCancelling ? 'agent.voiceReleaseToCancel' : voiceHolding ? 'agent.voiceReleaseToSend' : 'agent.voiceListening')}</Text> : null}
+            {departureRequest ? <DeparturePicker theme={theme} recents={recentDepartures} onConfirm={confirmDeparture} onCancel={cancelDeparture} /> : (
             <View style={[styles.composer, { backgroundColor: theme.controlSurface }]}>
               <Press pointerEvents={voiceHolding ? 'none' : 'auto'} onPress={openAddMenu} accessibilityRole="button" accessibilityLabel={t('agent.addContext')} style={[styles.composerAction, voiceHolding && styles.voiceActionHidden]}>
                 {attachmentTrayOpen ? <X size={24} color={theme.text} strokeWidth={1.9} /> : <Plus size={27} color={theme.text} strokeWidth={1.8} />}
@@ -2177,6 +2248,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                   : <Mic size={24} color={theme.text} strokeWidth={1.9} />}
               </Press>
             </View>
+            )}
           </View>
           <Text style={[styles.generatedNotice, { color: theme.text3 }]}>{t('agent.disclaimer')}</Text>
           {selectedAttachments.length ? (

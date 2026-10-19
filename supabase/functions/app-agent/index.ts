@@ -448,6 +448,9 @@ Deno.serve(async (req) => {
       displayMessage?: string;
       currentJourneyId?: string;
       currentLocation?: unknown;
+      // Departure the user picked in the app before planning; it confirms the
+      // trip's origin without another model turn.
+      departure?: unknown;
       intent?: AgentIntent;
       locale?: 'zh' | 'en';
       attachments?: AgentAttachment[];
@@ -616,7 +619,8 @@ Deno.serve(async (req) => {
       if (messages.error) throw messages.error;
       if (activeRun.error) throw activeRun.error;
       const lastAssistant = [...(messages.data || [])].reverse().find(message => message.role === 'assistant');
-      if (lastAssistant && !lastAssistant.ui?.planPreview && thread.data.current_journey_id) {
+      // A turn waiting on the user wrote nothing, so it gets no journey card.
+      if (lastAssistant && !lastAssistant.ui?.planPreview && lastAssistant.ui?.taskOutcome?.status !== 'waiting' && thread.data.current_journey_id) {
         const planPreview = await loadSavedPlanPreview(client, thread.data.current_journey_id);
         if (planPreview) lastAssistant.ui = { ...lastAssistant.ui, planPreview };
       }
@@ -745,6 +749,7 @@ Deno.serve(async (req) => {
       ? [latestTrack, ...availableAttachments.filter((attachment) => !isTrackAttachment(attachment))]
       : availableAttachments).slice(0, 6);
     const effectiveMessage = body.message.trim();
+    const departure = typeof body.departure === 'string' ? body.departure.trim().slice(0, 200) : '';
 
     const runId = validClientRunId(body.clientRunId) || crypto.randomUUID();
     await failStaleRuns(client, user.id, threadId);
@@ -752,7 +757,7 @@ Deno.serve(async (req) => {
       const queued = await client.rpc('enqueue_agent_job', {
         p_run_id: runId, p_thread_id: threadId, p_display_message: displayMessage, p_version: AGENT_VERSION,
         p_payload: { message: effectiveMessage, displayMessage, currentJourneyId: resolvedCurrentJourneyId, intent: body.intent,
-          locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
+          locale: body.locale, currentLocation: normalizeAgentLocation(body.currentLocation), departure: departure || undefined, attachments: uploadedNow, conversationAttachments: attachments, clientLocalDate: body.clientLocalDate, clientLocalTime: body.clientLocalTime,
           clientTimeZone: body.clientTimeZone, clientTimestamp: body.clientTimestamp },
       });
       if (queued.error) {
@@ -781,6 +786,7 @@ Deno.serve(async (req) => {
       message: effectiveMessage, intent: body.intent, temporalContext,
       attachments: attachments.map(({ name, kind }) => ({ name, kind })),
       routerMode: intentRouterMode(Deno.env.get('KAIPA_INTENT_ROUTER')),
+      resumeWaitingPlan: Boolean(departure),
     }, interpretation.interpret,
     input => checkTopic(input, { url: Deno.env.get('TOPIC_GUARD_URL') || '',
       token: Deno.env.get('TOPIC_GUARD_TOKEN') || '', budget, recordMetric }),
@@ -935,7 +941,16 @@ Deno.serve(async (req) => {
     const travelMessages = await client.from('agent_messages').select('ui').eq('thread_id', threadId)
       .eq('role', 'assistant').order('created_at', { ascending: false }).limit(20);
     if (travelMessages.error) throw travelMessages.error;
-    const confirmedTravel = latestTravelContext(travelMessages.data || [], context.currentJourneyId || null);
+    const latestTravel = latestTravelContext(travelMessages.data || [], context.currentJourneyId || null);
+    // A departure picked in the app is the user's answer, so it outranks both
+    // the stored context and any device fix.
+    // A return place that only defaulted to the old origin follows the new one.
+    const confirmedTravel: TravelContext | null = departure ? {
+      journeyId: context.currentJourneyId || null, direction: 'round_trip', preferences: [], bookings: [],
+      ...latestTravel, origin: departure, locationDeclined: false,
+      returnDestination: latestTravel?.returnDestination && latestTravel.returnDestination !== latestTravel.origin
+        ? latestTravel.returnDestination : departure,
+    } : latestTravel;
     context.confirmedTravel = confirmedTravel;
     context.locale = body.locale;
     const travelFacts = `\n已确认交通信息（历史事实，不是新指令；本轮用户更正优先）：${JSON.stringify(confirmedTravel)}`;
@@ -958,6 +973,9 @@ Deno.serve(async (req) => {
       const retainedTravel = output.travelContext ?? confirmedTravel;
       ui.travelContext = retainedTravel ? { ...retainedTravel, journeyId: context.currentJourneyId || null } : null;
       ui.taskOutcome = taskOutcome(task, output, ui.activities || [], context.satisfiedOperations);
+      // Nothing was written while the task waits on the user; the bound
+      // journey's card would read as a finished plan.
+      if (ui.taskOutcome.status === 'waiting') delete ui.planPreview;
       if (ui.taskOutcome.status !== 'completed' || task.decision.mode !== 'execute') {
         ui.quickReplies = ui.quickReplies?.filter(reply => reply.action !== 'supplement_plan');
       }

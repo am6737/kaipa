@@ -1,4 +1,4 @@
-import { constrainTaskDecision, taskDecisionSchema, type TaskDecision, type TaskState } from './task.ts';
+import { constrainTaskDecision, taskClarification, taskDecisionSchema, type TaskDecision, type TaskState } from './task.ts';
 import { resolveTask, type RouterInput, type RouterMode, type RouterOutput } from './intent-router.ts';
 import { TOPIC_POLICY_VERSION, type TopicCheck, type TopicInput } from './topic-boundary.ts';
 
@@ -7,7 +7,7 @@ type Client = any;
 export async function prepareTask(
   client: Client,
   admin: Client,
-  args: { runId: string; threadId: string; userId: string; journeyId: string | null; message: string; intent?: string; temporalContext: string; attachments: Array<{ name: string; kind: string }>; routerMode?: RouterMode },
+  args: { runId: string; threadId: string; userId: string; journeyId: string | null; message: string; intent?: string; temporalContext: string; attachments: Array<{ name: string; kind: string }>; routerMode?: RouterMode; resumeWaitingPlan?: boolean },
   interpret: (input: unknown) => Promise<TaskDecision>,
   checkTopic: (input: TopicInput) => Promise<TopicCheck>,
   route?: (input: RouterInput) => Promise<RouterOutput>,
@@ -27,6 +27,18 @@ export async function prepareTask(
   if (prior.error) throw prior.error;
   if (history.error) throw history.error;
   const previous = (prior.data?.state || null) as TaskState | null;
+  // A departure picked in the app answers the plan that stopped to ask for
+  // it. Continue that task as interpreted instead of spending another topic
+  // check and interpretation on a message the user already sent.
+  if (args.resumeWaitingPlan && previous && previous.journeyId === args.journeyId
+    && previous.outcome?.status === 'waiting' && previous.decision.fullHikingPlan
+    && previous.topicCheck?.policyVersion === TOPIC_POLICY_VERSION && previous.topicCheck.allowed
+    && !taskClarification(previous)) {
+    const state: TaskState = { runId: args.runId, journeyId: args.journeyId, decision: previous.decision, outcome: null,
+      topicCheck: previous.topicCheck, routing: previous.routing ? { ...previous.routing, source: 'continuation' } : undefined };
+    await persistTask(state);
+    return state;
+  }
   const recentMessages = [...(history.data || [])].reverse().map((message: { role: string; content: string }) => ({
     role: message.role,
     content: message.content.slice(0, 800),
