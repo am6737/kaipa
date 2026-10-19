@@ -59,33 +59,50 @@ const GROUP_TOGGLE_ANIM = {
 } as const;
 
 // Silky inline expand/collapse — measures the real content height once, then
-// interpolates height + opacity (JS driver; height isn't native-drivable).
+// tweens height + opacity on the UI thread, so the time picker opens smoothly
+// even while the editor's JS is busy.
+const COLLAPSIBLE_CLOSE = { duration: 210, easing: ReanimatedEasing.inOut(ReanimatedEasing.quad) };
+const COLLAPSIBLE_OPEN = { duration: 280, easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic) };
+
 function Collapsible({ open, children }: { open: boolean; children: React.ReactNode }) {
-  const anim = useRef(new Animated.Value(0)).current;
+  const progress = useSharedValue(0);
+  const height = useSharedValue(0);
   const [h, setH] = useState<number | null>(null); // null = not yet measured
   const [rendered, setRendered] = useState(open);
   useEffect(() => {
     if (open) { setRendered(true); return; }
-    Animated.timing(anim, { toValue: 0, duration: 210, easing: Easing.inOut(Easing.quad), useNativeDriver: false }).start(({ finished }) => { if (finished) setRendered(false); });
-  }, [open, anim]);
+    progress.value = withTiming(0, COLLAPSIBLE_CLOSE, (finished) => { if (finished) runOnJS(setRendered)(false); });
+  }, [open, progress]);
   useEffect(() => {
-    if (rendered && open && h != null) Animated.timing(anim, { toValue: 1, duration: 280, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }).start();
-  }, [rendered, open, h, anim]);
+    if (rendered && open && h != null) progress.value = withTiming(1, COLLAPSIBLE_OPEN);
+  }, [rendered, open, h, progress]);
+  // Until the first measure lands, `height` is 0 and the view sits off-layout.
+  const animatedStyle = useAnimatedStyle(() => (
+    height.value > 0
+      ? { height: progress.value * height.value, opacity: progress.value }
+      : { opacity: 0 }
+  ));
   if (!rendered) return null;
   // First open only: measure off-layout (absolute, opacity 0) so the sheet never
   // jumps; height is cached afterwards, so later opens skip the measure entirely.
   return (
-    <Animated.View
-      onLayout={h == null ? (e) => { const nh = e.nativeEvent.layout.height; if (nh) setH(nh); } : undefined}
+    <ReAnimated.View
+      onLayout={h == null ? (e) => {
+        const nh = e.nativeEvent.layout.height;
+        if (!nh) return;
+        height.value = nh;
+        setH(nh);
+      } : undefined}
       pointerEvents={h == null ? 'none' : 'auto'}
-      style={
-        h == null
-          ? { position: 'absolute', left: 0, right: 0, opacity: 0 }
-          : { height: anim.interpolate({ inputRange: [0, 1], outputRange: [0, h] }), opacity: anim, overflow: 'hidden' }
-      }
+      style={[
+        // The static zero height covers the frame before the animated style
+        // has seen the measured height, so the content never flashes full size.
+        h == null ? { position: 'absolute', left: 0, right: 0 } : { overflow: 'hidden', height: 0 },
+        animatedStyle,
+      ]}
     >
       {children}
-    </Animated.View>
+    </ReAnimated.View>
   );
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, View, Text } from 'react-native';
+import Reanimated, { useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, G, Path, Polyline, Rect } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
@@ -13,35 +14,32 @@ export interface Row extends GearCat {
 
 const trackBg = (t: Theme) => (t.dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)');
 
-const AnimCircle = Animated.createAnimatedComponent(Circle);
-const AnimG = Animated.createAnimatedComponent(G);
+// SVG props can't ride RN's native driver, so the dimming fades run in Reanimated.
+const AnimCircle = Reanimated.createAnimatedComponent(Circle);
+const AnimG = Reanimated.createAnimatedComponent(G);
+
+function useDimOpacity(dim: boolean, dimmed: number) {
+  const opacity = useSharedValue(dim ? dimmed : 1);
+  useEffect(() => {
+    opacity.value = withTiming(dim ? dimmed : 1, { duration: 220 });
+  }, [dim, dimmed, opacity]);
+  return useAnimatedProps(() => ({ opacity: opacity.value }));
+}
 
 function ArcSeg({ cx, cy, R, T, C, color, dash, offset, dim, animated = true }: { cx: number; cy: number; R: number; T: number; C: number; color: string; dash: number; offset: number; dim: boolean; animated?: boolean }) {
-  const op = useRef(new Animated.Value(dim ? 0.3 : 1)).current;
-  useEffect(() => {
-    op.stopAnimation();
-    const animation = Animated.timing(op, { toValue: dim ? 0.3 : 1, duration: 220, useNativeDriver: false });
-    animation.start();
-    return () => animation.stop();
-  }, [animated, dim, op]);
+  const opacityProps = useDimOpacity(dim, 0.3);
   return (
-    <AnimCircle pointerEvents="none" cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={T} strokeLinecap="butt" strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={offset} opacity={op} />
+    <AnimCircle pointerEvents="none" cx={cx} cy={cy} r={R} fill="none" stroke={color} strokeWidth={T} strokeLinecap="butt" strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={offset} animatedProps={opacityProps} />
   );
 }
 
 type LabelDatum = { id: string; name: string; color: string; ax: number; ay: number; ex: number; ly: number; side: number; value: number };
 
 function LeaderLine({ d, dim, animated = true }: { d: LabelDatum; dim: boolean; animated?: boolean }) {
-  const op = useRef(new Animated.Value(dim ? 0.32 : 1)).current;
-  useEffect(() => {
-    op.stopAnimation();
-    const animation = Animated.timing(op, { toValue: dim ? 0.32 : 1, duration: 220, useNativeDriver: false });
-    animation.start();
-    return () => animation.stop();
-  }, [animated, dim, op]);
+  const opacityProps = useDimOpacity(dim, 0.32);
   const endX = d.ex + d.side * 12;
   return (
-    <AnimG opacity={op} pointerEvents="none">
+    <AnimG animatedProps={opacityProps} pointerEvents="none">
       <Polyline points={`${d.ax},${d.ay} ${d.ex},${d.ly} ${endX},${d.ly}`} fill="none" stroke={d.color} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" />
     </AnimG>
   );

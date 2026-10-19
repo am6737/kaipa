@@ -1,6 +1,7 @@
 // GearScreen.tsx — 装备详情、装备列表和清单列表的本地导航容器。
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, Extrapolation, interpolate, runOnJS, useAnimatedProps, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { ArrowUp, ChevronRight, Compass, JapaneseYen, Package, Tag, Weight } from 'lucide-react-native';
@@ -139,7 +140,7 @@ const sameGearItem = (a: GearItem, b: GearItem) => {
   );
 };
 
-export function GearScreen({ theme, initialItem, onExit }: { theme: Theme; initialItem?: GearItem; onExit?: () => void }) {
+function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialItem?: GearItem; onExit?: () => void }) {
   countRender('Gear');
   const nav = useNav();
   const { t } = useI18n();
@@ -485,142 +486,116 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
 
   const setScrollRef = useRef<any>(null);
   const itemScrollRef = useRef<any>(null);
-  const setAtEnd = useRef(false);
-  const itemAtEnd = useRef(false);
-  const setPullStartedAtEnd = useRef(false);
-  const itemPullStartedAtEnd = useRef(false);
-  const setPullDistance = useRef(0);
-  const itemPullDistance = useRef(0);
-  const setDidHaptic = useRef(false);
-  const itemDidHaptic = useRef(false);
-  const setPull = useRef(new Animated.Value(0)).current;
-  const itemPull = useRef(new Animated.Value(0)).current;
+  // The edge pulls run on the UI thread: the gesture, the indicator and the
+  // spring back all stay smooth while the JS thread is busy rendering.
+  const setAtEnd = useSharedValue(false);
+  const itemAtEnd = useSharedValue(false);
+  const setPullStartedAtEnd = useSharedValue(false);
+  const itemPullStartedAtEnd = useSharedValue(false);
+  const setDidHaptic = useSharedValue(false);
+  const itemDidHaptic = useSharedValue(false);
+  const setPull = useSharedValue(0);
+  const itemPull = useSharedValue(0);
+  const hasMoreSetsValue = useSharedValue(hasMoreSets);
+  const hasMoreItemsValue = useSharedValue(hasMoreItems);
+  useEffect(() => {
+    hasMoreSetsValue.value = hasMoreSets;
+    hasMoreItemsValue.value = hasMoreItems;
+  }, [hasMoreSets, hasMoreItems]);
   const onPullOpenSetsRef = useRef(onPullOpenSets);
   const onPullOpenItemsRef = useRef(onPullOpenItems);
   onPullOpenSetsRef.current = onPullOpenSets;
   onPullOpenItemsRef.current = onPullOpenItems;
-
-  const setGestureCallbacks = useRef({
-    begin: () => {},
-    update: (_translationX: number) => {},
-    finalize: () => {},
-  });
-  setGestureCallbacks.current.begin = () => {
-    setPullStartedAtEnd.current = hasMoreSets && setAtEnd.current;
-    setPullDistance.current = 0;
-    setDidHaptic.current = false;
-  };
-  setGestureCallbacks.current.update = (translationX) => {
-    if (!setPullStartedAtEnd.current || translationX >= 0) return;
-    const distance = Math.min(EDGE_PULL_MAX, Math.max(0, -translationX - EDGE_TOUCH_SLOP) * EDGE_DRAG_RATE);
-    setPullDistance.current = distance;
-    setPull.setValue(distance);
-    if (distance >= EDGE_PULL_THRESHOLD && !setDidHaptic.current) {
-      setDidHaptic.current = true;
-      edgePullHaptic();
-    }
-  };
-  setGestureCallbacks.current.finalize = () => {
-    const shouldOpen = setPullStartedAtEnd.current && setPullDistance.current >= EDGE_PULL_THRESHOLD;
-    setPullStartedAtEnd.current = false;
-    setPullDistance.current = 0;
-    if (shouldOpen) {
-      Animated.timing(setPull, {
-        toValue: EDGE_PULL_MAX,
-        duration: 80,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }).start(() => {
-        onPullOpenSetsRef.current();
-        Animated.timing(setPull, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
-      });
-      return;
-    }
-    Animated.spring(setPull, { toValue: 0, useNativeDriver: false, ...motion.pageSpring }).start();
-  };
-
-  const itemGestureCallbacks = useRef({
-    begin: () => {},
-    update: (_translationY: number) => {},
-    finalize: () => {},
-  });
-  itemGestureCallbacks.current.begin = () => {
-    itemPullStartedAtEnd.current = hasMoreItems && itemAtEnd.current;
-    itemPullDistance.current = 0;
-    itemDidHaptic.current = false;
-  };
-  itemGestureCallbacks.current.update = (translationY) => {
-    if (!itemPullStartedAtEnd.current || translationY >= 0) return;
-    const distance = Math.min(EDGE_PULL_MAX, Math.max(0, -translationY - EDGE_TOUCH_SLOP) * EDGE_DRAG_RATE);
-    itemPullDistance.current = distance;
-    itemPull.setValue(distance);
-    if (distance >= EDGE_PULL_THRESHOLD && !itemDidHaptic.current) {
-      itemDidHaptic.current = true;
-      edgePullHaptic();
-    }
-  };
-  itemGestureCallbacks.current.finalize = () => {
-    const shouldOpen = itemPullStartedAtEnd.current && itemPullDistance.current >= EDGE_PULL_THRESHOLD;
-    itemPullStartedAtEnd.current = false;
-    itemPullDistance.current = 0;
-    if (shouldOpen) {
-      Animated.timing(itemPull, {
-        toValue: EDGE_PULL_MAX,
-        duration: 80,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }).start(() => {
-        onPullOpenItemsRef.current();
-        Animated.timing(itemPull, { toValue: 0, duration: motion.quick, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
-      });
-      return;
-    }
-    Animated.spring(itemPull, { toValue: 0, useNativeDriver: false, ...motion.pageSpring }).start();
-  };
+  const pullOpenSets = useRef(() => onPullOpenSetsRef.current()).current;
+  const pullOpenItems = useRef(() => onPullOpenItemsRef.current()).current;
 
   const setEdgeGesture = useMemo(
     () => Gesture.Pan()
-      .runOnJS(true)
       .activeOffsetX([-8, 8])
       .failOffsetY([-14, 14])
       .simultaneousWithExternalGesture(setScrollRef)
-      .onBegin(() => setGestureCallbacks.current.begin())
-      .onUpdate((event) => setGestureCallbacks.current.update(event.translationX))
-      .onFinalize(() => setGestureCallbacks.current.finalize()),
+      .onBegin(() => {
+        setPullStartedAtEnd.value = hasMoreSetsValue.value && setAtEnd.value;
+        setDidHaptic.value = false;
+      })
+      .onUpdate((event) => {
+        if (!setPullStartedAtEnd.value || event.translationX >= 0) return;
+        const distance = Math.min(EDGE_PULL_MAX, Math.max(0, -event.translationX - EDGE_TOUCH_SLOP) * EDGE_DRAG_RATE);
+        setPull.value = distance;
+        if (distance >= EDGE_PULL_THRESHOLD && !setDidHaptic.value) {
+          setDidHaptic.value = true;
+          runOnJS(edgePullHaptic)();
+        }
+      })
+      .onFinalize(() => {
+        const shouldOpen = setPullStartedAtEnd.value && setPull.value >= EDGE_PULL_THRESHOLD;
+        setPullStartedAtEnd.value = false;
+        if (shouldOpen) {
+          setPull.value = withTiming(EDGE_PULL_MAX, { duration: 80, easing: Easing.out(Easing.cubic) }, (finished) => {
+            if (!finished) return;
+            runOnJS(pullOpenSets)();
+            setPull.value = withTiming(0, { duration: motion.quick, easing: Easing.out(Easing.cubic) });
+          });
+          return;
+        }
+        setPull.value = withTiming(0, { duration: motion.standard, easing: Easing.out(Easing.cubic) });
+      }),
     [],
   );
   const itemEdgeGesture = useMemo(
     () => Gesture.Pan()
-      .runOnJS(true)
       .activeOffsetY([-8, 8])
       .failOffsetX([-18, 18])
       .simultaneousWithExternalGesture(itemScrollRef)
-      .onBegin(() => itemGestureCallbacks.current.begin())
-      .onUpdate((event) => itemGestureCallbacks.current.update(event.translationY))
-      .onFinalize(() => itemGestureCallbacks.current.finalize()),
+      .onBegin(() => {
+        itemPullStartedAtEnd.value = hasMoreItemsValue.value && itemAtEnd.value;
+        itemDidHaptic.value = false;
+      })
+      .onUpdate((event) => {
+        if (!itemPullStartedAtEnd.value || event.translationY >= 0) return;
+        const distance = Math.min(EDGE_PULL_MAX, Math.max(0, -event.translationY - EDGE_TOUCH_SLOP) * EDGE_DRAG_RATE);
+        itemPull.value = distance;
+        if (distance >= EDGE_PULL_THRESHOLD && !itemDidHaptic.value) {
+          itemDidHaptic.value = true;
+          runOnJS(edgePullHaptic)();
+        }
+      })
+      .onFinalize(() => {
+        const shouldOpen = itemPullStartedAtEnd.value && itemPull.value >= EDGE_PULL_THRESHOLD;
+        itemPullStartedAtEnd.value = false;
+        if (shouldOpen) {
+          itemPull.value = withTiming(EDGE_PULL_MAX, { duration: 80, easing: Easing.out(Easing.cubic) }, (finished) => {
+            if (!finished) return;
+            runOnJS(pullOpenItems)();
+            itemPull.value = withTiming(0, { duration: motion.quick, easing: Easing.out(Easing.cubic) });
+          });
+          return;
+        }
+        itemPull.value = withTiming(0, { duration: motion.standard, easing: Easing.out(Easing.cubic) });
+      }),
     [],
   );
 
-  const setRailStyle = {
-    transform: [{ translateX: setPull.interpolate({ inputRange: [0, EDGE_PULL_MAX], outputRange: [0, -18], extrapolate: 'clamp' }) }],
-  };
-  const setIndicatorStyle = {
-    opacity: setPull.interpolate({ inputRange: [0, 18, EDGE_PULL_THRESHOLD], outputRange: [0, 0.35, 1], extrapolate: 'clamp' }),
+  const setRailStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: interpolate(setPull.value, [0, EDGE_PULL_MAX], [0, -18], Extrapolation.CLAMP) }],
+  }));
+  const setIndicatorStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(setPull.value, [0, 18, EDGE_PULL_THRESHOLD], [0, 0.35, 1], Extrapolation.CLAMP),
     transform: [
-      { translateX: setPull.interpolate({ inputRange: [0, EDGE_PULL_MAX], outputRange: [20, 0], extrapolate: 'clamp' }) },
-      { scale: setPull.interpolate({ inputRange: [0, EDGE_PULL_THRESHOLD], outputRange: [0.82, 1], extrapolate: 'clamp' }) },
+      { translateX: interpolate(setPull.value, [0, EDGE_PULL_MAX], [20, 0], Extrapolation.CLAMP) },
+      { scale: interpolate(setPull.value, [0, EDGE_PULL_THRESHOLD], [0.82, 1], Extrapolation.CLAMP) },
     ],
-  };
-  const pageStyle = {
-    transform: [{ translateY: itemPull.interpolate({ inputRange: [0, EDGE_PULL_MAX], outputRange: [0, -18], extrapolate: 'clamp' }) }],
-  };
-  const itemIndicatorStyle = {
-    opacity: itemPull.interpolate({ inputRange: [0, 18, EDGE_PULL_THRESHOLD], outputRange: [0, 0.35, 1], extrapolate: 'clamp' }),
+  }));
+  const pageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(itemPull.value, [0, EDGE_PULL_MAX], [0, -18], Extrapolation.CLAMP) }],
+  }));
+  const itemIndicatorStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(itemPull.value, [0, 18, EDGE_PULL_THRESHOLD], [0, 0.35, 1], Extrapolation.CLAMP),
     transform: [
-      { translateY: itemPull.interpolate({ inputRange: [0, EDGE_PULL_MAX], outputRange: [18, 0], extrapolate: 'clamp' }) },
-      { scale: itemPull.interpolate({ inputRange: [0, EDGE_PULL_THRESHOLD], outputRange: [0.96, 1], extrapolate: 'clamp' }) },
+      { translateY: interpolate(itemPull.value, [0, EDGE_PULL_MAX], [18, 0], Extrapolation.CLAMP) },
+      { scale: interpolate(itemPull.value, [0, EDGE_PULL_THRESHOLD], [0.96, 1], Extrapolation.CLAMP) },
     ],
-  };
+  }));
 
   return (
     <GestureDetector gesture={itemEdgeGesture}>
@@ -642,7 +617,7 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
             scrollEventThrottle={16}
             onScroll={(event) => {
               const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-              itemAtEnd.current = hasMoreItems && contentOffset.y + layoutMeasurement.height >= contentSize.height - 3;
+              itemAtEnd.value = hasMoreItems && contentOffset.y + layoutMeasurement.height >= contentSize.height - 3;
             }}
             contentContainerStyle={{ paddingHorizontal: layout.pagePadding, paddingTop: insets.top + space.md, paddingBottom: 110 }}
           >
@@ -667,7 +642,7 @@ function GearHomeView({ theme, sets, items, catMap, weightUnit, onOpenSets, onOp
                       scrollEventThrottle={16}
                       onScroll={(event) => {
                         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-                        setAtEnd.current = hasMoreSets && contentOffset.x + layoutMeasurement.width >= contentSize.width - 3;
+                        setAtEnd.value = hasMoreSets && contentOffset.x + layoutMeasurement.width >= contentSize.width - 3;
                       }}
                       contentContainerStyle={{ gap: space.sm, paddingRight: space.xl }}
                     >
@@ -769,12 +744,15 @@ const GearHome = React.memo(GearHomeView, (previous, next) => (
   && previous.catMap === next.catMap
   && previous.weightUnit === next.weightUnit
 ));
-function CircularEdgeProgress({ theme, progress, children }: { theme: Theme; progress: Animated.Value; children: React.ReactNode }) {
-  const dashOffset = progress.interpolate({
-    inputRange: [0, EDGE_PROGRESS_START, EDGE_PULL_THRESHOLD],
-    outputRange: [EDGE_PROGRESS_CIRCUMFERENCE, EDGE_PROGRESS_CIRCUMFERENCE, 0],
-    extrapolate: 'clamp',
-  });
+function CircularEdgeProgress({ theme, progress, children }: { theme: Theme; progress: SharedValue<number>; children: React.ReactNode }) {
+  const circleProps = useAnimatedProps(() => ({
+    strokeDashoffset: interpolate(
+      progress.value,
+      [0, EDGE_PROGRESS_START, EDGE_PULL_THRESHOLD],
+      [EDGE_PROGRESS_CIRCUMFERENCE, EDGE_PROGRESS_CIRCUMFERENCE, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
 
   return (
     <View style={[styles.edgeProgress, { backgroundColor: theme.controlSurface }]}>
@@ -796,7 +774,7 @@ function CircularEdgeProgress({ theme, progress, children }: { theme: Theme; pro
           strokeWidth={3}
           strokeLinecap="round"
           strokeDasharray={`${EDGE_PROGRESS_CIRCUMFERENCE} ${EDGE_PROGRESS_CIRCUMFERENCE}`}
-          strokeDashoffset={dashOffset}
+          animatedProps={circleProps}
           transform={`rotate(-90 ${EDGE_PROGRESS_SIZE / 2} ${EDGE_PROGRESS_SIZE / 2})`}
         />
       </Svg>
@@ -839,3 +817,7 @@ const styles = StyleSheet.create({
 });
 
 function SectionHeader({ theme, title, action, onPress, first = false }: { theme: Theme; title: string; action?: string; onPress?: () => void; first?: boolean }) { return <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: first ? 0 : space.xxl, marginBottom: first ? 18 : space.sm }}><Text style={[first ? type.pageTitle : type.sectionTitle, { color: theme.text }]}>{title}</Text>{action && onPress ? <Press onPress={onPress} style={{ paddingVertical: 5 }}><Text style={[type.eyebrow, { color: theme.text2 }]}>{action} ›</Text></Press> : null}</View>; }
+
+// Kept mounted under AppShell for every tab; skip re-renders the shell makes
+// for its own state. Context changes (useNav/useData) still reach it.
+export const GearScreen = React.memo(GearScreenView);
