@@ -75,7 +75,19 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
   }, [entrance, entranceDelay]);
 
   return (
-    <View style={{ width: PHOTO_PIN_WIDTH, height: PHOTO_PIN_HEIGHT }}>
+    <View
+      collapsable={false}
+      style={{
+        width: PHOTO_PIN_WIDTH,
+        height: PHOTO_PIN_HEIGHT,
+        // AMap (expo-gaode-map MarkerBitmapRenderer) sizes the baked bitmap from
+        // the union of views that draw something, then crops that size from the
+        // frame's top-left corner. A label narrower than the photo's right edge
+        // cut the photo in half and shifted the anchor. A practically invisible
+        // fill makes the whole 116x70 frame count, so the crop is the frame.
+        backgroundColor: staticRender ? 'rgba(255,255,255,0.004)' : undefined,
+      }}
+    >
     <Animated.View
       style={{
         width: PHOTO_PIN_WIDTH,

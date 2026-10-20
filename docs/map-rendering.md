@@ -209,3 +209,24 @@ Do not include CocoaPods-generated changes to `RNMapsDefines.h` when
 regenerating this patch. Check with
 `node --test scripts/test-map-poi-selection.cjs` after applying patches;
 these tests also check the installed native handler structure.
+
+## Android place pins cut off (AMap marker bitmap crop)
+
+expo-gaode-map 2.3.0 bakes a children marker into a bitmap in
+`MarkerBitmapRenderer`. It sizes the bitmap by the union of views that *draw
+something* — views with a background, padding, or no children of their own —
+not by the RN layout. It then re-lays out the content at that size and draws it
+from the frame's top-left corner. `PhotoPin`'s 116x70 frame is transparent and
+flattened, so a pin whose label was narrower than the photo's right edge (x=78)
+got a crop of the frame's left part. That cut the photo off and moved it off
+its anchor, which shows up most where pins crowd together. Under `staticRender`
+the frame is filled at alpha ~0.004 (and `collapsable={false}`) so the crop is
+the whole frame. Don't remove that fill as "unused". This needs a device check:
+nothing in JS reproduces the native crop.
+
+The fill is a JS workaround, chosen so the fix could ship over the air. The root
+fix is still open: patch `MarkerBitmapRenderer.resolveSnapshot` (via
+patch-package) to prefer `contentWidth/contentHeight`, or to draw offset by the
+bounds' origin. That needs a native rebuild. 2.3.1 has the same renderer. Other
+children markers with transparent spacers (e.g. `distanceMarkerSideWrap`) may
+hit the same crop.
