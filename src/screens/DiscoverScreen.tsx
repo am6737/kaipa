@@ -127,6 +127,7 @@ type PersistedMapDisplaySettings = {
   journeyDistanceVisible?: boolean;
   mapLabelsVisible?: boolean;
   mapDistanceMarkersVisible?: boolean;
+  routeWaypointsVisible?: boolean;
   /** Written before the itinerary had three separate switches: one flag covered
    *  stops, track and distance capsules alike. Read on hydrate to seed them,
    *  never written again. */
@@ -582,6 +583,7 @@ function DiscoverScreenView({
   const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
+  const [routeWaypointsVisible, setRouteWaypointsVisible] = useState(true);
   // Keep a route-detail selection separate from the route whose card is open,
   // so a nearby route can be overlaid for visual comparison.
   const [comparisonRoutes, setComparisonRoutes] = useState<Poi[]>([]);
@@ -652,7 +654,10 @@ function DiscoverScreenView({
       setCurrentLocation({ lng: from[0], lat: from[1] });
       timer = setTimeout(() => controller.abort(), 30000);
       let result: PlannedLeg | undefined;
-      await planJourneyDirections([{ id: route.id, mode, from, to: [route.lng, route.lat] }], controller.signal, (leg) => { result = leg; });
+      // Walked backwards, the route starts at its recorded finish, not at its pin.
+      const finish = routeReversed ? route.trackCoords?.[route.trackCoords.length - 1] : undefined;
+      const to: [number, number] = finish ?? [route.lng, route.lat];
+      await planJourneyDirections([{ id: route.id, mode, from, to }], controller.signal, (leg) => { result = leg; });
       if (controller.signal.aborted) throw new Error('plan');
       if (!result?.coordinates || result.coordinates.length < 2) throw new Error('plan');
       setRouteNavigation(result);
@@ -730,6 +735,7 @@ function DiscoverScreenView({
     setJourneyDistanceVisible(true);
     setMapLabelsVisible(true);
     setMapDistanceMarkersVisible(true);
+    setRouteWaypointsVisible(true);
     AsyncStorage.getItem(mapDisplaySettingsKey(userId))
       .then((raw) => {
         if (cancelled || !raw) return;
@@ -759,6 +765,7 @@ function DiscoverScreenView({
           );
           if (typeof saved.mapLabelsVisible === 'boolean') setMapLabelsVisible(saved.mapLabelsVisible);
           if (typeof saved.mapDistanceMarkersVisible === 'boolean') setMapDistanceMarkersVisible(saved.mapDistanceMarkersVisible);
+          if (typeof saved.routeWaypointsVisible === 'boolean') setRouteWaypointsVisible(saved.routeWaypointsVisible);
         } catch {
           // Ignore malformed local preferences and keep the defaults.
         }
@@ -781,9 +788,10 @@ function DiscoverScreenView({
       journeyDistanceVisible,
       mapLabelsVisible,
       mapDistanceMarkersVisible,
+      routeWaypointsVisible,
     };
     AsyncStorage.setItem(mapDisplaySettingsKey(userId), JSON.stringify(settings)).catch(() => {});
-  }, [journeyDistanceVisible, journeyStopsVisible, journeyTrackVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, userId]);
+  }, [journeyDistanceVisible, journeyStopsVisible, journeyTrackVisible, mapDistanceMarkersVisible, mapLabelsVisible, mapStyle, routeWaypointsVisible, userId]);
 
   const openPointFromCurrentMap = (poi: Poi, from: 'pin' | 'list' = 'list') => {
     mapBeforePointRef.current = mapCameraRef.current;
@@ -845,8 +853,8 @@ function DiscoverScreenView({
     setRouteSheetIndex(0);
     // Fully move the route card off-screen before mounting the planner. Going
     // to the lowest detent first leaves a visible pause at the minimized card.
-    sheetRef.current?.hide(() => nav.openNewJourney(route));
-  }, [nav]);
+    sheetRef.current?.hide(() => nav.openNewJourney(route, { reversed: routeReversed }));
+  }, [nav, routeReversed]);
 
   React.useEffect(() => {
     if (nav.newJourneyOpen || nav.pointInfo?.kind !== 'route' || !routeJourneyTransitionRef.current) return;
@@ -1560,7 +1568,7 @@ function DiscoverScreenView({
   // because that file's framing test vm-loads it against a fixed import list.
   const routeWaypointMarkers = useMemo<NativeMapMarker[]>(() => {
     const point = nav.pointInfo;
-    if (!point || point.kind !== 'route' || !point.trackWaypoints?.length) return NO_ROUTE_WAYPOINT_MARKERS;
+    if (!point || point.kind !== 'route' || !point.trackWaypoints?.length || !routeWaypointsVisible) return NO_ROUTE_WAYPOINT_MARKERS;
     // Shares the opening frame's budget with the kilometre labels: both wait
     // for the card's camera fit to be reported, when the real zoom is known.
     if (!distanceMarkersReady || routeNavigation) return NO_ROUTE_WAYPOINT_MARKERS;
@@ -1585,7 +1593,7 @@ function DiscoverScreenView({
         setMapCameraAction({ type: 'fitCoordinates', revision: Date.now(), coordinates });
       },
     });
-  }, [distanceMarkersReady, focusCoords, nav.pointInfo?.kind, nav.pointInfo?.id, nav.pointInfo?.trackWaypoints, routeNavigation, routeReversed, selectedRouteWaypoint, theme, waypointClusterZoom, width, height]);
+  }, [distanceMarkersReady, focusCoords, nav.pointInfo?.kind, nav.pointInfo?.id, nav.pointInfo?.trackWaypoints, routeNavigation, routeReversed, routeWaypointsVisible, selectedRouteWaypoint, theme, waypointClusterZoom, width, height]);
   // The itinerary's own navigation layer: every stop that carries a place, and
   // the road between two stops of the same day. Gated behind `detailReady`
   // because it is derived from the timeline fetch, and a journey opened from the
@@ -1811,9 +1819,16 @@ function DiscoverScreenView({
     return () => subscription.remove();
   }, [mapImmersive, active]);
 
-  const toggleRouteDirection = () => {
-    if (nav.pointInfo?.kind !== 'route') return;
-    setRouteReversed((value) => !value);
+  const setRouteDirection = (reversed: boolean) => {
+    if (nav.pointInfo?.kind !== 'route' || reversed === routeReversed) return;
+    setRouteReversed(reversed);
+    // A leg planned to the old trailhead now leads to the finish.
+    if (routeNavigationRouteId === nav.pointInfo.id) {
+      routeNavigationRequestRef.current?.abort();
+      routeNavigationRequestRef.current = null;
+      setRouteNavigation(null);
+      setRouteNavigationRouteId(null);
+    }
     setMapAtRouteFrame(true);
     setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
   };
@@ -2702,6 +2717,8 @@ function DiscoverScreenView({
               <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
                 onNavigate={navigateToRoute}
                 navigationActive={routeNavigationRouteId === nav.pointInfo.id}
+                reversed={routeReversed}
+                onReversedChange={setRouteDirection}
               />
             ) : !detailReady ? (
               <View style={{ minHeight: focusPanel, alignItems: 'center', justifyContent: 'center' }}>
@@ -2842,7 +2859,19 @@ function DiscoverScreenView({
                 label: t('journey.map.trackDistanceMarkers'),
                 value: mapDistanceMarkersVisible,
                 onChange: setMapDistanceMarkersVisible,
-              }],
+              },
+              ...(nav.pointInfo.kind === 'route' && nav.pointInfo.trackWaypoints?.length ? [{
+                id: 'route-waypoints',
+                label: t('journey.map.trackWaypointMarkers'),
+                value: routeWaypointsVisible,
+                onChange: (visible: boolean) => {
+                  // Drop an open bubble with its markers, so back doesn't
+                  // spend a press dismissing something no longer drawn.
+                  if (!visible) setSelectedRouteWaypoint(null);
+                  setRouteWaypointsVisible(visible);
+                },
+              }] : []),
+              ],
             },
             ...(nav.pointInfo.kind === 'journey' ? [{
               id: 'journey-groups',
@@ -2868,16 +2897,6 @@ function DiscoverScreenView({
                   onChange: setJourneyDistanceVisible,
                 },
               ],
-            }] : []),
-            ...(nav.pointInfo.kind === 'route' ? [{
-              id: 'route-direction',
-              title: t('journey.map.routeDirectionTitle'),
-              options: [{
-                id: 'swap-start-end',
-                label: t('journey.map.swapStartEnd'),
-                value: routeReversed,
-                onChange: () => toggleRouteDirection(),
-              }],
             }] : []),
           ] : undefined}
           bottomInset={insets.bottom}

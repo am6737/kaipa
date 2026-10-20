@@ -538,6 +538,20 @@ export function NJSharePanel({
     return info;
   };
 
+  useEffect(() => {
+    if (!journeyId) return;
+    let cancelled = false;
+    setShareFailed(false);
+    void ensureJourneyShare(journeyId).then((info) => {
+      if (cancelled) return;
+      if (info?.status === 'active') setShare(info);
+      else setShareFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [journeyId, retryKey]);
+
   const doCopy = async () => {
     const loaded = !share && journeyId ? await loadShare() : null;
     const url = share ? journeyShareUrl(share) : loaded ? journeyShareUrl(loaded) : '';

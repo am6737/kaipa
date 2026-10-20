@@ -145,6 +145,7 @@ export function useGear(userId: string | undefined) {
     if (resolvedPatch.attrs !== undefined) row.attrs = resolvedPatch.attrs;
     if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
     if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;
+    if (resolvedPatch.owned !== undefined) row.owned = resolvedPatch.owned;
     if (Object.keys(row).length) {
       const { error } = await supabase.from('gear_items').update(row).eq('id', id).select('id').single();
       if (error) { if (/^[0-9A-Z]{5}$/.test(error.code)) await removeMedia((cloudPhotos || []).filter(uri => !previous?.photos?.includes(uri))).catch(()=>{}); throw error; }

@@ -48,14 +48,12 @@ export function RouteGuideRow({ theme, guide, officialTitle, onPress, helpful, c
       {compact ? <View style={styles.compactAuthorRow}>
         <Avatar size={22} uri={guide?.authorAvatarUrl || undefined} />
         <Text numberOfLines={1} style={[styles.caption, { color: theme.text3 }]}>{officialTitle ? c.officialAuthor : guide && guideText(guide.author, resolved)}</Text>
-        {officialTitle ? <Text style={[type.caption, { color: theme.accent }]}>{c.officialBadge}</Text> : null}
         {showMeBadge ? <MeBadge theme={theme} /> : null}
         {guide ? <View style={styles.label}><Heart color={theme.text3} size={13} /><Text style={[styles.caption, { color: theme.text3 }]}>{helpful ?? guide.helpful}</Text></View> : null}
       </View> : <View style={styles.authorRow}>
         <View style={styles.authorGroup}>
           <Avatar size={22} uri={guide?.authorAvatarUrl || undefined} />
           <Text numberOfLines={1} style={[styles.metaAuthor, styles.caption, { color: theme.text2 }]}>{officialTitle ? c.officialAuthor : guide && guideText(guide.author, resolved)}</Text>
-          {officialTitle ? <Text style={[type.caption, { color: theme.accent }]}>{c.officialBadge}</Text> : null}
           {showMeBadge ? <MeBadge theme={theme} /> : null}
         </View>
         {guide ? <Text style={[styles.caption, { color: theme.text3, flexShrink: 0 }]}>{guide.travelDate}</Text> : null}

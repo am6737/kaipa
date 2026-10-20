@@ -19,8 +19,12 @@ import {
   AppPropertyRow,
   AppSectionHeader,
   DetailPage,
+  radius,
+  space,
+  type,
   useDetailPageScroll,
 } from '../../design-system';
+import { useI18n } from '../../i18n';
 
 // ── Shared theme tokens (mirror GearScreen) ─────────────────────────────────
 export const cardShadow = (t: Theme): ViewStyle =>
@@ -80,8 +84,19 @@ type GearItemRowProps = {
   borderlessImage?: boolean;
 };
 
+// 待购: the item is in the library (usually via the assistant) but not bought.
+export function GearToBuyBadge({ theme }: { theme: Theme }) {
+  const { t } = useI18n();
+  return (
+    <View style={{ paddingHorizontal: space.xs, paddingVertical: 1, borderRadius: radius.pill, backgroundColor: theme.accentSofter }}>
+      <Text style={{ ...type.tiny, fontWeight: '700', color: theme.accent }}>{t('gear.toBuy')}</Text>
+    </View>
+  );
+}
+
 export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg', flush = false, showImage = true, showWeight = true, showValue = true, imageSize = 38, card = false, borderlessImage = false }: GearItemRowProps) {
   const qty = item.qty || 1;
+  const toBuy = item.owned === false;
   const meta = [showWeight ? fmtKg(itemWeight(item), weightUnit) : null, showValue ? yuan(itemPrice(item)) : null, qty > 1 ? `×${qty}` : null].filter(Boolean).join(' · ');
   const rowGap = 12;
   const rowPaddingX = flush ? 0 : 13;
@@ -92,6 +107,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
         <View style={{ flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 }}>
           <Text numberOfLines={2} style={{ fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>{item.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 }}>
+            {toBuy ? <GearToBuyBadge theme={theme} /> : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Package color={theme.text2} size={14} strokeWidth={1.8} />
               <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>×{qty}</Text>
@@ -127,6 +143,7 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
                 <View style={{ width: StyleSheet.hairlineWidth, height: 9, backgroundColor: theme.hairline }} />
               </>
             ) : null}
+            {toBuy ? <GearToBuyBadge theme={theme} /> : null}
             {meta ? <Text style={{ fontFamily: MONO, fontSize: 10.5, color: theme.text2 }}>{meta}</Text> : null}
           </View>
         </View>

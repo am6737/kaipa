@@ -90,7 +90,7 @@ any clarification instead of calling the models again.
    decides: `packing_full` -> `packing_full` (no current journey -> clarify),
    `transport_supplement` -> `transport_chain`, `stay_supplement` ->
    `itinerary_edit`, `gear_onboarding` -> `gear_add`, `gear_set_onboarding` ->
-   `unsupported`, `journey_review` -> `discuss`. The router is not called.
+   `gear_set`, `journey_review` -> `discuss`. The router is not called.
    `plan_journey` is only a hint to the router and the interpreter.
 2. **Continuation gate.** If the previous task on the same journey is `waiting`
    or `partial` with a pending question and was an `execute` turn, the
@@ -100,7 +100,9 @@ any clarification instead of calling the models again.
    interpreter and sees the pending question. It returns `intent`,
    `alternatives`, and for `clarify` a question with up to three option
    buttons. A router error or invalid output logs a warning and falls back to
-   the interpreter alone.
+   the interpreter alone; a fallback `packing_full` with no journey or
+   `hiking_plan` with nowhere to go still gets applyIntent's clarification
+   instead of running the pipeline (thread b81d61ab, 2026-10-20).
 4. **applyIntent** combines both and can only remove permission: writes are
    intersected with the intent's allowed writes, `fullHikingPlan` and
    `packingMode` only go down, `execute` only turns off. `hiking_plan` keeps the

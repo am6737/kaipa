@@ -104,3 +104,43 @@ export function buildElevation(poi: Poi, options?: { synthesize?: boolean }): El
   }
   return { pts, totalKm, minEle, maxEle, ascent: Math.round(ascent), descent: Math.round(descent), peakIdx };
 }
+
+/** Climb along a stored profile, with the 3 m dead band the track import
+ *  applies, so the figures agree with the ascent written at import. */
+function profileClimb(raw: { ele: number }[]): { ascent: number; descent: number } {
+  let ascent = 0;
+  let descent = 0;
+  let last = raw[0].ele;
+  for (const { ele } of raw) {
+    const d = ele - last;
+    if (Math.abs(d) < 3) continue;
+    if (d > 0) ascent += d;
+    else descent += -d;
+    last = ele;
+  }
+  return { ascent, descent };
+}
+
+/**
+ * Total ascent and descent for the direction being walked. Walking a route
+ * backwards climbs what the forward walk descends, so `reversed` swaps them.
+ *
+ * The stored ascent was measured on the full-resolution file, so it stays the
+ * forward ascent; the forward descent follows from it and the net height
+ * change between the two trailheads, which the stored profile keeps exactly.
+ * Without a profile there is no way to know the other direction's climb.
+ */
+export function directedClimb(poi: Poi, reversed: boolean): { ascent?: number; descent?: number } {
+  const raw = poi.trackElevation;
+  const stored = num(poi.asc) || undefined;
+  if (!raw || raw.length < 2) return reversed ? {} : { ascent: stored };
+  const net = raw[raw.length - 1].ele - raw[0].ele;
+  // A hand-edited ascent can fall short of the trailheads' height difference;
+  // then the stored figure can't be the file's, so measure both from the profile.
+  const forward = stored != null && stored - net >= 0
+    ? { ascent: stored, descent: stored - net }
+    : profileClimb(raw);
+  return reversed
+    ? { ascent: forward.descent, descent: forward.ascent }
+    : forward;
+}

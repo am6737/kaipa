@@ -20,7 +20,8 @@ import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, Metric, METRICS, itemWeight, itemPrice, itemQty, packStats, WeightUnit, fmtWeight, splitWeight } from '../../data/gear';
 import { GearItemRow, yuan, yuanWithGap } from './parts';
-import { DetailPage } from '../../design-system';
+import { DetailPage, space } from '../../design-system';
+import { AssistantMark } from '../assistant/AssistantMark';
 import { LabeledDonut, Row } from './LabeledDonut';
 import { buildGearSetText, GearSetExportData, GearSetPoster } from './GearSetExport';
 import { GearMenuTransition } from './GearMenuTransition';
@@ -143,7 +144,7 @@ function Fact({ theme, label, value }: { theme: Theme; label: string; value: str
   );
 }
 
-function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trailing }: { theme: Theme; icon: IconName; label: string; onPress: () => void; destructive?: boolean; trailing?: React.ReactNode }) {
+function ExportMenuRow({ theme, icon, iconNode, label, onPress, destructive = false, trailing }: { theme: Theme; icon?: IconName; iconNode?: React.ReactNode; label: string; onPress: () => void; destructive?: boolean; trailing?: React.ReactNode }) {
   const color = destructive ? '#FF453A' : theme.text;
   return (
     <Press
@@ -152,7 +153,7 @@ function ExportMenuRow({ theme, icon, label, onPress, destructive = false, trail
       scaleTo={0.985}
     >
       <View style={{ width: 28, alignItems: 'center' }}>
-        <Icon name={icon} color={color} size={23} strokeWidth={1.9} />
+        {iconNode ?? (icon ? <Icon name={icon} color={color} size={23} strokeWidth={1.9} /> : null)}
       </View>
       <Text style={{ marginLeft: 18, fontSize: 15, fontWeight: '400', color }}>{label}</Text>
       {trailing ? <View style={{ marginLeft: 'auto' }}>{trailing}</View> : null}
@@ -251,7 +252,7 @@ function GearSetDetailView({
   const exportingRef = useRef(false);
 
   const moreMenuStyle = useAnimatedStyle(() => ({
-    height: interpolate(displayProgress.value, [0, 1], [256, 482]),
+    height: interpolate(displayProgress.value, [0, 1], [318, 544]),
   }));
   const displayPanelStyle = useAnimatedStyle(() => ({
     opacity: displayProgress.value,
@@ -428,6 +429,12 @@ function GearSetDetailView({
     setMoreOpen(false);
     setTimeout(action, 140);
   };
+  // The hidden prompt carries the set ID so the assistant supplements this
+  // exact set; the conversation shows only the readable request.
+  const openAiFill = () => nav.openAssistant(
+    t('gear.setDetail.aiFillPrompt', { name: set.name, id: set.id }), undefined, true,
+    t('gear.setDetail.aiFillDisplay', { name: set.name }), true,
+  );
   const toggleDisplayExpanded = () => {
     const next = !displayExpanded;
     setDisplayExpanded(next);
@@ -474,6 +481,7 @@ function GearSetDetailView({
             <ExportMenuRow theme={theme} icon="share" label={t('gear.setDetail.systemShare')} onPress={() => runFromExportMenu(systemShare)} />
           </FloatingMenu> : null}
           {!applicationAction ? <FloatingMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(232, winW - 28)} animatedStyle={moreMenuStyle} onClose={closeMore}>
+            <ExportMenuRow theme={theme} iconNode={<AssistantMark color={theme.text} size={23} />} label={t('gear.setDetail.aiFill')} onPress={() => runFromMoreMenu(openAiFill)} />
             <ExportMenuRow
               theme={theme}
               icon="gearSettings"
@@ -537,6 +545,10 @@ function GearSetDetailView({
             <Text style={{ fontSize: 13, lineHeight: 19, color: theme.text3, textAlign: 'center', marginTop: 6 }}>{t('gear.setDetail.emptyBody')}</Text>
             <Press onPress={onEdit} style={{ marginTop: 20, paddingHorizontal: 18, height: 40, borderRadius: 20, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 13.5, fontWeight: '700', color: '#FFFFFF' }}>{t('gear.setDetail.addGear')}</Text>
+            </Press>
+            <Press onPress={openAiFill} style={{ marginTop: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: 18, height: 40, borderRadius: 20, backgroundColor: theme.accentSofter }}>
+              <AssistantMark color={theme.accent} size={18} />
+              <Text style={{ fontSize: 13.5, fontWeight: '700', color: theme.accent }}>{t('gear.setDetail.aiFill')}</Text>
             </Press>
           </View>
         ) : (

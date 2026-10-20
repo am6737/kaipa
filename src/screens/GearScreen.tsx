@@ -42,9 +42,12 @@ const fieldBg = (t: Theme) => t.fieldSurface;
 const homePageBg = (t: Theme) => t.groupedBg;
 const homeCardBg = (t: Theme) => t.featureSurface;
 
-function GearSquarePage({ theme, kind, items, sets, onBack, onOpenItems, onOpenSets }: { theme: Theme; kind: 'items' | 'sets'; items: GearItem[]; sets: GearSet[]; onBack: () => void; onOpenItems: () => void; onOpenSets: () => void }) {
+function GearSquarePage({ theme, kind, items, sets, cats, onBack, onOpenItems, onOpenSets }: { theme: Theme; kind: 'items' | 'sets'; items: GearItem[]; sets: GearSet[]; cats: GearCat[]; onBack: () => void; onOpenItems: () => void; onOpenSets: () => void }) {
   const isItems = kind === 'items';
-  const previewItems = items.length ? items : [
+  // Lead with photographed, weighed gear and non-empty sets so the featured card is a real one.
+  const shownItems = items.filter((item) => item.w > 0).sort((a, b) => Number(!!b.photos?.length) - Number(!!a.photos?.length));
+  const shownSets = sets.filter((set) => set.items.length > 0);
+  const previewItems = shownItems.length ? shownItems : [
     { name: 'HMG 2400 Southwest', cat: 'pack', w: 0.78, p: 2980, attrs: [['容量', '40 L']] },
     { name: 'Nemo Disco 15 羽绒睡袋', cat: 'sleep', w: 0.96, p: 2200, attrs: [['温标', '-9°C']] },
     { name: 'MSR PocketRocket 2 炉头', cat: 'cook', w: 0.073, p: 360 },
@@ -52,15 +55,15 @@ function GearSquarePage({ theme, kind, items, sets, onBack, onOpenItems, onOpenS
     { name: 'Big Agnes Copper Spur HV UL2', cat: 'shelter', w: 1.32, p: 3380 },
     { name: 'Arc’teryx Beta AR 冲锋衣', cat: 'cloth', w: 0.44, p: 4200 },
   ] as GearItem[];
-  const previewSets = sets.length ? sets : [
+  const previewSets = shownSets.length ? shownSets : [
     { id: 'preview-high', name: '高海拔三天两夜', items: ['HMG 2400 Southwest', 'Nemo Disco 15 羽绒睡袋', 'Big Agnes Copper Spur HV UL2', 'Garmin inReach Mini 2'] },
     { id: 'preview-light', name: '周末轻量徒步', items: ['HMG 2400 Southwest', 'MSR PocketRocket 2 炉头', 'Arc’teryx Beta AR 冲锋衣'] },
     { id: 'preview-camp', name: '摄影露营基础清单', items: ['Big Agnes Copper Spur HV UL2', 'Nemo Disco 15 羽绒睡袋', 'MSR PocketRocket 2 炉头'] },
   ] as GearSet[];
   const entries = isItems
-    ? previewItems.slice(0, 6).map((item, index) => ({ title: item.name, meta: `${index % 2 ? '睡眠系统' : '背负系统'}  ·  ${fmtWeight(itemWeight(item), 'kg')}`, photo: item.photos?.[0] }))
+    ? previewItems.slice(0, 6).map((item) => ({ title: item.name, meta: `${cats.find((cat) => cat.id === item.cat)?.name ?? '未分类'}  ${fmtWeight(itemWeight(item), 'kg')}`, photo: item.photos?.[0] }))
     : previewSets.slice(0, 6).map((set) => ({ title: set.name, meta: fmtWeight(set.items.reduce((sum, name) => sum + itemWeight(previewItems.find((item) => item.name === name) || { w: 0, qty: 1 } as GearItem), 0), 'kg'), photo: set.items.map((name) => previewItems.find((item) => item.name === name)?.photos?.[0]).find(Boolean) }));
-  const fallback = entries.length ? entries[0] : { title: isItems ? '轻量化背包系统' : '周末轻徒步', meta: isItems ? '背负系统  ·  0.78 kg' : '4.2 kg', photo: undefined };
+  const fallback = entries.length ? entries[0] : { title: isItems ? '轻量化背包系统' : '周末轻徒步', meta: isItems ? '背负系统  0.78 kg' : '4.2 kg', photo: undefined };
   const rest = entries.slice(1);
 
   return (
@@ -118,6 +121,7 @@ const normItem = (it: GearItem) => ({
   photos: it.photos ?? [],
   attrs: it.attrs ?? [],
   note: it.note ?? '',
+  owned: it.owned !== false,
 });
 
 const sameStringPairs = (a: [string, string][], b: [string, string][]) =>
@@ -134,6 +138,7 @@ const sameGearItem = (a: GearItem, b: GearItem) => {
     na.qty === nb.qty &&
     na.status === nb.status &&
     na.note === nb.note &&
+    na.owned === nb.owned &&
     na.photos.length === nb.photos.length &&
     na.photos.every((p, i) => p === nb.photos[i]) &&
     sameStringPairs(na.attrs, nb.attrs)
@@ -341,7 +346,8 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
           ) : pg.type === 'set' ? (
             <GearSetDetail
               theme={theme}
-              set={pg.set}
+              // Live copy: the assistant can add to the open set from another screen.
+              set={sets.find((candidate) => candidate.id === pg.set.id) ?? pg.set}
               allItems={allItems}
               catMap={catMap}
               weightUnit={weightUnit}
@@ -352,9 +358,9 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
               onDuplicate={() => duplicateSet(pg.set)}
             />
           ) : pg.type === 'squareItems' ? (
-            <GearSquarePage theme={theme} kind="items" items={allItems} sets={sets} onBack={popPage} onOpenItems={() => {}} onOpenSets={() => pushPage({ type: 'squareSets' })} />
+            <GearSquarePage theme={theme} kind="items" items={allItems} sets={sets} cats={cats} onBack={popPage} onOpenItems={() => {}} onOpenSets={() => pushPage({ type: 'squareSets' })} />
           ) : pg.type === 'squareSets' ? (
-            <GearSquarePage theme={theme} kind="sets" items={allItems} sets={sets} onBack={popPage} onOpenItems={() => pushPage({ type: 'squareItems' })} onOpenSets={() => {}} />
+            <GearSquarePage theme={theme} kind="sets" items={allItems} sets={sets} cats={cats} onBack={popPage} onOpenItems={() => pushPage({ type: 'squareItems' })} onOpenSets={() => {}} />
           ) : pg.type === 'setsList' ? (
             <GearSetsList
               theme={theme}

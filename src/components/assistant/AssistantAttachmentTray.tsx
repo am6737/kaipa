@@ -138,8 +138,7 @@ export function AssistantAttachmentTray({
 
   const pickLibrary = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) return onError(labels.permission);
+      // The system picker needs no library permission; only the recent strip does.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsMultipleSelection: true,

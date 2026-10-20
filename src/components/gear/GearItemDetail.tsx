@@ -16,7 +16,7 @@ import { Press } from '../Press';
 import { useI18n } from '../../i18n';
 import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight } from '../../data/gear';
 import { GearItemImage, ShareBar, yuan, fmtKg } from './parts';
-import { AppSectionHeader, DetailPage, radius, space } from '../../design-system';
+import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-system';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
@@ -662,6 +662,18 @@ function GearItemDetailView({
             </View>
           )}
         </View>
+
+        {!isEditing && item.owned === false ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md, padding: space.sm, borderRadius: radius.control, backgroundColor: theme.accentSofter }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ ...type.labelStrong, color: theme.accent }}>{t('gear.toBuy')}</Text>
+              <Text style={{ ...type.hint, color: theme.text2, marginTop: 2 }}>{t('gear.toBuyHint')}</Text>
+            </View>
+            <Press onPress={() => onSave({ ...item, owned: true })} style={{ paddingHorizontal: space.sm, height: 32, justifyContent: 'center', borderRadius: radius.pill, backgroundColor: theme.accent }}>
+              <Text style={{ ...type.labelStrong, color: '#FFFFFF' }}>{t('gear.markBought')}</Text>
+            </Press>
+          </View>
+        ) : null}
 
         {/* key facts, large breathing-room cards */}
         <View style={{ flexDirection: 'row', gap: 22, marginTop: 4 }}>

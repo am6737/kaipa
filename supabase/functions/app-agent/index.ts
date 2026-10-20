@@ -298,6 +298,11 @@ function activityOutput(call: any): unknown {
       reachesTrackEnd: call.output?.coverage?.reachesTrackEnd === true,
     } };
   }
+  if (call.tool_name === 'add_gear_set_items' && call.output && typeof call.output === 'object') {
+    const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
+    return { set: { id: call.output.set?.id, name: call.output.set?.name }, createdSet: call.output.createdSet === true,
+      addedOwned: count(call.output.addedOwned), addedToBuy: count(call.output.addedToBuy), skipped: count(call.output.skipped) };
+  }
   if (call.tool_name === 'read_route_guide') {
     return { available: call.output?.available, status: call.output?.status, cached: call.output?.cached, reused: call.output?.reused };
   }

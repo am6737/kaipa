@@ -817,6 +817,63 @@ export const addGear = tool({
   }),
 });
 
+// Gear sets are read live, not through the revision-checked gear snapshot:
+// set membership changes do not bump the gear revision.
+export const listGearSets = tool({
+  name: 'list_gear_sets',
+  description: 'Read the user\'s gear sets (装备页的装备清单: reusable named lists such as 高海拔三天两夜) with the library items in each. Use before adding to a set; match the set the user names loosely (高海拔两天 can mean 高海拔三天两夜).',
+  parameters: z.object({}),
+  execute: async (args, runContext) => mutate('list_gear_sets', args, runContext as RunContext, async (client, context) => {
+    const { data, error } = await client.from('gear_sets')
+      .select('id,name,description,gear_set_items(item_id,qty,status,gear_items(name,cat_id,owned))')
+      .eq('user_id', context.userId).order('created_at').limit(100);
+    if (error) throw error;
+    return {
+      sets: (data || []).map((set: any) => ({
+        id: set.id, name: set.name, description: set.description ?? null,
+        items: (set.gear_set_items || []).map((link: any) => ({
+          gearItemId: link.item_id, name: link.gear_items?.name ?? null, categoryId: link.gear_items?.cat_id ?? null,
+          owned: link.gear_items?.owned !== false, quantity: link.qty ?? null, status: link.status ?? null,
+        })),
+      })),
+    };
+  }),
+});
+
+const gearSetItem = z.object({
+  gearItemId: z.number().int().positive().nullable().default(null).describe('ID of an item already in the user library (list_gear); null for gear the user does not have'),
+  name: z.string().min(1).max(120).describe('Generic gear name such as 羽绒服 or 头灯, never an invented brand or model'),
+  categoryId: z.string().max(100).nullable().default(null).describe('A real category id from list_gear, or null'),
+  quantity: z.number().int().min(1).max(99).nullable().default(null).describe('Quantity in this set when more than one, e.g. 3 双袜子'),
+  status: z.enum(['packed', 'worn', 'consumable', 'optional']).nullable().default(null).describe('Carry role in this set: worn on body, consumable (food, fuel, sunscreen), optional when it depends on the trip'),
+  note: z.string().max(200).nullable().default(null),
+});
+
+export const addGearSetItems = tool({
+  name: 'add_gear_set_items',
+  description: 'Create a gear set or add gear to an existing one (装备页的装备清单). Additive only: never removes or changes what is already in the set. Read list_gear and list_gear_sets first. Pass setId for an existing set; pass setId=null with setName to create a set (an existing set of exactly that name is reused). Use the user library item (gearItemId) whenever the user owns a matching item; other items are saved to the library as 待购 (not owned) with no weight or price. Only add what the set is missing, in one call. A set is not a journey: never plan a trip, ask for dates or create a journey for it; ask only when several sets plausibly match. categoryId must be a real ID from list_gear; mark scenario-dependent extras optional. Reply with what was added, split into owned and to-buy.',
+  parameters: z.object({
+    setId: z.string().max(100).nullable().default(null),
+    setName: z.string().max(200).nullable().default(null),
+    description: z.string().max(300).nullable().default(null).describe('Short scenario description for a new set only'),
+    items: z.array(gearSetItem).min(1).max(80),
+  }),
+  execute: async (args, runContext) => mutate('add_gear_set_items', args, runContext as RunContext, async (client) => {
+    if (!args.setId && !args.setName?.trim()) throw new Error('add_gear_set_items needs setId for an existing set or setName for a new one.');
+    const { data, error } = await client.rpc('agent_add_gear_set_items', {
+      p_set_id: args.setId, p_set_name: args.setName, p_description: args.description, p_items: args.items,
+    });
+    if (error) {
+      const message = String(error.message || '');
+      if (message.includes('gear_set_not_found')) throw new Error('这个装备清单不存在或已被删除。重新调用 list_gear_sets 后再选择清单。');
+      if (message.includes('gear_item_not_found')) throw new Error('gearItemId 不在用户当前的装备库里。重新调用 list_gear，只对真实存在的装备填写 gearItemId。');
+      throw error;
+    }
+    const { undo, ...value } = data;
+    return { __undoable: true, value, undo };
+  }),
+});
+
 export const createJourneyParams = z.object({
   name: z.string().min(1).max(120),
   region: z.string().max(120).default(''),
@@ -1525,8 +1582,8 @@ export const readConversationHistory = tool({
   }),
 });
 
-export const kaipaAllTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaAllTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, listGearSets, getJourneyDetails, estimatePersonalPacking, addGear, addGearSetItems, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaGlobalTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, getJourneyDetails, estimatePersonalPacking, addGear, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
+export const kaipaGlobalTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, searchJourneys, searchRoutes, listGear, listGearSets, getJourneyDetails, estimatePersonalPacking, addGear, addGearSetItems, createJourney, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems];
 
-export const kaipaJourneyTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, searchJourneys, searchRoutes, addGear];
+export const kaipaJourneyTools = [readRouteGuide, searchRouteKnowledge, updateJourneySchedule, getAppContext, readConversationHistory, getJourneyDetails, estimatePersonalPacking, setJourneyMapLocation, addItinerary, setItineraryGroupEndpoints, addPackingItems, undoLastAgentChanges, deleteItineraryItems, deletePackingItems, listGear, listGearSets, searchJourneys, searchRoutes, addGear, addGearSetItems];

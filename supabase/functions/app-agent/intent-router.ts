@@ -8,13 +8,13 @@ import type { AgentIntent } from './types.ts';
 // a full hiking plan or a packing mode the interpreter did not already grant.
 
 export const intents = [
-  'gear_add', 'packing_full', 'packing_add', 'hiking_plan', 'transport_chain',
+  'gear_add', 'gear_set', 'packing_full', 'packing_add', 'hiking_plan', 'transport_chain',
   'itinerary_edit', 'delete', 'undo', 'stop', 'route_explore', 'discuss', 'clarify',
 ] as const;
 export type Intent = typeof intents[number];
 
-// Requests with no write tool (gear-library edits and deletes, gear sets) are
-// declined, never mapped to the nearest write. The eval scores it as discuss.
+// Requests with no write tool (gear-library edits and deletes, removing gear
+// from a gear set) are declined, never mapped to the nearest write. The eval scores it as discuss.
 export const routerIntents = [...intents, 'unsupported'] as const;
 export type RouterIntent = typeof routerIntents[number];
 
@@ -26,12 +26,17 @@ type Definition = { what: string; not_for: string; examples: string[] };
 export const intentDefinitions: Record<Exclude<Intent, 'clarify'>, Definition> = {
   gear_add: {
     what: '把物品录入用户的个人装备库（我拥有的装备）',
-    not_for: '某次行程的装备清单；询问或比较装备；修改或删除装备库里已有的装备；没有说明是装备库还是行程清单的“创建/准备装备”',
+    not_for: '某次行程的装备清单；装备页的装备清单（gear_set）；询问或比较装备；修改或删除装备库里已有的装备；没有说明是装备库还是行程清单的“创建/准备装备”',
     examples: ['我刚入手一个净水器，存到我的装备里', '登记一下我的新雪套', 'log my trekking poles in my inventory'],
+  },
+  gear_set: {
+    what: '创建装备页的装备清单（按场景命名的装备组合，如“高海拔三天两夜”“周末露营”），或往已有的装备清单里补充、添加装备；不需要旅程、目的地或日期',
+    not_for: '某次旅程里的装备清单（packing_full / packing_add）；只录入一件自己的装备（gear_add）；从装备清单里删除或修改装备（没有工具）；完整的徒步规划',
+    examples: ['帮我建一个冬季露营的装备清单', '我的周末轻徒步清单还缺什么，帮我补上', '给雪山攀登那个清单加上冰爪和安全带', 'fill up my winter camping gear set'],
   },
   packing_full: {
     what: '为某次行程生成、重做整份装备清单',
-    not_for: '往清单里加一两件物品；录入个人装备库；装备页的装备组合；只是问要带什么而不要求生成',
+    not_for: '往清单里加一两件物品；录入个人装备库；装备页的装备清单或组合（gear_set）；没有提到具体旅程、只用场景命名的清单（如“高海拔三天两夜”）；只是问要带什么而不要求生成',
     examples: ['这趟要带的东西给我出个全套清单', '把行李清单从头再做一遍', 'build my whole kit list for the trek'],
   },
   packing_add: {
@@ -82,9 +87,9 @@ export const intentDefinitions: Record<Exclude<Intent, 'clarify'>, Definition> =
 };
 
 export const unsupportedDefinition: Definition = {
-  what: '要求助手做一件没有对应工具的写入：修改或删除装备库里已有的装备，创建或编辑装备页的装备组合，创建待办或提醒',
-  not_for: '只是查看或询问；录入新装备（gear_add）；行程的装备清单（packing_full / packing_add）',
-  examples: ['把装备库里那双旧鞋标成已淘汰', '帮我建一个冬季露营的装备组合', 'rename the stove in my gear library'],
+  what: '要求助手做一件没有对应工具的写入：修改或删除装备库里已有的装备，从装备页的装备清单里删除装备、改清单名称，创建待办或提醒',
+  not_for: '只是查看或询问；录入新装备（gear_add）；创建装备清单或往里补充装备（gear_set）；行程的装备清单（packing_full / packing_add）',
+  examples: ['把装备库里那双旧鞋标成已淘汰', '把露营清单里的炉头删掉', 'rename the stove in my gear library'],
 };
 
 export const clarifyDefinition: Definition = {
@@ -98,6 +103,7 @@ export const clarifyDefinition: Definition = {
 // expected intents' union as harmful.
 export const intentWrites: Record<RouterIntent, WriteOperation[]> = {
   gear_add: ['add_gear'],
+  gear_set: ['add_gear_set_items'],
   packing_full: ['add_packing_items', 'delete_packing_items'],
   packing_add: ['add_packing_items'],
   hiking_plan: ['create_journey', 'add_itinerary_items', 'update_journey_schedule', 'set_journey_map_location', 'set_itinerary_group_endpoints', 'add_packing_items'],
@@ -115,6 +121,7 @@ export function intentFromDecision(decision: TaskDecision): Intent {
   if (decision.mode === 'stop') return 'stop';
   if (decision.mode !== 'execute') return decision.domain === 'routes' ? 'route_explore' : 'discuss';
   if (ops.includes('undo_last_agent_changes')) return 'undo';
+  if (ops.includes('add_gear_set_items')) return 'gear_set';
   if (ops.includes('add_gear')) return 'gear_add';
   if (decision.fullHikingPlan || ops.includes('create_journey')) return 'hiking_plan';
   if (decision.domain === 'transport') return 'transport_chain';
@@ -137,7 +144,7 @@ export const appIntentRoutes: Record<AgentIntent, RouterIntent | null> = {
   transport_supplement: 'transport_chain',
   stay_supplement: 'itinerary_edit',
   gear_onboarding: 'gear_add',
-  gear_set_onboarding: 'unsupported',
+  gear_set_onboarding: 'gear_set',
   journey_review: 'discuss',
 };
 
@@ -183,13 +190,14 @@ ${JSON.stringify({ ...intentDefinitions, unsupported: unsupportedDefinition, cla
 规则：
 1. 引号里的话、转述别人的话、假设（如果……会怎样）、询问某个功能或按钮怎么用，都是内容而不是命令。不能因为其中出现“删除/撤销/生成/保存”等词就选写入意图，按 discuss 处理；用户自己在引号外明确下达的指令才算。
 2. 有 pendingQuestion 时，简短的回答（地点、日期、天数、交通方式、“是/对/可以”、某个选项的名字）是在回答这个问题：选这个问题所属任务的意图，不要把它当成一个新的交通或编辑请求。如果 pendingQuestion 是让用户在几种做法之间选择，回答点出了其中一种，就选那一种对应的意图，不要再选 clarify。拒绝或放弃（不用了、算了、取消、停）选 stop；明显换了话题就按新话题判断。
-3. 下列情况选 clarify：请求可能写入不同的数据而无法区分（个人装备库还是行程装备清单，例如已有当前旅程时只说“添加某件装备”）；要求生成完整规划或整份清单，但既没有当前旅程也没有说目的地；要修改的对象或方式不明确。只缺日期、天数、出发地等之后可以补问的参数时，不要选 clarify。
-4. 没有对应写入工具的请求选 unsupported，绝不能映射到最接近的写入意图：修改或删除装备库里已有的装备、创建或编辑装备组合（装备页的“装备清单”是装备库里的组合，不是行程清单）、创建待办或提醒。
-5. 没有当前旅程时，“添加/记上/录入”某件具体装备只可能是装备库（gear_add）。
-6. 只有明确要求保存、生成、修改、删除、撤销时才选写入意图；咨询、比较、查看、检查、评价选 route_explore 或 discuss。
+3. 下列情况选 clarify：请求可能写入不同的数据而无法区分（个人装备库、装备页的装备清单还是行程装备清单，例如已有当前旅程时只说“添加某件装备”）；要求生成完整规划或整份清单，但既没有当前旅程也没有说目的地；要修改的对象或方式不明确。只缺日期、天数、出发地等之后可以补问的参数时，不要选 clarify。
+4. 装备页的“装备清单”是按场景命名、可复用的装备组合，不是某次旅程的清单。用户提到“我现在的清单”“某某清单”且名字是一个场景（如“高海拔三天两夜”“低海拔轻徒步”），或要求创建这样一份清单、给它补充装备，选 gear_set，不要选 clarify、packing_full 或 hiking_plan；没有当前旅程时尤其如此。
+5. 没有对应写入工具的请求选 unsupported，绝不能映射到最接近的写入意图：修改或删除装备库里已有的装备、从装备清单里删除装备或改名、创建待办或提醒。
+6. 没有当前旅程、也没有提到装备清单时，“添加/记上/录入”某件具体装备只可能是装备库（gear_add）。
+7. 只有明确要求保存、生成、修改、删除、撤销时才选写入意图；咨询、比较、查看、检查、评价选 route_explore 或 discuss。
 输出：
 - intent 为所选意图；alternatives 为其他说得通的意图（最多 3 个，可以为空数组）。
-- intent 为 clarify 时必须给出 clarifyQuestion（一句简短的问题）和 2-3 个 clarifyOptions：label 是按钮上的短文字（不超过 12 个字），message 是用户点击后发送的完整明确指令，单独发送也能直接执行，例如“把这件装备录入我的装备库”“把这件装备加到这次旅程的装备清单”。不是 clarify 时 clarifyQuestion 为 null，clarifyOptions 为空数组。
+- intent 为 clarify 时必须给出 clarifyQuestion（一句简短的问题）和 2-3 个 clarifyOptions：label 是按钮上的短文字（不超过 12 个字），message 是用户点击后发送的完整明确指令，单独发送也能直接执行，例如“把这件装备录入我的装备库”“把这件装备加到这次旅程的装备清单”“把这件装备加到我的「周末露营」装备清单”。不是 clarify 时 clarifyQuestion 为 null，clarifyOptions 为空数组。
 - clarifyQuestion 和选项的语言跟随用户消息：用户用英文就用英文，否则用中文。
 只输出结构化结果。`;
 
@@ -229,7 +237,7 @@ export function whereToClarification(message: string): Clarification {
       options: [{ label: '先推荐路线', message: '先给我推荐几条适合的徒步路线，不用保存' }] };
 }
 
-const unsupportedNote = '路由判定：这个请求没有对应的写入工具（例如修改或删除装备库里已有的装备、创建或编辑装备组合）。不要调用任何写入工具，也不要用其他写入代替；说明助手暂时不能代为完成，可以建议用户在 App 的装备页手动操作，或先给出建议内容。';
+const unsupportedNote = '路由判定：这个请求没有对应的写入工具（例如修改或删除装备库里已有的装备、从装备清单里删除装备或改名）。不要调用任何写入工具，也不要用其他写入代替；说明助手暂时不能代为完成，可以建议用户在 App 的装备页手动操作，或先给出建议内容。';
 
 const destructive: WriteOperation[] = ['delete_itinerary_items', 'delete_packing_items', 'undo_last_agent_changes'];
 
@@ -408,6 +416,16 @@ export async function resolveTask(
     unconfirmed = result.authorizationUnconfirmed;
     if (result.clarification) routing.clarify = result.clarification;
     if (routing.intent === 'unsupported') routing.note = unsupportedNote;
+  } else if (routing.source === 'interpreter' && (routing.intent === 'packing_full' || routing.intent === 'hiking_plan')) {
+    // A failed router must not skip its missing-premise questions: a full
+    // checklist with no journey, or a full plan with nowhere to go, ran the
+    // planning pipeline on nothing (thread b81d61ab, 2026-10-20).
+    const result = applyIntent(routing.intent, raw, { journeyId: args.journeyId, message: args.message, hasBoundTrack: args.hasBoundTrack });
+    if (result.clarification) {
+      applied = result.decision;
+      routing.clarify = result.clarification;
+      routing.applied = true;
+    }
   }
   // An answer to a pending question keeps that task's scope: "高铁" for a
   // transport question cannot turn into a full hiking plan. If the

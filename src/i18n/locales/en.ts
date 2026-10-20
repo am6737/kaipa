@@ -6,7 +6,7 @@ import type { SameShape } from "../types";
 export const en: SameShape<typeof zh> = {
   officialItinerary: {
     cardDate: 'First hiking day: {month}/{day}', cardOpen: 'View plan', routeUnavailable: 'This route is unavailable. Please try again later.',
-    summary: 'Official overview', season: 'Season', notes: 'Official notes', source: 'Source', datePending: 'Date pending', difficulty: 'Difficulty', audience: 'Suitable for', day: 'Day {count}', distance: '{count} km', ascent: 'Ascent {count} m', descent: 'Descent {count} m', stay: 'Stay: {name}', tip: 'Official tip: {text}', loading: 'Loading official plans…', loadError: 'Could not load plans', retry: 'Retry', updatedTitle: 'Plan updated', updatedMessage: 'This plan has changed. Refresh and choose again.', saveError: 'Could not save the journey. Please try again.', hikeDays: '{count} hiking days', accessDays: '{count} access days', recommendedMonths: 'Recommended months: {months}', created: 'Trip created with its daily itinerary',
+    summary: 'Overview', season: 'Season', notes: 'Notes', source: 'Source', datePending: 'Date pending', difficulty: 'Difficulty', audience: 'Suitable for', day: 'Day {count}', distance: '{count} km', ascent: 'Ascent {count} m', descent: 'Descent {count} m', stay: 'Stay: {name}', tip: 'Official tip: {text}', loading: 'Loading official plans…', loadError: 'Could not load plans', retry: 'Retry', updatedTitle: 'Plan updated', updatedMessage: 'This plan has changed. Refresh and choose again.', saveError: 'Could not save the journey. Please try again.', hikeDays: '{count} hiking days', accessDays: '{count} access days', recommendedMonths: 'Recommended months: {months}', created: 'Trip created with its daily itinerary',
   },
   app: { name: "kaipa" },
   membership: {
@@ -521,6 +521,9 @@ export const en: SameShape<typeof zh> = {
   },
 
   gear: {
+    toBuy: "To buy",
+    toBuyHint: "Not bought yet; weight and price still to fill in",
+    markBought: "Bought it",
     square: {
       discover: "Discover",
       items: "Gear Square",
@@ -795,6 +798,9 @@ export const en: SameShape<typeof zh> = {
     setDetail: {
       description: "Description",
       addGear: "Add gear",
+      aiFill: "Fill with AI",
+      aiFillPrompt: "Add the missing gear to my gear-page list \"{name}\" (setId: {id}). Only add what is missing; do not plan a trip.",
+      aiFillDisplay: "Fill in the missing gear for \"{name}\"",
       exportSection: "Export",
       shareSection: "Share",
       exportImage: "Export Image",
@@ -1141,6 +1147,7 @@ export const en: SameShape<typeof zh> = {
     stat: {
       distance: "Distance",
       ascent: "Total ascent",
+      descent: "Total descent",
       elevation: "Elevation",
       elevationProfile: "Elevation profile",
       days: "Days",
@@ -1490,10 +1497,10 @@ export const en: SameShape<typeof zh> = {
       routeTracksTitle: "Route tracks",
       routeTracksHint: "Each switch shows or hides that track and its distance markers",
       trackDistanceMarkers: "Show track distance markers",
+      trackWaypointMarkers: "Show track waypoints",
       journeyGroupsTitle: "Itinerary groups",
       journeyGroupsHint: "Show group stops, connections between stops, and itinerary distances",
       journeyNodeConnections: "Connections between stops",
-      routeDirectionTitle: "Route direction",
       layerTitle: "Map style",
       layerStandard: "Standard",
       layerTerrain: "Terrain",
@@ -1512,7 +1519,6 @@ export const en: SameShape<typeof zh> = {
       showWaypoints: "Show waypoints",
       showLabels: "Show map labels",
       distanceMarkers: "Show distance markers",
-      swapStartEnd: "Swap start and finish",
       summaryHint: "Tap to collapse",
       enterFullscreen: "View map fullscreen",
     },
@@ -1710,6 +1716,14 @@ export const en: SameShape<typeof zh> = {
 
   route: {
     seasonTitle: "Best season",
+    direction: {
+      label: "Route direction",
+      forward: "Forward",
+      reverse: "Reverse",
+      clockwise: "Clockwise",
+      counterclockwise: "Counterclockwise",
+      guideNotice: "You picked the reverse direction on the map. This guide follows the direction its author walked, and a journey created from it keeps that direction.",
+    },
   },
 
   tracks: {
@@ -2103,6 +2117,8 @@ export const en: SameShape<typeof zh> = {
         deleteItinerary: { running: "Deleting itinerary items…", completed: "Deleted itinerary items", failed: "Could not delete itinerary items" },
         deletePacking: { running: "Deleting checklist items…", completed: "Deleted checklist items", failed: "Could not delete checklist items" },
         addGear: { running: "Adding gear…", completed: "Added gear", failed: "Could not add gear" },
+        gearSets: { running: "Reading gear lists…", completed: "Read gear lists", failed: "Could not read gear lists" },
+        addGearSetItems: { running: "Adding to the gear list…", completed: "Updated the gear list", failed: "Could not update the gear list" },
         undo: { running: "Undoing the last changes…", completed: "Undid the last changes", failed: "Could not undo the last changes" },
       },
     },
@@ -2112,6 +2128,10 @@ export const en: SameShape<typeof zh> = {
     viewJourney: "View journey",
     viewGear: "View gear",
     gearAddedToLibrary: "Added to your gear library",
+    viewGearSets: "View list",
+    gearSetAdded: "Added {count} items",
+    gearSetAddedWithToBuy: "Added {count} items, {toBuy} to buy",
+    gearSetNothingAdded: "Nothing missing; no items added",
     journeyUnavailable: "This journey cannot be opened right now. Try again shortly.",
     executed: "Actions completed",
     retryFailed: "Unable to continue right now. Try again later or send a new request in this conversation.",

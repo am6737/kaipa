@@ -24,6 +24,9 @@ export interface GearItem {
   photos?: string[];
   attrs?: [string, string][];
   note?: string;
+  // false = 待购: suggested (usually by the assistant) but not bought yet, so
+  // weight and price are still unknown. Absent means owned.
+  owned?: boolean;
 }
 
 export interface GearSetOverride {

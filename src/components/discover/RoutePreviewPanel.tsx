@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Dimensions, Share, StyleSheet, Text, View } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
@@ -17,8 +17,13 @@ import { RouteGuideRow, RouteGuideSectionHeader, RouteWeatherCard } from './Rout
 import { routeGuideCopy } from './routeGuideCopy';
 import { RouteCommentPreviewRow } from './RouteCommentItem';
 import { useRouteComments } from '../../hooks/useRouteComments';
+import { directedClimb } from '../../data/elevation';
+import { isLoopTrack, loopIsClockwise } from '../../lib/routeDirection';
+import { Segmented } from '../Segmented';
 
-export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean }) {
+const fmtClimb = (meters: number) => `${Math.round(meters).toLocaleString('en-US')} m`;
+
+export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive, reversed = false, onReversedChange }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean; /** Walking the route from its recorded finish. */ reversed?: boolean; onReversedChange?: (reversed: boolean) => void }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const c = routeGuideCopy[resolved];
@@ -29,6 +34,17 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   const guideEntries = mergeGuideList(officialPlans, guides);
   const { comments, total: commentTotal, loading: commentsLoading } = useRouteComments(route.id, { preview: true, pageSize: 2 });
   const openComments = (compose = false) => nav.openRouteGuide({ route, view: 'comments', compose });
+  const climb = directedClimb(route, reversed);
+  const trackCoords = route.trackCoords;
+  // A loop starts and ends at one trailhead, so the choice is its turning sense.
+  const direction = useMemo(() => {
+    if (!trackCoords || trackCoords.length < 2) return null;
+    if (!isLoopTrack(trackCoords)) return { forward: t('route.direction.forward'), reverse: t('route.direction.reverse') };
+    const clockwise = loopIsClockwise(trackCoords);
+    const cw = t('route.direction.clockwise');
+    const ccw = t('route.direction.counterclockwise');
+    return clockwise ? { forward: cw, reverse: ccw } : { forward: ccw, reverse: cw };
+  }, [trackCoords, t]);
 
 
   return (
@@ -45,9 +61,21 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: space.md }}>
         {difficultyLabel ? <InfoPill theme={theme} text={difficultyLabel} /> : null}
         <InfoPill theme={theme} icon="distance" text={route.dist} mono />
-        <InfoPill theme={theme} icon="arrowUp" text={route.asc.replace('+', '')} mono />
+        {climb.ascent != null ? <InfoPill theme={theme} icon="arrowUp" text={fmtClimb(climb.ascent)} mono /> : null}
+        {climb.descent != null ? <InfoPill theme={theme} icon="arrowDown" text={fmtClimb(climb.descent)} mono /> : null}
         <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
       </View>
+
+      {direction && onReversedChange ? (
+        <View accessibilityLabel={t('route.direction.label')} style={{ marginTop: space.md }}>
+          <Segmented
+            theme={theme}
+            value={reversed ? 'reverse' : 'forward'}
+            options={[{ id: 'forward', label: direction.forward }, { id: 'reverse', label: direction.reverse }]}
+            onChange={(value) => onReversedChange(value === 'reverse')}
+          />
+        </View>
+      ) : null}
 
       {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}
 
@@ -78,8 +106,8 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         {commentsLoading ? <Text style={{ color: theme.text2 }}>…</Text> : comments.length ? comments.map((comment, index) => <View key={comment.id} style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderTopColor: theme.hairline }}><RouteCommentPreviewRow theme={theme} comment={comment} onPress={() => openComments()} /></View>) : <Press accessibilityRole="button" onPress={() => openComments(true)} style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', gap: space.xs, paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noComments}</Text><Text style={[type.note, { color: theme.text3, textAlign: 'center' }]}>{c.noCommentsHint}</Text></Press>}
       </View>
       <View style={{ marginTop: space.xxxl }}>
-        <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides' })} />
-        {guidesLoading || officialLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guideEntries.length ? guideEntries.slice(0, 2).map((entry) => <RouteGuideRow key={entry.id} theme={theme} guide={entry.kind === 'community' ? entry.guide : undefined} officialTitle={entry.kind === 'official' ? entry.plan.payload.name : undefined} compact onPress={() => nav.openRouteGuide({ route, view: 'guide', ...(entry.kind === 'official' ? { planId: entry.plan.id } : { guideId: entry.guide.id }) })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
+        <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides', reversed })} />
+        {guidesLoading || officialLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guideEntries.length ? guideEntries.slice(0, 2).map((entry) => <RouteGuideRow key={entry.id} theme={theme} guide={entry.kind === 'community' ? entry.guide : undefined} officialTitle={entry.kind === 'official' ? entry.plan.payload.name : undefined} compact onPress={() => nav.openRouteGuide({ route, view: 'guide', reversed, ...(entry.kind === 'official' ? { planId: entry.plan.id } : { guideId: entry.guide.id }) })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
       </View>
       {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} onNavigate={onNavigate} navigationActive={navigationActive} /> : null}
       {onFeedback ? (

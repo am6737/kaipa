@@ -427,6 +427,8 @@ function researchSteps(activities: AgentRunActivity[], t: ReturnType<typeof useI
       delete_itinerary_items: { running: 'agent.research.step.deleteItinerary.running', completed: 'agent.research.step.deleteItinerary.completed', failed: 'agent.research.step.deleteItinerary.failed' },
       delete_packing_items: { running: 'agent.research.step.deletePacking.running', completed: 'agent.research.step.deletePacking.completed', failed: 'agent.research.step.deletePacking.failed' },
       add_gear: { running: 'agent.research.step.addGear.running', completed: 'agent.research.step.addGear.completed', failed: 'agent.research.step.addGear.failed' },
+      list_gear_sets: { running: 'agent.research.step.gearSets.running', completed: 'agent.research.step.gearSets.completed', failed: 'agent.research.step.gearSets.failed' },
+      add_gear_set_items: { running: 'agent.research.step.addGearSetItems.running', completed: 'agent.research.step.addGearSetItems.completed', failed: 'agent.research.step.addGearSetItems.failed' },
       undo_last_agent_changes: { running: 'agent.research.step.undo.running', completed: 'agent.research.step.undo.completed', failed: 'agent.research.step.undo.failed' },
     };
     const keys = stepKeys[activity.toolName];
@@ -466,6 +468,7 @@ function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeo
     search_travel_web: 'agent.research.phase.buildingItinerary',
     create_journey: 'agent.research.phase.buildingItinerary',
     list_gear: 'agent.research.phase.matchingGear',
+    list_gear_sets: 'agent.research.phase.matchingGear',
     add_itinerary_items: 'agent.research.phase.reviewingItinerary',
     update_journey_schedule: 'agent.research.phase.reviewingItinerary',
     set_journey_map_location: 'agent.research.phase.reviewingItinerary',
@@ -476,6 +479,7 @@ function activePlanningPhase(activities: AgentRunActivity[], t: ReturnType<typeo
     repair_packing_draft: 'agent.research.phase.reviewingPacking',
     commit_packing_draft: 'agent.research.phase.reviewingPacking',
     add_gear: 'agent.research.phase.reviewingChanges',
+    add_gear_set_items: 'agent.research.phase.reviewingChanges',
     delete_itinerary_items: 'agent.research.phase.reviewingChanges',
     delete_packing_items: 'agent.research.phase.reviewingChanges',
     undo_last_agent_changes: 'agent.research.phase.reviewingChanges',
@@ -859,12 +863,23 @@ function ActionResultCard({ theme, title, detail, openLabel, onOpen }: { theme: 
   );
 }
 
-function actionResultForTurn(turn: Turn) {
+type ActionResult = { kind: 'gear'; name: string } | { kind: 'gearSet'; name: string; added: number; toBuy: number };
+
+// Live progress reports counts; stored history keeps the item lists.
+const resultCount = (value: unknown) => Array.isArray(value) ? value.length : typeof value === 'number' ? value : 0;
+
+function actionResultForTurn(turn: Turn): ActionResult | undefined {
   const activities = turn.activities || [];
+  const gearSet = [...activities].reverse().find((activity) => activity.toolName === 'add_gear_set_items' && activity.status === 'completed');
+  if (gearSet && gearSet.output && typeof gearSet.output === 'object') {
+    const output = gearSet.output as { set?: { name?: unknown }; addedOwned?: unknown; addedToBuy?: unknown };
+    const toBuy = resultCount(output.addedToBuy);
+    return { kind: 'gearSet', name: String(output.set?.name || '装备清单'), added: resultCount(output.addedOwned) + toBuy, toBuy };
+  }
   const gear = [...activities].reverse().find((activity) => activity.toolName === 'add_gear' && activity.status === 'completed');
   if (gear && gear.output && typeof gear.output === 'object') {
     const output = gear.output as { name?: unknown };
-    return { name: String(output.name || '装备') };
+    return { kind: 'gear', name: String(output.name || '装备') };
   }
   return undefined;
 }
@@ -2131,6 +2146,17 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
               {turn.itineraryCard ? <ItineraryCard theme={theme} card={turn.itineraryCard} onOpen={() => openItineraryCard(turn.itineraryCard!)} /> : null}
               {turn.role === 'assistant' && actionResultForTurn(turn) ? (() => {
                 const result = actionResultForTurn(turn)!;
+                if (result.kind === 'gearSet') {
+                  return <ActionResultCard
+                    theme={theme}
+                    title={result.name}
+                    detail={result.toBuy
+                      ? t('agent.gearSetAddedWithToBuy', { count: result.added, toBuy: result.toBuy })
+                      : result.added ? t('agent.gearSetAdded', { count: result.added }) : t('agent.gearSetNothingAdded')}
+                    openLabel={t('agent.viewGearSets')}
+                    onOpen={() => onOpenGear('sets')}
+                  />;
+                }
                 return <ActionResultCard
                   theme={theme}
                   title={result.name}

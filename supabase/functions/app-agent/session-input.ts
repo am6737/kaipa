@@ -45,7 +45,7 @@ export function sanitizeSessionItem<T>(item: T): T {
 
 export function compactHistoricalTools<T>(items: T[]): T[] {
   // Current state comes from revision-checked snapshots, never an old tool result.
-  const stateTools = new Set(['get_app_context', 'get_journey_details', 'list_gear', 'estimate_personal_packing_needs']);
+  const stateTools = new Set(['get_app_context', 'get_journey_details', 'list_gear', 'list_gear_sets', 'estimate_personal_packing_needs']);
   return items.map((item) => {
     const clean = sanitizeSessionItem(item);
     if (!clean || typeof clean !== 'object') return clean;

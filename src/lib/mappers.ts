@@ -160,6 +160,7 @@ export function toGearItem(r: any): GearItem {
     photos: Array.isArray(r.photo_uris) ? r.photo_uris : undefined,
     attrs: r.attrs,
     note: r.note,
+    owned: r.owned !== false,
   };
 }
 

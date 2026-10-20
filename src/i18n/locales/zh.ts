@@ -9,7 +9,7 @@
 export const zh = {
   officialItinerary: {
     cardDate: '徒步首日 {month} 月 {day} 日', cardOpen: '查看方案', routeUnavailable: '线路暂不可用，请稍后再试',
-    summary: '方案说明（官方）', season: '季节提醒', notes: '注意事项（官方）', source: '资料', datePending: '日期待定', difficulty: '强度', audience: '适合', day: 'Day {count}', distance: '{count} km', ascent: '爬升 {count} m', descent: '下降 {count} m', stay: '住：{name}', tip: '官方提示：{text}', loading: '正在读取官方方案…', loadError: '方案读取失败', retry: '重试', updatedTitle: '方案已更新', updatedMessage: '这份方案已更新，请刷新后重新选择。', saveError: '保存失败，请稍后重试', hikeDays: '徒步 {count} 天', accessDays: '进出山 {count} 天', recommendedMonths: '推荐月份：{months}', created: '旅程已创建，每日行程已带入',
+    summary: '方案说明', season: '季节提醒', notes: '注意事项', source: '资料', datePending: '日期待定', difficulty: '强度', audience: '适合', day: 'Day {count}', distance: '{count} km', ascent: '爬升 {count} m', descent: '下降 {count} m', stay: '住：{name}', tip: '官方提示：{text}', loading: '正在读取官方方案…', loadError: '方案读取失败', retry: '重试', updatedTitle: '方案已更新', updatedMessage: '这份方案已更新，请刷新后重新选择。', saveError: '保存失败，请稍后重试', hikeDays: '徒步 {count} 天', accessDays: '进出山 {count} 天', recommendedMonths: '推荐月份：{months}', created: '旅程已创建，每日行程已带入',
   },
   app: { name: "开爬" },
   membership: {
@@ -521,6 +521,9 @@ export const zh = {
   },
 
   gear: {
+    toBuy: "待购",
+    toBuyHint: "还没买到，重量和价格待补充",
+    markBought: "已买到",
     square: {
       discover: "发现",
       items: "装备广场",
@@ -789,6 +792,9 @@ export const zh = {
     setDetail: {
       description: "描述",
       addGear: "添加装备",
+      aiFill: "AI 补充装备",
+      aiFillPrompt: "帮我补充装备页的装备清单「{name}」（setId: {id}）里缺少的装备，只加缺的，不要规划行程。",
+      aiFillDisplay: "帮我补充「{name}」里缺少的装备",
       exportSection: "导出",
       shareSection: "分享",
       exportImage: "导出图片",
@@ -1132,6 +1138,7 @@ export const zh = {
     stat: {
       distance: "距离",
       ascent: "累计爬升",
+      descent: "累计下降",
       elevation: "海拔",
       elevationProfile: "海拔剖面",
       days: "天数",
@@ -1470,10 +1477,10 @@ export const zh = {
       routeTracksTitle: "路线轨迹",
       routeTracksHint: "每条路线的开关控制该轨迹及其距离标记的显示",
       trackDistanceMarkers: "显示轨迹距离标记",
+      trackWaypointMarkers: "显示轨迹标注点",
       journeyGroupsTitle: "旅程组",
       journeyGroupsHint: "显示旅程组内的节点、节点连线和旅程距离",
       journeyNodeConnections: "旅程节点连线",
-      routeDirectionTitle: "路线方向",
       layerTitle: "地图样式",
       layerStandard: "标准",
       layerTerrain: "地形",
@@ -1492,7 +1499,6 @@ export const zh = {
       showWaypoints: "显示途经点",
       showLabels: "显示地图标注",
       distanceMarkers: "显示距离标记",
-      swapStartEnd: "切换起点和终点",
       summaryHint: "点击收起",
       enterFullscreen: "全屏查看地图",
     },
@@ -1688,6 +1694,14 @@ export const zh = {
 
   route: {
     seasonTitle: "最佳季节",
+    direction: {
+      label: "路线方向",
+      forward: "正穿",
+      reverse: "反穿",
+      clockwise: "顺时针",
+      counterclockwise: "逆时针",
+      guideNotice: "你在地图上选了反穿。这份攻略的行程按作者原本的方向编排，用它创建旅程也会沿用这个方向。",
+    },
   },
 
   tracks: {
@@ -2078,6 +2092,8 @@ export const zh = {
         deleteItinerary: { running: "正在删除旅程安排…", completed: "已删除旅程安排", failed: "删除旅程安排失败" },
         deletePacking: { running: "正在删除清单物品…", completed: "已删除清单物品", failed: "删除清单物品失败" },
         addGear: { running: "正在添加装备…", completed: "已添加装备", failed: "添加装备失败" },
+        gearSets: { running: "正在读取装备清单…", completed: "已读取装备清单", failed: "读取装备清单失败" },
+        addGearSetItems: { running: "正在补充装备清单…", completed: "已补充装备清单", failed: "补充装备清单失败" },
         undo: { running: "正在撤销上次更改…", completed: "已撤销上次更改", failed: "未能撤销上次更改" },
       },
     },
@@ -2087,6 +2103,10 @@ export const zh = {
     viewJourney: "查看旅程",
     viewGear: "查看装备",
     gearAddedToLibrary: "已添加到装备库",
+    viewGearSets: "查看清单",
+    gearSetAdded: "已加入 {count} 件装备",
+    gearSetAddedWithToBuy: "已加入 {count} 件装备，其中 {toBuy} 件待购",
+    gearSetNothingAdded: "清单里已经齐了，没有新增",
     journeyUnavailable: "暂时无法打开这个旅程，请稍后重试",
     executed: "操作已完成",
     retryFailed: "暂时无法继续，请稍后重试或在当前对话发送新的需求。",

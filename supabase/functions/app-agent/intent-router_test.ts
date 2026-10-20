@@ -138,14 +138,14 @@ Deno.test('quoted destructive words are content, not commands', () => {
 });
 
 Deno.test('app entry intents map without calling the router', async () => {
-  const raw = decision({ domain: 'packing', operations: ['add_packing_items', 'add_gear', 'add_itinerary_items'],
+  const raw = decision({ domain: 'packing', operations: ['add_packing_items', 'add_gear', 'add_gear_set_items', 'add_itinerary_items'],
     requiredOperations: ['add_packing_items'], packingMode: 'full' });
   const expected: Record<string, { intent: string; ops: string }> = {
     packing_full: { intent: 'packing_full', ops: 'add_packing_items' },
     transport_supplement: { intent: 'transport_chain', ops: 'add_itinerary_items' },
     stay_supplement: { intent: 'itinerary_edit', ops: 'add_itinerary_items' },
     gear_onboarding: { intent: 'gear_add', ops: 'add_gear' },
-    gear_set_onboarding: { intent: 'unsupported', ops: '' },
+    gear_set_onboarding: { intent: 'gear_set', ops: 'add_gear_set_items' },
     journey_review: { intent: 'discuss', ops: '' },
   };
   for (const [appIntent, want] of Object.entries(expected)) {
@@ -156,9 +156,6 @@ Deno.test('app entry intents map without calling the router', async () => {
       assert(result.decision.operations.join() === want.ops, `${appIntent}/${mode}: ${result.decision.operations}`);
     }
   }
-  const unsupported = await resolveTask({ message: '保存', journeyId: 'journey', previous: null, appIntent: 'gear_set_onboarding',
-    hasBoundTrack: false, mode: 'on', recentMessages: [], interpretInput: {} }, async () => raw);
-  assert(unsupported.routing.note && unsupported.decision.mode === 'discuss', 'unsupported entry must carry a decline note');
   const noJourney = await resolveTask({ message: '生成装备清单', journeyId: null, previous: null, appIntent: 'packing_full',
     hasBoundTrack: false, mode: 'on', recentMessages: [], interpretInput: {} }, async () => raw);
   assert(noJourney.routing.clarify?.question && !noJourney.decision.operations.length && !useStagedPipeline(noJourney.decision),
@@ -283,4 +280,30 @@ Deno.test('definition examples stay disjoint from eval cases', () => {
       if (testCase.message.length >= 6) assert(!example.includes(testCase.message), `${testCase.id} is inside an example`);
     }
   }
+});
+
+Deno.test('a failed router still asks for missing planning premises', async () => {
+  const failing = async (): Promise<RouterOutput> => { throw new Error('router down'); };
+  const base = { previous: null, hasBoundTrack: false, mode: 'on' as const, recentMessages: [], interpretInput: {} };
+  const packing = await resolveTask({ ...base, message: '补充高海拔三天两夜的装备清单', journeyId: null },
+    async () => decision({ domain: 'packing', operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], packingMode: 'full' }),
+    failing, () => {});
+  assert(packing.routing.source === 'interpreter' && packing.routing.clarify?.question && !useStagedPipeline(packing.decision),
+    `packing without a journey ran: ${JSON.stringify(packing.routing)}`);
+  const plan = await resolveTask({ ...base, message: '帮我规划一下', journeyId: null },
+    async () => decision({ fullHikingPlan: true }), failing, () => {});
+  assert(plan.routing.clarify?.question && !useStagedPipeline(plan.decision), `plan with nowhere to go ran: ${JSON.stringify(plan.routing)}`);
+  const kept = await resolveTask({ ...base, message: '保存', journeyId: 'journey' },
+    async () => decision({ domain: 'packing', operations: ['add_packing_items'], requiredOperations: ['add_packing_items'], packingMode: 'full' }),
+    failing, () => {});
+  assert(!kept.routing.clarify && useStagedPipeline(kept.decision), 'a journey checklist must still run');
+});
+
+Deno.test('gear set intent keeps only its write and never plans', () => {
+  const raw = decision({ domain: 'packing', operations: ['add_gear_set_items', 'add_packing_items'], requiredOperations: ['add_gear_set_items'],
+    packingMode: 'full', fullHikingPlan: true });
+  const result = applyIntent('gear_set', raw, { journeyId: null, message: '补充高海拔三天两夜清单' });
+  assert(result.decision.operations.join() === 'add_gear_set_items' && !result.clarification, JSON.stringify(result));
+  assert(!useStagedPipeline(result.decision), 'gear set ran the pipeline');
+  assert(intentFromDecision(decision({ operations: ['add_gear_set_items'], requiredOperations: ['add_gear_set_items'] })) === 'gear_set', 'reverse map');
 });

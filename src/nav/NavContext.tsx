@@ -7,6 +7,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
 import type { JourneyVersion } from '../hooks/useJourneyVersions';
+import { reverseRoute } from '../lib/routeDirection';
 
 export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type SubTab = 'explore' | 'memory';
@@ -41,6 +42,8 @@ export interface RouteGuideRequest {
   trekStartDate?: string | null;
   /** Focus the comment composer when opening the comments view. */
   compose?: boolean;
+  /** The route card is set to walk the route from its recorded finish. */
+  reversed?: boolean;
 }
 
 export interface NavValue {
@@ -110,7 +113,8 @@ export interface NavValue {
   // 新增旅程 flow (旅程 tab "+")
   newJourneyOpen: boolean;
   newJourneyPreset: Poi | null;
-  openNewJourney: (preset?: Poi) => void;
+  /** `reversed` plans the preset route from its recorded finish. */
+  openNewJourney: (preset?: Poi, options?: { reversed?: boolean }) => void;
   closeNewJourney: () => void;
 
   journeyInviteScannerOpen: boolean;
@@ -477,8 +481,10 @@ export function NavProvider({
       closeRouteRequest: () => { setRouteRequestOpen(false); setRouteRequestPrefill(undefined); },
       newJourneyOpen,
       newJourneyPreset,
-      openNewJourney: (preset?: Poi) => {
-        setNewJourneyPreset(preset ? merged(preset) : null);
+      openNewJourney: (preset?: Poi, options?: { reversed?: boolean }) => {
+        // Reverse after merging, so a stored patch can't put the forward climb back.
+        const route = preset ? merged(preset) : null;
+        setNewJourneyPreset(route && options?.reversed ? reverseRoute(route) : route);
         setNewJourneyOpen(true);
       },
       closeNewJourney: () => {
