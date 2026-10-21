@@ -1,0 +1,159 @@
+BEGIN
+CREATE FUNCTION
+              set_config              |              set_config
+--------------------------------------+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53 | 61def8b6-ee0f-446c-a21c-5a7b55376295
+(1 row)
+
+INSERT 0 2
+INSERT 0 0
+INSERT 0 1
+INSERT 0 1
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 61def8b6-ee0f-446c-a21c-5a7b55376295
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+UPDATE 1
+              set_config
+--------------------------------------
+ 61def8b6-ee0f-446c-a21c-5a7b55376295
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+DO
+DO
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+ set_config
+------------
+ WG3O
+(1 row)
+
+ set_journey_invite_enabled
+----------------------------
+ {"invite_enabled": false}
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 61def8b6-ee0f-446c-a21c-5a7b55376295
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+DO
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+ set_journey_invite_enabled
+----------------------------
+ {"invite_enabled": true}
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 52a2ae8c-9ebb-4e89-ac70-07610c39c9c6
+(1 row)
+
+INSERT 0 1
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ set_journey_invite_enabled
+----------------------------
+ {"invite_enabled": false}
+(1 row)
+
+UPDATE 1
+ set_config
+------------
+ WML8
+(1 row)
+
+UPDATE 1
+ check
+-------
+
+(1 row)
+
+UPDATE 1
+              set_config
+--------------------------------------
+ 52a2ae8c-9ebb-4e89-ac70-07610c39c9c6
+(1 row)
+
+DO
+              set_config
+--------------------------------------
+ 06f39e79-38a2-438d-9f57-1af950381a53
+(1 row)
+
+UPDATE 1
+DO
+ROLLBACK
+psql exit=0

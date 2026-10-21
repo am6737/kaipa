@@ -1,0 +1,8 @@
+PASS: two authenticated real WS clients subscribe through repository guard
+PASS: owner receives actual WAL postgres_changes over WS; incoming frames are JSON
+PASS: member receives actual WAL postgres_changes over WS; incoming frames are JSON
+PASS: same existing real WS rejects legacy track with explicit guard error
+PASS: ordinary real WS subscriptions still receive after rejected legacy track
+PASS: installed SDK encodes JSON broadcast as binary; guard compatibility is limited to current postgres_changes calls
+Follow-up summary: 6 passed, 0 failed
+http exit=0

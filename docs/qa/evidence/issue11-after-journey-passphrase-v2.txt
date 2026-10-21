@@ -1,0 +1,171 @@
+BEGIN
+CREATE FUNCTION
+              set_config
+--------------------------------------
+ 374acb61-8e98-4916-8319-1ee8a0bba984
+(1 row)
+
+              set_config
+--------------------------------------
+ 4164eff2-99d9-4dba-8f77-27999b0f76c4
+(1 row)
+
+              set_config
+--------------------------------------
+ 4b34c63e-b723-48c0-b741-42bd7a5f5677
+(1 row)
+
+INSERT 0 3
+INSERT 0 0
+INSERT 0 1
+INSERT 0 1
+              set_config
+--------------------------------------
+ 374acb61-8e98-4916-8319-1ee8a0bba984
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+UPDATE 1
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+              set_config
+--------------------------------------
+ 4b34c63e-b723-48c0-b741-42bd7a5f5677
+(1 row)
+
+DO
+              set_config
+--------------------------------------
+ 374acb61-8e98-4916-8319-1ee8a0bba984
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+DO
+DO
+ exists
+--------
+ t
+(1 row)
+
+ exists
+--------
+ t
+(1 row)
+
+ ?column?
+----------
+ t
+(1 row)
+
+ ?column?
+----------
+ t
+(1 row)
+
+              set_config
+--------------------------------------
+ 5f57fcb5-c2db-4970-ada9-6fcd9f67c1fc
+(1 row)
+
+              set_config
+--------------------------------------
+ 092de01b-2f11-45a7-bd10-f7dab6dfe11c
+(1 row)
+
+              set_config
+--------------------------------------
+ 1b038a86-f521-47b1-b264-5a6eb41e53d7
+(1 row)
+
+INSERT 0 3
+              set_config
+--------------------------------------
+ 374acb61-8e98-4916-8319-1ee8a0bba984
+(1 row)
+
+ set_config
+------------
+ 3XU9
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+DO
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+ check
+-------
+
+(1 row)
+
+INSERT 0 10
+ check
+-------
+
+(1 row)
+
+DO
+ROLLBACK
+psql exit=0

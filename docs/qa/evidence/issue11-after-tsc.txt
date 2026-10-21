@@ -1,0 +1,40 @@
+scripts/collect-route-sources.ts(2,45): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(3,39): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(7,8): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(101,19): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(107,30): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(116,15): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(118,32): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(120,19): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(127,9): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(157,46): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(514,17): error TS2339: Property 'main' does not exist on type 'ImportMeta'.
+scripts/collect-route-sources.ts(516,50): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(524,5): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(6,8): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources_test.ts(11,30): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources_test.ts(87,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(114,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(138,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(179,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(222,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(280,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(330,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(372,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(409,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(434,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(451,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/app-agent/search/guide-reader.ts(1,19): error TS2307: Cannot find module 'npm:zod@4.1.12' or its corresponding type declarations.
+supabase/functions/app-agent/search/guide-reader.ts(2,33): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/guide-reader.ts(3,31): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/guide-reader.ts(104,52): error TS7006: Parameter 'value' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(108,7): error TS2322: Type '{ id: number; url: unknown; }[]' is not assignable to type 'GuideImage[]'.
+  Type '{ id: number; url: unknown; }' is not assignable to type 'GuideImage'.
+    Types of property 'url' are incompatible.
+      Type 'unknown' is not assignable to type 'string'.
+supabase/functions/app-agent/search/guide-reader.ts(143,40): error TS7006: Parameter 'page' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(205,77): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(206,29): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(208,33): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/registry.ts(1,44): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/registry.ts(2,53): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
