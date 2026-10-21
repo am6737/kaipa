@@ -1,0 +1,187 @@
+Core-loop QA — 2026-10-13
+Product baseline: 3a6648afb5bbbce9ded361aa84099d89bfb5089f
+
+APP TESTS
+✖ turning sharing off untracks, instead of relying on leaving the channel (67.277948ms)
+✖ sharing again after a stop reuses the bus instead of racing a second join (61.964417ms)
+✖ signing out clears the toggle the next account would otherwise inherit (68.678677ms)
+✖ hidden tracks never fall back to a concatenated raw route (873.086751ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (light) (203.307538ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (dark) (118.65079ms)
+✖ explicit camera commands remain available while automatic framing is paused (105.007613ms)
+✖ a day with a single place frames it against the card, not the middle of the view (99.216676ms)
+✖ a card pulled over the whole map leaves a frameable strip above it (125.718484ms)
+✖ a zoom that turns the track endpoints on does not rebuild the pins (927.861101ms)
+✖ a zoom that re-steps the kilometre labels does not rebuild the pins (202.803423ms)
+✖ an empty overlay layer hands NativeMap the same array it already had (135.374993ms)
+✖ the frame that opens a card carries the track once, not twice over (129.947563ms)
+✖ first map mount requests visibility even when the catalog already loaded (82.125944ms)
+✖ route data arriving after visibility was applied reveals the requested layer (108.549579ms)
+✖ late-mounted route pins preserve the pending stagger animation (119.660463ms)
+✖ a press the rail blocks is re-attributed to the visible pin under the frame (97.292153ms)
+✖ a blocked press with no visible pin under it stays dropped (92.787175ms)
+✖ a visible pin still presses itself, rail or no rail (94.935175ms)
+✖ iOS: patched POI handlers remain inside their Objective-C method bodies (2.789538ms)
+✖ QA retrying a guest text after a lost response must leave only one server row (83.129005ms)
+✖ failed save restores the order while preserving a concurrent content edit (400.213925ms)
+ℹ tests 137
+ℹ suites 0
+ℹ pass 115
+ℹ fail 22
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11203.354416
+✖ failing tests:
+✖ turning sharing off untracks, instead of relying on leaving the channel (67.277948ms)
+✖ sharing again after a stop reuses the bus instead of racing a second join (61.964417ms)
+✖ signing out clears the toggle the next account would otherwise inherit (68.678677ms)
+✖ hidden tracks never fall back to a concatenated raw route (873.086751ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (light) (203.307538ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (dark) (118.65079ms)
+✖ explicit camera commands remain available while automatic framing is paused (105.007613ms)
+✖ a day with a single place frames it against the card, not the middle of the view (99.216676ms)
+✖ a card pulled over the whole map leaves a frameable strip above it (125.718484ms)
+✖ a zoom that turns the track endpoints on does not rebuild the pins (927.861101ms)
+✖ a zoom that re-steps the kilometre labels does not rebuild the pins (202.803423ms)
+✖ an empty overlay layer hands NativeMap the same array it already had (135.374993ms)
+✖ the frame that opens a card carries the track once, not twice over (129.947563ms)
+✖ first map mount requests visibility even when the catalog already loaded (82.125944ms)
+✖ route data arriving after visibility was applied reveals the requested layer (108.549579ms)
+✖ late-mounted route pins preserve the pending stagger animation (119.660463ms)
+✖ a press the rail blocks is re-attributed to the visible pin under the frame (97.292153ms)
+✖ a blocked press with no visible pin under it stays dropped (92.787175ms)
+✖ a visible pin still presses itself, rail or no rail (94.935175ms)
+✖ iOS: patched POI handlers remain inside their Objective-C method bodies (2.789538ms)
+✖ QA retrying a guest text after a lost response must leave only one server row (83.129005ms)
+✖ failed save restores the order while preserving a concurrent content edit (400.213925ms)
+
+DB EXISTING TESTS
+journey-passphrase-v2: exit 0 (ROLLBACK)
+journey-invite-toggle: exit 0 (ROLLBACK)
+journey-member-timeline-read: exit 0 (ROLLBACK)
+journey-save-timeline-item: exit 0 (ROLLBACK)
+journey-reorder-timeline-items: exit 0 (ROLLBACK)
+journey-rename-timeline-group: exit 0 (ROLLBACK)
+journey-remove-timeline-group: exit 0 (ROLLBACK)
+timeline-group-notes: exit 0 (ROLLBACK)
+route-guide-import: exit 0 (ROLLBACK)
+
+DB EXPIRY REGRESSION
+BEGIN
+ERROR:  QA defect: existing guest session still reads an expired journey share
+CONTEXT:  PL/pgSQL function inline_code_block line 29 at RAISE
+
+LOCAL SERVICE + BROWSER
+PASS email wrong password rejects
+PASS catalog real rows readable
+PASS create and edit journey owned fixture
+PASS fresh SDK client can sign in and reread saved journey
+PASS real gear hook create edit set and owner isolation
+PASS owner creates active code
+unsigned presence subscription=SUBSCRIBED track=ok
+FAIL unsigned outsider cannot publish a forged companion presence: Unsigned non-member can forge the owner position on the public journey channel
+PASS member has no access before join
+PASS deployed journey-join joins and deduplicates
+PASS member can read but cannot rename owner journey
+PASS deployed resources opens guest session and snapshot
+PASS guest session reload and same request replay deduplicate server-side
+PASS returning owner browser email login and reload
+guest cover text="QA Owner 邀你同行\nQA 重启后仍在\nQA\n加入这段旅程"
+guest wall text persisted after reload
+PASS real Web guest cover renders owned fixture
+PASS guest cannot delete another session text even with the same nickname
+PASS turning invite off rejects old code and existing guest session
+PASS cleanup disposable account
+PASS cleanup disposable account
+failed steps=1 ["unsigned outsider cannot publish a forged companion presence"]
+
+CONTROLLED BROWSER STARTUP
+[
+  {
+    "path": "/",
+    "body": "开爬\nKAIPA\nPhone number\nLog in with QR code\nGuest\nMore options\nI have read and agree to the Terms of Service and Privacy Policy",
+    "errors": [],
+    "requests": []
+  },
+  {
+    "path": "/j/AB12",
+    "body": "Link expired or invalid\nThis invite link may have expired. Contact the journey host for a new link.",
+    "errors": [],
+    "requests": [
+      "/functions/v1/resources"
+    ]
+  },
+  {
+    "path": "/j/INVALID",
+    "body": "Link expired or invalid\nThis invite link may have expired. Contact the journey host for a new link.",
+    "errors": [],
+    "requests": []
+  },
+  {
+    "path": "/j/%E0%A4%A",
+    "body": "",
+    "errors": [
+      "URI malformed"
+    ],
+    "requests": []
+  }
+]
+
+SERVER TYPE CHECK
+Check supabase/functions/resources/index.ts
+Check supabase/functions/journey-join/index.ts
+Check supabase/functions/create-guest-account/index.ts
+Check supabase/functions/map-search/index.ts
+
+SERVER TESTS
+ok | 27 passed | 0 failed (980ms)
+
+ROOT TYPE CHECK
+scripts/collect-route-sources.ts(2,45): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(3,39): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(7,8): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources.ts(101,19): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(107,30): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(116,15): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(118,32): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(120,19): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(127,9): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(157,46): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(514,17): error TS2339: Property 'main' does not exist on type 'ImportMeta'.
+scripts/collect-route-sources.ts(516,50): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources.ts(524,5): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(6,8): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources_test.ts(11,30): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+scripts/collect-route-sources_test.ts(87,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(114,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(138,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(179,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(222,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(280,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(330,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(372,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(409,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(434,1): error TS2304: Cannot find name 'Deno'.
+scripts/collect-route-sources_test.ts(451,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/app-agent/search/guide-reader.ts(1,19): error TS2307: Cannot find module 'npm:zod@4.1.12' or its corresponding type declarations.
+supabase/functions/app-agent/search/guide-reader.ts(2,33): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/guide-reader.ts(3,31): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/guide-reader.ts(104,52): error TS7006: Parameter 'value' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(108,7): error TS2322: Type '{ id: number; url: unknown; }[]' is not assignable to type 'GuideImage[]'.
+  Type '{ id: number; url: unknown; }' is not assignable to type 'GuideImage'.
+    Types of property 'url' are incompatible.
+      Type 'unknown' is not assignable to type 'string'.
+supabase/functions/app-agent/search/guide-reader.ts(143,40): error TS7006: Parameter 'page' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(205,77): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(206,29): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/guide-reader.ts(208,33): error TS7006: Parameter 'image' implicitly has an 'any' type.
+supabase/functions/app-agent/search/registry.ts(1,44): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+supabase/functions/app-agent/search/registry.ts(2,53): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+
+WEB EXPORT
+Exported: /tmp/kaipa-qa-web
+
+FIXTURE CLEANUP
+remaining_qa_auth=0
+remaining_qa_journeys=0

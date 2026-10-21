@@ -1,0 +1,155 @@
+Issue #9 follow-up evidence — 2026-10-13
+Product baseline: 3a6648afb5bbbce9ded361aa84099d89bfb5089f (git archive, unchanged tracked files).
+PR starting head: f0acd740781a9cd517ea12bd2ecda1c15ea3ded7; only QA helpers changed during follow-up.
+Baseline cwd: /tmp/kaipa-qa-followup/baseline; PR cwd: /home/coder/.happy-next-dev/agents/cmv21siiq00456sk6arvcfw4p/workspaces/am6737/kaipa/.dev/worktree/byd5dsgs-1
+Text artifacts trim trailing whitespace only; comparisons use the original /tmp logs.
+Both use the same symlinked /home/coder/workspaces/kaipa/node_modules; no installation/patch changes.
+
+BASELINE: npx --no-install tsc --noEmit => exit 2; 37 errors (baseline-tsc.txt)
+PR: npx --no-install tsc --noEmit => exit 2; byte-for-byte identical output.
+SHA256 (both): 52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7
+
+BASELINE: node --test scripts/import-route-guides.test.mjs scripts/test-journey-*.cjs scripts/test-journey-*.mjs scripts/test-timeline-*.cjs scripts/test-map-marker-rebuild.cjs scripts/test-map-poi-selection.cjs scripts/test-pin-overlap.cjs scripts/test-pin-visibility.cjs scripts/test-companion-presence.cjs scripts/test-track-point-picker-selection.cjs scripts/test-packing-activity-presentation.mjs => exit 1; 134 tests, 113 pass, 21 fail, 0 skipped/todo (baseline-app-tests.txt)
+PR: node --test scripts/import-route-guides.test.mjs scripts/test-journey-*.cjs scripts/test-journey-*.mjs scripts/test-timeline-*.cjs scripts/test-map-marker-rebuild.cjs scripts/test-map-poi-selection.cjs scripts/test-pin-overlap.cjs scripts/test-pin-visibility.cjs scripts/test-companion-presence.cjs scripts/test-track-point-picker-selection.cjs scripts/test-packing-activity-presentation.mjs scripts/test-qa-guest-retry.cjs => exit 1; 137 tests, 115 pass, 22 fail, 0 skipped/todo
+Comparison: all 21 existing failure diagnostic blocks are identical after ONLY checkout path and duration normalization.
+Added failure: test at scripts/test-qa-guest-retry.cjs:150:1 ✖ QA retrying a guest text after a lost response must leave only one server row (elapsed)
+Baseline is evidence of pre-existing failures in THIS dependency environment, not proof they fail with a correctly patched native install.
+
+DEPLOYED FUNCTION: docker exec kaipa-supabase-db psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -At -c "select pg_get_functiondef('public.resource_guest_snapshot(text)'::regprocedure);" => exit 0
+pg_get_functiondef body exactly equals the only snapshot function definition in the product-baseline migrations.
+Body SHA256: 43716c484471cd948101a05e0d9f164a8267f470d8171a101ccd74e487b93115
+Relevant predicates: guest_sessions token_hash matches AND expires_at>now(); journey_shares id=gs.share_id AND active; journeys deleted_at is null.
+No share expires_at predicate. Existing SQL reproduction exit 3 is retained in core-loop-checks.txt; unchanged regression not rerun.
+
+HELPER SYNTAX: node --check scripts/qa/core-loop-web.cjs && node --check scripts/qa/core-loop-local-e2e.cjs && node --check scripts/test-qa-guest-retry.cjs => exit 0
+
+COMMAND: node --test scripts/test-qa-guest-retry.cjs => exit 1
+✔ QA guest text happy path updates the snapshot after a successful write (167.749961ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (35.747087ms)
+QA lost-response evidence={"requestKeys":["request-1","request-2"],"serverRows":2,"visibleRows":1}
+✖ QA retrying a guest text after a lost response must leave only one server row (29.586531ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 800.866746
+
+✖ failing tests:
+
+test at scripts/test-qa-guest-retry.cjs:150:1
+✖ QA retrying a guest text after a lost response must leave only one server row (29.586531ms)
+  AssertionError [ERR_ASSERTION]: The same user submission must reuse its request key after a lost response
+
+  2 !== 1
+
+      at TestContext.<anonymous> (/home/coder/.happy-next-dev/agents/cmv21siiq00456sk6arvcfw4p/workspaces/am6737/kaipa/.dev/worktree/byd5dsgs-1/scripts/test-qa-guest-retry.cjs:165:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+
+COMMAND: KAIPA_QA_EVIDENCE_DIR=/tmp/kaipa-qa-followup/web node scripts/qa/core-loop-web.cjs => exit 1
+PASS / renders without uncaught errors
+PASS / login entry renders
+PASS /j/AB12 renders without uncaught errors
+PASS /j/AB12 503 reaches the guest service
+FAIL /j/AB12 503 is recoverable and is not labelled an expired invite: The input was expected to not match the regular expression /Link expired or invalid|链接已过期或无效/i. Input:
+
+'Link expired or invalid\n' +
+  'This invite link may have expired. Contact the journey host for a new link.'
+
+PASS /j/INVALID renders without uncaught errors
+PASS /j/INVALID invalid link is handled with a visible message
+FAIL /j/%E0%A4%A renders without uncaught errors: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'URI malformed'
++ ]
+- []
+
+FAIL /j/%E0%A4%A invalid link is handled with a visible message: The input did not match the regular expression /Link expired or invalid|链接已过期或无效/i. Input:
+
+''
+
+[
+  {
+    "path": "/",
+    "body": "开爬\nKAIPA\nPhone number\nLog in with QR code\nGuest\nMore options\nI have read and agree to the Terms of Service and Privacy Policy",
+    "errors": [],
+    "requests": [],
+    "retryVisible": false
+  },
+  {
+    "path": "/j/AB12",
+    "body": "Link expired or invalid\nThis invite link may have expired. Contact the journey host for a new link.",
+    "errors": [],
+    "requests": [
+      "/functions/v1/resources"
+    ],
+    "retryVisible": false
+  },
+  {
+    "path": "/j/INVALID",
+    "body": "Link expired or invalid\nThis invite link may have expired. Contact the journey host for a new link.",
+    "errors": [],
+    "requests": [],
+    "retryVisible": false
+  },
+  {
+    "path": "/j/%E0%A4%A",
+    "body": "",
+    "errors": [
+      "URI malformed"
+    ],
+    "requests": [],
+    "retryVisible": false
+  }
+]
+failed assertions=3 [{"path":"/j/AB12","label":"503 is recoverable and is not labelled an expired invite","message":"The input was expected to not match the regular expression /Link expired or invalid|链接已过期或无效/i. Input:\n\n'Link expired or invalid\\n' +\n  'This invite link may have expired. Contact the journey host for a new link.'\n"},{"path":"/j/%E0%A4%A","label":"renders without uncaught errors","message":"Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ [\n+   'URI malformed'\n+ ]\n- []\n"},{"path":"/j/%E0%A4%A","label":"invalid link is handled with a visible message","message":"The input did not match the regular expression /Link expired or invalid|链接已过期或无效/i. Input:\n\n''\n"}]
+
+
+COMMAND: KAIPA_QA_EVIDENCE_DIR=/tmp/kaipa-qa-followup/local node scripts/qa/core-loop-local-e2e.cjs => exit 1
+PASS email wrong password rejects
+catalog row count sampled=3
+PASS catalog real rows readable
+PASS create and edit journey owned fixture
+PASS fresh SDK client can sign in and reread saved journey
+PASS real gear hook create edit set and owner isolation
+PASS owner creates active code
+unsigned presence subscription=SUBSCRIBED track=ok
+FAIL unsigned outsider cannot publish a forged companion presence: Unsigned non-member can forge the owner position on the public journey channel
+PASS member has no access before join
+PASS deployed journey-join joins and deduplicates
+PASS member can read but cannot rename owner journey
+PASS deployed resources opens guest session and snapshot
+PASS guest session reload and same request replay deduplicate server-side
+owner browser text="正在加载路线\n全国\nQA Owner\n我的足迹\n已走过 0 条路线\n我的轨迹\n0 条轨迹\n最近添加：\n还没有轨迹\n我的装备\n1 件装备\n0.20 kg\n总重量\n¥20\n总价值\n我的清单\n1 份装备清单\nQA 套装\n0.2 kg\n我的攻略\n已发布 0\n我的收藏\n已收藏 0 条路线\n2\n账号与安全\n个人信息\n路线请求\n回收站\n通知\n开启\n主题\n系统\n重点色\n蓝色\n语言\n系统\n帮助与反馈\n关于\nv1.1.0\n发现\n旅程\n我\n问 AI\n全部\n路线\n旅程\n攻略\n没有找到相关内容\n换个关键词试试\n没有找到想走的路线？告诉我们"
+PASS returning owner browser email login and reload
+browser functions status=200
+browser functions status=200
+guest cover text="QA Owner 邀你同行\nQA 重启后仍在\nQA\n加入这段旅程"
+browser functions status=200
+browser functions status=200
+browser functions status=200
+guest wall text persisted after reload
+PASS real Web guest cover renders owned fixture
+PASS guest cannot delete another session text even with the same nickname
+PASS turning invite off rejects old code and existing guest session
+PASS cleanup disposable account
+PASS cleanup disposable account
+failed steps=1 ["unsigned outsider cannot publish a forged companion presence"]
+
+
+CLEANUP: docker exec kaipa-supabase-db psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -At -c "select 'remaining_qa_auth='||count(*) from auth.users where email like 'qa-core-%@example.test' or email like 'qa-expiry-%@example.test'; select 'remaining_qa_journeys='||count(*) from public.journeys where id like 'qa-core-%' or id like 'qa-share-expiry-%';" => exit 0
+remaining_qa_auth=0
+remaining_qa_journeys=0

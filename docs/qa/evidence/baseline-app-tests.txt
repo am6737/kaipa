@@ -1,0 +1,641 @@
+✔ parser splits a temp fixture and keeps only cited sources (43.393509ms)
+✔ one companion is one entry, however many connections tracked (522.017677ms)
+✔ a roster is sorted by user so the marker memo sees a stable list (142.445721ms)
+✔ incomplete or unreadable presence entries are dropped, not drawn (36.396196ms)
+✔ a fix older than the drop window is off the map, the boundary stays on (59.149923ms)
+✔ the fold returns its own objects, so a caller cannot write through to presence state (89.511212ms)
+✔ one journey has one channel; releasing it does not unsubscribe (127.076434ms)
+✔ reopening a journey whose channel is still leaving joins a fresh channel (514.788446ms)
+✔ a bus in use is never evicted to make room (98.826449ms)
+✔ a session with no cached fix still starts the location watch (159.765296ms)
+✔ a rejected cache lookup still starts the location watch (100.286522ms)
+✔ a cached fix goes out on the join, before the device moves (113.188377ms)
+✖ turning sharing off untracks, instead of relying on leaving the channel (75.98153ms)
+✖ sharing again after a stop reuses the bus instead of racing a second join (102.929128ms)
+✔ freshness is measured on arrival, never on the sender** clock (14.723239ms)
+✔ an entry is only refreshed by news about that same user (12.673773ms)
+✔ the keep-alive re-stamps, because an identical payload is not a diff (70.713745ms)
+✔ movement is floored so a car ride cannot out-run the presence rate limit (90.671725ms)
+✖ signing out clears the toggle the next account would otherwise inherit (63.485326ms)
+Journey add group regression checks passed.
+✔ scripts/test-journey-add-group.cjs (1966.726823ms)
+Journey checklist presentation tests passed.
+✔ scripts/test-journey-checklist-presentation.cjs (2745.494606ms)
+✔ inline date picker supports confirmation and back dismissal (light) (912.378735ms)
+✔ inline date picker supports confirmation and back dismissal (dark) (352.959278ms)
+✔ other callers retain native modal presentation and request-close handling (209.469194ms)
+Journey detail date tests passed.
+✔ scripts/test-journey-detail-date.mjs (1044.888701ms)
+✔ adding yesterday’s last place then moving it to first replans only changed directed pairs (581.085653ms)
+✔ network failure retries without another itinerary edit (245.608327ms)
+✔ quota failure retries without another itinerary edit (247.136564ms)
+✔ legacy failure retries without another itinerary edit (164.126157ms)
+✔ a partial response keeps the successful road and retries only the missing road (185.874022ms)
+✔ retries are bounded and cancelled when the itinerary changes (275.283589ms)
+✔ an explicit no-route verdict is tried again after reopening, without automatic retries (206.495823ms)
+✔ unresolved track legs neither request AMap nor reuse cached road geometry (96.110507ms)
+✔ track access accepts only verified connected roads: connected (102.249722ms)
+✔ track access accepts only verified connected roads: gap (106.402355ms)
+✔ track access accepts only verified connected roads: legacy (128.241456ms)
+✖ hidden tracks never fall back to a concatenated raw route (1208.203545ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (light) (433.166854ms)
+✖ sheet framing pauses after a gesture and resumes on route reset (dark) (285.019528ms)
+✖ explicit camera commands remain available while automatic framing is paused (216.486248ms)
+✖ a day with a single place frames it against the card, not the middle of the view (204.838686ms)
+✖ a card pulled over the whole map leaves a frameable strip above it (144.742884ms)
+✔ the single-point iOS camera puts the target in the padded box (56.75512ms)
+✔ joining a journey keeps owner and viewer identities distinct (3.133344ms)
+✔ legacy is_self identifies me only on my own journey (0.403284ms)
+✔ explicit user ids override the legacy self flag (0.416602ms)
+✔ pending remains available before any undated itinerary item exists (7.02953ms)
+✔ pending contains only undated items and never falls back to the whole timeline (2.289393ms)
+✔ moving an item between pending and a named group changes the visible tab (0.949114ms)
+✔ add and move choices keep pending first and merge localized day aliases (3.010918ms)
+✔ group summaries follow itinerary time order and include title-less places (1.685873ms)
+✔ move list excludes the current group, including localized aliases (1.15057ms)
+✔ mixed-group selection can move to either group or pending (0.985481ms)
+Journey schedule persistence tests passed.
+✔ scripts/test-journey-schedule-persistence.cjs (2578.403076ms)
+Journey schedule tests passed.
+✔ scripts/test-journey-schedule.mjs (558.088203ms)
+✔ the route copy and the journey track are one row, not a choice between two (6.51881ms)
+✔ a place already stored under the route id still finds its track (0.989756ms)
+✔ ends picked under either id still walk the line instead of going straight (1.475094ms)
+✔ genuinely different tracks stay separate (0.789456ms)
+✔ legacy three-route journey offers all tracks recovered by the overview map (1.097201ms)
+✔ a re-imported track is not folded onto the route it no longer matches (0.742473ms)
+✔ one day listing the same route twice adds no track (0.566049ms)
+✔ an off-track map tap keeps its exact coordinate through selection and itinerary stops (1.984311ms)
+✔ a nearby map point does not inherit an elevation recorded on the track (0.837616ms)
+✔ a slice between two distances is that part of the track, in walking order (7.233954ms)
+✔ walking backwards along the file reverses the slice instead of guessing (0.843519ms)
+✔ a slice of nothing is no geometry at all (0.415671ms)
+✔ a tap near the line is kept as a distance along it, on the line (2.149195ms)
+✔ two places on one track draw that track and never ask for a road (3.561326ms)
+✔ a map place on the same path follows the recorded track (1.771534ms)
+✔ a distance measured against a different file is not drawn (1.442565ms)
+✔ two map places are still planned as before (0.848742ms)
+✔ a place on the path is not the village beside it (2.926653ms)
+✔ the chain across days stays unbroken by track places (2.191693ms)
+✔ mixed endpoints follow a bending track in either direction without a road bridge (2.562289ms)
+✔ unverified or unavailable track connections remain unmeasured (3.073095ms)
+✔ a POI beside an out-and-back track requires an explicit track position (0.656957ms)
+✔ a distant POI approaching a track endpoint requests only the access road (1.91471ms)
+✔ drawn access requires detail and is invalidated when the previous stop changes (1.546324ms)
+✔ imported access slices the real track in either direction and rejects uncovered endpoints (0.704439ms)
+✔ airport and station stops use normal driving navigation regardless of transport metadata (5.354758ms)
+Journey version time tests passed.
+✔ scripts/test-journey-version-time.mjs (1254.584331ms)
+✖ a zoom that turns the track endpoints on does not rebuild the pins (1440.886602ms)
+✖ a zoom that re-steps the kilometre labels does not rebuild the pins (502.560127ms)
+✖ an empty overlay layer hands NativeMap the same array it already had (226.801432ms)
+✔ an unchanged marker keeps the identical element across renders (69.227138ms)
+✔ a rebuilt marker gets a new element (42.831008ms)
+✔ the bounding box corners hold every point of the track (55.797775ms)
+✔ the corners pass a single point through and skip unusable ones (53.201018ms)
+✖ the frame that opens a card carries the track once, not twice over (127.117161ms)
+✖ first map mount requests visibility even when the catalog already loaded (121.295352ms)
+✖ route data arriving after visibility was applied reveals the requested layer (116.933273ms)
+✖ late-mounted route pins preserve the pending stagger animation (115.291069ms)
+✔ an empty catalog does not consume the first mode entrance (2.429708ms)
+✖ a press the rail blocks is re-attributed to the visible pin under the frame (94.531836ms)
+✖ a blocked press with no visible pin under it stays dropped (107.442742ms)
+✖ a visible pin still presses itself, rail or no rail (106.253678ms)
+✔ ios: a base-map POI delivers its name and exact WGS-84 coordinate (514.062544ms)
+✔ ios: the following background tap cannot overwrite the selected POI (6.844925ms)
+✔ ios: existing maps without a POI handler still receive a coordinate (2.562985ms)
+✔ ios: invalid provider coordinates are ignored (0.813804ms)
+✔ android: a base-map POI delivers its name and exact WGS-84 coordinate (187.168023ms)
+✔ android: the following background tap cannot overwrite the selected POI (1.030801ms)
+✔ android: existing maps without a POI handler still receive a coordinate (0.750959ms)
+✔ android: invalid provider coordinates are ignored (0.39869ms)
+✖ iOS: patched POI handlers remain inside their Objective-C method bodies (5.934921ms)
+Packing activity presentation tests passed.
+✔ scripts/test-packing-activity-presentation.mjs (958.838364ms)
+✔ a pin drawn on top of the one that was tapped wins the press (3.324907ms)
+✔ a pin one degree away at a country-wide zoom is still under the frame (0.690336ms)
+✔ the same one degree is nobody else's pin once the camera is zoomed in (0.423058ms)
+✔ the threshold is the photo, not the frame (0.549155ms)
+✔ the north-south axis is measured in Mercator, not in degrees (0.742947ms)
+✔ a pin is never its own answer (0.452546ms)
+✔ nothing visible, no zoom, or a broken box all keep the old behaviour (0.940961ms)
+✔ no card open: every place of the shown layer is visible (5.96538ms)
+✔ the hidden layer stays hidden while a card is open (0.854976ms)
+✔ a card hides the pin of the place it stands for (0.765827ms)
+✔ a shared trailhead keeps its pin, so a sibling can still be compared (0.719416ms)
+✔ a place whose every member is on screen already loses its pin (1.193648ms)
+✔ a comparison route laid over the card hides its own place too (0.546047ms)
+✔ an empty map has no visible pins and does not throw (0.383001ms)
+✔ the rail stays up under a detail card (3.638831ms)
+✔ short: control rails exist only while editing (9.835762ms)
+✔ long: control rails exist only while editing (2.613602ms)
+✔ photos: control rails exist only while editing (2.58356ms)
+✔ grid: control rails exist only while editing (4.34061ms)
+✔ moving first/last cards preserves the other items and the input (4.444331ms)
+✔ a tall photo card can pass short notes in either direction (0.665644ms)
+✔ persisted order survives conflicting times and is shared with map stop numbering (2.003731ms)
+✖ failed save restores the order while preserving a concurrent content edit (358.351654ms)
+✔ a tapped POI shows its actual name on the map and keeps it when its address resolves (9.664917ms)
+✔ a background point resolves a visible address without snapping its coordinate to the track (1.766622ms)
+✔ a late lookup cannot replace a newer selection (2.323125ms)
+✔ choosing a waypoint cancels the pending background lookup and keeps the waypoint name (1.423922ms)
+ℹ tests 134
+ℹ suites 0
+ℹ pass 113
+ℹ fail 21
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13227.415716
+
+✖ failing tests:
+
+test at scripts/test-companion-presence.cjs:389:1
+✖ turning sharing off untracks, instead of relying on leaving the channel (75.98153ms)
+  AssertionError [ERR_ASSERTION]: peers stop seeing this position immediately
+
+  0 !== 1
+
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-companion-presence.cjs:400:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-companion-presence.cjs:406:1
+✖ sharing again after a stop reuses the bus instead of racing a second join (102.929128ms)
+  AssertionError [ERR_ASSERTION]: and the new position goes out
+
+  1 !== 2
+
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-companion-presence.cjs:419:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-companion-presence.cjs:513:1
+✖ signing out clears the toggle the next account would otherwise inherit (63.485326ms)
+  AssertionError [ERR_ASSERTION]: and the share stopped on the way out
+
+  0 !== 1
+
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-companion-presence.cjs:527:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:104:1
+✖ hidden tracks never fall back to a concatenated raw route (1208.203545ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:105:22)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.start (node:internal/test_runner/test:1191:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:127:3
+✖ sheet framing pauses after a gesture and resumes on route reset (light) (433.166854ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:128:31)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:127:3
+✖ sheet framing pauses after a gesture and resumes on route reset (dark) (285.019528ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:128:31)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:161:1
+✖ explicit camera commands remain available while automatic framing is paused (216.486248ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:162:29)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:172:1
+✖ a day with a single place frames it against the card, not the middle of the view (204.838686ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:173:29)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-journey-map-framing.cjs:184:1
+✖ a card pulled over the whole map leaves a frameable strip above it (144.742884ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:88:12)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at loadMap (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:91:6)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-journey-map-framing.cjs:185:29)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:232:1
+✖ a zoom that turns the track endpoints on does not rebuild the pins (1440.886602ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:233:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:246:1
+✖ a zoom that re-steps the kilometre labels does not rebuild the pins (502.560127ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:247:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:260:1
+✖ an empty overlay layer hands NativeMap the same array it already had (226.801432ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:261:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:383:1
+✖ the frame that opens a card carries the track once, not twice over (127.117161ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:387:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:456:1
+✖ first map mount requests visibility even when the catalog already loaded (121.295352ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:457:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:472:1
+✖ route data arriving after visibility was applied reveals the requested layer (116.933273ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:473:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:484:1
+✖ late-mounted route pins preserve the pending stagger animation (115.291069ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:485:17)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:505:1
+✖ a press the rail blocks is re-attributed to the visible pin under the frame (94.531836ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at globeWithRail (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:435:17)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:506:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:516:1
+✖ a blocked press with no visible pin under it stays dropped (107.442742ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at globeWithRail (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:435:17)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:517:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-marker-rebuild.cjs:525:1
+✖ a visible pin still presses itself, rail or no rail (106.253678ms)
+  node:internal/assert/utils:77
+      throw err;
+      ^
+
+  AssertionError [ERR_ASSERTION]: Unexpected dependency: ../../i18n
+      at require (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:38:14)
+      at evalmachine.<anonymous>:46:16
+      at Script.runInContext (node:vm:149:12)
+      at Script.runInNewContext (node:vm:154:17)
+      at Object.runInNewContext (node:vm:310:38)
+      at realm (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:43:6)
+      at loadGlobe (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:195:21)
+      at globeWithRail (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:435:17)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-marker-rebuild.cjs:526:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/test-map-poi-selection.cjs:84:1
+✖ iOS: patched POI handlers remain inside their Objective-C method bodies (5.934921ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /MKMapFeatureAnnotation/. Input:
+
+  '\n' +
+    '    if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {\n' +
+    '        [(AIRMapMarker *)view.annotation showCalloutView];\n' +
+    '    } else if ([view.annotation isKindOfClass:[MKUserLocation class]] && mapView.userLocationAnnotationTitle != nil && view.annotation.title != mapView.userLocationAnnotationTitle) {\n' +
+    '        [(MKUserLocation*)view.annotation setTitle: mapView.userLocationAnnotationTitle];\n' +
+    '    }\n'
+
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-map-poi-selection.cjs:88:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '\n    if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {\n        [(AIRMapMarker *)view.annotation showCalloutView];\n    } else if ([view.annotation isKindOfClass:[MKUserLocation class]] && mapView.userLocationAnnotationTitle != nil && view.annotation.title != mapView.userLocationAnnotationTitle) {\n        [(MKUserLocation*)view.annotation setTitle: mapView.userLocationAnnotationTitle];\n    }\n',
+    expected: /MKMapFeatureAnnotation/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at scripts/test-timeline-reorder.cjs:47:1
+✖ failed save restores the order while preserving a concurrent content edit (358.351654ms)
+  Error: Unexpected module ../data/timeline
+      at fakeRequire (/tmp/kaipa-qa-followup/baseline/scripts/test-timeline-reorder.cjs:71:11)
+      at eval (eval at <anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-timeline-reorder.cjs:73:3), <anonymous>:7:20)
+      at TestContext.<anonymous> (/tmp/kaipa-qa-followup/baseline/scripts/test-timeline-reorder.cjs:73:53)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7)
