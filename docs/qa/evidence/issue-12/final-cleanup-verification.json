@@ -1,0 +1,13 @@
+{
+  "scope": "All three fixture accounts from the recorded attempts",
+  "remaining": {
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "uploadTickets": 0
+  },
+  "evidenceConsistencyPassed": true
+}

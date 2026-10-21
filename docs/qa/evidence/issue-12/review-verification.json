@@ -1,0 +1,180 @@
+{
+  "reviewedAt": "2026-10-13T11:26:52.937082+00:00",
+  "reviewedPRHead": "4153f62ef8c18a18abb88809cbf38b1fe3d862bb",
+  "method": "Read-only source, saved-run evidence and fixture SQL review; no write probe, test, export or type-check rerun",
+  "databaseProbe": {
+    "executionPassed": true,
+    "productAcceptancePassed": false,
+    "failureFieldsAbsent": [
+      "failure",
+      "shutdownFailure",
+      "cleanupFailure"
+    ],
+    "pageErrors": [],
+    "requests": 10,
+    "http200Requests": 10,
+    "failedCase": "retry-ui",
+    "condition": "retried.length === 1",
+    "expectedRows": 1,
+    "actualDatabaseRows": 2,
+    "visibleRows": 1,
+    "visibleAfterReload": 2,
+    "totalFixtureRowsBeforeCleanup": 6,
+    "cases": [
+      {
+        "name": "normal-ui",
+        "passed": true,
+        "databaseRowCount": 1
+      },
+      {
+        "name": "lost-response-ui",
+        "passed": true,
+        "databaseRowCount": 1
+      },
+      {
+        "name": "retry-ui",
+        "passed": false,
+        "databaseRowCount": 2
+      },
+      {
+        "name": "retry-ui-after-reload",
+        "passed": true
+      },
+      {
+        "name": "same-key-serial-browser-fetch",
+        "passed": true,
+        "databaseRowCount": 1
+      },
+      {
+        "name": "same-fresh-key-concurrent-browser-fetch",
+        "passed": true,
+        "databaseRowCount": 1
+      },
+      {
+        "name": "same-session-two-tabs-ui",
+        "passed": true,
+        "databaseRowCount": 2
+      }
+    ]
+  },
+  "hookRegression": {
+    "testedCommit": "df412c4188bf02e94db641380d75194d00f1217a",
+    "scriptSHA256": "4202d303d55f4bd76df774defc046c5ac5b67ef09d2e8490a5f1d9fca6aa8684",
+    "matchesArchivedScript": true,
+    "failingAssertion": "scripts/test-qa-guest-retry.cjs:165 assert.equal(world.writes.size, 1)",
+    "actualSimulatedRows": 2,
+    "expectedRows": 1,
+    "requestKeys": [
+      "request-1",
+      "request-2"
+    ],
+    "visibleRows": 1,
+    "pass": 2,
+    "fail": 1,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "realDatabaseEvidence": false
+  },
+  "typeCheckEvidence": {
+    "errorsInEachOutput": 37,
+    "byteIdentical": true,
+    "testedOutputSHA256": "52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7",
+    "prOutputSHA256": "52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7",
+    "rerun": false
+  },
+  "evidenceSHA256": {
+    "guest-retry-database.json": "ce76c4513ffc8121d79bc45aa676b2955385c8a7ae306823cc2587a76e7c1283",
+    "probe.txt": "f2da240c1933a1daa94649ba2b4622edc437564ec365ae38b8a4d7f06f184a7a",
+    "hook-regression.txt": "2b82f08712b2f4633c067185b6ea27118d0b6429565294eb04353cf1b020ca06",
+    "tested-tsc.txt": "52a64d372599978360a34b4d2ad9f85e9af5df690bbc0e3fbc1c414437e490d7",
+    "initial-attempts-cleanup.json": "9763fe1d722501d05b85b2a640617ae2ff431ad45151dcfcc08b565c4016ba27",
+    "final-cleanup-verification.json": "6118efa64754ad299d797a5f99afa6c26686ead07ee594757d92eb66a2afc7da"
+  },
+  "fixtures": [
+    {
+      "attempt": "initial-locator-attempt",
+      "startedAt": "2026-10-13T11:12:11.470Z",
+      "finishedAt": "2026-10-13T11:12:47.166Z",
+      "userId": "6215fe94-5662-405c-8f58-2bf5cf5b0527",
+      "journeyId": "qa-issue12-246b851c-2c9a-4a9b-a18c-b1e32b582fdd",
+      "shareId": "js_7c0376ad-26ea-4c57-8e24-95c0647bc581",
+      "sessionIds": [
+        "69fb83cc-c0fc-46a5-9e17-381fef0f78d0"
+      ],
+      "executionPassed": false,
+      "historicalFailure": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('操作失败，请稍后重试', { exact: true }) to be visible\u001b[22m\n",
+      "historicalBusinessCleanup": {
+        "auth": 0,
+        "profiles": 0,
+        "journeys": 0,
+        "shares": 0,
+        "moments": 0,
+        "guestSessions": 0,
+        "uploadTickets": 0
+      }
+    },
+    {
+      "attempt": "returning-cta-attempt",
+      "startedAt": "2026-10-13T11:13:19.837Z",
+      "finishedAt": "2026-10-13T11:14:00.971Z",
+      "userId": "9f0efeea-198a-43ce-ae5d-b80fd10abaa4",
+      "journeyId": "qa-issue12-0bf28c4e-e561-4d30-8676-9306a84684fe",
+      "shareId": "js_0045cb02-a9b3-49bc-a0c3-95316fc3cd69",
+      "sessionIds": [
+        "377c9702-b94e-4447-8592-af05440c456a"
+      ],
+      "executionPassed": false,
+      "historicalFailure": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('加入这段旅程', { exact: true })\u001b[22m\n",
+      "historicalBusinessCleanup": {
+        "auth": 0,
+        "profiles": 0,
+        "journeys": 0,
+        "shares": 0,
+        "moments": 0,
+        "guestSessions": 0,
+        "uploadTickets": 0
+      }
+    },
+    {
+      "attempt": "final-complete-run",
+      "startedAt": "2026-10-13T11:15:06.803Z",
+      "finishedAt": "2026-10-13T11:15:19.402Z",
+      "userId": "fde3aef9-b9ef-4307-86f4-17c10722e731",
+      "journeyId": "qa-issue12-29012e50-441a-4e6b-90da-09e38d554914",
+      "shareId": "js_ff55af66-4deb-497e-8987-86b2fea8fdf1",
+      "sessionIds": [
+        "90e4d11f-a684-4b22-af8a-d7ff5a5cda10"
+      ],
+      "executionPassed": true,
+      "historicalFailure": null,
+      "historicalBusinessCleanup": {
+        "auth": 0,
+        "profiles": 0,
+        "journeys": 0,
+        "shares": 0,
+        "moments": 0,
+        "guestSessions": 0,
+        "uploadTickets": 0,
+        "sessionRateWindows": 0
+      }
+    }
+  ],
+  "readOnlyCleanupVerification": {
+    "databaseContainer": "kaipa-supabase-db",
+    "database": "postgres",
+    "sql": "SELECT json_build_object(\n'auth', (SELECT count(*) FROM auth.users WHERE id IN ('6215fe94-5662-405c-8f58-2bf5cf5b0527','9f0efeea-198a-43ce-ae5d-b80fd10abaa4','fde3aef9-b9ef-4307-86f4-17c10722e731')),\n'profiles', (SELECT count(*) FROM public.profiles WHERE id IN ('6215fe94-5662-405c-8f58-2bf5cf5b0527','9f0efeea-198a-43ce-ae5d-b80fd10abaa4','fde3aef9-b9ef-4307-86f4-17c10722e731')),\n'journeys', (SELECT count(*) FROM public.journeys WHERE id IN ('qa-issue12-246b851c-2c9a-4a9b-a18c-b1e32b582fdd','qa-issue12-0bf28c4e-e561-4d30-8676-9306a84684fe','qa-issue12-29012e50-441a-4e6b-90da-09e38d554914')),\n'shares', (SELECT count(*) FROM public.journey_shares WHERE journey_id IN ('qa-issue12-246b851c-2c9a-4a9b-a18c-b1e32b582fdd','qa-issue12-0bf28c4e-e561-4d30-8676-9306a84684fe','qa-issue12-29012e50-441a-4e6b-90da-09e38d554914')),\n'moments', (SELECT count(*) FROM public.shared_moments WHERE journey_id IN ('qa-issue12-246b851c-2c9a-4a9b-a18c-b1e32b582fdd','qa-issue12-0bf28c4e-e561-4d30-8676-9306a84684fe','qa-issue12-29012e50-441a-4e6b-90da-09e38d554914')),\n'guestSessions', (SELECT count(*) FROM public.resource_guest_sessions WHERE share_id IN ('js_7c0376ad-26ea-4c57-8e24-95c0647bc581','js_0045cb02-a9b3-49bc-a0c3-95316fc3cd69','js_ff55af66-4deb-497e-8987-86b2fea8fdf1')),\n'uploadTickets', (SELECT count(*) FROM public.resource_upload_tickets WHERE user_id IN ('6215fe94-5662-405c-8f58-2bf5cf5b0527','9f0efeea-198a-43ce-ae5d-b80fd10abaa4','fde3aef9-b9ef-4307-86f4-17c10722e731')),\n'sessionRateWindows', (SELECT count(*) FROM public.resource_rate_windows WHERE scope='guest_write' AND subject IN ('69fb83cc-c0fc-46a5-9e17-381fef0f78d0','377c9702-b94e-4447-8592-af05440c456a','90e4d11f-a684-4b22-af8a-d7ff5a5cda10'))\n);",
+    "remaining": {
+      "auth": 0,
+      "profiles": 0,
+      "journeys": 0,
+      "shares": 0,
+      "moments": 0,
+      "guestSessions": 0,
+      "uploadTickets": 0,
+      "sessionRateWindows": 0
+    },
+    "scope": "Only three known fixture accounts, their owned business rows and three guest_write session windows; no global budget/share rate/log cleanup"
+  },
+  "reviewPassed": true
+}

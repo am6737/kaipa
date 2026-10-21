@@ -1,0 +1,31 @@
+✔ QA guest text happy path updates the snapshot after a successful write (140.757854ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (29.88267ms)
+QA lost-response evidence={"requestKeys":["request-1","request-2"],"serverRows":2,"visibleRows":1}
+✖ QA retrying a guest text after a lost response must leave only one server row (30.15012ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 746.920481
+
+✖ failing tests:
+
+test at scripts/test-qa-guest-retry.cjs:150:1
+✖ QA retrying a guest text after a lost response must leave only one server row (30.15012ms)
+  AssertionError [ERR_ASSERTION]: The same user submission must reuse its request key after a lost response
+
+  2 !== 1
+
+      at TestContext.<anonymous> (/tmp/kaipa-issue12/tested/scripts/test-qa-guest-retry.cjs:165:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
