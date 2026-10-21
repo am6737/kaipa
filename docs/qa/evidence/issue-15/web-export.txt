@@ -1,0 +1,18 @@
+Starting Metro Bundler
+
+Web Bundled 27564ms index.ts (3469 modules)
+
+› Assets (2):
+../../../../../../../../../workspaces/kaipa/node_modules/@openspacelabs/react-native-zoomable-view/lib/module/assets/pin.8e7c4f0476b17c3a3bf3ce7b7ecc2109.png (11KB)
+assets/icon.e2790e251512c75c95a88ed332830c48.png (300KB)
+
+› web bundles (2):
+_expo/static/js/web/index-483ce21a02fe387e2ee0b82c4652a5e5.js (6.4MB)
+_expo/static/js/web/index-fe503a0d0b46280812194c50274f0015.js (45KB)
+
+› Files (3):
+favicon.ico (15KB)
+index.html (1.2KB)
+metadata.json (49B)
+
+Exported: /tmp/kaipa-issue15/web

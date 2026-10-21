@@ -1,0 +1,24 @@
+✔ failed sheet preserves draft/key, blocks edits and rapid duplicate presses, cancel/reopen starts new (187.528824ms)
+✔ wall stays open on failure, closes only on confirmed success, partial batch retries stable per-item keys (100.340647ms)
+✔ canceling an unknown failed operation then reopening produces a new key for identical content (38.043065ms)
+✔ QA guest text happy path updates the snapshot after a successful write (153.720346ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (35.622156ms)
+QA lost-response evidence={"requestKeys":["request-1","request-1"],"serverRows":1,"visibleRows":1}
+✔ QA retrying a guest text after a lost response must leave only one server row (21.595622ms)
+✔ definite rejection retains the operation key for retry without a committed row (20.415978ms)
+✔ concurrent implicit retries join one operation and reuse its key after a lost response (22.625403ms)
+✔ concurrent explicit retries join one operation and reuse its key after a lost response (15.027026ms)
+✔ success retires an implicit key; another identical submission is a new operation (19.998755ms)
+✔ different input and explicitly new identical operations cannot reuse an unknown operation key (24.865605ms)
+✔ explicit key cannot be used with changed content (18.671078ms)
+✔ remount reads the committed snapshot and creates a new key for a new submission (33.091445ms)
+✔ changing share clears pending operations and stale completions cannot update its snapshot (16.501647ms)
+✔ lost add response reuses the completed upload; completed batch items replay without reupload (14.47864ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 951.742139

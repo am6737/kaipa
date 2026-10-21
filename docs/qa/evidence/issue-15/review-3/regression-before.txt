@@ -1,0 +1,74 @@
+✔ hanging durable draft transaction is aborted on deadline and cannot commit later (205.254792ms)
+✔ guestRequest bounds hanging invoke and cannot turn a late result into success (31.786752ms)
+✔ guestRequest bounds hanging error-body and cannot turn a late result into success (25.008198ms)
+✔ hanging photo fetch ends waiting and cannot launch a late next stage (28.026692ms)
+✔ hanging photo ticket ends waiting and cannot launch a late next stage (32.910358ms)
+✔ hanging photo upload ends waiting and cannot launch a late next stage (20.387387ms)
+✔ failed sheet preserves draft/key, blocks edits and rapid duplicate presses, cancel/reopen starts new (236.755222ms)
+✔ wall stays open on failure, closes only on confirmed success, partial batch retries stable per-item keys (111.786012ms)
+✔ canceling an unknown failed operation then reopening produces a new key for identical content (52.781375ms)
+✔ scoped unknown draft is saved before writing, survives departure and restores its key; explicit new clears it (76.384001ms)
+✔ failed durable draft save prevents any write and preserves the retry key in the sheet (66.167894ms)
+✖ renamed visitor restores original draft identity after refresh and retries original key (112.940686ms)
+✖ recovered draft exposes discard before any retry; refresh stays empty and new operation uses current identity (97.969608ms)
+✔ QA guest text happy path updates the snapshot after a successful write (249.582518ms)
+✔ QA guest opening offline completes loading and exposes an error without writing (61.798639ms)
+QA lost-response evidence={"requestKeys":["request-1","request-1"],"serverRows":1,"visibleRows":1}
+✔ QA retrying a guest text after a lost response must leave only one server row (70.074669ms)
+✔ definite rejection retains the operation key for retry without a committed row (77.737178ms)
+✔ concurrent implicit retries join one operation and reuse its key after a lost response (75.260653ms)
+✔ concurrent explicit retries join one operation and reuse its key after a lost response (58.360368ms)
+✔ success retires an implicit key; another identical submission is a new operation (66.293497ms)
+✔ different input and explicitly new identical operations cannot reuse an unknown operation key (45.290791ms)
+✔ explicit key cannot be used with changed content (51.251064ms)
+✔ remount reads the committed snapshot and creates a new key for a new submission (49.938083ms)
+✔ changing share clears pending operations and stale completions cannot update its snapshot (57.469161ms)
+✔ lost add response reuses the upload; confirmed batch items issue no request or reupload (38.51248ms)
+QA 61-item recovery={"firstWindowRequests":61,"firstWindowRows":60,"nextWindowKeys":["batch:60"],"finalRows":61,"visibleRows":61}
+✔ 61-item batch skips 60 confirmed writes in a new quota window and completes with one request (37.781294ms)
+✔ batch retries unknown committed item with its original key while skipping confirmed items (37.273322ms)
+✔ hung guest_add releases pending within 30s, retries original key and ignores late completion (36.58669ms)
+✔ confirmed explicit results survive remount, while unknown operations retry the saved key (34.005301ms)
+✔ hung upload releases pending and its late result cannot trigger guest_add (39.443974ms)
+✔ durable photo progress stores a bounded digest and confirmed replay survives reload without HTTP (71.593932ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 29
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1916.281962
+
+✖ failing tests:
+
+test at scripts/test-guest-publish.cjs:251:1
+✖ renamed visitor restores original draft identity after refresh and retries original key (112.940686ms)
+  AssertionError [ERR_ASSERTION]: Renaming must not strand a recovered retry
+
+  1 !== 2
+
+      at TestContext.<anonymous> (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-guest-publish.cjs:260:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/test-guest-publish.cjs:266:1
+✖ recovered draft exposes discard before any retry; refresh stays empty and new operation uses current identity (97.969608ms)
+  AssertionError [ERR_ASSERTION]: Recovered draft must offer discard without first failing again
+      at TestContext.<anonymous> (/home/coder/.happy-next-dev/agents/cmv21sihu00416sk6pehrqt01/workspaces/am6737/kaipa/.dev/worktree/yp502x31-1/scripts/test-guest-publish.cjs:275:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

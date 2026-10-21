@@ -1,0 +1,48 @@
+{
+  "executionPassed": true,
+  "productFailures": [],
+  "cases": [
+    {
+      "name": "normal-ui",
+      "passed": true
+    },
+    {
+      "name": "lost-response-ui",
+      "passed": true
+    },
+    {
+      "name": "retry-ui",
+      "passed": true
+    },
+    {
+      "name": "retry-ui-after-reload",
+      "passed": true
+    },
+    {
+      "name": "new-identical-operation-ui",
+      "passed": true
+    },
+    {
+      "name": "same-key-serial-browser-fetch",
+      "passed": true
+    },
+    {
+      "name": "same-fresh-key-concurrent-browser-fetch",
+      "passed": true
+    },
+    {
+      "name": "same-session-two-tabs-ui",
+      "passed": true
+    }
+  ],
+  "cleanup": {
+    "auth": 0,
+    "profiles": 0,
+    "journeys": 0,
+    "shares": 0,
+    "moments": 0,
+    "guestSessions": 0,
+    "uploadTickets": 0,
+    "sessionRateWindows": 0
+  }
+}

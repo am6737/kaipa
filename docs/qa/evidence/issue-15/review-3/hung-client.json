@@ -1,0 +1,137 @@
+{
+  "kind": "browser-native-storage-controlled-http",
+  "requests": [
+    {
+      "key": "76d0efe3-efcb-43b5-a477-0a24576190a2",
+      "id": "row-0",
+      "caption": "悬挂草稿",
+      "identity": {
+        "name": "Browser Guest",
+        "ini": "Br",
+        "tone": "river"
+      },
+      "mode": "hang"
+    },
+    {
+      "key": "76d0efe3-efcb-43b5-a477-0a24576190a2",
+      "id": "row-0",
+      "caption": "悬挂草稿",
+      "identity": {
+        "name": "Browser Guest",
+        "ini": "Br",
+        "tone": "river"
+      },
+      "mode": "success"
+    },
+    {
+      "key": "df6bd559-2e0c-400b-94bc-d370be859d1e",
+      "id": "row-1",
+      "caption": "刷新恢复",
+      "identity": {
+        "name": "Browser Guest",
+        "ini": "Br",
+        "tone": "river"
+      },
+      "mode": "hang"
+    },
+    {
+      "key": "df6bd559-2e0c-400b-94bc-d370be859d1e",
+      "id": "row-1",
+      "caption": "刷新恢复",
+      "identity": {
+        "name": "Browser Guest",
+        "ini": "Br",
+        "tone": "river"
+      },
+      "mode": "success"
+    },
+    {
+      "key": "83f61ae0-8956-4a18-a191-fb50ddc2c10b",
+      "id": "row-2",
+      "caption": "将丢弃的草稿",
+      "identity": {
+        "name": "Renamed Guest",
+        "ini": "Re",
+        "tone": "river"
+      },
+      "mode": "hang"
+    },
+    {
+      "key": "82ab7abf-73c5-4a7c-9182-c191d7632912",
+      "id": "row-3",
+      "caption": "明确的新操作",
+      "identity": {
+        "name": "Newest Guest",
+        "ini": "Ne",
+        "tone": "river"
+      },
+      "mode": "success"
+    }
+  ],
+  "cases": [
+    {
+      "name": "hung-request-bounded",
+      "advancedClockMs": 30001,
+      "draftRetained": true,
+      "key": "76d0efe3-efcb-43b5-a477-0a24576190a2",
+      "passed": true
+    },
+    {
+      "name": "same-key-retry-and-late-response",
+      "modelRows": 1,
+      "newSheetIntact": true,
+      "passed": true
+    },
+    {
+      "name": "departure-reload-resumes-original-key",
+      "key": "df6bd559-2e0c-400b-94bc-d370be859d1e",
+      "currentName": "Renamed Guest",
+      "restoredIdentity": {
+        "name": "Browser Guest",
+        "ini": "Br",
+        "tone": "river"
+      },
+      "modelRows": 2,
+      "passed": true
+    },
+    {
+      "name": "visible-discard-refresh-new-key-and-current-identity",
+      "discardedKey": "83f61ae0-8956-4a18-a191-fb50ddc2c10b",
+      "cleared": true,
+      "newKey": "82ab7abf-73c5-4a7c-9182-c191d7632912",
+      "identity": {
+        "name": "Newest Guest",
+        "ini": "Ne",
+        "tone": "river"
+      },
+      "lateResponseLeavesNewDraftIntact": true,
+      "modelRows": 4,
+      "passed": true
+    },
+    {
+      "name": "native-indexeddb-photo-and-isolated-cleanup",
+      "key": "photo-key",
+      "caption": "照片草稿",
+      "photoReadableAfterReload": true,
+      "cleared": true,
+      "passed": true
+    }
+  ],
+  "pageErrors": [],
+  "sourceHashes": {
+    "guestDeadline.ts": "e92feb9abdbe8474ff64163f8137fde7d6060fbe035e791693e65ec9b28d1c1d",
+    "guestRetryState.ts": "90e191b56cfe8c211e02a7b2cab5a46a33a93ab6cece7db4a0423085494c6098",
+    "useGuestData.ts": "7734a3b03123a319800a10b8be268380d3da7846290d6cdd07cc30b9ff054f91",
+    "guestResources.ts": "29ff74ed5c33e99cbae9ea2d272b59b9bd2e5753018bb949be62eb1c31b1b4be",
+    "guestStorage.ts": "478447571a9e43771887c170af85f958aa301172a0eb920121a72d29c3a96458",
+    "GuestWall.tsx": "8ad6387339d675d126142fb50cf98260129d770b58a19bca1b84e7be582a81a4",
+    "GuestUploadSheet.tsx": "2354fab2ff0a739d7ab1004a945f42a285c065c7607c5317092e8527d3902669",
+    "GuestApp.tsx": "afcdb08812a5626265a5386f26d1c022080e66a70ee54a1899ec256754995ef6"
+  },
+  "bundleHashes": {
+    "index-2cf6a9136f8c45203a8de82f3677b762.js": "85c92179c57dd6b2679102a3bd967e694ecf364cf80a2956d1c10f27ecf33b51",
+    "index-a56b4a8bcc8bca472d2a1263fd78be8d.js": "73ddf018fca1df7f2e30b9de7c95714a8d348f1b2e1cad16edcccc103d8bae94"
+  },
+  "chromium": "141.0.7390.37",
+  "passed": true
+}
