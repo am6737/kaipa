@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CurrentPositionError, getCurrentPosition } from '../../lib/currentPosition';
 import { Theme } from '../../theme/theme';
 import { useI18n } from '../../i18n';
 import { Icon } from '../Icon';
@@ -210,10 +211,12 @@ export function JourneyLocationPicker({
         onToast(t('journey.settings.locationPermissionDenied'));
         return;
       }
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await useCoordinate([current.coords.longitude, current.coords.latitude]);
-    } catch {
-      onToast(t('journey.settings.locationCurrentFailed'));
+      const current = await getCurrentPosition();
+      await useCoordinate([current.lng, current.lat]);
+    } catch (error) {
+      onToast(t(error instanceof CurrentPositionError && error.code === 'services_disabled'
+        ? 'discover.locationServicesDisabled'
+        : 'journey.settings.locationCurrentFailed'));
     } finally {
       setLocating(false);
     }

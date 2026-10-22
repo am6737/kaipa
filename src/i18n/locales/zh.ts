@@ -132,6 +132,7 @@ export const zh = {
     locationPermissionDenied: "未获得定位权限，可在系统设置中开启",
     locationApproximate: "当前仅允许大致位置，请在系统设置中开启精确定位",
     locationFailed: "暂时无法获取当前位置",
+    locationServicesDisabled: "定位服务未开启，请在系统设置中打开",
     shareLocation: "共享位置",
     shareLocationAgo: "{minutes}分钟前",
     selectAll: "全选",

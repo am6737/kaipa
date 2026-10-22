@@ -1,37 +1,11 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
+import { amapModule, ensureAmapReady } from '../../lib/amapSdk';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
 import { fitBoundsCorners, mapPoiFromProvider, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 
-let AMap: typeof import('expo-gaode-map') | null = null;
-let amapInitialized = false;
-
-try {
-  // Lazy loading keeps Expo Go usable when the AMap native module is absent.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  AMap = require('expo-gaode-map') as typeof import('expo-gaode-map');
-} catch {
-  AMap = null;
-}
-
-function ensureAmapReady(module: typeof import('expo-gaode-map')): boolean {
-  if (amapInitialized) return true;
-  try {
-    module.ExpoGaodeMapModule.setPrivacyConfig({
-      hasShow: true,
-      hasContainsPrivacy: true,
-      hasAgree: true,
-      privacyVersion: '2026-09-02',
-    });
-    // The config plugin writes the build-only key to AndroidManifest.xml.
-    module.ExpoGaodeMapModule.initSDK({});
-    amapInitialized = true;
-    return true;
-  } catch {
-    return false;
-  }
-}
+const AMap = amapModule();
 
 function point(coordinate: [number, number]) {
   const [longitude, latitude] = wgs84ToGcj02(coordinate);

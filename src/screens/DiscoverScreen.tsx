@@ -50,6 +50,7 @@ import { journeyRouteIds, journeyTracks } from '../lib/journeyTracks';
 import { journeyDayDisplayLabel } from '../lib/journeyDays';
 import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../lib/routeSegments';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
+import { CurrentPositionError, getCurrentPosition } from '../lib/currentPosition';
 import { isWriteBusy } from '../lib/writeErrors';
 import { MapStylePickerSheet, type MapPresentationStyle } from '../components/MapStylePickerSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
@@ -428,6 +429,10 @@ function num(s: string) {
   return m ? parseFloat(m[0]) : 0;
 }
 
+function isServicesDisabled(error: unknown): boolean {
+  return error instanceof CurrentPositionError && error.code === 'services_disabled';
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -644,13 +649,9 @@ function DiscoverScreenView({
       if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
       if (controller.signal.aborted) return;
       if (!permission.granted) throw new Error('permission');
-      const position = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('location')), 15000); }),
-      ]);
-      clearTimeout(timer);
+      const position = await getCurrentPosition();
       if (controller.signal.aborted) return;
-      const from: [number, number] = [position.coords.longitude, position.coords.latitude];
+      const from: [number, number] = [position.lng, position.lat];
       setCurrentLocation({ lng: from[0], lat: from[1] });
       timer = setTimeout(() => controller.abort(), 30000);
       let result: PlannedLeg | undefined;
@@ -667,7 +668,8 @@ function DiscoverScreenView({
     } catch (error) {
       if (routeNavigationRequestRef.current !== controller) return;
       const message = error instanceof Error && error.message === 'permission'
-        ? t('discover.locationPermissionDenied') : t('discover.routeNavigateUnavailable');
+        ? t('discover.locationPermissionDenied')
+        : isServicesDisabled(error) ? t('discover.locationServicesDisabled') : t('discover.routeNavigateUnavailable');
       setRouteNavigation(null);
       setRouteNavigationRouteId(null);
       Alert.alert(t('discover.routeNavigate'), message);
@@ -1847,43 +1849,11 @@ function DiscoverScreenView({
         nav.showToast(t('discover.locationPermissionDenied'));
         return;
       }
-      // Android can grant permission while the device-wide location provider
-      // is disabled. Avoid waiting indefinitely for a native callback.
-      const servicesEnabled = await withTimeout(
-        Location.hasServicesEnabledAsync(),
-        3_000,
-        'Checking location services timed out',
-      );
-      if (!servicesEnabled) {
-        nav.showToast(t('discover.locationFailed'));
-        return;
-      }
       const approximateLocation = permission.ios?.accuracy === 'reduced'
         || permission.android?.accuracy === 'coarse';
-
-      // A cached fix gives Android an immediate result when the GPS provider
-      // is slow to acquire a satellite fix. Fall back to a bounded balanced-
-      // accuracy request instead of waiting indefinitely for Highest accuracy.
-      const cachedPosition = await withTimeout(
-        Location.getLastKnownPositionAsync({ maxAge: 120_000, requiredAccuracy: 5_000 }),
-        2_000,
-        'Reading cached location timed out',
-      );
-      const position = cachedPosition ?? await withTimeout(
-        Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          mayShowUserSettingsDialog: true,
-        }),
-        15_000,
-        'Location request timed out',
-      );
-      const coordinate: [number, number] = [position.coords.longitude, position.coords.latitude];
-      const positionHeading = position.coords.heading;
-      setCurrentLocation({
-        lng: coordinate[0],
-        lat: coordinate[1],
-        heading: positionHeading != null && positionHeading >= 0 ? positionHeading : undefined,
-      });
+      const position = await getCurrentPosition();
+      const coordinate: [number, number] = [position.lng, position.lat];
+      setCurrentLocation({ lng: position.lng, lat: position.lat, heading: position.heading });
       setMapCameraAction((current) => ({
         type: 'locate',
         coordinate,
@@ -1923,7 +1893,7 @@ function DiscoverScreenView({
       }
     } catch (error) {
       console.warn('Failed to locate current position', error instanceof Error ? error.message : error);
-      nav.showToast(t('discover.locationFailed'));
+      nav.showToast(t(isServicesDisabled(error) ? 'discover.locationServicesDisabled' : 'discover.locationFailed'));
     } finally {
       setLocating(false);
     }

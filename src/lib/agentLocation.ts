@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import { CurrentPositionError, getCurrentPosition, type CurrentPosition } from './currentPosition';
 import { normalizeAgentLocation, type AgentLocation } from '../../supabase/functions/app-agent/location';
 import type { TravelContext } from '../../supabase/functions/app-agent/travel-context';
 
@@ -34,36 +35,37 @@ export async function getAgentLocation(message: string, timeoutMs = 15_000, inte
     }
     if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) return { status: 'permission_denied' };
-    if (!await Location.hasServicesEnabledAsync()) return { status: 'services_disabled' };
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let position: CurrentPosition;
     try {
-      // Expo's one-shot request has no cancellation API; ignore late results.
-      return await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(async (position): Promise<AgentLocation> => {
-          const fix = normalizeAgentLocation({ status: 'available', latitude: position.coords.latitude,
-            longitude: position.coords.longitude, accuracy: position.coords.accuracy,
-            timestamp: position.timestamp, coordinateSystem: 'WGS84' }) ?? { status: 'unavailable' as const };
-          if (fix.status !== 'available') return fix;
-          let geocodeTimer: ReturnType<typeof setTimeout> | undefined;
-          try {
-            const addresses = await Promise.race([
-              Location.reverseGeocodeAsync(position.coords),
-              new Promise<null>((resolve) => { geocodeTimer = setTimeout(() => resolve(null), 2000); }),
-            ]);
-            const address = addresses?.[0];
-            // City-level planning does not need a street, house number or exact address.
-            const placeName = address ? [...new Set([address.region, address.city, address.district].filter(Boolean))].join(' ') : '';
-            return { ...fix, ...(placeName ? { placeName } : {}) };
-          } catch {
-            return fix;
-          } finally {
-            clearTimeout(geocodeTimer);
-          }
-        }),
-        new Promise<AgentLocation>((resolve) => { timer = setTimeout(() => resolve({ status: 'timeout' }), timeoutMs); }),
+      position = await getCurrentPosition(timeoutMs);
+    } catch (error) {
+      if (error instanceof CurrentPositionError && error.code !== 'unavailable') return { status: error.code };
+      return { status: 'unavailable' };
+    }
+    const fix = normalizeAgentLocation({ status: 'available', latitude: position.lat,
+      longitude: position.lng, accuracy: position.accuracy,
+      timestamp: position.timestamp, coordinateSystem: 'WGS84' }) ?? { status: 'unavailable' as const };
+    if (fix.status !== 'available') return fix;
+    // City-level planning does not need a street, house number or exact address.
+    const placeName = (place?: CurrentPosition['place']) => place
+      ? [...new Set([place.region, place.city, place.district].filter(Boolean))].join(' ')
+      : '';
+    // AMap resolves the place with the fix; the system provider needs a lookup.
+    const known = placeName(position.place);
+    if (known) return { ...fix, placeName: known };
+    let geocodeTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const addresses = await Promise.race([
+        Location.reverseGeocodeAsync({ latitude: position.lat, longitude: position.lng }),
+        new Promise<null>((resolve) => { geocodeTimer = setTimeout(() => resolve(null), 2000); }),
       ]);
+      const address = addresses?.[0];
+      const name = placeName(address ? { region: address.region ?? undefined, city: address.city ?? undefined, district: address.district ?? undefined } : undefined);
+      return { ...fix, ...(name ? { placeName: name } : {}) };
+    } catch {
+      return fix;
     } finally {
-      clearTimeout(timer);
+      clearTimeout(geocodeTimer);
     }
   } catch {
     return { status: 'unavailable' };

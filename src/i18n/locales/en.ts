@@ -129,6 +129,7 @@ export const en: SameShape<typeof zh> = {
     locationPermissionDenied: "Location permission is off. Enable it in system settings.",
     locationApproximate: "Only approximate location is allowed. Enable precise location in system settings.",
     locationFailed: "Couldn’t get your current location",
+    locationServicesDisabled: "Location services are off. Turn them on in system settings.",
     shareLocation: "Share Location",
     shareLocationAgo: "{minutes}m ago",
     selectAll: "Select All",
