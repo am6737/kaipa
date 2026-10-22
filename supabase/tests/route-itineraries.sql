@@ -85,5 +85,11 @@ select pg_temp.check((select id = (select id from second_plan) and version = 1 f
 select pg_temp.check((select count(*) = 2 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'both plans stay published');
 update public.route_itineraries set status = 'archived' where id = (select id from itinerary_test_data) and version = 1;
 select pg_temp.check((select count(*) = 1 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'RPC excludes archived');
+select pg_temp.reject(format('update public.route_itineraries set status = %L where id = %L and version = 1', 'published', (select id from itinerary_test_data)), 'archived itinerary cannot change; publish a new version');
+select pg_temp.reject(format('update public.route_itineraries set status = %L where id = %L and version = 1', 'draft', (select id from itinerary_test_data)), 'archived itinerary cannot change; publish a new version');
+select pg_temp.reject(format('update public.route_itineraries set payload = jsonb_set(payload, %L, %L::jsonb) where id = %L and version = 1', '{name}', '"修改"', (select id from itinerary_test_data)), 'archived itinerary cannot change; publish a new version');
+insert into public.route_itineraries(id,version,route_id,status,origin,payload,verified_by,verified_on)
+select id, 2, route_id, 'published', 'manual', payload, '审核人', current_date from itinerary_test_data;
+select pg_temp.check((select count(*) = 2 from public.route_itineraries_published((select route_id from itinerary_test_data))), 'next version republishes');
 
 rollback;
