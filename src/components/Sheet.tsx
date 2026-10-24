@@ -444,8 +444,12 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
       ) : (
         <View style={{ position: 'absolute', left: 0, top: accessoryHeight, right: 0, bottom: 0 }}>
           {/* draggable header */}
+          {/* collapsable={false}: the header has no paint of its own, so Android
+              flattens it away and a touch beside the grabber pill lands on the
+              sheet container, never reaching these pan handlers. */}
           <View
             {...panResponder.panHandlers}
+            collapsable={false}
             onLayout={(event) => onHeaderHeightChange?.(event.nativeEvent.layout.height)}
             style={{ paddingTop: 8 }}
           >
@@ -463,8 +467,10 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
           </View>
 
           {/* body */}
-          <View style={{ flex: 1 }}>
-            <GestureDetector gesture={sheetBodyGesture}>
+          {/* The overlay sits inside the detector too: at the lowest detent it is
+              most of what shows, and a drag on it should move the sheet. */}
+          <GestureDetector gesture={sheetBodyGesture}>
+            <View style={{ flex: 1 }}>
               <AnimatedGHScrollView
                 ref={scrollRef}
                 scrollEnabled={expanded && !interactionBlocked}
@@ -481,9 +487,9 @@ export const TrailSheet = forwardRef<TrailSheetHandle, Props>(function TrailShee
               >
                 <SheetInteractionContext.Provider value={setInteractionBlocked}>{children}</SheetInteractionContext.Provider>
               </AnimatedGHScrollView>
-            </GestureDetector>
-            {bodyOverlay ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>{bodyOverlay}</View> : null}
-          </View>
+              {bodyOverlay ? <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>{bodyOverlay}</View> : null}
+            </View>
+          </GestureDetector>
         </View>
       )}
     </Animated.View>
