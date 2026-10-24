@@ -128,11 +128,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xxxl,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    gap: space.xs,
   },
+  // In flow (not absolute) so the tab bar shrinks to make room on narrow
+  // screens instead of sliding under the button.
   assistant: {
-    position: 'absolute',
-    right: space.xxxl,
+    flexShrink: 0,
     width: 88,
     height: 52,
     borderRadius: radius.pill,
