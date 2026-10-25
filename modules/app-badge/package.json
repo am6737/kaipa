@@ -1,0 +1,7 @@
+{
+  "name": "app-badge",
+  "version": "1.0.0",
+  "description": "App-local launcher badge and delivered-notification reset for Kaipa.",
+  "main": "src/index.ts",
+  "private": true
+}

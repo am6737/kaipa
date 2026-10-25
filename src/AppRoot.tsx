@@ -12,7 +12,7 @@ import { MembershipProvider } from './membership/MembershipContext';
 import { authStorageKey, supabase } from './lib/supabase';
 import { clearOfflineCache } from './lib/offlineCache';
 import { upgradeCurrentAnonymousSession } from './lib/auth';
-import { buildTrackDraft, parseTrackFile, TrackFileError } from './lib/trackImport';
+import { createTrackFromFile, parseTrackFile, TrackFileError } from './lib/trackImport';
 import { countRender, markTabCommit } from './lib/tabSwitchProbe';
 import { AuthFlow } from './screens/AuthFlow';
 import { OnboardingGate } from './screens/OnboardingFlow';
@@ -37,11 +37,16 @@ import { ManageCompanions } from './components/overlays/ManageCompanions';
 import { JourneyShareSheet } from './components/overlays/JourneyShareSheet';
 import { JourneyPassphraseSheet } from './components/overlays/JourneyPassphraseSheet';
 import { JourneyCodeEntrySheet } from './components/overlays/JourneyCodeEntrySheet';
+import { ItineraryImportPage } from './components/overlays/ItineraryImportPage';
 import { JourneyVersionHistoryPage } from './components/journey/JourneyVersionHistoryPage';
 import { SharePoster } from './components/overlays/SharePoster';
 import { SearchScreen } from './screens/SearchScreen';
 import { Toast } from './components/Toast';
+import { TrailLayer } from './components/trail/TrailLayer';
+import { TrailProvider } from './trail/TrailContext';
 import { RouteGuidePage } from './components/discover/RouteGuidePage';
+import { RouteTopicPage } from './components/discover/RouteTopicPage';
+import { PlusPosterPage } from './components/me/PlusPosterPage';
 import { AppAssistant } from './components/assistant/AppAssistant';
 import { QrLoginScannerPage } from './components/auth/QrLoginScannerPage';
 import { fetchJourneyPoiById } from './lib/journeyInvite';
@@ -166,12 +171,7 @@ function AppShell() {
               setTrackLoading(true);
               try {
                 const parsed = await parseTrackFile(result.result, t);
-                const draft = await buildTrackDraft(parsed, { userId, sourceUri: result.result.uri, fileSize: result.result.size });
-                const track = await data.createTrack(draft);
-                if (!track) {
-                  nav.showToast(t('record.track.errParse'));
-                  return;
-                }
+                const { track, archiveTrimmed } = await createTrackFromFile(parsed, { userId, sourceUri: result.result.uri, fileSize: result.result.size }, data.createTrack);
                 // Tracks belong to the library first. A journey can point at the
                 // new row; a route cannot, so the track stays unattached and the
                 // user applies it later from 轨迹库.
@@ -181,7 +181,7 @@ function AppShell() {
                   nav.showToast(t('journey.track.savedToLibrary'));
                 }
                 nav.closeAddRoute();
-                nav.showToast(t('appShell.toastUploadTrack'));
+                nav.showToast(t(archiveTrimmed ? 'record.track.archiveTrimmed' : 'appShell.toastUploadTrack'));
               } finally {
                 setTrackLoading(false);
               }
@@ -191,6 +191,26 @@ function AppShell() {
               nav.showToast(t(e instanceof TrackFileError ? e.messageKey : 'record.track.errParse'));
             }
           }}
+        />
+      )}
+      {nav.plusPosterOpen && (
+        <PlusPosterPage
+          theme={theme}
+          onClose={nav.closePlusPoster}
+          onAsk={(prompt) => nav.openAssistant(prompt)}
+          onOpenGear={() => { nav.closePlusPoster(); nav.openGearPage('items'); }}
+          onOpenMembership={nav.openMembershipPage}
+        />
+      )}
+      {nav.routeTopic && (
+        <RouteTopicPage
+          key={nav.routeTopic}
+          theme={theme}
+          topic={nav.routeTopic}
+          onClose={nav.closeRouteTopic}
+          onOpenRoute={(route) => nav.openPoint(route)}
+          onCreateJourney={(route) => nav.openNewJourney(route)}
+          onAsk={(prompt) => nav.openAssistant(prompt)}
         />
       )}
       {nav.routeRequestOpen && <RouteRequestSheet theme={theme} prefill={nav.routeRequestPrefill} onClose={nav.closeRouteRequest} onDone={nav.showToast} />}
@@ -247,6 +267,20 @@ function AppShell() {
             nav.setMainTab('journey');
             nav.openPoint(journey);
             nav.showToast(t('qrLogin.journeyJoined', { name: journey.name }));
+          }}
+        />
+      )}
+      {nav.itineraryImportOpen && (
+        <ItineraryImportPage
+          theme={theme}
+          onClose={() => nav.closeItineraryImport()}
+          onCreated={async (journeyId) => {
+            await data.refetchJourneys();
+            const journey = await fetchJourneyPoiById(journeyId);
+            nav.closeItineraryImport();
+            nav.setMainTab('journey');
+            nav.openPoint(journey);
+            nav.showToast(t('itineraryImport.created'));
           }}
         />
       )}
@@ -400,7 +434,7 @@ function AppShell() {
         currentJourneyId={nav.assistantJourneyId}
         onClearPrompt={() => nav.clearAssistantPrompt()}
         onClose={() => nav.closeAssistant()}
-        onOpenJourney={async (journeyId) => {
+        onOpenJourney={async (journeyId, focus) => {
           let journey = journeys.find((item) => item.id === journeyId);
           if (!journey) {
             const refreshedJourneys = await data.refetchJourneys();
@@ -412,13 +446,26 @@ function AppShell() {
           }
           setAssistantReturnJourneyId(journeyId);
           nav.closeAssistant();
+          if (focus) nav.requestJourneyTab({ journeyId, ...focus });
           nav.openPoint(journey);
         }}
-        onOpenGear={(page) => {
+        onOpenRoute={(routeId) => {
+          const route = data.routes.find((item) => item.id === routeId);
+          if (!route) {
+            nav.showToast(t('agent.routeUnavailable'));
+            return;
+          }
           nav.closeAssistant();
-          nav.openGearPage(page);
+          nav.openPoint(route);
+        }}
+        onOpenGear={(target) => {
+          nav.closeAssistant();
+          if (target.itemId != null) nav.openGearItem(target.itemId);
+          else if (target.setId) nav.openGearSet(target.setId);
+          else nav.openGearPage(target.page);
         }}
       />
+      <TrailLayer theme={theme} />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>
@@ -442,8 +489,10 @@ function NavBridge({ signOut, deleteAccount }: { signOut: () => void; deleteAcco
       db={db}
     >
       <MapPresentationProvider>
-        <PushNavigator />
-        <AppShell />
+        <TrailProvider>
+          <PushNavigator />
+          <AppShell />
+        </TrailProvider>
       </MapPresentationProvider>
     </NavProvider>
   );

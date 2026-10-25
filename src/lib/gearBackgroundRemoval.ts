@@ -1,4 +1,6 @@
+import { Platform } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
+import { fitImage } from './imageFit';
 import { supabase } from './supabase';
 
 type GearBackgroundRemovalResponse = {
@@ -15,7 +17,10 @@ export class GearBackgroundRemovalError extends Error {
 
 export async function removeGearImageBackground(source: { uri: string; mimeType?: string | null }): Promise<string> {
   const remote = /^https?:\/\//i.test(source.uri);
-  const imageBase64 = remote ? undefined : await new FSFile(source.uri).base64();
+  // Cutout quality stops improving well below a phone original's resolution.
+  const fitted = remote || Platform.OS === 'web' ? null : await fitImage(source.uri, 2048, 0.9);
+  const imageBase64 = remote ? undefined : await new FSFile(fitted?.uri ?? source.uri).base64();
+  const contentType = fitted?.mimeType ?? (source.mimeType || contentTypeFromUri(source.uri));
 
   if (imageBase64 && imageBase64.length > 20_000_000) {
     throw new GearBackgroundRemovalError('image_too_large', '图片过大，请选择尺寸较小的图片');
@@ -24,7 +29,7 @@ export async function removeGearImageBackground(source: { uri: string; mimeType?
   const { data, error } = await supabase.functions.invoke<GearBackgroundRemovalResponse>('gear-background-removal', {
     body: remote
       ? { imageUrl: source.uri }
-      : { imageBase64, contentType: source.mimeType || contentTypeFromUri(source.uri) },
+      : { imageBase64, contentType },
   });
 
   if (error) {

@@ -7,19 +7,30 @@ export interface WaypointCluster {
   coordinate: MapCoordinate;
 }
 
-/** Group nearby annotations in map pixels without changing the track geometry.
- * Fixed anchors prevent a chain of close points from swallowing a whole route.
- * A spatial grid keeps the work bounded even for files with many waypoints.
- */
-export function clusterWaypoints(coordinates: MapCoordinate[], zoom: number, radius = 52): WaypointCluster[] {
+/** Waypoints as Web-Mercator pixels at `zoom` (256 px tiles), unwrapped around
+ * the first point so a track across the date line stays contiguous. */
+export function projectWaypointPixels(coordinates: MapCoordinate[], zoom: number): { x: number; y: number }[] {
   if (!coordinates.length) return [];
   const worldSize = 256 * 2 ** Math.max(0, Math.min(22, zoom));
   const reference = coordinates[0][0];
-  const positions = coordinates.map(([longitude, latitude]) => {
+  return coordinates.map(([longitude, latitude]) => {
     const wrappedLongitude = ((longitude - reference + 180) % 360 + 360) % 360 - 180;
     const lat = Math.max(-85.051129, Math.min(85.051129, latitude)) * Math.PI / 180;
     return { x: wrappedLongitude / 360 * worldSize, y: -Math.log(Math.tan(Math.PI / 4 + lat / 2)) / (2 * Math.PI) * worldSize };
   });
+}
+
+/** Group nearby annotations in map pixels without changing the track geometry.
+ * The radius is sized to the dots and count badges, not to name labels: points
+ * only merge once they are too close to tap apart. Overlapping labels are the
+ * caller's to thin out (see `routeWaypointMarkers`), so a dot stays visible
+ * long before its name has room.
+ * Fixed anchors prevent a chain of close points from swallowing a whole route.
+ * A spatial grid keeps the work bounded even for files with many waypoints.
+ */
+export function clusterWaypoints(coordinates: MapCoordinate[], zoom: number, radius = 28): WaypointCluster[] {
+  if (!coordinates.length) return [];
+  const positions = projectWaypointPixels(coordinates, zoom);
   const groups: { indices: number[]; anchor: { x: number; y: number }; sumX: number; sumY: number }[] = [];
   const grid = new Map<string, number[]>();
   positions.forEach((position, index) => {

@@ -21,11 +21,12 @@ import { TLRow, TLMedia, TLGroup, TimelineLocation } from '../../data/timeline';
 import { useTimeline } from '../../hooks/useTimeline';
 import { useData } from '../../data/DataContext';
 import { Icon } from '../Icon';
+import { KPSkeletonLine, KPState } from '../State';
 import { Avatar } from '../Avatar';
 import { Press, PressDragGuardContext, useDragCancelledPress } from '../Press';
 import { useNav } from '../../nav/NavContext';
 import { useI18n } from '../../i18n';
-import { uploadMedia } from '../../lib/storage';
+import { uploadBatch, uploadMedia } from '../../lib/storage';
 import { isWriteBusy } from '../../lib/writeErrors';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
 import WheelPicker from '@quidone/react-native-wheel-picker';
@@ -365,19 +366,21 @@ function TimeRangePicker({ theme, start, end, onChange, onClear }: { theme: Them
   );
 }
 
+// Up to ten items, so they go through the shared four-worker batch: ten at once
+// overran the server's eight open tickets per account and dropped the last ones.
 async function uploadTLMedia(items: TLMedia[], userId: string, journeyId: string): Promise<TLMedia[]> {
-  return Promise.all(
-    items.map(async (m) => {
-      const copy = { ...m };
-      if (copy.uri && !copy.uri.startsWith('http')) {
-        copy.uri = await uploadMedia(copy.uri, userId, journeyId);
-      }
-      if (copy.thumb && !copy.thumb.startsWith('http')) {
-        copy.thumb = await uploadMedia(copy.thumb, userId, journeyId);
-      }
-      return copy;
-    }),
-  );
+  return uploadBatch(items, async (m, store) => {
+    const copy = { ...m };
+    if (copy.uri && !copy.uri.startsWith('http')) {
+      const local = copy.uri;
+      copy.uri = await store(() => uploadMedia(local, userId, journeyId));
+    }
+    if (copy.thumb && !copy.thumb.startsWith('http')) {
+      const local = copy.thumb;
+      copy.thumb = await store(() => uploadMedia(local, userId, journeyId));
+    }
+    return copy;
+  });
 }
 
 // ── Day selector: 总览 + each day as a capsule chip, plus an optional "+" ─────
@@ -1346,6 +1349,34 @@ function ItineraryItem({ theme, row, onPress, onOpenMedia, selectionMode, select
   );
 }
 
+// Stands in for the itinerary while a journey with nothing cached loads, so a
+// slow network reads as loading rather than as a day with no plans.
+function TimelineSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ paddingBottom: 18 }}
+    >
+      {[0.72, 0.56, 0.64].map((titleWidth, index) => (
+        <View
+          key={index}
+          style={{
+            gap: space.xs,
+            paddingVertical: space.sm,
+            borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
+            borderColor: theme.hairline,
+          }}
+        >
+          <KPSkeletonLine theme={theme} width={48} height={10} />
+          <KPSkeletonLine theme={theme} width={`${Math.round(titleWidth * 100)}%`} height={16} />
+          <KPSkeletonLine theme={theme} width="40%" height={10} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDay, showDayTabs = true, availableDays, selectionMode = false, selectedItemIds, onSelectedItemIdsChange, onGroupLayout, onGroupCollapseChange, onReorderActiveChange }: { theme: Theme; info: Poi; readOnly?: boolean; preview?: { rows: Record<string, unknown>[]; groups: Record<string, unknown>[] }; selectedDay?: string; showDayTabs?: boolean; availableDays?: string[]; selectionMode?: boolean; selectedItemIds?: Set<string>; onSelectedItemIdsChange?: (ids: Set<string>) => void; onGroupLayout?: (day: string, y: number) => void; onGroupCollapseChange?: (change: { collapsed: boolean; delta: number }) => void; onReorderActiveChange?: (active: boolean) => void }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
@@ -1443,6 +1474,24 @@ export function JourneyTimelineCard({ theme, info, readOnly, preview, selectedDa
       ],
     );
   };
+
+  // Day pages build their groups from the journey's days, so without these an
+  // unloaded itinerary would render as empty days.
+  if (!tl.hasData && !preview && userId) {
+    if (tl.loadFailed) {
+      return (
+        <KPState
+          theme={theme}
+          icon="calendar"
+          title={t('journey.timeline.loadFailedTitle')}
+          body={t('journey.timeline.loadFailedMessage')}
+          action={{ label: t('journey.timeline.retry'), onPress: () => { void tl.retry(); } }}
+          style={{ paddingVertical: space.xl }}
+        />
+      );
+    }
+    return <TimelineSkeleton theme={theme} />;
+  }
 
   if (tl.rows.length === 0 && groups.length === 0) {
     return (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { uploadMedia } from '../lib/storage';
+import { removeMedia, uploadMedia } from '../lib/storage';
 import { toInspoMedia } from '../lib/mappers';
 import type { InspoMedia } from '../data/inspoStore';
 
@@ -39,14 +39,16 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
 
   // Concurrency semaphore for uploads: at most 4 uploadMedia calls run at
   // once so that firing 100 add() calls without await doesn't OOM the device.
+  // Both live in refs: a waiter queued from one render has to be woken by a
+  // release from any later render, or that upload never starts.
   const inflight = useRef(0);
-  const queue: (() => void)[] = [];
+  const queue = useRef<(() => void)[]>([]);
   const acquire = () => new Promise<void>(resolve => {
     if (inflight.current < 4) { inflight.current++; resolve(); }
-    else queue.push(resolve);
+    else queue.current.push(resolve);
   });
   const release = () => {
-    const next = queue.shift();
+    const next = queue.current.shift();
     if (next) next();
     else inflight.current--;
   };
@@ -104,17 +106,19 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
     // Placeholder is created by addPlaceholders BEFORE any upload starts,
     // so this function only handles the actual upload.
     await acquire();
+    const stored: string[] = [];
+    const store = async (local: string) => { const url = await uploadMedia(local, userId, journeyId); stored.push(url); return url; };
     try {
-      const uri = await uploadMedia(m.uri, userId, journeyId);
+      const uri = await store(m.uri);
 
       let thumbnail: string | null = null;
       if (m.thumbnail) {
-        thumbnail = await uploadMedia(m.thumbnail, userId, journeyId);
+        thumbnail = await store(m.thumbnail);
       }
 
       let pairedVideoUri: string | null = null;
       if (m.pairedVideoUri) {
-        pairedVideoUri = await uploadMedia(m.pairedVideoUri, userId, journeyId);
+        pairedVideoUri = await store(m.pairedVideoUri);
       }
 
       const { data } = await supabase
@@ -134,8 +138,11 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
       if (data) {
         const real = toInspoMedia(data);
         setMedia(prev => prev.map(item => item.id === tempId ? real : item));
+      } else {
+        throw new Error('INSPO_INSERT_FAILED');
       }
     } catch {
+      await removeMedia(stored).catch(() => {});
       setMedia(prev => prev.filter(item => item.id !== tempId));
     } finally {
       setUploadingIds(prev => { const n = new Set(prev); n.delete(tempId); return n; });
@@ -164,12 +171,14 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
       while (idx < entries.length) {
         const { m, tempId } = entries[idx++];
         await acquire();
+        const stored: string[] = [];
+        const store = async (local: string) => { const url = await uploadMedia(local, userId, journeyId); stored.push(url); return url; };
         try {
-          const uri = await uploadMedia(m.uri, userId, journeyId);
+          const uri = await store(m.uri);
           let thumbnail: string | null = null;
-          if (m.thumbnail) thumbnail = await uploadMedia(m.thumbnail, userId, journeyId);
+          if (m.thumbnail) thumbnail = await store(m.thumbnail);
           let pairedVideoUri: string | null = null;
-          if (m.pairedVideoUri) pairedVideoUri = await uploadMedia(m.pairedVideoUri, userId, journeyId);
+          if (m.pairedVideoUri) pairedVideoUri = await store(m.pairedVideoUri);
           const { data, error } = await queueInsert(journeyId, () =>
             supabase.from('inspo_media').insert({
               journey_id: journeyId, user_id: userId, uri, kind: m.kind,
@@ -182,6 +191,7 @@ export function useInspo(journeyId: string | undefined, userId: string | undefin
         } catch (error) {
           if (firstError === undefined) firstError = error;
           console.warn('[useInspo] media upload failed:', error);
+          await removeMedia(stored).catch(() => {});
           setMedia(prev => prev.filter(item => item.id !== tempId));
         } finally {
           setUploadingIds(prev => { const n = new Set(prev); n.delete(tempId); return n; });

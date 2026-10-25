@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { useI18n } from '../i18n';
 import { useNav } from '../nav/NavContext';
@@ -15,6 +15,7 @@ import {
   safeDooPushRegister,
 } from '../lib/doopushRegister';
 import { registerPushDevice, unregisterPushDevice } from '../lib/pushDevices';
+import { clearAppBadge } from '../lib/appBadge';
 
 async function hasAndroidNotificationPermission() {
   if (Platform.OS !== 'android') return true;
@@ -154,6 +155,15 @@ export function PushBootstrap({ userId }: { userId?: string }) {
       openSub.remove();
       markDooPushUnconfigured();
     };
+  }, []);
+
+  useEffect(() => {
+    // 打开 App 或切回前台就清桌面角标和通知栏；排在 configure 之后，Android 的 DooPush 才认这次调用。
+    void clearAppBadge();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void clearAppBadge();
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {

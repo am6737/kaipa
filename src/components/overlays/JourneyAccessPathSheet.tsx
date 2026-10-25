@@ -6,7 +6,7 @@ import type { Theme } from '../../theme/theme';
 import type { TimelineIncomingPath } from '../../data/timeline';
 import type { JourneyStop } from '../../lib/journeyStops';
 import { drawnAccessPath, importedAccessPath, usableIncomingPath } from '../../lib/journeyAccess';
-import { pickTrackFiles, parseTrackFile } from '../../lib/trackImport';
+import { pickTrackFiles, parseTrackFile, TrackFileError } from '../../lib/trackImport';
 import { buildTrackData } from '../../lib/trackParser';
 import { measureTrack, type Coordinate } from '../../lib/routeSegments';
 import { NativeMap, NATIVE_MAP_AVAILABLE } from '../maps/NativeMap';
@@ -37,7 +37,7 @@ export function JourneyAccessPathSheet({ theme, from, to, initial, onSave, onClo
       const sliced = importedAccessPath(from.coordinate, to.coordinate, buildTrackData(parsed.stats).trackCoords);
       if (!sliced) { Alert.alert(t('journey.timeline.accessImportMismatch')); return; }
       setSource('imported'); setImported(sliced); setPoints(sliced.slice(1, -1));
-    } catch { Alert.alert(t('journey.timeline.accessImportFailed')); }
+    } catch (error) { Alert.alert(t(error instanceof TrackFileError ? error.messageKey : 'journey.timeline.accessImportFailed')); }
     finally { setBusy(false); }
   };
   const button = (label: string, action: () => void, disabled = false) => (

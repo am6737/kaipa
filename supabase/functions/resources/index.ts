@@ -74,6 +74,10 @@ Deno.serve(async (req, info) => {
       await rpc(db,'record_resource_admission',{p_user:actor,p_scope:'upload_prepare',p_result:'accepted'});
       return json(ticket);
     }
+    if (action === 'upload_extend') {
+      await rate(db,'uploads',auth.user.id);
+      return json(await rpc(db,'extend_resource_upload',{p_id:body.id,p_user:auth.user.id}));
+    }
     if (action === 'upload_cancel') {
       await rate(db,'uploads',auth.user.id);
       await rpc(db,'cancel_resource_upload',{p_id:body.id,p_user:auth.user.id});

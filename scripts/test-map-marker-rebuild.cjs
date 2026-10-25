@@ -171,6 +171,7 @@ function loadGlobe() {
       useWindowDimensions: () => ({ width: 390, height: 844 }),
     },
     '../Icon': { Icon: 'Icon' },
+    '../../i18n': { useI18n: () => ({ t: (key) => key }) },
     '../maps/NativeMap': { NativeMap: 'NativeMap' },
     // Span grows with zoom so that crossing MIN_TRACK_ENDPOINT_PIXELS (100) at
     // zoom 5 flips the endpoint markers on — the transition the device hit.
@@ -278,6 +279,7 @@ function loadIosMap() {
   react.default = react;
   const mocks = {
     react,
+    'react-native': { Dimensions: { get: () => ({ width: 390, height: 844 }) } },
     'react-native-maps': { default: 'MapView', Marker: 'Marker', Polyline: 'Polyline' },
     './types': {
       projectTrack: (coordinates) => { projectTrackCalls += 1; return coordinates; },

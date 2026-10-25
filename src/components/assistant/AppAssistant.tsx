@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, AppState, Easing, Linking, Modal, Pressable as Press, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native';
 import { Image } from 'expo-image';
-import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, CircleQuestionMark, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
+import { ArrowUp, ArrowUpRight, BriefcaseBusiness, CalendarDays, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, CircleQuestionMark, Clock3, Copy, CornerDownLeft, FileText, Globe2, Link2, MapPin, Menu, Mic, Mountain, Plus, RotateCcw, Square, SquarePen, TentTree, Trash2, X } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -18,13 +18,13 @@ import { refetchJourneyPacking } from '../../hooks/useJourneyPacking';
 import { refetchJourneyTimeline } from '../../hooks/useTimeline';
 import { cancelAgentRun, deleteAgentThread, getAgentHistory, getAgentRunActivity, getAgentThreads, getJourneyAgentThread, sendAgentTurn, undoAgentRun, type AgentAttachment, type AgentHistoryResponse, type AgentIntent, type AgentMessageUi, type AgentModelMetric, type AgentPlanPreview, type AgentQuickReply, type AgentRunActivity, type AgentSource, type AgentStage, type AgentThreadSummary, type AgentTurnResponse, type AgentUndoAction } from '../../lib/appAgent';
 import { useAgentRunRealtime } from '../../hooks/useAgentRunRealtime';
-import { uploadAgentAttachment } from '../../lib/storage';
+import { uploadAgentAttachment, uploadBatch } from '../../lib/storage';
 import type { Theme } from '../../theme/theme';
 import { AssistantMark } from './AssistantMark';
 import { activityDetails, hasResearchActivity } from './activityDetails';
 import { startAgentRecovery } from '../../lib/agentRecovery';
-import { confirmedDeparture, getAgentLocation, requestsCurrentLocation, transportLocationIntent, type AgentLocation, type AgentLocationIntent } from '../../lib/agentLocation';
-import { DepartureCard } from './DepartureCard';
+import { confirmedDeparture, getAgentLocation, requestsCurrentLocation, statesDeparture, transportLocationIntent, type AgentLocation, type AgentLocationIntent } from '../../lib/agentLocation';
+import { DepartureCard, departureFailureKey } from './DepartureCard';
 import { retryAgentRun } from '../../lib/appAgent';
 import { AssistantAttachmentTray, type LocalAgentAttachment } from './AssistantAttachmentTray';
 import { SourceBrandIcon, sourceBrandKind } from './SourceBrandIcon';
@@ -44,6 +44,8 @@ type Turn = {
   // The task stopped to ask the user something; nothing was written.
   waiting?: boolean;
   departurePrompt?: AgentMessageUi['departurePrompt'];
+  // The departure the app located for this request (user turns only).
+  origin?: string;
   id: string;
   role: 'user' | 'assistant';
   text: string;
@@ -847,13 +849,13 @@ function ItineraryCard({ theme, card, onOpen }: { theme: Theme; card: NonNullabl
   </View>;
 }
 
-function ActionResultCard({ theme, title, detail, openLabel, onOpen }: { theme: Theme; title: string; detail: string; openLabel: string; onOpen: () => void }) {
+function ActionResultCard({ theme, title, detail, openLabel, icon: Icon = Check, onOpen }: { theme: Theme; title: string; detail: string; openLabel: string; icon?: typeof Check; onOpen: () => void }) {
   return (
     <Press onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${openLabel}：${title}`} style={[styles.actionResultCard, { backgroundColor: theme.surfaceTop }]}>
-      <View style={styles.actionResultIcon}><Check size={18} color={theme.text} strokeWidth={2.2} /></View>
+      <View style={styles.actionResultIcon}><Icon size={18} color={theme.text} strokeWidth={2.2} /></View>
       <View style={styles.actionResultCopy}>
         <Text style={[styles.actionResultTitle, { color: theme.text }]} numberOfLines={2}>{title}</Text>
-        <Text style={[styles.actionResultDetail, { color: theme.text3 }]} numberOfLines={2}>{detail}</Text>
+        {detail ? <Text style={[styles.actionResultDetail, { color: theme.text3 }]} numberOfLines={2}>{detail}</Text> : null}
       </View>
       <View style={styles.actionResultOpen}>
         <Text style={[styles.actionResultOpenText, { color: theme.text }]}>{openLabel}</Text>
@@ -863,25 +865,292 @@ function ActionResultCard({ theme, title, detail, openLabel, onOpen }: { theme: 
   );
 }
 
-type ActionResult = { kind: 'gear'; name: string } | { kind: 'gearSet'; name: string; added: number; toBuy: number };
+export type AssistantGearTarget = { page: 'sets' | 'items'; itemId?: number; setId?: string };
+export type AssistantJourneyFocus = { tab?: 'checklist'; day?: string };
+
+type JourneyChange = {
+  kind: 'journey';
+  journeyId: string;
+  addedRows: number;
+  addedDays: string[];
+  deletedRows: number;
+  plannedDate?: string;
+  totalDays?: number;
+  location?: string;
+  endpointDays: number;
+};
+
+type ActionResult =
+  | JourneyChange
+  | { kind: 'packing'; journeyId: string; added: number; removed: number }
+  | { kind: 'gearSet'; name: string; setId?: string; added: number; toBuy: number }
+  | { kind: 'gear'; names: string[]; itemId?: number }
+  | { kind: 'undo'; journeyId: string; count: number }
+  | { kind: 'route'; routeId: string; name: string }
+  | { kind: 'journeyRef'; journeyId: string; name: string };
 
 // Live progress reports counts; stored history keeps the item lists.
 const resultCount = (value: unknown) => Array.isArray(value) ? value.length : typeof value === 'number' ? value : 0;
+const outputRecord = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
+const MAX_REFERENCE_CARDS = 3;
 
-function actionResultForTurn(turn: Turn): ActionResult | undefined {
-  const activities = turn.activities || [];
-  const gearSet = [...activities].reverse().find((activity) => activity.toolName === 'add_gear_set_items' && activity.status === 'completed');
-  if (gearSet && gearSet.output && typeof gearSet.output === 'object') {
-    const output = gearSet.output as { set?: { name?: unknown }; addedOwned?: unknown; addedToBuy?: unknown };
-    const toBuy = resultCount(output.addedToBuy);
-    return { kind: 'gearSet', name: String(output.set?.name || '装备清单'), added: resultCount(output.addedOwned) + toBuy, toBuy };
+// Live polling carries the raw search rows; stored messages keep id and name.
+function searchHits(output: unknown, key: 'routes' | 'journeys'): Array<{ id: string; name: string }> {
+  const rows = Array.isArray(output) ? output : outputRecord(output)[key];
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => row && typeof row.id === 'string' && typeof row.name === 'string' ? [{ id: row.id, name: row.name }] : []);
+}
+
+// One card per thing the turn changed or pointed to, so everything the user
+// asked for has a way to the saved result.
+function actionResultsForTurn(turn: Turn): ActionResult[] {
+  const completed = (turn.activities || []).filter((activity) => activity.status === 'completed');
+  const of = (name: string) => completed.filter((activity) => activity.toolName === name);
+  const results: ActionResult[] = [];
+  // A turn whose changes were undone has nothing left to open.
+  const undone = Boolean(turn.undoAction?.undoneAt);
+  // A new journey is presented by the plan preview card, which covers its itinerary.
+  const createdJourney = of('create_journey').length > 0;
+
+  if (!undone && !createdJourney) {
+    const journeys = new Map<string, JourneyChange>();
+    const journeyChange = (journeyId: unknown) => {
+      const id = typeof journeyId === 'string' ? journeyId : '';
+      if (!id) return undefined;
+      const existing = journeys.get(id) || { kind: 'journey' as const, journeyId: id, addedRows: 0, addedDays: [], deletedRows: 0, endpointDays: 0 };
+      journeys.set(id, existing);
+      return existing;
+    };
+    for (const activity of of('add_itinerary_items')) {
+      const change = journeyChange(outputRecord(activity.output).journeyId || activity.arguments.journeyId);
+      if (!change) continue;
+      const added = resultCount(outputRecord(activity.output).added);
+      if (!added) continue;
+      change.addedRows += added;
+      for (const item of Array.isArray(activity.arguments.items) ? activity.arguments.items : []) {
+        const day = typeof item?.day === 'string' ? item.day : '';
+        if (day && !change.addedDays.includes(day)) change.addedDays.push(day);
+      }
+    }
+    for (const activity of of('delete_itinerary_items')) {
+      const change = journeyChange(outputRecord(activity.output).journeyId || activity.arguments.journeyId);
+      if (change) change.deletedRows += resultCount(outputRecord(activity.output).deleted);
+    }
+    for (const activity of of('update_journey_schedule')) {
+      const change = journeyChange(activity.arguments.journeyId);
+      if (!change) continue;
+      if (typeof activity.arguments.plannedDate === 'string') change.plannedDate = activity.arguments.plannedDate;
+      if (typeof activity.arguments.totalDays === 'number') change.totalDays = activity.arguments.totalDays;
+    }
+    for (const activity of of('set_journey_map_location')) {
+      const change = journeyChange(activity.arguments.journeyId);
+      const place = activity.arguments.region || activity.arguments.query;
+      if (change && typeof place === 'string') change.location = place;
+    }
+    for (const activity of of('set_itinerary_group_endpoints')) {
+      const change = journeyChange(activity.arguments.journeyId);
+      if (change) change.endpointDays += resultCount(activity.arguments.endpoints);
+    }
+    results.push(...[...journeys.values()].filter((change) =>
+      change.addedRows || change.deletedRows || change.plannedDate || change.totalDays || change.location || change.endpointDays));
   }
-  const gear = [...activities].reverse().find((activity) => activity.toolName === 'add_gear' && activity.status === 'completed');
-  if (gear && gear.output && typeof gear.output === 'object') {
-    const output = gear.output as { name?: unknown };
-    return { kind: 'gear', name: String(output.name || '装备') };
+
+  if (!undone) {
+    // commit_packing_draft writes through add_packing_items, which records its own row.
+    const packing = new Map<string, { added: number; removed: number }>();
+    const packingChange = (journeyId: string) => packing.get(journeyId) || packing.set(journeyId, { added: 0, removed: 0 }).get(journeyId)!;
+    for (const activity of of('add_packing_items')) {
+      const journeyId = String(outputRecord(activity.output).journeyId || activity.arguments.journeyId || '');
+      const added = resultCount(outputRecord(activity.output).added);
+      if (journeyId && added) packingChange(journeyId).added += added;
+    }
+    for (const activity of of('delete_packing_items')) {
+      const journeyId = String(outputRecord(activity.output).journeyId || activity.arguments.journeyId || '');
+      const removed = resultCount(outputRecord(activity.output).deleted);
+      if (journeyId && removed) packingChange(journeyId).removed += removed;
+    }
+    for (const [journeyId, change] of packing) results.push({ kind: 'packing', journeyId, ...change });
+
+    const sets = new Map<string, Extract<ActionResult, { kind: 'gearSet' }>>();
+    for (const activity of of('add_gear_set_items')) {
+      const output = outputRecord(activity.output);
+      const setId = typeof output.set?.id === 'string' ? output.set.id : undefined;
+      const name = String(output.set?.name || activity.arguments.setName || '装备清单');
+      const toBuy = resultCount(output.addedToBuy);
+      const added = resultCount(output.addedOwned) + toBuy;
+      const key = setId || name;
+      const previous = sets.get(key);
+      sets.set(key, previous
+        ? { ...previous, added: previous.added + added, toBuy: previous.toBuy + toBuy }
+        : { kind: 'gearSet', name, setId, added, toBuy });
+    }
+    results.push(...sets.values());
+
+    const gear = of('add_gear');
+    if (gear.length) {
+      // Older stored messages dropped add_gear output; the arguments still name the item.
+      const names = gear.map((activity) => String(outputRecord(activity.output).name || activity.arguments.name || '装备'));
+      const itemId = Number(outputRecord(gear[0].output).id);
+      results.push({ kind: 'gear', names, itemId: gear.length === 1 && Number.isFinite(itemId) && itemId > 0 ? itemId : undefined });
+    }
   }
-  return undefined;
+
+  for (const activity of of('undo_last_agent_changes')) {
+    const output = outputRecord(activity.output);
+    if (typeof output.journeyId === 'string' && output.journeyId) {
+      results.push({ kind: 'undo', journeyId: output.journeyId, count: resultCount(output.affectedOperations) });
+    }
+  }
+
+  // Search tools return every candidate; link only the ones the reply names.
+  // An official-plan card already presents the route it is about.
+  if (!createdJourney && !turn.itineraryCard && turn.text) {
+    const mentioned = (hits: Array<{ id: string; name: string }>, skip: Set<string>) => {
+      const seen = new Set<string>();
+      return hits.filter((hit) => {
+        if (seen.has(hit.id) || skip.has(hit.id) || hit.name.trim().length < 2 || !turn.text.includes(hit.name.trim())) return false;
+        seen.add(hit.id);
+        return true;
+      }).slice(0, MAX_REFERENCE_CARDS);
+    };
+    const routes = mentioned(of('search_routes').flatMap((activity) => searchHits(activity.output, 'routes')), new Set());
+    results.push(...routes.map((hit) => ({ kind: 'route' as const, routeId: hit.id, name: hit.name })));
+    const linkedJourneys = new Set(results.flatMap((result) => 'journeyId' in result ? [result.journeyId] : []));
+    const journeys = mentioned(of('search_journeys').flatMap((activity) => searchHits(activity.output, 'journeys')), linkedJourneys);
+    results.push(...journeys.map((hit) => ({ kind: 'journeyRef' as const, journeyId: hit.id, name: hit.name })));
+  }
+  return results;
+}
+
+function shortDate(value: string, locale: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return locale === 'zh' ? `${Number(month)}月${Number(day)}日` : new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+}
+
+function ActionResultCards({ theme, results, onOpenJourney, onOpenGear, onOpenRoute }: {
+  theme: Theme;
+  results: ActionResult[];
+  onOpenJourney: (journeyId: string, focus?: AssistantJourneyFocus) => void;
+  onOpenGear: (target: AssistantGearTarget) => void;
+  onOpenRoute: (routeId: string) => void;
+}) {
+  const { t, resolved } = useI18n();
+  const data = useData();
+  if (!results.length) return null;
+  const listSeparator = resolved === 'zh' ? '、' : ', ';
+  const clauseSeparator = resolved === 'zh' ? '；' : '; ';
+  const journeyName = (journeyId: string) => data.journeys.find((journey) => journey.id === journeyId)?.name || t('agent.journeyFallback');
+  const dayList = (days: string[]) => days.length > 3
+    ? t('agent.change.daysAndMore', { days: days.slice(0, 3).join(listSeparator) })
+    : days.join(listSeparator);
+
+  return (
+    <>
+      {results.map((result) => {
+        switch (result.kind) {
+          case 'journey': {
+            const clauses = [
+              result.addedRows ? (result.addedDays.length
+                ? t('agent.change.itineraryAddedOnDays', { days: dayList(result.addedDays), count: result.addedRows })
+                : t('agent.change.itineraryAdded', { count: result.addedRows })) : '',
+              result.deletedRows ? t('agent.change.itineraryDeleted', { count: result.deletedRows }) : '',
+              result.plannedDate && result.totalDays
+                ? t('agent.change.schedule', { date: shortDate(result.plannedDate, resolved), days: result.totalDays })
+                : result.plannedDate ? t('agent.change.date', { date: shortDate(result.plannedDate, resolved) })
+                : result.totalDays ? t('agent.change.days', { days: result.totalDays }) : '',
+              result.endpointDays ? t('agent.change.endpoints', { count: result.endpointDays }) : '',
+              result.location ? t('agent.change.location', { place: result.location }) : '',
+            ].filter(Boolean);
+            // Open on the changed day when the change is about a single day.
+            const day = result.addedDays.length === 1 && !result.deletedRows ? result.addedDays[0] : undefined;
+            return <ActionResultCard
+              key={`journey_${result.journeyId}`}
+              theme={theme}
+              title={journeyName(result.journeyId)}
+              detail={clauses.join(clauseSeparator)}
+              openLabel={day ? t('agent.viewDay', { day }) : t('agent.viewJourney')}
+              icon={CalendarDays}
+              onOpen={() => onOpenJourney(result.journeyId, day ? { day } : undefined)}
+            />;
+          }
+          case 'packing':
+            return <ActionResultCard
+              key={`packing_${result.journeyId}`}
+              theme={theme}
+              title={t('agent.packingUpdatedFor', { name: journeyName(result.journeyId) })}
+              detail={[
+                result.added ? t('agent.packingAdded', { count: result.added }) : '',
+                result.removed ? t('agent.packingRemoved', { count: result.removed }) : '',
+              ].filter(Boolean).join(clauseSeparator)}
+              openLabel={t('agent.viewChecklist')}
+              icon={BriefcaseBusiness}
+              onOpen={() => onOpenJourney(result.journeyId, { tab: 'checklist' })}
+            />;
+          case 'gearSet':
+            return <ActionResultCard
+              key={`set_${result.setId || result.name}`}
+              theme={theme}
+              title={result.name}
+              detail={result.toBuy
+                ? t('agent.gearSetAddedWithToBuy', { count: result.added, toBuy: result.toBuy })
+                : result.added ? t('agent.gearSetAdded', { count: result.added }) : t('agent.gearSetNothingAdded')}
+              openLabel={t('agent.viewGearSets')}
+              icon={BriefcaseBusiness}
+              onOpen={() => onOpenGear({ page: 'sets', setId: result.setId })}
+            />;
+          case 'gear':
+            return <ActionResultCard
+              key="gear"
+              theme={theme}
+              title={result.names.join(listSeparator)}
+              detail={result.names.length === 1 ? t('agent.gearAddedToLibrary') : t('agent.gearsAddedToLibrary', { count: result.names.length })}
+              openLabel={t('agent.viewGear')}
+              onOpen={() => onOpenGear({ page: 'items', itemId: result.itemId })}
+            />;
+          case 'undo':
+            return <ActionResultCard
+              key={`undo_${result.journeyId}`}
+              theme={theme}
+              title={t('agent.undoneChangesIn', { name: journeyName(result.journeyId) })}
+              detail={result.count ? t('agent.undoneCount', { count: result.count }) : ''}
+              openLabel={t('agent.viewJourney')}
+              icon={RotateCcw}
+              onOpen={() => onOpenJourney(result.journeyId)}
+            />;
+          case 'route': {
+            const route = data.routes.find((item) => item.id === result.routeId);
+            return <ActionResultCard
+              key={`route_${result.routeId}`}
+              theme={theme}
+              title={route?.name || result.name}
+              detail={[
+                route?.region,
+                route?.dist ? t('agent.routeDistance', { value: route.dist }) : '',
+                route?.asc ? t('agent.routeAscent', { value: route.asc }) : '',
+              ].filter(Boolean).join(' ')}
+              openLabel={t('agent.viewRoute')}
+              icon={Mountain}
+              onOpen={() => onOpenRoute(result.routeId)}
+            />;
+          }
+          case 'journeyRef': {
+            const journey = data.journeys.find((item) => item.id === result.journeyId);
+            return <ActionResultCard
+              key={`journeyRef_${result.journeyId}`}
+              theme={theme}
+              title={journey?.name || result.name}
+              detail={journey?.region || ''}
+              openLabel={t('agent.viewJourney')}
+              icon={TentTree}
+              onOpen={() => onOpenJourney(result.journeyId)}
+            />;
+          }
+        }
+      })}
+    </>
+  );
 }
 
 function firstPhoto(value: unknown): string | undefined {
@@ -1002,7 +1271,7 @@ function ThreadSwipeActions({
   );
 }
 
-export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenGear }: {
+export function AppAssistant({ theme, visible, initialPrompt, initialDisplayPrompt, autoSubmitInitialPrompt = false, startNewConversation = false, currentJourneyId, onClose, onClearPrompt, onOpenJourney, onOpenRoute, onOpenGear }: {
   theme: Theme;
   visible: boolean;
   initialPrompt?: string;
@@ -1012,8 +1281,9 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   currentJourneyId?: string;
   onClose: () => void;
   onClearPrompt: () => void;
-  onOpenJourney: (journeyId: string) => void;
-  onOpenGear: (page: 'sets' | 'items') => void;
+  onOpenJourney: (journeyId: string, focus?: AssistantJourneyFocus) => void;
+  onOpenRoute: (routeId: string) => void;
+  onOpenGear: (target: AssistantGearTarget) => void;
 }) {
   const { resolved, t } = useI18n();
   const data = useData();
@@ -1069,8 +1339,10 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const pendingRequestRef = useRef<PendingAgentRequest | undefined>(undefined);
   const [retryingPending, setRetryingPending] = useState(false);
   const [requestPhase, setRequestPhase] = useState<'locating' | 'sending' | 'queued' | 'planning' | 'reconnecting' | 'unconfirmed'>('sending');
-  // The departure question the composer stopped answering, by turn id.
-  const [departureReplyDismissed, setDepartureReplyDismissed] = useState<string>();
+  // Why the plan could not locate the user; the departure card opens with it.
+  const [departureFailure, setDepartureFailure] = useState<TKey>();
+  // The request whose departure the user is changing.
+  const [changingDepartureTurn, setChangingDepartureTurn] = useState<string>();
   const [recentDepartures, setRecentDepartures] = useState<string[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [copiedTurnId, setCopiedTurnId] = useState<string>();
@@ -1082,11 +1354,13 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
   const pendingThreadSwipeCloseRef = useRef<(() => void) | null>(null);
   const [threads, setThreads] = useState<AgentThreadSummary[]>([]);
   const showSpeechError = (error: SpeechRecognitionInputError) => {
-    if (error === 'no-speech' || error === 'failed') return;
+    if (error === 'no-speech') return;
     Alert.alert(t(
       error === 'permission-denied'
         ? 'agent.voicePermissionDenied'
-        : 'agent.voiceUnavailable',
+        : error === 'failed'
+          ? 'agent.voiceFailed'
+          : 'agent.voiceUnavailable',
     ));
   };
   const speech = useSpeechRecognitionInput({
@@ -1143,7 +1417,7 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     inputRef.current?.focus();
   };
   const handleIdleInputLongPress = () => {
-    if (loading || voiceActive) return;
+    if (loading || voiceActive || !speech.supported) return;
     voiceLongPressTriggeredRef.current = true;
     voiceHoldingRef.current = true;
     voiceInitialInputRef.current = input;
@@ -1595,32 +1869,47 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     }
   };
 
-  // Only the newest turn's departure question is open; the composer answers it
-  // until the user dismisses the reply.
+  // Only the newest turn's departure question is open.
   const lastTurn = turns.at(-1);
   const pendingDepartureTurn = lastTurn?.role === 'assistant' && lastTurn.departurePrompt?.status === 'pending' ? lastTurn : undefined;
-  const departureReplying = Boolean(pendingDepartureTurn && departureReplyDismissed !== pendingDepartureTurn.id);
+
+  const rememberDeparture = (place: string) => {
+    const recents = [place, ...recentDepartures.filter((item) => item !== place)].slice(0, 3);
+    setRecentDepartures(recents);
+    void AsyncStorage.setItem(departuresKey(data.userId), JSON.stringify(recents));
+  };
 
   const answerDeparture = (place: string, location?: AgentLocation) => {
     const prompt = pendingDepartureTurn;
     if (!prompt || loading || attachmentUploading || requestInFlightRef.current) return;
-    const recents = [place, ...recentDepartures.filter((item) => item !== place)].slice(0, 3);
-    setRecentDepartures(recents);
-    void AsyncStorage.setItem(departuresKey(data.userId), JSON.stringify(recents));
+    rememberDeparture(place);
+    setDepartureFailure(undefined);
     setTurns((current) => current.map((turn) => turn.id === prompt.id && turn.departurePrompt
       ? { ...turn, departurePrompt: { ...turn.departurePrompt, status: 'answered', place } } : turn));
     // The server answers the newest question: a held plan starts, a stopped one resumes.
     void submit(t('agent.departure.message', { place }), undefined, true, [], undefined, undefined, undefined, { place, location });
   };
 
-  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent, departure?: { place: string; location?: AgentLocation }) => {
+  const changeDeparture = (place: string, location?: AgentLocation) => {
+    if (loading || attachmentUploading || requestInFlightRef.current) return;
+    rememberDeparture(place);
+    setChangingDepartureTurn(undefined);
+    // A new message, not an answer: the agent replans the trip from it.
+    void submit(t('agent.departure.changeMessage', { place }), undefined, true, [], undefined, undefined, undefined, { place, location, withRequest: true });
+  };
+
+  const submit = async (preset?: string, intent?: AgentIntent, skipTrackPrompt = false, attachmentOverride?: LocalAgentAttachment[], displayMessage?: string, retryTurnId?: string, locationIntent?: AgentLocationIntent, departureArg?: { place: string; location?: AgentLocation; withRequest?: boolean }) => {
+    let departure = departureArg;
     const pendingAttachments = attachmentOverride ? [...attachmentOverride] : [...selectedAttachments];
     const typedMessage = (preset ?? input).trim();
     const message = typedMessage || (pendingAttachments.length ? t('agent.attachment.defaultPrompt') : '');
     const visibleMessage = displayMessage?.trim() || message;
-    if (preset === undefined && !departure && departureReplying && typedMessage && !pendingAttachments.length) {
-      // "我从成都出发" answers with 成都; the origin feeds rail and flight queries.
-      answerDeparture((typedMessage.replace(/^我?[从在]/, '').replace(/(出发|走)[。.!！]?$/, '').trim() || typedMessage).slice(0, 200));
+    // The card asks for the departure, but a short reply in the composer
+    // still answers it: "我从成都出发" answers with 成都.
+    const typedDeparture = typedMessage.replace(/^我?[从在]/, '').replace(/(出发|走)[。.!！]?$/, '').trim();
+    if (preset === undefined && !departure && pendingDepartureTurn && typedDeparture && typedDeparture.length <= 15
+      && !/[?？\s，,。]/.test(typedDeparture) && !pendingAttachments.length) {
+      answerDeparture(typedDeparture);
       return;
     }
     if (!message || loading || uploadInFlightRef.current || attachmentUploading || (trackPicking && !attachmentOverride)) return;
@@ -1649,7 +1938,12 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     // Round-trip transport needs a departure. The server stores the request
     // with a departure question instead of running it, so the plan runs once
     // and the question stays in the conversation.
-    const askDeparture = !departure && effectiveLocationIntent === 'transport' && !confirmedDeparture(travel, activeJourneyId);
+    // A request that names its origin keeps it; otherwise the plan departs from
+    // the device location and only asks when that cannot be had.
+    const needsDeparture = !departure && effectiveLocationIntent === 'transport' && !confirmedDeparture(travel, activeJourneyId) && !statesDeparture(message);
+    let askDeparture = false;
+    setDepartureFailure(undefined);
+    setChangingDepartureTurn(undefined);
     const optimisticUpload = pendingHasTrackAttachment;
     const generation = ++submitGenerationRef.current;
     const userTurnId = retryTurnId || `u_${createRunId()}`;
@@ -1677,13 +1971,11 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
     let keepTrackingRun = false;
     const clientRunId = createRunId();
     try {
-      const attachments: AgentAttachment[] = await Promise.all(pendingAttachments.map(async (attachment) => ({
-        kind: attachment.kind,
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        size: attachment.size,
-        url: await uploadAgentAttachment(attachment.uri, data.userId, attachment.name, attachment.mimeType),
-      })));
+      const attachments: AgentAttachment[] = await uploadBatch(pendingAttachments, async (attachment, store) => {
+        let uploaded: Awaited<ReturnType<typeof uploadAgentAttachment>> | undefined;
+        await store(async () => (uploaded = await uploadAgentAttachment(attachment.uri, data.userId, attachment.name, attachment.mimeType)).url);
+        return { kind: attachment.kind, name: uploaded!.name, mimeType: uploaded!.mimeType, size: uploaded!.size ?? attachment.size, url: uploaded!.url };
+      });
       if (generation !== submitGenerationRef.current) return;
       setTurns((current) => optimisticUpload
         ? current.map((turn) => turn.id === userTurnId ? { ...turn, attachments, upload: undefined } : turn)
@@ -1701,16 +1993,32 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
       setRunActivities([]);
       setRunStages([]);
       const creatingThread = !threadId;
-      // Transport requests reach here with a settled departure. Only a message
-      // that asks for the device location samples it, under its own status.
+      if (needsDeparture) {
+        setRequestPhase('locating');
+        const fix = await getAgentLocation(visibleMessage, 15_000, 'request_location');
+        if (generation !== submitGenerationRef.current) return;
+        setRequestPhase('sending');
+        if (fix?.status === 'available' && fix.placeName) {
+          departure = { place: fix.placeName, location: fix, withRequest: true };
+          rememberDeparture(fix.placeName);
+          setTurns((current) => current.map((turn) => turn.id === userTurnId ? { ...turn, origin: fix.placeName } : turn));
+        } else {
+          // The server holds the request behind a departure question.
+          askDeparture = true;
+          // No reason to show when the message itself declined location.
+          setDepartureFailure(fix ? departureFailureKey(fix) : undefined);
+        }
+      }
+      // Only a message that asks for the device location samples it otherwise,
+      // under its own status.
       let currentLocation = departure?.location;
-      if (!departure && effectiveLocationIntent !== 'transport' && (effectiveLocationIntent || requestsCurrentLocation(visibleMessage))) {
+      if (!departure && !needsDeparture && effectiveLocationIntent !== 'transport' && (effectiveLocationIntent || requestsCurrentLocation(visibleMessage))) {
         setRequestPhase('locating');
         currentLocation = await getAgentLocation(visibleMessage, 15_000, effectiveLocationIntent);
         if (generation !== submitGenerationRef.current) return;
         setRequestPhase('sending');
       }
-      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, askDeparture: askDeparture || undefined, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
+      const args = { message, displayMessage: visibleMessage !== message ? visibleMessage : undefined, threadId, currentJourneyId: activeJourneyId, departure: departure?.place, departureWithRequest: departure?.withRequest || undefined, askDeparture: askDeparture || undefined, intent, locale: resolved, clientRunId, attachments, currentLocation, ...localAgentTimeContext() };
       const pending = { args, storageKey: `${storageKey(data.userId, currentJourneyId)}:pending`, startedAt: Date.now() };
       pendingRequestRef.current = pending;
       await AsyncStorage.setItem(pending.storageKey, JSON.stringify(pending));
@@ -1976,6 +2284,23 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
 
   const trackActionPromptForTurn = (turn: Turn) => trackPromptFromTurn(turn);
 
+  // Where each request departs from: the location the app found for it, or
+  // an origin its answer settled. A reply that already names it needs no note.
+  const departureNotes = new Map<string, string>();
+  let settledOrigin: string | undefined;
+  turns.forEach((turn, index) => {
+    if (turn.role === 'assistant') {
+      if (turn.travelContext?.origin) settledOrigin = turn.travelContext.origin;
+      return;
+    }
+    const next = turns[index + 1];
+    const settled = next?.role === 'assistant' ? next.travelContext?.origin : undefined;
+    const origin = turn.origin || (settled && settled !== settledOrigin ? settled : undefined);
+    if (origin && !turn.text.includes(origin)) departureNotes.set(turn.id, origin);
+  });
+  const latestDepartureNote = [...departureNotes.keys()].at(-1);
+  const departureBusy = loading || attachmentUploading || trackPicking;
+
   const quickRepliesForTurn = (turn: Turn) => {
     if (isTrackPromptTurn(turn)) return [];
     // The departure card asks this question.
@@ -2089,6 +2414,23 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                   </View>
                 ) : null}
               </View>
+              {departureNotes.has(turn.id) ? (
+                <View style={styles.departureNote}>
+                  <MapPin size={13} color={theme.text3} strokeWidth={2} />
+                  <Text style={[type.hint, { color: theme.text2 }]} numberOfLines={1}>{t('agent.departure.from', { place: departureNotes.get(turn.id)! })}</Text>
+                  {turn.id === latestDepartureNote && !departureBusy && changingDepartureTurn !== turn.id ? (
+                    <Press onPress={() => setChangingDepartureTurn(turn.id)} accessibilityRole="button" hitSlop={8}>
+                      <Text style={[type.hint, { color: theme.accent }]}>{t('agent.departure.change')}</Text>
+                    </Press>
+                  ) : null}
+                </View>
+              ) : null}
+              {changingDepartureTurn === turn.id && turn.id === latestDepartureNote ? (
+                <View style={styles.departureChange}>
+                  <DepartureCard theme={theme} recents={recentDepartures.filter((recent) => recent !== departureNotes.get(turn.id))} disabled={departureBusy}
+                    onAnswer={changeDeparture} onEditing={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)} />
+                </View>
+              ) : null}
               {trackActionPrompt ? (
                 <View style={styles.quickReplies}>
                   <Press
@@ -2140,31 +2482,16 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
                   })}
                 </View>
               ) : null}
-              {turn === pendingDepartureTurn ? <DepartureCard theme={theme} recents={recentDepartures} disabled={loading || attachmentUploading || trackPicking} onAnswer={answerDeparture} /> : null}
+              {turn === pendingDepartureTurn ? <DepartureCard theme={theme} recents={recentDepartures} disabled={departureBusy} failure={departureFailure} onAnswer={answerDeparture}
+                onEditing={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)} /> : null}
               {turn.sources?.length ? <SourcesStrip theme={theme} sources={turn.sources} title={t('agent.sources')} /> : null}
-              {turn.planPreview ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} /> : null}
+              {turn.planPreview && !(turn.role === 'assistant' && actionResultsForTurn(turn).some((result) => result.kind === 'journey' && result.journeyId === turn.planPreview!.journeyId))
+                ? <PlanPreviewCard theme={theme} preview={turn.planPreview} openLabel={t('agent.viewJourney')} onOpen={onOpenJourney} />
+                : null}
               {turn.itineraryCard ? <ItineraryCard theme={theme} card={turn.itineraryCard} onOpen={() => openItineraryCard(turn.itineraryCard!)} /> : null}
-              {turn.role === 'assistant' && actionResultForTurn(turn) ? (() => {
-                const result = actionResultForTurn(turn)!;
-                if (result.kind === 'gearSet') {
-                  return <ActionResultCard
-                    theme={theme}
-                    title={result.name}
-                    detail={result.toBuy
-                      ? t('agent.gearSetAddedWithToBuy', { count: result.added, toBuy: result.toBuy })
-                      : result.added ? t('agent.gearSetAdded', { count: result.added }) : t('agent.gearSetNothingAdded')}
-                    openLabel={t('agent.viewGearSets')}
-                    onOpen={() => onOpenGear('sets')}
-                  />;
-                }
-                return <ActionResultCard
-                  theme={theme}
-                  title={result.name}
-                  detail={t('agent.gearAddedToLibrary')}
-                  openLabel={t('agent.viewGear')}
-                  onOpen={() => onOpenGear('items')}
-                />;
-              })() : null}
+              {turn.role === 'assistant' ? (
+                <ActionResultCards theme={theme} results={actionResultsForTurn(turn)} onOpenJourney={onOpenJourney} onOpenGear={onOpenGear} onOpenRoute={onOpenRoute} />
+              ) : null}
               {turn.role === 'assistant' ? (
                 <View style={styles.messageActions}>
                   <Press
@@ -2228,20 +2555,12 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
         >
           <View style={styles.composerWrap}>
             {voiceMode ? <Text style={[styles.voiceGestureHint, { color: voiceCancelling ? theme.danger : theme.text3 }]}>{t(voiceCancelling ? 'agent.voiceReleaseToCancel' : voiceHolding ? 'agent.voiceReleaseToSend' : 'agent.voiceListening')}</Text> : null}
-            {departureReplying && pendingDepartureTurn ? (
-              <View style={styles.replying}>
-                <Text style={[type.hint, { color: theme.text2 }]}>{t('agent.departure.replying')}</Text>
-                <Press onPress={() => setDepartureReplyDismissed(pendingDepartureTurn.id)} accessibilityRole="button" accessibilityLabel={t('common.cancel')} hitSlop={8}>
-                  <X size={16} color={theme.text3} strokeWidth={2} />
-                </Press>
-              </View>
-            ) : null}
             <View style={[styles.composer, { backgroundColor: theme.controlSurface }]}>
               <Press pointerEvents={voiceHolding ? 'none' : 'auto'} onPress={openAddMenu} accessibilityRole="button" accessibilityLabel={t('agent.addContext')} style={[styles.composerAction, voiceHolding && styles.voiceActionHidden]}>
                 {attachmentTrayOpen ? <X size={24} color={theme.text} strokeWidth={1.9} /> : <Plus size={27} color={theme.text} strokeWidth={1.8} />}
               </Press>
               <View style={styles.inputWrap}>
-                <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t(departureReplying ? 'agent.departure.placeholder' : 'agent.placeholder')} placeholderTextColor={theme.text3} multiline maxLength={1000} editable={!voiceMode} style={[styles.input, { color: theme.text }, voiceMode && styles.voiceInputHidden]} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
+                <TextInput ref={inputRef} value={input} onChangeText={setInput} placeholder={t(speech.supported ? 'agent.placeholder' : 'agent.placeholderNoVoice')} placeholderTextColor={theme.text3} multiline maxLength={1000} editable={!voiceMode} style={[styles.input, { color: theme.text }, voiceMode && styles.voiceInputHidden]} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} onSubmitEditing={() => void submit()} blurOnSubmit={false} />
                 {voiceMode ? <VoiceListeningIndicator theme={theme} label={t('agent.voiceListening')} cancelling={voiceCancelling} /> : null}
                 {!inputFocused ? (
                   <Press
@@ -2405,6 +2724,8 @@ export function AppAssistant({ theme, visible, initialPrompt, initialDisplayProm
 }
 
 const styles = StyleSheet.create({
+  departureNote: { flexDirection: 'row', alignItems: 'center', gap: space.xxs, marginTop: space.xs, maxWidth: '86%' },
+  departureChange: { alignSelf: 'stretch' },
   root: { flex: 1 },
   header: { minHeight: 94, paddingHorizontal: space.lg, paddingBottom: space.sm, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   headerButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 7px 20px rgba(0,0,0,0.07)' },
@@ -2491,7 +2812,6 @@ const styles = StyleSheet.create({
   loadingDot: { width: 3, height: 3, borderRadius: 1.5 },
   bottomArea: { flexShrink: 0 },
   composerWrap: { paddingHorizontal: space.lg },
-  replying: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.sm, marginBottom: space.xs },
   pendingAttachmentsWrap: { paddingHorizontal: space.lg, paddingTop: space.sm },
   pendingAttachments: { gap: space.xs, paddingBottom: space.xs },
   pendingAttachment: { width: 64, height: 64, borderRadius: radius.control, overflow: 'hidden' },

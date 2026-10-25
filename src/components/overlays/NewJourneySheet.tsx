@@ -41,7 +41,7 @@ import {
   type JourneyLocationValue,
 } from '../../lib/amapGeocoding';
 import { buildTrackData } from '../../lib/trackParser';
-import { buildTrackDraft, parseTrackFile, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
+import { createTrackFromFile, parseTrackFile, TrackFileError, type ParsedTrackFile } from '../../lib/trackImport';
 import { AssistantMark } from '../assistant/AssistantMark';
 
 export { NJSection, NJRoundBtn, NJMiniCalendar, NJBottomSheet, NJSharePanel, SELF };
@@ -1063,9 +1063,9 @@ export function NewJourneySheet({ theme, onClose, onCreate, onSmartPlan, onToast
     if (trackSource && userId) {
       try {
         // The track row has to exist before the journey can point at it.
-        const track = await createTrack(await buildTrackDraft(trackSource.parsed, { userId, sourceUri: trackSource.uri, fileSize: trackSource.fileSize }));
-        if (!track) throw new Error('TRACK_INSERT_FAILED');
+        const { track, archiveTrimmed } = await createTrackFromFile(trackSource.parsed, { userId, sourceUri: trackSource.uri, fileSize: trackSource.fileSize }, createTrack);
         poi.trackId = track.id;
+        if (archiveTrimmed) onToast(t('record.track.archiveTrimmed'));
       } catch (error) {
         console.warn('[NewJourney] track import failed:', error);
         onToast(t('journeyEdit.form.trackUploadFailed'));

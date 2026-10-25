@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
+import { Platform } from 'react-native';
 import { File as FSFile } from 'expo-file-system';
+import { fitImage } from './imageFit';
 import { GearCat, GearItem } from '../data/gear';
 
 type GearImageRecognitionResponse = {
@@ -25,7 +27,17 @@ export class GearImageRecognitionError extends Error {
 }
 
 export async function recognizeGearImage(asset: ImageAsset, cats: GearCat[]): Promise<GearItem> {
-  let imageBase64 = asset.base64 || '';
+  let imageBase64 = '';
+  let contentType = asset.mimeType || contentTypeFromUri(asset.uri);
+  // The model reads about 1600 px, so a phone original is mostly wasted upload.
+  const fitted = Platform.OS !== 'web' && !/^https?:\/\//i.test(asset.uri) ? await fitImage(asset.uri, 1600) : null;
+  if (fitted) {
+    try {
+      imageBase64 = await new FSFile(fitted.uri).base64();
+      contentType = fitted.mimeType;
+    } catch { /* fall back to the picked file */ }
+  }
+  if (!imageBase64) imageBase64 = asset.base64 || '';
   if (!imageBase64 && !/^https?:\/\//i.test(asset.uri)) {
     try {
       imageBase64 = await new FSFile(asset.uri).base64();
@@ -41,7 +53,7 @@ export async function recognizeGearImage(asset: ImageAsset, cats: GearCat[]): Pr
   const { data, error } = await supabase.functions.invoke<GearImageRecognitionResponse>('gear-image-recognition', {
     body: {
       imageBase64,
-      contentType: asset.mimeType || contentTypeFromUri(asset.uri),
+      contentType,
       categories: cats.map(({ id, name }) => ({ id, name })),
     },
   });

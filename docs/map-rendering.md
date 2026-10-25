@@ -102,7 +102,16 @@ annotations combine into count badges at the current map zoom; zooming or
 pressing a badge reveals smaller groups. Badge presses only move the camera,
 while the complete waypoint list remains available for direct selection.
 `src/components/maps/waypointClusters.ts` groups in Mercator map pixels with fixed
-anchors, so a chain of nearby waypoints cannot swallow an entire long route.
+anchors, so a chain of nearby waypoints cannot swallow an entire long route. The
+28 px radius is sized to the dots and badges, not the name pills: points merge
+only when they are too close to tap apart. On the route card,
+`routeWaypointMarkers` then drops just the name of a lone waypoint whose pill
+would cover another pill, badge, or dot (the selected one always keeps its
+name), so dots appear well before their labels have room.
+Zoom means the same thing on both platforms: the world is 256 * 2^zoom points
+wide (AMap's convention). `NativeMap.ios.tsx` converts MapKit spans to and from
+that using the view's size (`region`, `zoomForSpan`), so clustering radii and
+zoom thresholds hold on iOS too.
 Each badge uses an actual member coordinate and sits above the line, keeping the
 polyline visible. Only annotations are grouped; track geometry and stored
 waypoint distances remain intact. Groups update at half-zoom steps to avoid
@@ -230,3 +239,9 @@ patch-package) to prefer `contentWidth/contentHeight`, or to draw offset by the
 bounds' origin. That needs a native rebuild. 2.3.1 has the same renderer. Other
 children markers with transparent spacers (e.g. `distanceMarkerSideWrap`) may
 hit the same crop.
+
+The companion live-location pin (`CompanionLocationPin` in `DiscoverScreen`)
+hit it too: react-native-svg's views are ViewGroups with no background, so they
+never count toward the bounds. Only the 43px avatar `Image` did, which cut the
+avatar's right and bottom edges and dropped the needle and ground dot. It uses
+the same fill on Android.

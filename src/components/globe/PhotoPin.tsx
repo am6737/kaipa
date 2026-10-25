@@ -12,12 +12,14 @@ import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
 import { paletteFor, photoUrlFor } from '../../data/tones';
 
-export const PHOTO_SIZE = 40;
+// Sized down from a 40px photo and a two-line 12pt name: with the whole catalog
+// on a country-wide map the pins read as a wall.
+export const PHOTO_SIZE = 28;
 const ACTIVE_SCALE = 1.08;
-const PHOTO_RADIUS = 8;
+const PHOTO_RADIUS = 6;
 
-export const PHOTO_PIN_WIDTH = 116;
-export const PHOTO_PIN_HEIGHT = 70;
+export const PHOTO_PIN_WIDTH = 100;
+export const PHOTO_PIN_HEIGHT = 50;
 export const PHOTO_PIN_ANCHOR_Y = (PHOTO_SIZE / 2) / PHOTO_PIN_HEIGHT;
 
 export function photoPinScaleForZoom(zoom: number): number {
@@ -84,7 +86,7 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
         // the union of views that draw something, then crops that size from the
         // frame's top-left corner. A label narrower than the photo's right edge
         // cut the photo in half and shifted the anchor. A practically invisible
-        // fill makes the whole 116x70 frame count, so the crop is the frame.
+        // fill makes the whole frame count, so the crop is the frame.
         backgroundColor: staticRender ? 'rgba(255,255,255,0.004)' : undefined,
       }}
     >
@@ -143,10 +145,10 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
               position: 'absolute',
               top: -4,
               right: -5,
-              minWidth: 16,
-              height: 16,
-              paddingHorizontal: 4,
-              borderRadius: 8,
+              minWidth: 15,
+              height: 15,
+              paddingHorizontal: 3.5,
+              borderRadius: 7.5,
               backgroundColor: theme.accent,
               borderWidth: 1.5,
               borderColor: '#fff',
@@ -154,7 +156,7 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800', lineHeight: 11 }}>{count}</Text>
+            <Text style={{ color: '#fff', fontSize: 8.5, fontWeight: '800', lineHeight: 10 }}>{count}</Text>
           </View>
         ) : null}
       </View>
@@ -162,12 +164,11 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
       {poi.label ? (
         <View
           style={{
-            minWidth: 52,
+            minWidth: 40,
             maxWidth: PHOTO_PIN_WIDTH,
-            minHeight: 28,
-            marginTop: -7,
-            paddingTop: 8,
-            paddingBottom: 3,
+            height: 21,
+            marginTop: -5,
+            paddingTop: 5,
             paddingHorizontal: 6,
             borderRadius: 999,
             borderCurve: 'continuous',
@@ -180,11 +181,11 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
           }}
         >
           <Text
-            numberOfLines={2}
+            numberOfLines={1}
             style={{
               color: poi.muted ? theme.text3 : theme.text,
-              fontSize: 12,
-              lineHeight: 16,
+              fontSize: 11,
+              lineHeight: 14,
               fontWeight: '600',
               textAlign: 'center',
             }}

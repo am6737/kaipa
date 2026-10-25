@@ -9,7 +9,8 @@ import { Platform, Share } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { strToU8, zipSync } from 'fflate';
-import type { Track, TrackFormat } from '../data/tracks';
+import type { Poi } from '../data/pois';
+import { trackFormatFromName, type Track, type TrackFormat } from '../data/tracks';
 import { trackToGpx } from './trackParser';
 
 const MIME: Record<TrackFormat, string> = {
@@ -147,4 +148,33 @@ export async function exportTracks(tracks: Track[]): Promise<void> {
     entries[uniqueName(fileName, taken)] = bytes;
   }
   await saveBytes(trackArchiveName(), zipSync(entries));
+}
+
+/** A catalog route carries its geometry and stored file the same way a library track does. */
+export function routeAsTrack(route: Poi): Track {
+  return {
+    id: route.id,
+    name: route.name,
+    fileName: route.trackFileName,
+    fileFormat: trackFormatFromName(route.trackFileName ?? route.trackFileUrl),
+    fileUrl: route.trackFileUrl,
+    coords: route.trackCoords,
+    elevation: route.trackElevation,
+    waypoints: route.trackWaypoints,
+  };
+}
+
+/**
+ * `gpx` hands over the stored file when it already is GPX and rebuilds one from
+ * the geometry otherwise, so it never costs more than a small download.
+ * `original` is the stored KML/KMZ as uploaded, falling back to GPX like
+ * `exportTrack` when storage no longer has it.
+ */
+export async function exportRouteTrack(route: Poi, format: 'gpx' | 'original'): Promise<void> {
+  const track = routeAsTrack(route);
+  if (format === 'original' || track.fileFormat === 'gpx') {
+    await exportTrack(track);
+    return;
+  }
+  await saveBytes(trackFileName(track, 'gpx'), strToU8(trackToGpx(track)));
 }

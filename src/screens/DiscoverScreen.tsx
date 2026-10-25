@@ -27,7 +27,12 @@ import { KPState, KPSkeletonLine } from '../components/State';
 import { StaggerIn } from '../components/StaggerIn';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
+import { trailRouteFromPoi, useOpenTrail } from '../trail/trailRoutes';
+import { RouteShareSheet } from '../components/discover/RouteShareSheet';
 import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypoints } from '../components/discover/routeWaypointMarkers';
+import { buildRouteEndpointMarkers } from '../components/discover/routeEndpointMarkers';
+import { isLoopTrack } from '../lib/routeDirection';
+import { directedClimb } from '../data/elevation';
 import { AppActionDialog, layout, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
 import { Avatar } from '../components/Avatar';
@@ -214,7 +219,23 @@ function CompanionLocationPin({
   clipId: string;
 }) {
   return (
-    <View pointerEvents="none" style={{ width: DROP_BOX_W, height: DROP_BOX_H, alignItems: 'center', opacity: stale ? 0.7 : 1 }}>
+    <View
+      pointerEvents="none"
+      collapsable={false}
+      style={{
+        width: DROP_BOX_W,
+        height: DROP_BOX_H,
+        alignItems: 'center',
+        opacity: stale ? 0.7 : 1,
+        // AMap (expo-gaode-map MarkerBitmapRenderer) sizes the baked bitmap from
+        // the views that draw something, and react-native-svg's views don't
+        // count, so only the 43px avatar Image did: the crop taken from the
+        // frame's top-left cut the avatar's right and bottom edges and dropped
+        // the needle and ground dot. A practically invisible fill makes the
+        // whole frame count (see docs/map-rendering.md).
+        backgroundColor: Platform.OS === 'android' ? 'rgba(255,255,255,0.004)' : undefined,
+      }}
+    >
       <Svg width={DROP_BOX_W} height={DROP_SVG_H}>
         <Defs>
           <ClipPath id={`${clipId}-disc`}>
@@ -583,6 +604,7 @@ function DiscoverScreenView({
   const { mapStyle, setMapStyle, mapLabelsVisible, setMapLabelsVisible } = useMapPresentation();
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
   const [routeFeedbackOpen, setRouteFeedbackOpen] = useState(false);
+  const [routeSharePoi, setRouteSharePoi] = useState<Poi | null>(null);
   const [journeyStopsVisible, setJourneyStopsVisible] = useState(true);
   const [journeyTrackVisible, setJourneyTrackVisible] = useState(true);
   const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
@@ -605,6 +627,8 @@ function DiscoverScreenView({
   // Track annotations on the open route card: which waypoint's bubble is up,
   // and the (debounced, half-step) zoom the annotation groups are clustered at.
   const [selectedRouteWaypoint, setSelectedRouteWaypoint] = useState<number | null>(null);
+  // Whether the finish (or a loop's trailhead) shows its 「从这里出发」 bubble.
+  const [routeEndpointActionOpen, setRouteEndpointActionOpen] = useState(false);
   const [waypointClusterZoom, setWaypointClusterZoom] = useState<number | null>(null);
   const waypointZoomTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lng: number; lat: number; heading?: number } | null>(null);
@@ -622,6 +646,7 @@ function DiscoverScreenView({
   }, [nav.pointInfo?.id]);
   useEffect(() => {
     setSelectedRouteWaypoint(null);
+    setRouteEndpointActionOpen(false);
     setWaypointClusterZoom(null);
     if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
     waypointZoomTimerRef.current = null;
@@ -630,6 +655,8 @@ function DiscoverScreenView({
     if (waypointZoomTimerRef.current) clearTimeout(waypointZoomTimerRef.current);
   }, []);
 
+  const openTrail = useOpenTrail();
+  const followRoute = (route: Poi) => openTrail(trailRouteFromPoi(route, routeReversed));
   const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
     if (routeNavigationRouteId === route.id) {
       routeNavigationRequestRef.current?.abort();
@@ -915,7 +942,7 @@ function DiscoverScreenView({
       return next;
     });
   }, []);
-  const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day?: string; revision: number }>();
+  const [journeyDaySelectionRequest, setJourneyDaySelectionRequest] = useState<{ day?: string; tab?: 'checklist'; revision: number }>();
   const [selectedJourneyTab, setSelectedJourneyTab] = useState<string>('overview');
   const [momentSelectionMode, setMomentSelectionMode] = useState(false);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(() => new Set());
@@ -1106,6 +1133,16 @@ function DiscoverScreenView({
     setSelectedTimelineItemIds(new Set());
     journeyDetailScrollY.setValue(0);
   }, [focusedJourneyId, journeyDetailScrollY, momentFilterMenuProgress, t]);
+
+  // Declared after the reset above so a tab asked for alongside opening the
+  // journey survives that reset.
+  React.useEffect(() => {
+    const request = nav.journeyTabRequest;
+    if (!request || request.journeyId !== focusedJourneyId) return;
+    journeyDayRequestRevision.current += 1;
+    setJourneyDaySelectionRequest({ tab: request.tab, day: request.day, revision: journeyDayRequestRevision.current });
+    nav.clearJourneyTabRequest();
+  }, [focusedJourneyId, nav.journeyTabRequest]);
 
   React.useEffect(() => {
     setRouteSheetIndex(1);
@@ -1539,7 +1576,7 @@ function DiscoverScreenView({
     const primaryCoordinates = routeReversed ? [...primary].reverse() : primary;
     const result: GlobeRouteSegment[] = [];
     if (primaryCoordinates.length >= 2) {
-      result.push({ id: 'route-detail-primary', label: nav.pointInfo.name, coordinates: primaryCoordinates, color: theme.accent, active: true });
+      result.push({ id: 'route-detail-primary', label: nav.pointInfo.name, coordinates: primaryCoordinates, color: theme.accent, active: true, endpoints: false });
     }
     comparisonRoutes.forEach((route, index) => {
       const coordinates = route.trackCoords;
@@ -1824,6 +1861,7 @@ function DiscoverScreenView({
   const setRouteDirection = (reversed: boolean) => {
     if (nav.pointInfo?.kind !== 'route' || reversed === routeReversed) return;
     setRouteReversed(reversed);
+    setRouteEndpointActionOpen(false);
     // A leg planned to the old trailhead now leads to the finish.
     if (routeNavigationRouteId === nav.pointInfo.id) {
       routeNavigationRequestRef.current?.abort();
@@ -1977,10 +2015,48 @@ function DiscoverScreenView({
   }, [data.profile.avatarUrl, nav.pointInfo, presenceClock, peers, selfPresence, sharingThisJourney, t, theme, userId]);
   // Waypoints ride along beside the companion pins: `MapGlobe` appends
   // `extraMarkers` last, so both land over the track furniture.
-  const mapExtraMarkers = useMemo(
-    () => (routeWaypointMarkers.length ? [...companionPins, ...routeWaypointMarkers] : companionPins),
-    [companionPins, routeWaypointMarkers],
-  );
+  // The open route's 起/终 trailheads. Tapping the finish offers 「从这里出发」,
+  // the map's way of reversing the route; the layer sheet keeps a switch too.
+  const reverseRouteFromMap = () => {
+    const point = nav.pointInfo;
+    if (point?.kind !== 'route') return;
+    const next = !routeReversed;
+    setRouteDirection(next);
+    const climb = directedClimb(nav.merged(point), next);
+    const fmt = (meters: number) => `${Math.round(meters).toLocaleString('en-US')} m`;
+    nav.showToast(climb.ascent != null && climb.descent != null
+      ? t('route.direction.reversed', { ascent: fmt(climb.ascent), descent: fmt(climb.descent) })
+      : t('route.direction.reversedPlain'));
+  };
+  const reverseRouteFromMapRef = React.useRef(reverseRouteFromMap);
+  reverseRouteFromMapRef.current = reverseRouteFromMap;
+  const routeEndpointMarkers = useMemo<NativeMapMarker[]>(() => {
+    if (nav.pointInfo?.kind !== 'route' || !focusCoords || focusCoords.length < 2) return NO_ROUTE_WAYPOINT_MARKERS;
+    const loop = isLoopTrack(focusCoords);
+    return buildRouteEndpointMarkers({
+      theme,
+      drawnCoords: routeReversed ? [...focusCoords].reverse() : focusCoords,
+      loop,
+      labels: {
+        start: t('route.direction.start'),
+        finish: t('route.direction.finish'),
+        action: t(loop ? 'route.direction.walkOpposite' : 'route.direction.startHere'),
+      },
+      actionOpen: routeEndpointActionOpen,
+      onEndpointPress: () => {
+        mapMarkerPressAtRef.current = Date.now();
+        setRouteEndpointActionOpen((open) => !open);
+      },
+      onActionPress: () => {
+        mapMarkerPressAtRef.current = Date.now();
+        reverseRouteFromMapRef.current();
+      },
+    });
+  }, [focusCoords, nav.pointInfo?.kind, routeEndpointActionOpen, routeReversed, t, theme]);
+  const mapExtraMarkers = useMemo(() => {
+    const route = [...routeEndpointMarkers, ...routeWaypointMarkers];
+    return route.length ? [...companionPins, ...route] : companionPins;
+  }, [companionPins, routeEndpointMarkers, routeWaypointMarkers]);
   const toggleLocationShare = useCallback(async () => {
     if (!openJourneyId) return;
     if (locationShareToggleInFlightRef.current) return;
@@ -2251,10 +2327,11 @@ function DiscoverScreenView({
       }
       if (nav.pointInfo) {
         // On a route card, a tap that is not a marker closes the waypoint
-        // bubble if one is up; otherwise the card stays put.
+        // or trailhead bubble if one is up; otherwise the card stays put.
         if (nav.pointInfo.kind === 'route' && selectedRouteWaypoint != null) {
           setSelectedRouteWaypoint(null);
         }
+        if (nav.pointInfo.kind === 'route') setRouteEndpointActionOpen(false);
         return;
       }
       sheetRef.current?.dismiss();
@@ -2658,6 +2735,9 @@ function DiscoverScreenView({
           nav.pointInfo?.kind === 'route' && !nav.routeGuide ? (
             <View style={{ paddingTop: space.xs, paddingHorizontal: space.md, backgroundColor: theme.featureSurface, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               <Text numberOfLines={2} style={[type.pageTitle, { flex: 1, color: theme.text, fontSize: 28, lineHeight: 34 }]}>{nav.merged(nav.pointInfo).name}</Text>
+              <Press onPress={() => { if (nav.pointInfo) setRouteSharePoi(nav.merged(nav.pointInfo)); }} accessibilityRole="button" accessibilityLabel={t('discover.routeShare')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="share" color={theme.text} size={21} />
+              </Press>
               <Press onPress={dismissPointSheet} accessibilityRole="button" accessibilityLabel={t('common.close')} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="close" color={theme.text} size={23} />
               </Press>
@@ -2684,11 +2764,10 @@ function DiscoverScreenView({
         {nav.newJourneyOpen ? null : nav.pointInfo ? (
           <View style={{ paddingHorizontal: space.md, paddingBottom: detailBottomInset }}>
             {nav.pointInfo.kind === 'route' ? (
-              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
+              <RoutePreviewPanel theme={theme} poi={nav.pointInfo} onClose={dismissPointSheet} onShare={() => { if (nav.pointInfo) setRouteSharePoi(nav.merged(nav.pointInfo)); }} showActions={false} onFeedback={() => setRouteFeedbackOpen(true)}
                 onNavigate={navigateToRoute}
                 navigationActive={routeNavigationRouteId === nav.pointInfo.id}
                 reversed={routeReversed}
-                onReversedChange={setRouteDirection}
               />
             ) : !detailReady ? (
               <View style={{ minHeight: focusPanel, alignItems: 'center', justifyContent: 'center' }}>
@@ -2840,6 +2919,12 @@ function DiscoverScreenView({
                   if (!visible) setSelectedRouteWaypoint(null);
                   setRouteWaypointsVisible(visible);
                 },
+              }] : []),
+              ...(nav.pointInfo.kind === 'route' && (focusCoords?.length ?? 0) >= 2 ? [{
+                id: 'route-reverse',
+                label: t('journey.map.reverseRoute'),
+                value: routeReversed,
+                onChange: (reversed: boolean) => setRouteDirection(reversed),
               }] : []),
               ],
             },
@@ -3277,7 +3362,7 @@ function DiscoverScreenView({
             zIndex: 180,
           }}
         >
-          <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} onNavigate={navigateToRoute} navigationActive={routeNavigationRouteId === nav.pointInfo.id} />
+          <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} onNavigate={navigateToRoute} navigationActive={routeNavigationRouteId === nav.pointInfo.id} onFollow={followRoute} />
         </View>
       ) : null}
       {selectMode ? (
@@ -3339,6 +3424,7 @@ function DiscoverScreenView({
         onCancel={() => setVersionRestoreDialogOpen(false)}
         onConfirm={() => void restorePreviewVersion()}
       />
+      {routeSharePoi ? <RouteShareSheet theme={theme} route={routeSharePoi} onClose={() => setRouteSharePoi(null)} onToast={nav.showToast} /> : null}
     </View>
   );
 }

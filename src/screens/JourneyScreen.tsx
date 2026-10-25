@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Copy, CornerDownLeft, LogOut, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
+import { ArrowRight, Check, Copy, LogOut, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
+import { ScrollView as GestureScrollView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { hexToRgb, Theme } from '../theme/theme';
 import { useI18n } from '../i18n';
@@ -11,14 +12,22 @@ import { useNav } from '../nav/NavContext';
 import { countRender } from '../lib/tabSwitchProbe';
 import { useData } from '../data/DataContext';
 import type { Poi } from '../data/pois';
+import { useMembership } from '../membership/MembershipContext';
+import { topicRoutes } from '../components/discover/RouteTopicPage';
+import type { RouteTopic } from '../nav/NavContext';
 import { Press } from '../components/Press';
+import { PhotoTile } from '../components/PhotoTile';
 import { JourneyCreateMenu } from '../components/journey/JourneyCreateMenu';
 import { JourneyPlanCard, journeyStartDate, journeyStatus, type JourneyStatus } from '../components/journey/JourneyPlanCard';
+import { JourneyFeatureDeck, type FeatureDeckCard } from '../components/journey/JourneyFeatureDeck';
 import { usePinnedJourneys } from '../components/journey/usePinnedJourneys';
 import { AppActionDialog, layout, radius, space, type } from '../design-system';
 
 type JourneyDateFilter = 'all' | 'dated' | 'undated';
 type JourneySort = 'recent' | 'date';
+// The 开爬 Plus starter card and its poster page are built but held back for now.
+const SHOW_PLUS_CARD = false;
+type StarterCard = FeatureDeckCard;
 const JOURNEY_SWIPE_SPRING = { mass: 0.7, damping: 22, stiffness: 240, overshootClamping: true } as const;
 
 function accentTint(theme: Theme, strength: number) {
@@ -100,7 +109,8 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
   const [deletingId, setDeletingId] = useState<string>();
   const [duplicatingId, setDuplicatingId] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
-  const [heroVersion, setHeroVersion] = useState(0);
+  const pageScrollRef = useRef<React.ElementRef<typeof GestureScrollView>>(null);
+  const [deckHeld, setDeckHeld] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const suppressedCardIdsRef = useRef<Set<string>>(new Set());
   const pressResetTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -136,55 +146,54 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
       return dateFilter === 'all' || (dateFilter === 'dated' ? hasDate : !hasDate);
     });
 
-  const nextJourney = orderedJourneys.find((journey) => ['active', 'planned'].includes(journeyStatus(journey)));
-  const heroContents = nextJourney
-    ? [
-        {
-          title: t('journeyHome.hero.upcomingTitle', { name: nextJourney.name }),
-          suggestions: [
-            { label: t('journeyHome.hero.upcomingItinerary'), prompt: t('journeyHome.hero.upcomingItineraryPrompt', { name: nextJourney.name }) },
-            { label: t('journeyHome.hero.upcomingPacking'), prompt: t('journeyHome.hero.upcomingPackingPrompt', { name: nextJourney.name }) },
-          ],
+  // With no journeys at all (not just filtered out) the page becomes a starter
+  // screen: tilted feature cards plus two big entry buttons.
+  const showStarter = !journeys.length && !data.journeysLoading && nav.mainTab === 'journey';
+  // Starter cards: anything operations publishes in journey_home_content comes
+  // first, then built-in cards. Route cards open a curated topic page whose
+  // poster reuses the topic's lead route, so they change with the season.
+  const { status: membership } = useMembership();
+  const starterCards = useMemo<StarterCard[]>(() => {
+    const month = new Date().getMonth() + 1;
+    const topicCard = (topic: RouteTopic): StarterCard[] => {
+      const lead = topicRoutes(data.routes, topic, month)[0];
+      if (!lead) return [];
+      return [{
+        id: `topic-${topic}`,
+        tag: t(`journeyHome.topic.${topic}.tag`, { month }),
+        title: t(`journeyHome.topic.${topic}.title`, { month }),
+        tone: lead.tone,
+        seed: lead.id,
+        imageUrl: lead.photoUris?.[0],
+        onPress: () => nav.openRouteTopic(topic),
+      }];
+    };
+    const k = 'journeyHome.emptyStart.cards';
+    return [
+      ...homeContent.cards.map((card): StarterCard => ({
+        id: card.id,
+        tag: card.subtitle,
+        title: card.title,
+        seed: card.id,
+        imageUrl: card.imageUrl,
+        onPress: () => {
+          const route = card.routeId ? data.routes.find((item) => item.id === card.routeId) : undefined;
+          if (route) nav.openPoint(route);
+          else if (card.prompt) nav.openAssistant(card.prompt);
         },
-        {
-          title: t('journeyHome.hero.upcomingCheckTitle', { name: nextJourney.name }),
-          suggestions: [
-            { label: t('journeyHome.hero.upcomingGaps'), prompt: t('journeyHome.hero.upcomingGapsPrompt', { name: nextJourney.name }) },
-            { label: t('journeyHome.hero.upcomingGearReview'), prompt: t('journeyHome.hero.upcomingGearReviewPrompt', { name: nextJourney.name }) },
-          ],
-        },
-        {
-          title: t('journeyHome.hero.upcomingRouteTitle', { name: nextJourney.name }),
-          suggestions: [
-            { label: t('journeyHome.hero.upcomingStops'), prompt: t('journeyHome.hero.upcomingStopsPrompt', { name: nextJourney.name }) },
-            { label: t('journeyHome.hero.upcomingTodos'), prompt: t('journeyHome.hero.upcomingTodosPrompt', { name: nextJourney.name }) },
-          ],
-        },
-      ]
-    : [
-        {
-          title: t('journeyHome.hero.returnTitle'),
-          suggestions: [
-            { label: t('journeyHome.hero.createJourney'), prompt: t('journeyHome.hero.createJourneyPrompt') },
-            { label: t('journeyHome.hero.startFromRoute'), prompt: t('journeyHome.hero.startFromRoutePrompt') },
-          ],
-        },
-        {
-          title: t('journeyHome.hero.seasonTitle'),
-          suggestions: [
-            { label: t('journeyHome.hero.weekendPlan'), prompt: t('journeyHome.hero.weekendPlanPrompt') },
-            { label: t('journeyHome.hero.packingPlan'), prompt: t('journeyHome.hero.packingPlanPrompt') },
-          ],
-        },
-        {
-          title: t('journeyHome.hero.easyStartTitle'),
-          suggestions: [
-            { label: t('journeyHome.hero.uploadTrack'), prompt: t('journeyHome.hero.uploadTrackPrompt') },
-            { label: t('journeyHome.hero.organizeGear'), prompt: t('journeyHome.hero.organizeGearPrompt') },
-          ],
-        },
-      ];
-  const heroContent = heroContents[heroVersion % heroContents.length];
+      })),
+      ...(SHOW_PLUS_CARD && membership?.accessSource === 'campaign' ? [{
+        id: 'open-access', tag: t(`${k}.openAccessTag`), title: t(`${k}.openAccessTitle`), tone: 'dusk', seed: 'open-access',
+        onPress: () => nav.openPlusPoster(),
+      }] : []),
+      ...topicCard('season'),
+      ...topicCard('easy'),
+      { id: 'ai', tag: t(`${k}.aiTag`), title: t(`${k}.aiTitle`), tone: 'snow', seed: 'ai', onPress: () => nav.openAssistant(t(`${k}.aiPrompt`)) },
+      ...topicCard('hard'),
+      { id: 'gear', tag: t(`${k}.gearTag`), title: t(`${k}.gearTitle`), tone: 'forest', seed: 'gear', onPress: () => nav.openGearPage('sets') },
+      { id: 'request', tag: t(`${k}.requestTag`), title: t(`${k}.requestTitle`), tone: 'river', seed: 'request', onPress: () => nav.openRouteRequest() },
+    ];
+  }, [homeContent.cards, data.routes, membership?.accessSource, nav, t]);
 
   const refreshJourneys = async () => {
     if (refreshing) return;
@@ -192,7 +201,6 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
     try {
       await data.refetchJourneys();
     } finally {
-      setHeroVersion((current) => current + 1);
       setRefreshing(false);
     }
   };
@@ -238,7 +246,10 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScrollView
+      {/* Gesture-handler scroll view so the feature deck's vertical swipe can hold it. */}
+      <GestureScrollView
+        ref={pageScrollRef}
+        scrollEnabled={!deckHeld}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingTop: insets.top + layout.iconButton + space.lg }}
         refreshControl={(
@@ -252,43 +263,60 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
           />
         )}
       >
-        <View style={styles.hero}>
-          <Text numberOfLines={2} style={[styles.heroTitle, { color: theme.text }]}>
-            {heroContent.title}
-          </Text>
-          {homeContent.cards.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featureCards}>
-              {homeContent.cards.map((card) => (
-                <Press key={card.id} accessibilityRole="button" accessibilityLabel={card.title} onPress={() => {
-                  if (card.routeId) { const route = data.routes.find((item) => item.id === card.routeId); if (route) { nav.openPoint(route); return; } }
-                  if (card.prompt) nav.openAssistant(card.prompt);
-                }} style={[styles.featureCard, { backgroundColor: theme.controlSurface }]}>
-                  {card.imageUrl ? <Image source={{ uri: card.imageUrl }} style={styles.featureImage} /> : null}
-                  <View style={styles.featureCopy}><Text numberOfLines={2} style={[styles.featureTitle, { color: theme.text }]}>{card.title}</Text>{card.subtitle ? <Text numberOfLines={2} style={[styles.featureSubtitle, { color: theme.text2 }]}>{card.subtitle}</Text> : null}</View>
-                </Press>
-              ))}
-            </ScrollView>
-          ) : null}
-
-          <View style={styles.quickActions}>
-            {heroContent.suggestions.map(({ label, prompt }) => (
+        {showStarter ? (
+          <View style={[styles.starter, { paddingBottom: insets.bottom + 116 }]}>
+            {starterCards.length ? (
+              <>
+                <Text style={[styles.starterTitle, { color: theme.text }]}>{t('journeyHome.emptyStart.title')}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.starterCards}>
+                  {starterCards.map((card, index) => (
+                    <Press
+                      key={card.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={card.title}
+                      onPress={card.onPress}
+                      style={[styles.starterCard, { backgroundColor: theme.controlSurface, transform: [{ rotate: index % 2 ? '3deg' : '-4deg' }] }]}
+                    >
+                      <PhotoTile tone={card.tone} seed={card.seed} resWidth={360} style={StyleSheet.absoluteFill}>
+                        {card.imageUrl ? <Image source={{ uri: card.imageUrl }} style={StyleSheet.absoluteFill} /> : null}
+                      </PhotoTile>
+                      {card.tag ? (
+                        <View style={styles.starterCardTag}>
+                          <Text numberOfLines={1} style={styles.starterCardTagText}>{card.tag}</Text>
+                        </View>
+                      ) : null}
+                      <LinearGradient colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.5)']} style={styles.starterCardCopy}>
+                        <Text numberOfLines={2} style={[styles.starterCardTitle, { color: '#FFFFFF' }]}>{card.title}</Text>
+                        <View style={styles.starterCardAction}>
+                          <Text style={[styles.starterCardActionText, { color: 'rgba(255, 255, 255, 0.82)' }]}>{t('journeyHome.emptyStart.cardAction')}</Text>
+                          <ArrowRight color="rgba(255, 255, 255, 0.82)" size={16} strokeWidth={2.4} />
+                        </View>
+                      </LinearGradient>
+                    </Press>
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+            <View style={styles.starterButtons}>
               <Press
-                key={label}
                 accessibilityRole="button"
-                accessibilityLabel={label}
-                onPress={() => nav.openAssistant(prompt, nextJourney?.id)}
-                scaleTo={0.985}
-                style={[
-                  styles.quickAction,
-                  { backgroundColor: theme.controlSurface },
-                ]}
+                onPress={() => nav.openNewJourney()}
+                style={[styles.starterButton, { backgroundColor: theme.text }]}
               >
-                <Text numberOfLines={2} style={[styles.quickActionText, { color: theme.text }]}>{label}</Text>
-                <CornerDownLeft color={theme.text3} size={17} strokeWidth={2} />
+                <Text style={[styles.starterButtonText, { color: theme.featureSurface }]}>{t('journeyHome.emptyStart.create')}</Text>
               </Press>
-            ))}
+              <Press
+                accessibilityRole="button"
+                onPress={() => nav.openItineraryImport()}
+                style={[styles.starterButton, { backgroundColor: theme.controlSurface }]}
+              >
+                <Text style={[styles.starterButtonText, { color: theme.text }]}>{t('journeyHome.emptyStart.check')}</Text>
+              </Press>
+            </View>
           </View>
-        </View>
+        ) : (
+        <>
+        <JourneyFeatureDeck cards={starterCards} theme={theme} autoAdvance={nav.mainTab === 'journey'} pageScrollRef={pageScrollRef} onHoldChange={setDeckHeld} />
 
         <View style={[styles.listSection, { paddingBottom: insets.bottom + 116 }]}>
           <View style={styles.listHeader}>
@@ -379,7 +407,9 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
             )}
           </View>
         </View>
-      </ScrollView>
+        </>
+        )}
+      </GestureScrollView>
       <View pointerEvents="box-none" style={styles.headerOverlay}>
         <View style={[styles.header, { marginTop: insets.top + space.xs }]}>
           <View style={styles.headerActions}>
@@ -470,17 +500,6 @@ const styles = StyleSheet.create({
   header: { height: layout.iconButton, paddingHorizontal: layout.pagePadding, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   headerButton: { width: layout.iconButton, height: layout.iconButton, alignItems: 'center', justifyContent: 'center' },
-  hero: { paddingHorizontal: layout.pagePadding, paddingTop: space.xxl, paddingBottom: space.xxl },
-  heroTitle: { maxWidth: '92%', fontSize: 21, lineHeight: 29, fontWeight: '800', letterSpacing: 0 },
-  featureCards: { gap: 12, paddingRight: layout.pagePadding },
-  featureCard: { width: 230, minHeight: 142, borderRadius: 22, overflow: 'hidden' },
-  featureImage: { width: '100%', height: 82 },
-  featureCopy: { paddingHorizontal: 13, paddingVertical: 10 },
-  featureTitle: { fontSize: 16, lineHeight: 21, fontWeight: '800' },
-  featureSubtitle: { marginTop: 3, fontSize: 12.5, lineHeight: 17 },
-  quickActions: { marginTop: space.lg, alignItems: 'flex-start', gap: space.sm },
-  quickAction: { minHeight: 48, maxWidth: '94%', paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  quickActionText: { flexShrink: 1, fontSize: 14.5, lineHeight: 20, fontWeight: '500', letterSpacing: 0 },
   listSection: { minHeight: 560, paddingTop: 2 },
   listHeader: { paddingHorizontal: 18, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   listTitle: { fontSize: 21, lineHeight: 28, fontWeight: '800', letterSpacing: 0 },
@@ -504,6 +523,19 @@ const styles = StyleSheet.create({
   swipeActionLabel: { maxWidth: 66, fontSize: 12.5, lineHeight: 17, fontWeight: '600', textAlign: 'center', letterSpacing: 0 },
   emptyState: { paddingHorizontal: space.xxxl, paddingVertical: 70, alignItems: 'center' },
   emptyBody: { marginTop: space.xs, lineHeight: 21, textAlign: 'center' },
+  starter: { paddingTop: space.lg },
+  starterTitle: { paddingHorizontal: layout.pagePadding + space.xxs, fontSize: 25, lineHeight: 34, fontWeight: '700', letterSpacing: 0 },
+  starterCards: { gap: space.md, paddingHorizontal: layout.pagePadding + space.xs, paddingTop: space.xxl, paddingBottom: space.xxl },
+  starterCard: { width: 168, height: 208, borderRadius: radius.feature, overflow: 'hidden', justifyContent: 'space-between', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
+  starterCardTag: { alignSelf: 'flex-start', marginTop: space.sm, marginLeft: space.sm, maxWidth: '86%', paddingHorizontal: space.sm, paddingVertical: space.xxs, borderRadius: radius.pill, backgroundColor: 'rgba(255, 255, 255, 0.88)' },
+  starterCardTagText: { fontSize: 12, fontWeight: '600', color: '#4A4A4A' },
+  starterCardCopy: { marginTop: 'auto', paddingHorizontal: space.sm, paddingTop: space.xl, paddingBottom: space.sm },
+  starterCardTitle: { fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: 0 },
+  starterCardAction: { marginTop: space.xxs, flexDirection: 'row', alignItems: 'center', gap: space.xxs },
+  starterCardActionText: { fontSize: 13, fontWeight: '700' },
+  starterButtons: { marginTop: space.sm, paddingHorizontal: space.xxxl + space.md, gap: space.sm },
+  starterButton: { minHeight: 56, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
+  starterButtonText: { fontSize: 16, fontWeight: '600', letterSpacing: 0 },
 });
 
 // Kept mounted under AppShell for every tab; skip re-renders the shell makes

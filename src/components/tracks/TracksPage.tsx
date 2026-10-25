@@ -7,6 +7,7 @@
 // confirm and not after.
 import React, { useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useOpenTrail } from '../../trail/trailRoutes';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionDialog, AppHeaderSearch, AppProgressBar, DetailPage, radius } from '../../design-system';
 import { Icon } from '../Icon';
@@ -23,7 +24,7 @@ import { Theme } from '../../theme/theme';
 import type { Poi } from '../../data/pois';
 import { Track } from '../../data/tracks';
 import { formatTrackAscent, formatTrackDistance } from '../../lib/trackParser';
-import { importTrackFiles, pickTrackFiles } from '../../lib/trackImport';
+import { importTrackFiles, pickTrackFiles, type TrackImportOutcome } from '../../lib/trackImport';
 import { exportTracks } from '../../lib/trackExport';
 import { TrackThumbnail } from './TrackThumbnail';
 
@@ -335,6 +336,7 @@ export function TracksPage({
 }) {
   const { t } = useI18n();
   const nav = useNav();
+  const openTrail = useOpenTrail();
   const insets = useSafeAreaInsets();
   const data = useData();
 
@@ -351,7 +353,7 @@ export function TracksPage({
   // it reports inline instead of through a modal: the list it is filling stays
   // visible and scrollable while it works.
   const [progress, setProgress] = useState<{ done: number; total: number; fileName: string } | null>(null);
-  const [summary, setSummary] = useState<{ ok: number; failed: string[] } | null>(null);
+  const [summary, setSummary] = useState<{ ok: number; failed: TrackImportOutcome[] } | null>(null);
   // The gallery reads better for browsing and the list for long libraries, so
   // both stay one tap away instead of one winning outright.
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
@@ -470,9 +472,10 @@ export function TracksPage({
     setProgress(null);
     // `done` counts the files already imported, so the total lands as the last
     // one finishes and a full success needs no card at all.
-    const failed = outcomes.filter((outcome) => !outcome.ok).map((outcome) => outcome.fileName);
+    const failed = outcomes.filter((outcome) => !outcome.ok);
     if (failed.length) setSummary({ ok: outcomes.length - failed.length, failed });
-    else nav.showToast(t('tracks.import.done', { count: outcomes.length }));
+    if (outcomes.some((outcome) => outcome.archiveTrimmed)) nav.showToast(t('record.track.archiveTrimmed'));
+    else if (!failed.length) nav.showToast(t('tracks.import.done', { count: outcomes.length }));
   };
 
   const exportZip = async () => {
@@ -631,6 +634,7 @@ export function TracksPage({
           </View>
 
           <TrackDropMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(216, width - 28)} onClose={() => setMoreOpen(false)}>
+            <TrackMenuRow theme={theme} icon="play" label={t('trail.entry.record')} onPress={() => closeMoreThen(() => openTrail(null))} />
             {data.tracks.length ? (
               <>
                 <TrackMenuCaption theme={theme} text={t('journey.section.manage')} />
@@ -720,9 +724,9 @@ export function TracksPage({
                 the ones that landed are visible in the list below, the others are not.
                 The same name can appear twice (a file picked from two folders), so the
                 index is what makes the key unique. */}
-            {summary?.failed.map((fileName, index) => (
+            {summary?.failed.map(({ fileName, messageKey }, index) => (
               <Text key={`${fileName}-${index}`} numberOfLines={1} style={{ fontFamily: MONO, fontSize: 11.5, color: theme.text3, marginTop: 6 }}>
-                {fileName}
+                {messageKey ? `${fileName}  ${t(messageKey)}` : fileName}
               </Text>
             ))}
           </View>

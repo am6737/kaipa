@@ -287,9 +287,24 @@ function metricRow(metric: any): AgentModelMetric {
 // Only expose the small fields required by progress UI. Full tool payloads
 // can contain private or very large journey records.
 function activityOutput(call: any): unknown {
+  // Search hits keep id and name so the reply can link the routes and
+  // journeys it talks about.
+  if (call.tool_name === 'search_routes' && Array.isArray(call.output)) {
+    return { resultCount: call.output.length, routes: call.output.map((row: any) => ({ id: row.id, name: row.name })) };
+  }
+  if (call.tool_name === 'search_journeys' && Array.isArray(call.output)) {
+    return { resultCount: call.output.length, journeys: call.output.map((row: any) => ({ id: row.id, name: row.name })) };
+  }
   if (Array.isArray(call.output)) return { resultCount: call.output.length };
+  if (call.tool_name === 'undo_last_agent_changes' && call.output && typeof call.output === 'object') {
+    return { journeyId: call.output.journeyId ?? null, affectedOperations: call.output.affectedOperations };
+  }
   if (typeof call.output?.added === 'number' || typeof call.output?.deleted === 'number') {
-    return { added: call.output.added, deleted: call.output.deleted, skippedDuplicates: call.output.skippedDuplicates };
+    return { journeyId: call.output.journeyId, added: call.output.added, deleted: call.output.deleted, skippedDuplicates: call.output.skippedDuplicates };
+  }
+  // The result card opens the saved item, so it needs the row id.
+  if (call.tool_name === 'add_gear' && call.output && typeof call.output === 'object') {
+    return { id: call.output.id, name: call.output.name };
   }
   if (call.tool_name === 'set_itinerary_group_endpoints') {
     return { coverage: {
@@ -457,6 +472,9 @@ Deno.serve(async (req) => {
       // Departure the user picked in the app before planning; it confirms the
       // trip's origin without another model turn.
       departure?: unknown;
+      // The departure travels with this message (a device fix or a change of
+      // origin) instead of answering a stored question.
+      departureWithRequest?: boolean;
       // Store a departure question for this plan request instead of running
       // it; the answer starts the plan.
       askDeparture?: boolean;
@@ -786,9 +804,10 @@ Deno.serve(async (req) => {
 
     // A departure answers the newest question. One stored with a plan request
     // starts that plan; one a stopped run asked resumes the run's task.
-    let resumeWaitingPlan = jobLease ? (body.resumeWaitingPlan ?? Boolean(departure)) : Boolean(departure);
+    const departureAnswers = Boolean(departure) && body.departureWithRequest !== true;
+    let resumeWaitingPlan = jobLease ? (body.resumeWaitingPlan ?? departureAnswers) : departureAnswers;
     let answeredPrompt: { id: string; ui: AgentMessageUi } | null = null;
-    if (!jobLease && departure) {
+    if (!jobLease && departureAnswers) {
       const latest = await client.from('agent_messages').select('id,ui').eq('thread_id', threadId).eq('role', 'assistant')
         .order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (latest.error) throw latest.error;

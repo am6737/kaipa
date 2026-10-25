@@ -60,6 +60,7 @@ function loadMap() {
       useWindowDimensions: () => ({ height: 844 }),
     },
     '../Icon': { Icon: 'Icon' },
+    '../../i18n': { useI18n: () => ({ t: key => key }) },
     '../maps/NativeMap': { NativeMap: 'NativeMap' },
     '../maps/extent': loadExtent(),
     '../maps/types': {
@@ -199,6 +200,7 @@ function loadIosMap() {
   };
   const mocks = {
     react,
+    'react-native': { Dimensions: { get: () => ({ width: 390, height: 844 }) } },
     'react-native-maps': { default: 'MapView', Marker: 'Marker', Polyline: 'Polyline' },
     './types': { projectTrack: coordinates => coordinates, fitBoundsCorners: coordinates => coordinates },
     '../../lib/coordinates': { gcj02ToWgs84: value => value, wgs84ToGcj02: value => value },
@@ -214,16 +216,30 @@ function loadIosMap() {
   return context.exports;
 }
 
+const mercatorY = (latitude) => Math.log(Math.tan(Math.PI / 4 + latitude * Math.PI / 360));
+
 test('the single-point iOS camera puts the target in the padded box', () => {
   const { offsetCenter } = loadIosMap();
   const size = { width: 390, height: 844 };
   const edgePadding = [90, 54, 450, 54];
-  const delta = 360 / 2 ** 12;
+  const world = 256 * 2 ** 12;
   const center = offsetCenter([100, 30], 12, edgePadding, size);
-  // Where the target actually lands, given the region centred on `center`.
-  const y = ((center[1] + delta / 2) - 30) / delta * size.height;
+  // Where the target actually lands, in screen points, given the view centred on `center`.
+  const y = size.height / 2 + (mercatorY(center[1]) - mercatorY(30)) / (2 * Math.PI) * world;
   const expectedY = (edgePadding[0] + (size.height - edgePadding[2])) / 2;
   assert.ok(Math.abs(y - expectedY) < 0.01, `expected y=${expectedY}, got ${y}`);
   assert.equal(center[0], 100);
   assert.deepEqual(offsetCenter([100, 30], 12, undefined, size), [100, 30]);
+});
+
+test('iOS zoom uses the same 256-point world as AMap, both ways', () => {
+  const { region, zoomForSpan } = loadIosMap();
+  const size = { width: 390, height: 844 };
+  const span = region([100, 30], 13, size);
+  // 390 points of a 256 * 2^13 world.
+  assert.ok(Math.abs(span.longitudeDelta - 360 * 390 / (256 * 2 ** 13)) < 1e-12);
+  assert.ok(Math.abs(zoomForSpan(span.longitudeDelta, size) - 13) < 1e-9);
+  // The latitude span covers the view's height in Mercator points, not a square.
+  const covered = (mercatorY(30 + span.latitudeDelta / 2) - mercatorY(30 - span.latitudeDelta / 2)) / (2 * Math.PI) * 256 * 2 ** 13;
+  assert.ok(Math.abs(covered - 844) < 1, `expected ~844, got ${covered}`);
 });

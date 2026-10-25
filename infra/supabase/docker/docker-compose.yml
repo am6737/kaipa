@@ -169,7 +169,12 @@ services:
       # Uncomment to bypass nonce check in ID Token flow. Commonly set to true when using Google Sign In on mobile.
       # GOTRUE_EXTERNAL_SKIP_NONCE_CHECK: "true"
 
-      # GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: "true"
+      # 账号与安全里的「绑定登录方式」：已登录用户用 linkIdentity 给同一个账号补挂 Apple 等来源，
+      # 也能 unlinkIdentity 解绑（GoTrue 自己拒绝解绑最后一个 identity）。
+      GOTRUE_SECURITY_MANUAL_LINKING_ENABLED: "true"
+      # 绑定/更换邮箱只向新邮箱发一个验证码。Apple 账号的旧邮箱是中转地址、并不是登录方式，
+      # 不能要求用户去那边再确认一次。
+      GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: "false"
       # GOTRUE_SMTP_MAX_FREQUENCY: 1s
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
@@ -390,7 +395,7 @@ services:
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       STORAGE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
       REQUEST_ALLOW_X_FORWARDED_PATH: "true"
-      FILE_SIZE_LIMIT: 52428800
+      FILE_SIZE_LIMIT: 209715200
       STORAGE_BACKEND: file
       # S3 bucket when using S3 backend, directory name when using 'file'
       GLOBAL_S3_BUCKET: ${GLOBAL_S3_BUCKET}

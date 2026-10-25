@@ -106,6 +106,7 @@ import {
 import { MyRouteRequestsPage } from "../components/me/MyRouteRequestsPage";
 import { CardPickerPage, type CardPickerOption } from "../components/me/CardPickerPage";
 import { LanguagePickerPage } from "../components/me/LanguagePickerPage";
+import { LoginMethodPage } from "../components/me/LoginMethodPage";
 import { removeMedia } from "../lib/storage";
 
 const appVersionLabel = Constants.expoConfig?.version
@@ -124,6 +125,7 @@ type MePage =
   | { type: "trash" }
   | { type: "profile" }
   | { type: "accountSecurity" }
+  | { type: "loginMethod"; kind: "email" | "phone" }
   | { type: "deleteAccountReasons" }
   | { type: "planningProfile" }
   | { type: "membership"; view?: "usage" }
@@ -1771,6 +1773,11 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   const [stack, setStack] = useState<MePage[]>([]);
   const push = (pg: MePage) => setStack((s) => [...s, pg]);
   const pop = () => setStack((s) => s.slice(0, -1));
+  useEffect(() => {
+    if (!nav.membershipPageRequest) return;
+    setStack([{ type: "membership" }]);
+    nav.clearMembershipPageRequest();
+  }, [nav.membershipPageRequest]);
   const [appearancePopup, setAppearancePopup] =
     useState<AppearancePopup | null>(null);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
@@ -2144,6 +2151,20 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
             onBack={pop}
             onEdit={(f) => push({ type: "edit", field: f })}
             onDeleteAccount={() => push({ type: "deleteAccountReasons" })}
+            onOpenLoginMethod={(kind) => push({ type: "loginMethod", kind })}
+            showToast={showToast}
+          />
+        );
+      case "loginMethod":
+        return (
+          <LoginMethodPage
+            theme={theme}
+            kind={pg.kind}
+            onBack={pop}
+            onDone={(message) => {
+              pop();
+              showToast(message);
+            }}
             showToast={showToast}
           />
         );

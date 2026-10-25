@@ -6,6 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.108.1';
 import { gcj02ToWgs84, wgs84ToGcj02 } from './coordinates.ts';
 import { routeTrackAccess } from './track-access.ts';
 import { parseDirectionLegs, planAll } from './direction.ts';
+import { parseRegionTips, REGION_TYPECODES } from './regions.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -156,6 +157,17 @@ Deno.serve(protectEndpoint('map', 'map_requests')(async (req) => {
       const payload = await amap('place/text', params);
       const results = (payload.pois || []).map(poiToLocation).filter(Boolean);
       return json({ results });
+    }
+
+    if (body.action === 'regions') {
+      const query = typeof body.query === 'string' ? body.query.trim() : '';
+      if (!query || query.length > 40) return json({ error: { code: 'invalid_query' } }, 400);
+      const payload = await amap('assistant/inputtips', new URLSearchParams({
+        keywords: query,
+        type: REGION_TYPECODES.join('|'),
+        datatype: 'all',
+      }));
+      return json({ regions: parseRegionTips(payload.tips, query) });
     }
 
     if (body.action === 'reverse') {

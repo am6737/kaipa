@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Dimensions, Share, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Poi } from '../../data/pois';
@@ -18,12 +18,10 @@ import { routeGuideCopy } from './routeGuideCopy';
 import { RouteCommentPreviewRow } from './RouteCommentItem';
 import { useRouteComments } from '../../hooks/useRouteComments';
 import { directedClimb } from '../../data/elevation';
-import { isLoopTrack, loopIsClockwise } from '../../lib/routeDirection';
-import { Segmented } from '../Segmented';
 
 const fmtClimb = (meters: number) => `${Math.round(meters).toLocaleString('en-US')} m`;
 
-export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive, reversed = false, onReversedChange }: { theme: Theme; poi: Poi; onClose?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean; /** Walking the route from its recorded finish. */ reversed?: boolean; onReversedChange?: (reversed: boolean) => void }) {
+export function RoutePreviewPanel({ theme, poi, onClose, onShare, showActions = true, onFeedback, onPlanRoute, onNavigate, navigationActive, reversed = false }: { theme: Theme; poi: Poi; onClose?: () => void; onShare?: () => void; showActions?: boolean; onFeedback?: () => void; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean; /** Walking the route from its recorded finish. */ reversed?: boolean }) {
   const nav = useNav();
   const { t, resolved } = useI18n();
   const c = routeGuideCopy[resolved];
@@ -35,22 +33,17 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   const { comments, total: commentTotal, loading: commentsLoading } = useRouteComments(route.id, { preview: true, pageSize: 2 });
   const openComments = (compose = false) => nav.openRouteGuide({ route, view: 'comments', compose });
   const climb = directedClimb(route, reversed);
-  const trackCoords = route.trackCoords;
-  // A loop starts and ends at one trailhead, so the choice is its turning sense.
-  const direction = useMemo(() => {
-    if (!trackCoords || trackCoords.length < 2) return null;
-    if (!isLoopTrack(trackCoords)) return { forward: t('route.direction.forward'), reverse: t('route.direction.reverse') };
-    const clockwise = loopIsClockwise(trackCoords);
-    const cw = t('route.direction.clockwise');
-    const ccw = t('route.direction.counterclockwise');
-    return clockwise ? { forward: cw, reverse: ccw } : { forward: ccw, reverse: cw };
-  }, [trackCoords, t]);
 
 
   return (
     <View style={{ paddingTop: space.xxs, paddingBottom: showActions ? space.xl : 112 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <Text numberOfLines={2} style={[type.pageTitle, { flex: 1, color: theme.text, fontSize: 28, lineHeight: 34 }]}>{route.name}</Text>
+        {onShare ? (
+          <Press onPress={onShare} accessibilityRole="button" accessibilityLabel={t('discover.routeShare')} style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="share" color={theme.text} size={21} />
+          </Press>
+        ) : null}
         {onClose ? (
           <Press onPress={onClose} accessibilityRole="button" style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" color={theme.text} size={23} />
@@ -65,17 +58,6 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
         {climb.descent != null ? <InfoPill theme={theme} icon="arrowDown" text={fmtClimb(climb.descent)} mono /> : null}
         <InfoPill theme={theme} icon="pin" text={route.region.replace(/\s*·\s*/g, ' ')} />
       </View>
-
-      {direction && onReversedChange ? (
-        <View accessibilityLabel={t('route.direction.label')} style={{ marginTop: space.md }}>
-          <Segmented
-            theme={theme}
-            value={reversed ? 'reverse' : 'forward'}
-            options={[{ id: 'forward', label: direction.forward }, { id: 'reverse', label: direction.reverse }]}
-            onChange={(value) => onReversedChange(value === 'reverse')}
-          />
-        </View>
-      ) : null}
 
       {route.bestMonths?.length ? <SeasonStrip theme={theme} months={route.bestMonths} note={route.seasonNote} /> : null}
 
@@ -128,18 +110,10 @@ export function RoutePreviewPanel({ theme, poi, onClose, showActions = true, onF
   );
 }
 
-export function RoutePreviewActions({ theme, poi, style, onPlanRoute, onNavigate, navigationActive }: { theme: Theme; poi: Poi; style?: object; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean }) {
+export function RoutePreviewActions({ theme, poi, style, onPlanRoute, onNavigate, navigationActive, onFollow }: { theme: Theme; poi: Poi; style?: object; onPlanRoute?: (route: Poi) => void; onNavigate?: (route: Poi) => void; navigationActive?: boolean; /** Opens 徒步导航 along the route's track. */ onFollow?: (route: Poi) => void }) {
   const nav = useNav();
   const { t } = useI18n();
   const route = nav.merged(poi);
-  const shareRoute = async () => {
-    const message = `${route.name}\n${[route.region, route.dist, route.asc].filter(Boolean).join(' · ')}`;
-    try {
-      await Share.share({ title: route.name, message });
-    } catch (error: any) {
-      if (error?.message !== 'User did not share') console.warn('[RoutePreviewPanel] share error:', error);
-    }
-  };
   return (
     <View style={[{ flexDirection: 'row', justifyContent: 'flex-start', gap: space.xs, marginHorizontal: space.xs }, style]}>
       <ActionPill
@@ -152,7 +126,7 @@ export function RoutePreviewActions({ theme, poi, style, onPlanRoute, onNavigate
         onPress={() => nav.toggleFav()}
       />
       {onNavigate ? <ActionPill theme={theme} icon="locate" label={t('discover.routeNavigate')} active={navigationActive} activeColor={theme.accent} preserveStyle onPress={() => onNavigate(route)} /> : null}
-      <ActionPill theme={theme} icon="share" label={t('common.share')} onPress={() => void shareRoute()} />
+      {onFollow && route.trackCoords && route.trackCoords.length >= 2 ? <ActionPill theme={theme} icon="route" label={t('trail.entry.followRoute')} preserveStyle onPress={() => onFollow(route)} /> : null}
       <Press
         hitSlop={3}
         onPress={() => onPlanRoute ? onPlanRoute(route) : nav.openNewJourney(route)}

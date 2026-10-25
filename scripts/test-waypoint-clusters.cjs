@@ -42,3 +42,9 @@ test('empty and single-point tracks and polar coordinates are handled', () => {
   assert.deepEqual(clusterWaypoints([[100, 30]], 10), [{ indices: [0], coordinate: [100, 30] }]);
   assert.equal(clusterWaypoints([[100, 90], [100, 89.99]], 10)[0].indices.length, 2);
 });
+test('marks a comfortable tap apart stay separate instead of hiding behind a count', () => {
+  // ~40 map pixels apart at zoom 14: far enough to tap each dot on its own.
+  const step = 40 / (256 * 2 ** 14) * 360;
+  const points = Array.from({ length: 5 }, (_, i) => [100 + i * step, 30]);
+  assert.equal(clusterWaypoints(points, 14).length, 5);
+});

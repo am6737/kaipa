@@ -84,6 +84,8 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
   };
   const title = page.view === 'guides' ? `${request.route.name}${resolved === 'zh' ? '攻略' : ' guides'}` : page.view === 'guide' ? c.guideDetail : page.view === 'weather' ? c.weatherDetail : c.allComments;
   const hasCreate = page.view === 'guide';
+  // The guide's days run the author's way; say so once when the map shows the route reversed.
+  const directionNote = request.reversed ? <Text style={[type.meta, { color: theme.text3, marginTop: space.sm }]}>{t('route.direction.guideNotice')}</Text> : null;
   const pageBackgroundColor = page.view === 'guide' || page.view === 'guides' ? theme.featureSurface : theme.groupedBg;
   return <>
   <Modal visible={!exportOpen} presentationStyle="fullScreen" animationType="slide" onRequestClose={goBack}>
@@ -97,7 +99,6 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
       </View> : undefined}>
         {page.view === 'comments' ? <RouteCommentsView theme={theme} route={request.route} autoFocus={request.compose} /> : <ScrollView key={`${page.view}:${page.planId ?? plan.id}`} style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}>
         <View style={styles.content}>
-          {page.view === 'guide' && request.reversed ? <View style={[styles.directionNotice, { backgroundColor: theme.accentSoft }]}><Text style={[type.meta, { color: theme.text }]}>{t('route.direction.guideNotice')}</Text></View> : null}
           {page.view === 'guides' ? <>
             <View style={{ marginTop: space.xs }}>{guidesLoading || officialLoading ? <ActivityIndicator color={theme.accent} /> : guideEntries.map((entry, index) => <View key={entry.id} style={{ borderBottomWidth: index < guideEntries.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.hairline }}><RouteGuideRow theme={theme} guide={entry.kind === 'community' ? entry.guide : undefined} officialTitle={entry.kind === 'official' ? entry.plan.payload.name : undefined} showMeBadge={entry.kind === 'community' && Boolean(currentGuideUserId) && entry.guide.authorId === currentGuideUserId} onPress={() => entry.kind === 'official' ? openGuide(undefined, entry.plan.id) : openGuide(entry.guide.id)} /></View>)}{!guidesLoading && !officialLoading && guideEntries.length === 0 ? <Text style={[styles.body, { color: theme.text2, paddingVertical: space.xxxl }]}>{c.noGuides}</Text> : null}</View>
           </> : page.view === 'weather' ? <>
@@ -105,6 +106,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
           </> : official && assembled ? <>
             <Text style={[type.pageTitle, { color: theme.text, lineHeight: 36 }]}>{official.payload.name}</Text>
             <View style={styles.authorRow}><Avatar size={28} /><Text style={[styles.author, { color: theme.text2 }]}>{c.officialAuthor}</Text></View>
+            {directionNote}
             <Text style={[type.meta, { color: theme.text2, marginTop: space.md }]}>{assembled.header.countsLine}</Text>
             <Text style={[type.meta, { color: theme.text2, marginTop: space.xs }]}>{t('officialItinerary.difficulty')}：{official.payload.difficulty}  {t('officialItinerary.audience')}：{official.payload.audience}</Text>
             {official.payload.summary ? <View style={{ marginTop: space.xxl }}><Text style={[type.sectionTitle, { color: theme.text }]}>{t('officialItinerary.summary')}</Text><Text style={[type.reading, { color: theme.text2, marginTop: space.md }]}>{official.payload.summary}</Text></View> : null}
@@ -116,6 +118,7 @@ export function RouteGuidePage({ theme, request, onClose }: { theme: Theme; requ
             <>
               <View style={styles.authorRow}><Avatar size={28} uri={guide.authorAvatarUrl || undefined} /><Text style={[styles.author, { color: theme.text2 }]}>{guideText(guide.author, resolved)}</Text>{Boolean(currentGuideUserId) && guide.authorId === currentGuideUserId ? <MeBadge theme={theme} /> : null}</View>
               <View style={styles.metaRow}><Text style={[styles.caption, { color: theme.text2 }]}>{c.publishedDate} {guide.publishedDate}</Text>{guide.updatedDate !== guide.publishedDate ? <Text style={[styles.caption, { color: theme.text2 }]}>{c.updatedDate} {guide.updatedDate}</Text> : null}</View>
+              {directionNote}
             </>
             {guide.description && guideText(guide.description, resolved).trim() ? <Text style={[styles.guideDescription, { color: theme.text2 }]}>{guideText(guide.description, resolved)}</Text> : null}
             <View style={{ marginTop: space.xl }}>
@@ -157,6 +160,5 @@ const styles = StyleSheet.create({
   create: { flex: 1, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, minHeight: 44, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   createWithHelpful: { flex: 1.45 },
   headerAdd: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  directionNotice: { borderRadius: radius.card, paddingHorizontal: space.md, paddingVertical: space.sm, marginBottom: space.lg },
   weatherState: { minHeight: 200, alignItems: 'center', justifyContent: 'center', gap: space.md },
 });

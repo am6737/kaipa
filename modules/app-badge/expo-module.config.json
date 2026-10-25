@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AppBadgeModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.appbadge.AppBadgeModule"]
+  }
+}

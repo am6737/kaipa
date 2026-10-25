@@ -1,0 +1,20 @@
+services:
+  storage-sweeper:
+    image: node:22-alpine
+    container_name: kaipa-storage-sweeper
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Storage writes its files as root; deleting them needs the same owner.
+    user: root
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      GLOBAL_S3_BUCKET: ${GLOBAL_S3_BUCKET}
+      SWEEP_DRY_RUN: ${STORAGE_SWEEP_DRY_RUN:-0}
+    volumes:
+      - ./storage-sweeper.mjs:/app/storage-sweeper.mjs:ro
+      - ./volumes/storage:/var/lib/storage:z
+    command: [node, /app/storage-sweeper.mjs]

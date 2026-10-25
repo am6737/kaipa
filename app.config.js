@@ -106,13 +106,19 @@ module.exports = ({ config }) => {
       {
         androidKey: process.env.AMAP_ANDROID_KEY || process.env.EXPO_PUBLIC_AMAP_ANDROID_KEY || '',
         enableLocation: true,
+        // Android: AMap's own foreground service keeps a trail recording alive
+        // with the screen off. Only while-in-use permission is ever requested.
+        enableBackgroundLocation: true,
         locationDescription: '开爬需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
       },
     ],
     [
       'expo-location',
       {
-        locationWhenInUsePermission: '开爬需要访问你的位置，以便在地图上显示当前位置并设置旅程地点。',
+        locationWhenInUsePermission: '开爬需要访问你的位置，以便在地图上显示当前位置、设置旅程地点，以及在徒步时记录轨迹。',
+        // iOS: a recording started on screen keeps going after the screen
+        // locks (blue status pill), with only while-in-use permission.
+        isIosBackgroundLocationEnabled: true,
       },
     ],
     [

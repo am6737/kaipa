@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { withAgentDeadline } from './agentRecovery';
+import { refreshSignedUrls } from './storage';
 
 export interface AgentQuickReply {
   label: string;
@@ -150,12 +151,15 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
-export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; askDeparture?: boolean; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
+export function sendAgentTurn(args: { message: string; displayMessage?: string; threadId?: string; currentJourneyId?: string; currentLocation?: import('./agentLocation').AgentLocation; departure?: string; departureWithRequest?: boolean; askDeparture?: boolean; intent?: AgentIntent; locale?: 'zh' | 'en'; clientRunId?: string; attachments?: AgentAttachment[]; clientLocalDate?: string; clientLocalTime?: string; clientTimeZone?: string; clientTimestamp?: string }) {
   return invoke<AgentTurnResponse>({ action: 'turn', ...args });
 }
 
-export function getAgentHistory(threadId: string) {
-  return invoke<AgentHistoryResponse>({ action: 'history', threadId });
+export async function getAgentHistory(threadId: string) {
+  const history = await invoke<AgentHistoryResponse>({ action: 'history', threadId });
+  // Attachments are kept as week-long signed links; renew the ones near expiry.
+  await refreshSignedUrls(history.messages.flatMap((message) => message.ui?.attachments ?? []));
+  return history;
 }
 
 export function retryAgentRun(runId: string) {

@@ -21,16 +21,45 @@ export async function refetchJourneyTimeline(journeyId: string) {
   await Promise.all([...(refreshers.get(journeyId) ?? [])].map((refresh) => refresh()));
 }
 
+const EMPTY_STATE: TLState = { rows: [], knownGroups: [], removedGroups: [], groupNotes: {}, groupRoutes: {} };
+// Journeys whose last fetch failed. Only shown when there is nothing cached:
+// a stale copy beats an error, and an error beats an itinerary that looks empty.
+const failed = new Set<string>();
+const hydrating = new Map<string, Promise<void>>();
+
+// A journey has an entry once the server or the disk copy has filled it, so
+// "no entry" is what tells the detail card it has nothing to show yet.
 function getState(key: string): TLState {
-  if (!cache.has(key)) cache.set(key, { rows: [], knownGroups: [], removedGroups: [], groupNotes: {}, groupRoutes: {} });
-  return cache.get(key)!;
+  return cache.get(key) ?? EMPTY_STATE;
+}
+
+function notify(key: string) {
+  listeners.get(key)?.forEach((fn) => fn());
 }
 
 function setState(key: string, updater: (prev: TLState) => TLState) {
   const next = updater(getState(key));
   cache.set(key, next);
   writeOfflineCache('timeline', key, next);
-  listeners.get(key)?.forEach((fn) => fn());
+  notify(key);
+}
+
+// Read the saved copy alongside the request instead of after it fails: a slow
+// network can hold the request for its whole timeout, and the itinerary should
+// show what it showed last time meanwhile. The server result always wins.
+function hydrateJourneyTimeline(journeyId: string) {
+  if (cache.has(journeyId)) return Promise.resolve();
+  const pending = hydrating.get(journeyId);
+  if (pending) return pending;
+  const request = readOfflineCache<TLState>('timeline', journeyId)
+    .then((saved) => {
+      if (!saved || cache.has(journeyId)) return;
+      cache.set(journeyId, saved);
+      notify(journeyId);
+    })
+    .finally(() => hydrating.delete(journeyId));
+  hydrating.set(journeyId, request);
+  return request;
 }
 
 const inFlight = new Map<string, Promise<void>>();
@@ -51,14 +80,14 @@ function loadJourneyTimeline(journeyId: string) {
       if (rowsResult.error) console.warn('[useTimeline] row fetch failed:', rowsResult.error.message);
       if (groupsResult.error) console.warn('[useTimeline] group fetch failed:', groupsResult.error.message);
       if (!rowsResult.data) {
-        // Offline: fall back to the copy saved the last time this journey loaded.
-        const saved = await readOfflineCache<TLState>('timeline', journeyId);
-        if (saved && !getState(journeyId).rows.length) {
-          cache.set(journeyId, saved);
-          listeners.get(journeyId)?.forEach((fn) => fn());
-        }
+        // Offline: keep whatever the saved copy gave us; flag the failure only
+        // so a journey with nothing cached can offer a retry.
+        await hydrateJourneyTimeline(journeyId);
+        failed.add(journeyId);
+        notify(journeyId);
         return;
       }
+      failed.delete(journeyId);
       const mapped = rowsResult.data.map(toTLRow);
       setState(journeyId, (prev) => {
         const groupRows = groupsResult.data;
@@ -87,6 +116,11 @@ function loadJourneyTimeline(journeyId: string) {
         });
         return { rows: mapped, knownGroups: [...new Set([...activeGroups, ...fromRows])], removedGroups, groupNotes: groupRows ? groupNotes : prev.groupNotes, groupRoutes };
       });
+    } catch (error) {
+      console.warn('[useTimeline] fetch failed:', error instanceof Error ? error.message : String(error));
+      await hydrateJourneyTimeline(journeyId);
+      failed.add(journeyId);
+      notify(journeyId);
     } finally {
       inFlight.delete(journeyId);
     }
@@ -145,11 +179,20 @@ export function useTimeline(
       return;
     }
     if (!journeyId || !userId) return;
+    void hydrateJourneyTimeline(journeyId);
     await loadJourneyTimeline(journeyId);
     setLoading(false);
   }, [journeyId, userId, preview]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+
+  const retry = useCallback(async () => {
+    if (!journeyId || preview) return;
+    failed.delete(journeyId);
+    setLoading(true);
+    notify(journeyId);
+    await fetchRows();
+  }, [fetchRows, journeyId, preview]);
 
   useEffect(() => {
     if (!key || preview) return;
@@ -386,5 +429,5 @@ export function useTimeline(
     }
   };
 
-  return { groupNotes: state.groupNotes, saveGroupNote, rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, isDone, toggle, add, update, remove, removeGroup, removeDay, renameGroup, addGroup, reorder };
+  return { groupNotes: state.groupNotes, saveGroupNote, rows: state.rows, knownGroups: state.knownGroups, removedGroups: state.removedGroups, loading: preview ? false : loading, hasData: Boolean(preview) || cache.has(key), loadFailed: !preview && failed.has(key), retry, isDone, toggle, add, update, remove, removeGroup, removeDay, renameGroup, addGroup, reorder };
 }

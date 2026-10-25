@@ -1,6 +1,7 @@
-// AccountPage.tsx — 个人资料 and 账号安全 pushed pages.
-// 注销账号, and a UID/join-date footer. Mirrors the prototype AccountScreen.
-import React, { useState } from 'react';
+// AccountPage.tsx — 个人资料 and 账号与安全 pushed pages. 账号与安全 lists the sign-in
+// methods (Apple / 邮箱 / 手机号) bound to this one account, plus 密码 when email is bound.
+// 注销账号 and 退出登录 sit below; 个人资料 ends with a UID/join-date card.
+import React, { useEffect, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { ActivityIndicator, AppState, InteractionManager, Platform, View, Text, StyleSheet, TextInput } from 'react-native';
@@ -16,7 +17,10 @@ import { MeSection, MeCard, MeRow } from './parts';
 import { MeEditField } from './EditFieldPage';
 import { AvatarUpdateError } from '../../hooks/useProfile';
 import { AccountActionDialog } from './AccountActionDialog';
-import { layout, radius, space } from '../../design-system';
+import { layout, radius, space, type } from '../../design-system';
+import { isAppleSignInAvailable, isAppleSignInCanceled, linkApple, unlinkLoginMethod } from '../../lib/auth';
+import { loginMethodErrorKey, maskPhone, useLoginMethods } from '../../hooks/useLoginMethods';
+import { usePublicRuntimeFlags } from '../../hooks/usePublicRuntimeFlags';
 
 const waitForNativePhotoPickerDismissal = async () => {
   if (AppState.currentState !== 'active') {
@@ -53,6 +57,7 @@ export function AccountPage({
   onBack,
   onEdit,
   onDeleteAccount,
+  onOpenLoginMethod,
   showToast,
 }: {
   theme: Theme;
@@ -61,6 +66,7 @@ export function AccountPage({
   onBack: () => void;
   onEdit: (field: MeEditField) => void;
   onDeleteAccount?: () => void;
+  onOpenLoginMethod?: (kind: 'email' | 'phone') => void;
   showToast: (m: string) => void;
 }) {
   const nav = useNav();
@@ -75,6 +81,51 @@ export function AccountPage({
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const { methods, usableCount } = useLoginMethods();
+  const { flags } = usePublicRuntimeFlags();
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [linkingApple, setLinkingApple] = useState(false);
+  const [appleUnbindOpen, setAppleUnbindOpen] = useState(false);
+  const [unbindingApple, setUnbindingApple] = useState(false);
+  // Apple 只能在 iPhone 上绑定；其它平台只在已绑定时露出这一行，方便解绑。
+  const showAppleRow = appleAvailable || !!methods.apple;
+
+  useEffect(() => {
+    if (section !== 'security') return;
+    let active = true;
+    void isAppleSignInAvailable().then((available) => { if (active) setAppleAvailable(available); });
+    return () => { active = false; };
+  }, [section]);
+
+  const onApplePress = async () => {
+    if (methods.apple) {
+      if (usableCount > 1) setAppleUnbindOpen(true);
+      else showToast(t('account.security.lastMethod'));
+      return;
+    }
+    if (!appleAvailable) {
+      showToast(t('account.security.appleIosOnly'));
+      return;
+    }
+    const { error } = await linkApple(() => setLinkingApple(true));
+    setLinkingApple(false);
+    if (error) {
+      if (!isAppleSignInCanceled(error)) showToast(t(loginMethodErrorKey(error, 'apple', 'link')));
+      return;
+    }
+    showToast(t('account.security.toastBound', { name: t('account.security.apple') }));
+  };
+
+  const unbindApple = async () => {
+    if (!methods.apple || unbindingApple) return;
+    setUnbindingApple(true);
+    const { error } = await unlinkLoginMethod(methods.apple.identity);
+    setUnbindingApple(false);
+    setAppleUnbindOpen(false);
+    showToast(error
+      ? t(loginMethodErrorKey(error, 'apple', 'unbind'))
+      : t('account.security.toastUnbound', { name: t('account.security.apple') }));
+  };
 
   const copyUid = async () => {
     await Clipboard.setStringAsync(uid);
@@ -225,17 +276,42 @@ export function AccountPage({
       </View>
       </> : null}
 
-      {section === 'security' ? <MeSection theme={theme} title={t('account.security.section')} horizontalPadding={layout.pagePadding}>
+      {section === 'security' ? <MeSection theme={theme} title={t('account.security.loginSection')} first horizontalPadding={layout.pagePadding}>
         <MeCard theme={theme}>
+          {showAppleRow ? (
+            <MeRow
+              theme={theme}
+              label={t('account.security.apple')}
+              detail={methods.apple ? t('account.security.bound') : t('account.security.notBound')}
+              trailing={linkingApple ? <ActivityIndicator color={theme.text3} /> : undefined}
+              onPress={linkingApple ? undefined : () => void onApplePress()}
+            />
+          ) : null}
           <MeRow
             theme={theme}
             label={t('account.security.email')}
-            detail={profile.email || t('account.security.notBound')}
-            detailMaxWidth="46%"
-            onPress={() =>
-              onEdit({ label: t('account.security.email'), key: 'email', value: profile.email, type: 'email', placeholder: t('account.security.emailPlaceholder') })
-            }
+            detail={methods.email?.value || t('account.security.notBound')}
+            detailMaxWidth="56%"
+            onPress={() => onOpenLoginMethod?.('email')}
           />
+          <MeRow
+            theme={theme}
+            label={t('account.security.phone')}
+            detail={methods.phone ? maskPhone(methods.phone.value) : t('account.security.notBound')}
+            onPress={() => {
+              if (!methods.phone && flags.phoneLogin === 'disabled') showToast(t('account.security.phoneUnavailable'));
+              else onOpenLoginMethod?.('phone');
+            }}
+            last
+          />
+        </MeCard>
+        <Text style={[type.caption, { color: theme.text3, paddingHorizontal: space.xs, paddingTop: space.sm, lineHeight: 18 }]}>
+          {t('account.security.loginHint')}
+        </Text>
+      </MeSection> : null}
+
+      {section === 'security' && methods.email ? <MeSection theme={theme} title={t('account.security.section')} horizontalPadding={layout.pagePadding}>
+        <MeCard theme={theme}>
           <MeRow
             theme={theme}
             label={t('account.security.password')}
@@ -315,6 +391,17 @@ export function AccountPage({
         }}
       /> : null}
 
+      {section === 'security' ? <AccountActionDialog
+        theme={theme}
+        visible={appleUnbindOpen}
+        title={t('account.security.unbindTitle', { name: t('account.security.apple') })}
+        message={t('account.security.unbindMessage', { name: t('account.security.apple') })}
+        confirmLabel={t('account.security.unbind')}
+        cancelLabel={t('common.cancel')}
+        confirming={unbindingApple}
+        onCancel={() => { if (!unbindingApple) setAppleUnbindOpen(false); }}
+        onConfirm={() => void unbindApple()}
+      /> : null}
     </MePushPage>
   );
 }

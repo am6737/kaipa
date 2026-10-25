@@ -17,6 +17,8 @@ _archive/
 /flyai-query.compose.yml
 /topic-guard/
 /topic-guard.compose.yml
+/storage-sweeper.mjs
+/storage-sweeper.compose.yml
 
 # docker-compose state / local overrides
 docker-compose.override.yml

@@ -124,3 +124,13 @@ SDK 入口在模块顶层就 `requireNativeModule('DooPushReactNativeSDK')`，�
   （线上实测；Web 控制台手动重发同文案同样报 400）——完全同文案的重复事件（同一人退出再加入
   同一旅程）过了我方 5 分钟窗口后仍会被 DooPush 挡掉，消息中心仍保留每条；接受此边界，
   不往用户可见文案里塞时间因子。
+
+## 桌面角标（2026-10-25）
+
+- 打开 App 或切回前台即清桌面角标和通知栏里本 App 的推送（`src/lib/appBadge.ts`，由
+  `PushBootstrap` 调用）；未读数只看消息中心红点。
+- 不再按未读数 `setBadge`：角标只在推送投递时被改写（iOS 每条设为 1，华为/荣耀累加，
+  原生 Android/三星/小米看通知栏），App 不在前台无法回写，按未读数同步注定对不上。
+- 原生部分在 `modules/app-badge`（iOS 清 Notification Center + `setBadgeCount(0)`；Android
+  取消非常驻通知），需重新打包；旧二进制只剩 DooPush `clearBadge()`，原生 Android/小米清不掉。
+- 小米不调 DooPush `clearBadge()`：它的 MIUI 分支会发一条空白通知。

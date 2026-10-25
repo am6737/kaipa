@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
+import type { Session, SupabaseClient, User, UserIdentity } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
@@ -48,6 +48,11 @@ export async function verifyPhoneOtp(phone: string, token: string) {
 const GUEST_ADJECTIVES = ['清风', '星河', '云端', '松林', '晨雾', '远峰', '溪谷'];
 const GUEST_NOUNS = ['旅人', '行者', '向导', '背包客', '探路者'];
 const GUEST_EMAIL_RE = /^[a-f0-9]{32}@guest\.kaipa\.app$/;
+
+/** 游客账号的占位邮箱：没人知道它的密码，所以不算可用的登录方式。 */
+export function isGuestEmail(email: string | null | undefined) {
+  return GUEST_EMAIL_RE.test((email ?? '').trim().toLowerCase());
+}
 
 type GuestAccountResponse = {
   session?: { access_token?: string; refresh_token?: string };
@@ -171,9 +176,7 @@ export function isAppleSignInCanceled(error: unknown) {
   return (error as { code?: string } | null)?.code === APPLE_CANCELED;
 }
 
-// onAuthorized 在原生面板收起、拿到凭证后调用：面板展示期间 JS 收不到任何事件，
-// UI 借此在卡片消失后恢复「正在连接」态（展示期间不显示加载层）。
-export async function signInWithApple(onAuthorized?: () => void) {
+async function requestAppleCredential() {
   const rawNonce = toHex(Crypto.getRandomBytes(32));
   const nonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
 
@@ -185,16 +188,74 @@ export async function signInWithApple(onAuthorized?: () => void) {
     });
   } catch (error) {
     // 用户取消时 error.code === 'ERR_REQUEST_CANCELED'，原样返回给 UI 决定是否提示。
-    return { data: null, error: error instanceof Error ? error : new Error('Apple 登录失败') };
+    return { credential: null, error: error instanceof Error ? error : new Error('Apple 登录失败') };
   }
 
   const identityToken = credential.identityToken;
-  if (!identityToken) return { data: null, error: new Error('Apple 未返回 identityToken') };
+  if (!identityToken) return { credential: null, error: new Error('Apple 未返回 identityToken') };
+  return { credential: { identityToken, rawNonce, fullName: credential.fullName }, error: null };
+}
+
+// onAuthorized 在原生面板收起、拿到凭证后调用：面板展示期间 JS 收不到任何事件，
+// UI 借此在卡片消失后恢复「正在连接」态（展示期间不显示加载层）。
+export async function signInWithApple(onAuthorized?: () => void) {
+  const { credential, error } = await requestAppleCredential();
+  if (!credential) return { data: null, error };
   onAuthorized?.();
 
-  const result = await supabase.auth.signInWithIdToken({ provider: 'apple', token: identityToken, nonce: rawNonce });
+  const result = await supabase.auth.signInWithIdToken({ provider: 'apple', token: credential.identityToken, nonce: credential.rawNonce });
   if (!result.error) await applyAppleName(credential.fullName);
   return result;
+}
+
+// ── 绑定 / 解绑登录方式 ───────────────────────────────────────────────────────
+// 一个账号（auth.users 一行）可以挂多个 identity：apple / email / phone，任何一个都能登进
+// 同一个账号。绑定都发生在已登录会话上：Apple 用 linkIdentity，邮箱和手机号走 GoTrue 的
+// email_change / phone_change 验证码。GoTrue 自己拒绝解绑最后一个 identity；游客的占位邮箱
+// 不算可用的登录方式，那一层由 UI 判断。
+
+/** 给当前账号补绑 Apple。这个 Apple ID 已属于别的账号时 GoTrue 返回 identity_already_exists。 */
+export async function linkApple(onAuthorized?: () => void) {
+  const { credential, error } = await requestAppleCredential();
+  if (!credential) return { data: null, error };
+  onAuthorized?.();
+  return supabase.auth.linkIdentity({ provider: 'apple', token: credential.identityToken, nonce: credential.rawNonce });
+}
+
+/** 向新邮箱发绑定验证码（关闭了 secure email change，只发给新邮箱）。 */
+export async function sendBindEmailCode(email: string) {
+  return withNetworkRetry(() => supabase.auth.updateUser({ email }));
+}
+
+/** 校验邮箱验证码，成功后再设登录密码：邮箱登录走的是邮箱 + 密码。 */
+export async function verifyBindEmail(email: string, token: string, password: string) {
+  const verified = await withNetworkRetry(() => supabase.auth.verifyOtp({ email, token, type: 'email_change' }));
+  if (verified.error) return verified;
+  const updated = await supabase.auth.updateUser({ password });
+  // 更换邮箱时填回原密码，GoTrue 报 same_password；邮箱已经绑上了，按成功处理。
+  if ((updated.error as { code?: string } | null)?.code === 'same_password') return { data: verified.data, error: null };
+  return updated;
+}
+
+/** 向新手机号发绑定验证码。手机号必须是 E.164（例如 +8613812345678）。 */
+export async function sendBindPhoneCode(phone: string) {
+  return withNetworkRetry(() => supabase.auth.updateUser({ phone }));
+}
+
+export async function verifyBindPhone(phone: string, token: string) {
+  return withNetworkRetry(() => supabase.auth.verifyOtp({ phone, token, type: 'phone_change' }));
+}
+
+export async function unlinkLoginMethod(identity: UserIdentity) {
+  const result = await supabase.auth.unlinkIdentity(identity);
+  if (result.error) return result;
+  // 解绑会改写 auth.users 上的 email / phone，刷新会话让本地 user 跟上。
+  await supabase.auth.refreshSession();
+  return result;
+}
+
+export async function getLoginIdentities() {
+  return supabase.auth.getUserIdentities();
 }
 
 export async function signOut() {

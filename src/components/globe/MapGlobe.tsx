@@ -483,7 +483,9 @@ export default function MapGlobe({
       const finalDistanceKm = Math.round(totalKm * 10) / 10;
       const finalPosition = positionAtDistance(measure, measure.totalMeters);
       values.push({ id: `route-distance-${track.id}-end`, coordinate: finalPosition.coordinate, anchor: Platform.OS === 'android' ? { x: 0.5, y: 1 } : { x: 0, y: 0.5 }, content: Platform.OS === 'android' ? (
-        <View style={styles.distanceMarkerWrap}><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View><View style={[styles.distanceDot, { backgroundColor: theme.accent }]} /></View>
+        // Over a caller's own finish badge the label stands clear of it
+        // instead of planting its dot on top.
+        <View style={styles.distanceMarkerWrap}><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View>{'endpoints' in track && track.endpoints === false ? <View style={styles.distanceMarkerBadgeSpacer} /> : <View style={[styles.distanceDot, { backgroundColor: theme.accent }]} />}</View>
       ) : (
         <View style={styles.distanceMarkerSideWrap}><View style={styles.distanceMarkerEndpointSpacer} /><View style={[styles.distanceMarker, { backgroundColor: theme.dark ? 'rgba(30,32,34,0.9)' : 'rgba(255,255,255,0.94)' }]}><Text style={[styles.distanceText, { color: theme.text }]}>{finalDistanceKm} km</Text></View></View>
       ) });
@@ -670,6 +672,7 @@ export default function MapGlobe({
     if (trackEndpointsVisible) {
       if (validFocusSegments) {
         validFocusSegments.forEach((segment, index) => {
+          if (segment.endpoints === false) return;
           const start = segment.coordinates[0];
           const end = segment.coordinates[segment.coordinates.length - 1];
           if (!start || !end) return;
@@ -748,6 +751,7 @@ const styles = StyleSheet.create({
   distanceMarkerWrap: { alignItems: 'center', justifyContent: 'center' },
   distanceMarkerSideWrap: { flexDirection: 'row', alignItems: 'center' },
   distanceMarkerEndpointSpacer: { width: 36 },
+  distanceMarkerBadgeSpacer: { height: 14 },
   distanceMarker: { minWidth: 38, paddingHorizontal: 6, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.16, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
   distanceText: { fontSize: 9.5, lineHeight: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   distanceDot: { width: 5, height: 5, marginTop: -1, borderRadius: 3, borderWidth: 1.5, borderColor: '#FFFFFF' },

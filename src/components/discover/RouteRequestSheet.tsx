@@ -10,8 +10,9 @@ import { useData } from "../../data/DataContext";
 import { DetailPage, radius, space, type } from "../../design-system";
 import { Press } from "../Press";
 import {
-  buildTrackDraft,
+  createTrackFromFile,
   parseTrackFile,
+  TRACK_MAX_BYTES,
   type TrackFile,
 } from "../../lib/trackImport";
 import { trackFormatFromName, type Track } from "../../data/tracks";
@@ -22,7 +23,6 @@ import type { RouteRequestAttachment } from "../../hooks/useRouteRequests";
 const TEXT_MAX = 200;
 const IMAGE_MAX = 6;
 const IMAGE_MAX_BYTES = 15 * 1024 * 1024;
-const TRACK_MAX_BYTES = 20 * 1024 * 1024;
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"];
 const IMAGE_MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -84,19 +84,19 @@ export function RouteRequestSheet({
     setBusy(true);
     setError(null);
     try {
-      if (trackFormatFromName(file.name || "")) {
-        if ((file.size ?? 0) > TRACK_MAX_BYTES) {
+      const trackFormat = trackFormatFromName(file.name || "");
+      if (trackFormat) {
+        // A KMZ is read by random access and trimmed to its track when too large.
+        if (trackFormat !== "kmz" && (file.size ?? 0) > TRACK_MAX_BYTES) {
           setError(t("routeRequest.trackTooLarge"));
           return;
         }
         const parsed = await parseTrackFile(file, t);
-        const draft = await buildTrackDraft(parsed, {
+        const { track: created } = await createTrackFromFile(parsed, {
           userId: data.userId,
           sourceUri: file.uri,
           fileSize: file.size,
-        });
-        const created = await data.createTrack(draft);
-        if (!created) throw new Error("TRACK_INSERT_FAILED");
+        }, data.createTrack);
         setTrack(created);
       } else if (IMAGE_EXTENSIONS.includes(ext)) {
         if (images.length >= IMAGE_MAX) {
@@ -108,8 +108,8 @@ export function RouteRequestSheet({
           return;
         }
         const mime = IMAGE_MIME[ext] || "image/jpeg";
-        const url = await uploadAgentAttachment(file.uri, data.userId, file.name || `image.${ext}`, mime);
-        setImages((v) => [...v, { url, name: file.name || `image.${ext}`, mime }]);
+        const uploaded = await uploadAgentAttachment(file.uri, data.userId, file.name || `image.${ext}`, mime);
+        setImages((v) => [...v, { url: uploaded.url, name: uploaded.name, mime: uploaded.mimeType }]);
       } else {
         setError(t("routeRequest.fileUnsupported"));
       }

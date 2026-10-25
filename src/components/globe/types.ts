@@ -65,6 +65,8 @@ export interface GlobeRouteSegment {
   coordinates: [number, number][];
   color: string;
   active: boolean;
+  /** `false` leaves out the start/finish dots; the caller draws its own. */
+  endpoints?: boolean;
 }
 
 /** A leg between two consecutive itinerary stops of the same day. */

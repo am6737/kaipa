@@ -215,6 +215,21 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
   }, [allItems, data.gearLoading, nav.gearItemRequestId]);
 
   useEffect(() => {
+    if (nav.gearSetRequestId == null) return;
+    const set = sets.find((candidate) => candidate.id === nav.gearSetRequestId);
+    if (!set) {
+      if (!data.gearLoading) {
+        // The set may be gone; its collection is the closest useful page.
+        setPageStack([{ type: 'setsList' }]);
+        nav.clearGearSetRequest();
+      }
+      return;
+    }
+    setPageStack([{ type: 'setsList' }, { type: 'set', set }]);
+    nav.clearGearSetRequest();
+  }, [sets, data.gearLoading, nav.gearSetRequestId]);
+
+  useEffect(() => {
     if (!nav.gearPageRequest) return;
     setPageStack([{ type: nav.gearPageRequest === 'sets' ? 'setsList' : 'itemsList' }]);
     nav.clearGearPageRequest();

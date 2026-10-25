@@ -22,6 +22,7 @@ import { TrackDetailContent } from '../overlays/TrackDetailContent';
 import { trackToPoi } from './trackToPoi';
 import { PickDialog } from './PickDialog';
 import { RenameTrackDialog } from './RenameTrackDialog';
+import { trailRouteFromTrack, useOpenTrail } from '../../trail/trailRoutes';
 
 // Distance and ascent are the two numbers worth reading before the map, so they
 // sit in the same field tiles the gear detail pages use for their headline stats.
@@ -68,6 +69,8 @@ export function TrackDetailPage({
 
   const linkedJourneys = useMemo(() => data.journeys.filter((journey) => journey.trackId === track.id), [data.journeys, track.id]);
   const info = useMemo(() => trackToPoi(track), [track]);
+  const followRoute = useMemo(() => trailRouteFromTrack(track), [track]);
+  const openTrail = useOpenTrail();
   const hasElevation = (track.elevation?.length ?? 0) >= 2;
   const dist = splitMeasure(track.distM != null ? formatTrackDistance(track.distM) : null);
   const asc = splitMeasure(track.ascM != null ? formatTrackAscent(track.ascM) : null);
@@ -95,6 +98,7 @@ export function TrackDetailPage({
 
   const openMore = () => nav.openActionSheet({
     items: [
+      ...(followRoute ? [{ label: t('trail.entry.followTrack'), icon: 'play' as const, onPress: () => openTrail(followRoute) }] : []),
       { label: t('tracks.action.rename'), icon: 'edit', onPress: () => setRenameOpen(true) },
       { label: t('tracks.action.apply'), icon: 'route', onPress: () => setApplyOpen(true) },
       { label: t('tracks.action.export'), icon: 'download', onPress: exportGpx },

@@ -11,6 +11,13 @@ export function requestsCurrentLocation(message: string): boolean {
   return /当前位置|当前定位|(?:本次|这次)(?:的)?定位|(?:设备|手机)(?:的)?(?:当前位置|当前定位|定位|位置)|现在的位置|我现在在哪|我现在所在|我所在的位置|我的位置|从我这[里儿]出发|从这里出发|帮我定位|获取定位|\b(?:my|current)\s+location\b|\b(?:start|depart|leave)\s+from\s+here\b|\bwhere\s+i\s+am\b/i.test(message);
 }
 
+// A message that names its own origin ("从重庆出发去…") keeps it; a device fix
+// sent with it would outrank what the user wrote.
+export function statesDeparture(message: string): boolean {
+  return /从(?!这|那|我|当前|现在|出发)[^\s，。,.！!？?、；;从]{2,20}?(?:出发|动身|启程|过去|飞|坐|开车|自驾|到|去)/.test(message)
+    || /\b(?:leav(?:e|ing)|depart(?:ing)?|start(?:ing)?|com(?:e|ing))\s+from\s+(?!(?:here|there|my|your|the|and|current|where)\b)[a-z]/i.test(message);
+}
+
 export type AgentLocationIntent = 'transport' | 'request_location';
 
 // The departure this conversation already settled for the journey, if any.

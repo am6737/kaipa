@@ -1,4 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import { Dimensions } from 'react-native';
 import MapView, { Marker, Polyline, type EdgePadding, type MapType, type Region } from 'react-native-maps';
 import { fitBoundsCorners, mapPoiFromProvider, projectTrack, withColorAlpha, type NativeMapHandle, type NativeMapProps } from './types';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
@@ -12,34 +13,72 @@ function padding(value: [number, number, number, number] = [28, 28, 28, 28]): Ed
   return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
 }
 
-function region(coordinate: [number, number], zoom: number): Region {
-  const delta = 360 / (2 ** Math.max(0, Math.min(20, zoom)));
+type Size = { width: number; height: number };
+
+/**
+ * Zoom follows the AMap/Google convention every caller and the waypoint
+ * clustering assume: the world is 256 * 2^zoom points wide. MapKit only speaks
+ * in spans, so the conversion needs the view's size; before layout the window
+ * stands in, which is what full-width maps end up at anyway.
+ */
+function viewSize(size?: Size): Size {
+  if (size && size.width > 0 && size.height > 0) return size;
+  const window = Dimensions.get('window');
+  return { width: window.width, height: window.height };
+}
+
+function worldSize(zoom: number) {
+  return 256 * 2 ** Math.max(0, Math.min(21, zoom));
+}
+
+function mercatorY(latitude: number) {
+  const lat = Math.max(-85.051129, Math.min(85.051129, latitude)) * Math.PI / 180;
+  return Math.log(Math.tan(Math.PI / 4 + lat / 2));
+}
+
+function latitudeAt(y: number) {
+  return (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
+}
+
+/** The zoom a visible longitude span of `longitudeDelta` degrees is, at this width. */
+export function zoomForSpan(longitudeDelta: number, size?: Size): number {
+  return Math.log2((360 * viewSize(size).width) / (256 * longitudeDelta));
+}
+
+export function region(coordinate: [number, number], zoom: number, size?: Size): Region {
+  const { width, height } = viewSize(size);
+  const world = worldSize(zoom);
+  const center = point(coordinate);
+  // Latitude is not linear in Mercator: take the span the view's height covers
+  // around this centre, so a short view isn't zoomed out to fit a square span.
+  const y = mercatorY(center.latitude);
+  const halfHeight = (height / 2 / world) * 2 * Math.PI;
   return {
-    ...point(coordinate),
-    latitudeDelta: delta,
-    longitudeDelta: delta,
+    ...center,
+    latitudeDelta: latitudeAt(y + halfHeight) - latitudeAt(y - halfHeight),
+    longitudeDelta: (360 * width) / world,
   };
 }
 
 /**
  * MapKit always puts the region's centre in the middle of the view, so a point
  * that has to land inside a padded box is moved the other way by the distance
- * between the two centres. Uses the same zoom-to-degrees mapping as `region`.
+ * between the two centres, measured in Mercator points at `zoom`.
  */
 export function offsetCenter(
   coordinate: [number, number],
   zoom: number,
   edgePadding: [number, number, number, number] | undefined,
-  size: { width: number; height: number },
+  size: Size,
 ): [number, number] {
   if (!edgePadding || size.width <= 0 || size.height <= 0) return coordinate;
   const [top, right, bottom, left] = edgePadding;
-  const delta = 360 / (2 ** Math.max(0, Math.min(20, zoom)));
-  const offsetX = size.width / 2 - (left + size.width - right) / 2;
-  const offsetY = size.height / 2 - (top + size.height - bottom) / 2;
+  const world = worldSize(zoom);
+  const offsetX = (right - left) / 2;
+  const offsetY = (bottom - top) / 2;
   return [
-    coordinate[0] + (offsetX * delta) / size.width,
-    coordinate[1] - (offsetY * delta) / size.height,
+    coordinate[0] + (offsetX / world) * 360,
+    latitudeAt(mercatorY(coordinate[1]) - (offsetY / world) * 2 * Math.PI),
   ];
 }
 
@@ -124,11 +163,28 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
         const target = offsetCenter(coordinate, zoom, options?.edgePadding, layoutSize.current);
-        if (options?.resetOrientation) {
-          mapRef.current?.animateCamera({ center: point(target), zoom, heading: 0, pitch: 0 }, { duration });
-        } else {
-          mapRef.current?.animateToRegion(region(target, zoom), duration);
+        const toRegion = (ms: number) => mapRef.current?.animateToRegion(region(target, zoom, layoutSize.current), ms);
+        if (!options?.resetOrientation) {
+          toRegion(duration);
+          return;
         }
+        // Apple Maps reads only `altitude` from a camera, never `zoom`, so a
+        // camera move alone can't hit the requested zoom. Level the map first,
+        // then let the region move set the zoom; a level map skips step one.
+        void mapRef.current?.getCamera().then((camera) => {
+          const heading = (((camera.heading ?? 0) % 360) + 360) % 360;
+          if (Math.min(heading, 360 - heading) < 0.5 && Math.abs(camera.pitch ?? 0) < 0.5) {
+            toRegion(duration);
+            return;
+          }
+          const level = Math.round(duration * 0.4);
+          mapRef.current?.animateCamera({ center: point(target), heading: 0, pitch: 0 }, { duration: level });
+          setTimeout(() => {
+            // The leveling move used up this call's completion; the zoom is a second one.
+            markProgrammaticMove(duration - level);
+            toRegion(duration - level);
+          }, level);
+        }, () => toRegion(duration));
       });
     },
     resetNorth: () => {
@@ -196,14 +252,15 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       }}
       onPanDrag={onGestureStart ? () => onGestureStart() : undefined}
       onRegionChange={(visibleRegion) => {
-        if (visibleRegion.longitudeDelta > 0) onZoomChange?.(Math.log2(360 / visibleRegion.longitudeDelta));
+        if (visibleRegion.longitudeDelta > 0) onZoomChange?.(zoomForSpan(visibleRegion.longitudeDelta, layoutSize.current));
       }}
       onRegionChangeComplete={(visibleRegion) => {
-        if (visibleRegion.longitudeDelta > 0) onZoomChange?.(Math.log2(360 / visibleRegion.longitudeDelta));
         if (visibleRegion.longitudeDelta > 0) {
+          const zoom = zoomForSpan(visibleRegion.longitudeDelta, layoutSize.current);
+          onZoomChange?.(zoom);
           onCameraPositionChange?.({
             center: gcj02ToWgs84([visibleRegion.longitude, visibleRegion.latitude]),
-            zoom: Math.log2(360 / visibleRegion.longitudeDelta),
+            zoom,
           });
         }
         // Our own move is attributed by counting completions, not by wall clock.

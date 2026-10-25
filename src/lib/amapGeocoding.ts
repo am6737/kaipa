@@ -10,8 +10,16 @@ export interface JourneyLocationValue {
   category?: string;
 }
 
+// A city or district a departure can name; `place` is the full 省市区 path.
+export interface DepartureRegion {
+  name: string;
+  parent: string;
+  place: string;
+}
+
 interface MapSearchResponse {
   results?: JourneyLocationValue[];
+  regions?: DepartureRegion[];
   result?: JourneyLocationValue;
   legs?: PlannedLeg[];
   error?: { code?: string };
@@ -56,6 +64,11 @@ export async function searchJourneyLocations(
 ): Promise<JourneyLocationValue[]> {
   const payload = await request({ action: 'search', query, language, proximity }, signal);
   return payload.results || [];
+}
+
+export async function searchDepartureRegions(query: string, signal?: AbortSignal): Promise<DepartureRegion[]> {
+  const payload = await request({ action: 'regions', query }, signal);
+  return payload.regions || [];
 }
 
 export async function reverseJourneyLocation(

@@ -14,19 +14,6 @@ export function isLoopTrack(coords?: Coordinate[]): boolean {
   return distanceMeters(coords[0], coords[coords.length - 1]) <= LOOP_GAP_METERS;
 }
 
-/** Turning sense of a loop as recorded, from its signed area (shoelace) with
- *  longitude scaled by the latitude so the shape isn't skewed. */
-export function loopIsClockwise(coords: Coordinate[]): boolean {
-  const scale = Math.cos((coords.reduce((sum, [, lat]) => sum + lat, 0) / coords.length) * Math.PI / 180);
-  let area = 0;
-  for (let i = 0; i < coords.length; i += 1) {
-    const [x1, y1] = coords[i];
-    const [x2, y2] = coords[(i + 1) % coords.length];
-    area += x1 * scale * y2 - x2 * scale * y1;
-  }
-  return area < 0;
-}
-
 /**
  * The route as walked from its recorded finish: coordinates and profile in
  * reverse, waypoint mileage counted from the other end, and the ascent of the

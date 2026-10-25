@@ -12,6 +12,9 @@ import { reverseRoute } from '../lib/routeDirection';
 export type MainTab = 'discover' | 'journey' | 'gear' | 'me';
 export type SubTab = 'explore' | 'memory';
 export type GearPageRequest = 'sets' | 'items';
+export type JourneyTabRequest = { journeyId: string; tab?: 'checklist'; day?: string };
+/** Curated route lists opened from the journey starter cards. */
+export type RouteTopic = 'season' | 'easy' | 'hard';
 
 export type JourneyPatch = Partial<Poi>;
 
@@ -65,9 +68,16 @@ export interface NavValue {
   gearItemRequestId: number | null;
   openGearItem: (itemId: number) => void;
   clearGearItemRequest: () => void;
+  gearSetRequestId: string | null;
+  openGearSet: (setId: string) => void;
+  clearGearSetRequest: () => void;
   gearPageRequest: GearPageRequest | null;
   openGearPage: (page: GearPageRequest) => void;
   clearGearPageRequest: () => void;
+  /** Asks the journey detail to open on a tab or day, e.g. where the assistant just made changes. */
+  journeyTabRequest: JourneyTabRequest | null;
+  requestJourneyTab: (request: JourneyTabRequest) => void;
+  clearJourneyTabRequest: () => void;
 
   // selected POI + bottom sheet
   pointInfo: Poi | null;
@@ -123,6 +133,19 @@ export interface NavValue {
   journeyCodeEntryOpen: boolean;
   openJourneyCodeEntry: () => void;
   closeJourneyCodeEntry: () => void;
+  itineraryImportOpen: boolean;
+  openItineraryImport: () => void;
+  closeItineraryImport: () => void;
+  routeTopic: RouteTopic | null;
+  openRouteTopic: (topic: RouteTopic) => void;
+  closeRouteTopic: () => void;
+  plusPosterOpen: boolean;
+  openPlusPoster: () => void;
+  closePlusPoster: () => void;
+  /** Set when another tab asks 我的 to show the membership page. */
+  membershipPageRequest: boolean;
+  openMembershipPage: () => void;
+  clearMembershipPageRequest: () => void;
 
   elevFull: OverlayCfg | null;
   openElevation: (c: OverlayCfg) => void;
@@ -242,6 +265,8 @@ export function NavProvider({
   const [mainTab, setMainTabRaw] = useState<MainTab>('discover');
   const [subTab, setSubTabRaw] = useState<SubTab>('explore');
   const [gearItemRequestId, setGearItemRequestId] = useState<number | null>(null);
+  const [gearSetRequestId, setGearSetRequestId] = useState<string | null>(null);
+  const [journeyTabRequest, setJourneyTabRequest] = useState<JourneyTabRequest | null>(null);
   const [gearPageRequest, setGearPageRequest] = useState<GearPageRequest | null>(null);
   const [pointInfo, setPointInfo] = useState<Poi | null>(null);
   const [pointSource, setPointSource] = useState<Poi | null>(null);
@@ -257,6 +282,10 @@ export function NavProvider({
   const [newJourneyPreset, setNewJourneyPreset] = useState<Poi | null>(null);
   const [journeyInviteScannerOpen, setJourneyInviteScannerOpen] = useState(false);
   const [journeyCodeEntryOpen, setJourneyCodeEntryOpen] = useState(false);
+  const [itineraryImportOpen, setItineraryImportOpen] = useState(false);
+  const [routeTopic, setRouteTopic] = useState<RouteTopic | null>(null);
+  const [plusPosterOpen, setPlusPosterOpen] = useState(false);
+  const [membershipPageRequest, setMembershipPageRequest] = useState(false);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
   const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null>(null);
@@ -300,6 +329,9 @@ export function NavProvider({
     newJourneyOpen ||
     journeyInviteScannerOpen ||
     journeyCodeEntryOpen ||
+    itineraryImportOpen ||
+    routeTopic ||
+    plusPosterOpen ||
     elevFull ||
     photoWall ||
     timelineAdd ||
@@ -333,6 +365,9 @@ export function NavProvider({
     setNewJourneyPreset(null);
     setJourneyInviteScannerOpen(false);
     setJourneyCodeEntryOpen(false);
+    setItineraryImportOpen(false);
+    setRouteTopic(null);
+    setPlusPosterOpen(false);
     setElevFull(null);
     setPhotoWall(null);
     setTimelineAdd(null);
@@ -412,17 +447,30 @@ export function NavProvider({
       gearItemRequestId,
       openGearItem: (itemId) => {
         setGearPageRequest(null);
+        setGearSetRequestId(null);
         setGearItemRequestId(itemId);
         setMainTab('gear');
       },
       clearGearItemRequest: () => setGearItemRequestId(null),
+      gearSetRequestId,
+      openGearSet: (setId) => {
+        setGearPageRequest(null);
+        setGearItemRequestId(null);
+        setGearSetRequestId(setId);
+        setMainTab('gear');
+      },
+      clearGearSetRequest: () => setGearSetRequestId(null),
       gearPageRequest,
       openGearPage: (page) => {
         setGearItemRequestId(null);
+        setGearSetRequestId(null);
         setGearPageRequest(page);
         setMainTab('gear');
       },
       clearGearPageRequest: () => setGearPageRequest(null),
+      journeyTabRequest,
+      requestJourneyTab: (request) => setJourneyTabRequest(request),
+      clearJourneyTabRequest: () => setJourneyTabRequest(null),
       pointInfo,
       pointSource,
       sheetOpen,
@@ -437,6 +485,8 @@ export function NavProvider({
       openPoint: (p, source) => {
         setActionSheet(null);
         setAddRouteOpen(false);
+        // Details render under the tab screens; a topic page on top would hide them.
+        setRouteTopic(null);
         setJourneyVersionPreview(null);
         setPointInfo(merged(p));
         setSheetOpen(true);
@@ -497,6 +547,22 @@ export function NavProvider({
       journeyCodeEntryOpen,
       openJourneyCodeEntry: () => setJourneyCodeEntryOpen(true),
       closeJourneyCodeEntry: () => setJourneyCodeEntryOpen(false),
+      itineraryImportOpen,
+      openItineraryImport: () => setItineraryImportOpen(true),
+      closeItineraryImport: () => setItineraryImportOpen(false),
+      routeTopic,
+      openRouteTopic: (topic) => setRouteTopic(topic),
+      closeRouteTopic: () => setRouteTopic(null),
+      plusPosterOpen,
+      openPlusPoster: () => setPlusPosterOpen(true),
+      closePlusPoster: () => setPlusPosterOpen(false),
+      membershipPageRequest,
+      openMembershipPage: () => {
+        setPlusPosterOpen(false);
+        setMembershipPageRequest(true);
+        setMainTab('me');
+      },
+      clearMembershipPageRequest: () => setMembershipPageRequest(false),
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
@@ -620,7 +686,9 @@ export function NavProvider({
     [
       mainTab,
       gearItemRequestId,
+      gearSetRequestId,
       gearPageRequest,
+      journeyTabRequest,
       pointInfo,
       pointSource,
       sheetOpen,
@@ -635,6 +703,10 @@ export function NavProvider({
       routeGuide,
       journeyInviteScannerOpen,
       journeyCodeEntryOpen,
+      itineraryImportOpen,
+      routeTopic,
+      plusPosterOpen,
+      membershipPageRequest,
       elevFull,
       photoWall,
       timelineAdd,

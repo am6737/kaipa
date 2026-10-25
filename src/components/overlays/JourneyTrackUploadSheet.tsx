@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, Modal, Pressable, StyleSheet, Text
 import { File as FSFile } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../theme/theme';
-import { buildTrackDraft, parseTrackFile, TrackFileError } from '../../lib/trackImport';
+import { createTrackFromFile, parseTrackFile, TrackFileError } from '../../lib/trackImport';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { useData } from '../../data/DataContext';
@@ -92,13 +92,11 @@ export function JourneyTrackUploadSheet({ theme, replacing, onClose }: { theme: 
     setLoading(true);
     try {
       const parsed = await parseTrackFile(selectedFile, t);
-      const draft = await buildTrackDraft(parsed, { userId, sourceUri: selectedFile.uri, fileSize: selectedFile.size });
-      const track = await createTrack(draft);
-      if (!track) throw new Error('TRACK_INSERT_FAILED');
+      const { track, archiveTrimmed } = await createTrackFromFile(parsed, { userId, sourceUri: selectedFile.uri, fileSize: selectedFile.size }, createTrack);
       // The journey only points at the track; geometry lives in the library.
       nav.patchCurrent({ trackId: track.id, dist: parsed.dist, ...(parsed.asc ? { asc: parsed.asc } : {}) });
       close(true);
-      nav.showToast(t('journey.track.uploadSuccess'));
+      nav.showToast(t(archiveTrimmed ? 'record.track.archiveTrimmed' : 'journey.track.uploadSuccess'));
     } catch (error) {
       console.warn('[JourneyTrackUpload] track import error:', error);
       nav.showToast(t(error instanceof TrackFileError ? error.messageKey : 'record.track.errParse'));
