@@ -88,6 +88,7 @@ module.exports = ({ config }) => {
   },
   android: {
     ...config.android,
+    allowBackup: false,
     package: variantId(config.android.package),
     userInterfaceStyle: 'automatic',
   },
