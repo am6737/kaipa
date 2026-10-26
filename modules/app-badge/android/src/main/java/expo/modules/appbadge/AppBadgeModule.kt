@@ -20,7 +20,7 @@ class AppBadgeModule : Module() {
     Name("AppBadge")
 
     AsyncFunction("clearAll") {
-      val context = appContext.reactContext ?: return@AsyncFunction
+      val context = appContext.reactContext ?: return@AsyncFunction Unit
       val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
       val keep = Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE
       for (sbn in nm.activeNotifications) {
