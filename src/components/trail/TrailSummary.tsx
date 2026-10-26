@@ -1,11 +1,12 @@
 // TrailSummary.tsx — the panel once a recording is finished: what was walked,
 // under its name and when, and one way on (save). 继续记录 stays in sight
 // because 结束 no longer asks first, so it is the way back from a mis-tap.
-// 放弃 sits behind ⋯ and still asks; finishing never deletes. A recording too
-// short to save has no ⋯: 继续 and 放弃 are then the only ways out, side by side.
+// There is no 放弃, after Komoot and AllTrails: a walk is always kept, and an
+// unwanted one is deleted from the track page that saving opens. A recording
+// too short to save has nothing to lose, so 关闭 there just clears it.
 import React, { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
-import { AppActionDialog, AppIconButton, radius, space, type } from '../../design-system';
+import { radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import { MONO } from '../../theme/fonts';
@@ -16,6 +17,7 @@ import { clearTrail, reopenTrail, type TrailSession } from '../../lib/trailRecor
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { RenameTrackDialog } from '../tracks/RenameTrackDialog';
+import { TrailControlButton } from './TrailControlButton';
 import { TrailProfile } from './TrailProfile';
 
 type T = ReturnType<typeof useI18n>['t'];
@@ -27,7 +29,6 @@ export function TrailSummary({ theme, session, arrived }: { theme: Theme; sessio
   const [name, setName] = useState(() => session.route?.name ?? defaultName(t, session.startedAt));
   const [saving, setSaving] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [discardOpen, setDiscardOpen] = useState(false);
   const pointCount = session.segments.reduce((sum, segment) => sum + segment.length, 0);
   const tooShort = pointCount < 2;
   const distance = splitDistance(session.totals.distM);
@@ -63,13 +64,6 @@ export function TrailSummary({ theme, session, arrived }: { theme: Theme; sessio
     }
   };
 
-  const openMore = () => nav.openActionSheet({
-    items: [
-      { label: t('trail.summary.rename'), icon: 'edit', onPress: () => setRenameOpen(true) },
-      { label: t('trail.summary.discard'), icon: 'trash', destructive: true, onPress: () => setDiscardOpen(true) },
-    ],
-  });
-
   return (
     <View>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
@@ -92,7 +86,6 @@ export function TrailSummary({ theme, session, arrived }: { theme: Theme; sessio
             {t('trail.summary.when', { date: formatDate(t, session.startedAt), start: formatTime(session.startedAt), end: formatTime(endedAt) })}
           </Text>
         </View>
-        {!tooShort ? <AppIconButton theme={theme} name="more" onPress={openMore} noShadow size={36} accessibilityLabel={t('journey.section.more')} /> : null}
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.xxs, marginTop: space.xs }}>
@@ -121,48 +114,22 @@ export function TrailSummary({ theme, session, arrived }: { theme: Theme; sessio
         </View>
       ) : null}
 
-      {tooShort ? (
-        <>
-          <Text style={[type.hint, { color: theme.text2, marginTop: space.md }]}>{t('trail.summary.tooShort')}</Text>
-          <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
-            <Press
-              onPress={() => void reopenTrail()}
-              accessibilityRole="button"
-              style={{ flex: 1, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
-            >
-              <Text style={[type.chip, { color: theme.text }]}>{t('trail.summary.resume')}</Text>
-            </Press>
-            <Press
-              onPress={() => setDiscardOpen(true)}
-              accessibilityRole="button"
-              style={{ flex: 1, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Text style={[type.chip, { color: theme.danger }]}>{t('trail.summary.discard')}</Text>
-            </Press>
-          </View>
-        </>
-      ) : (
-        <>
-          <Press
-            onPress={() => void save()}
-            disabled={saving}
-            accessibilityRole="button"
-            accessibilityState={{ busy: saving }}
-            style={{ marginTop: space.md, height: 52, borderRadius: radius.card, backgroundColor: theme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, opacity: saving ? 0.6 : 1 }}
-          >
-            <Icon name="check" color="#FFFFFF" size={18} />
-            <Text style={[type.quickReply, { color: '#FFFFFF' }]}>{saving ? t('trail.summary.saving') : t('trail.summary.save')}</Text>
-          </Press>
-          <Press
-            onPress={() => void reopenTrail()}
-            disabled={saving}
-            accessibilityRole="button"
-            style={{ height: 44, marginTop: space.xxs, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={[type.chip, { color: theme.accent }]}>{t('trail.summary.resume')}</Text>
-          </Press>
-        </>
-      )}
+      {tooShort ? <Text style={[type.hint, { color: theme.text2, marginTop: space.md }]}>{t('trail.summary.tooShort')}</Text> : null}
+      {/* Laid out like the paused footer's 结束/继续: the way back on the left,
+          the way on filling the rest. */}
+      <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
+        {tooShort ? (
+          <>
+            <TrailControlButton theme={theme} label={t('common.close')} muted onPress={() => void clearTrail().then(trail.closeTrail)} />
+            <TrailControlButton theme={theme} icon="play" label={t('trail.summary.resume')} primary grow={2} onPress={() => void reopenTrail()} />
+          </>
+        ) : (
+          <>
+            <TrailControlButton theme={theme} icon="play" label={t('trail.summary.resume')} disabled={saving} onPress={() => void reopenTrail()} />
+            <TrailControlButton theme={theme} icon="check" label={saving ? t('trail.summary.saving') : t('trail.summary.save')} primary grow={2} disabled={saving} busy={saving} onPress={() => void save()} />
+          </>
+        )}
+      </View>
 
       <RenameTrackDialog
         theme={theme}
@@ -176,21 +143,6 @@ export function TrailSummary({ theme, session, arrived }: { theme: Theme; sessio
         onConfirm={(next) => {
           setRenameOpen(false);
           if (next.trim()) setName(next.trim());
-        }}
-      />
-      <AppActionDialog
-        theme={theme}
-        visible={discardOpen}
-        destructive
-        title={t('trail.summary.discardTitle')}
-        message={t('trail.summary.discardMessage')}
-        confirmLabel={t('trail.summary.discard')}
-        cancelLabel={t('common.cancel')}
-        confirmIcon="trash"
-        onCancel={() => setDiscardOpen(false)}
-        onConfirm={() => {
-          setDiscardOpen(false);
-          void clearTrail().then(trail.closeTrail);
         }}
       />
     </View>

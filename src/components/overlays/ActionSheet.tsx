@@ -19,7 +19,7 @@ export function ActionSheet({ theme, config, onClose }: { theme: Theme; config: 
   const groupBg = theme.dark ? 'rgba(40,40,44,0.96)' : 'rgba(255,255,255,0.98)';
 
   return (
-    <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 200 }]}>
+    <View style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', zIndex: 450 }]}>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.32)' }]} onPress={onClose} />
       <Animated.View style={{ transform: [{ translateY }], paddingHorizontal: 8, paddingBottom: Math.max(insets.bottom, 10) }}>
         <View style={{ backgroundColor: groupBg, borderRadius: 16, overflow: 'hidden' }}>

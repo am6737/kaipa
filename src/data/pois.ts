@@ -93,6 +93,8 @@ export interface Poi {
   routeShowTimeline?: boolean; // show itinerary on the published route card
   // route-catalog season metadata, curated in scripts/route-seasons.json
   bestMonths?: number[]; // months 1-12 suitable for this route
+  /** Catalog routes: every usual walking-day count, e.g. [1, 2, 3] or [3, 5]. */
+  routeDays?: number[];
   seasonNote?: string; // caveats the months can't express (封山期, 雨季…)
   deletedAt?: string; // journey-only: present while the journey is in the trash
 }

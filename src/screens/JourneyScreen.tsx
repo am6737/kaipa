@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Platform, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowRight, Check, Copy, LogOut, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
+import { ArrowRight, Copy, LogOut, Pin, PinOff, Plus, Search, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated, { Extrapolation, interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import { ScrollView as GestureScrollView } from 'react-native-gesture-handler';
@@ -21,7 +21,7 @@ import { JourneyCreateMenu } from '../components/journey/JourneyCreateMenu';
 import { JourneyPlanCard, journeyStartDate, journeyStatus, type JourneyStatus } from '../components/journey/JourneyPlanCard';
 import { JourneyFeatureDeck, type FeatureDeckCard } from '../components/journey/JourneyFeatureDeck';
 import { usePinnedJourneys } from '../components/journey/usePinnedJourneys';
-import { AppActionDialog, layout, radius, space, type } from '../design-system';
+import { AppActionDialog, AppFilterButton, AppFilterOption, AppFilterPopover, AppFilterSegmented, layout, radius, space, type, type AppFilterAnchor } from '../design-system';
 
 type JourneyDateFilter = 'all' | 'dated' | 'undated';
 type JourneySort = 'recent' | 'date';
@@ -102,29 +102,14 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
   const [dateFilter, setDateFilter] = useState<JourneyDateFilter>('all');
   const [sortMode, setSortMode] = useState<JourneySort>('recent');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const pageRef = useRef<View>(null);
   const filterAnchorRef = useRef<View>(null);
-  const [filterPosition, setFilterPosition] = useState({ top: 0, right: 18 });
+  const [filterAnchor, setFilterAnchor] = useState<AppFilterAnchor>();
   const [deleteCandidate, setDeleteCandidate] = useState<Poi | null>(null);
   const [deletingId, setDeletingId] = useState<string>();
   const [duplicatingId, setDuplicatingId] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
   const pageScrollRef = useRef<React.ElementRef<typeof GestureScrollView>>(null);
   const [deckHeld, setDeckHeld] = useState(false);
-  // AppRoot keeps this page under display:none until the tab is first opened,
-  // and on iOS (Fabric) a hidden view has no native backing. Gesture-handler
-  // gives up binding the page scroll view after ~2.5 s of retries and never
-  // tries again, so the feature deck's blocksExternalGesture has nothing to
-  // block and vertical swipes on the deck also scroll the page. Remount the
-  // scroll view once it is first on screen so its handler binds for real.
-  const pageVisible = nav.mainTab === 'journey' && !nav.pointInfo;
-  const mountedHiddenRef = useRef(!pageVisible);
-  const [pageScrollKey, setPageScrollKey] = useState(0);
-  useEffect(() => {
-    if (!pageVisible || !mountedHiddenRef.current) return;
-    mountedHiddenRef.current = false;
-    if (Platform.OS === 'ios') setPageScrollKey(1);
-  }, [pageVisible]);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const suppressedCardIdsRef = useRef<Set<string>>(new Set());
   const pressResetTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -162,7 +147,7 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
 
   // With no journeys at all (not just filtered out) the page becomes a starter
   // screen: tilted feature cards plus two big entry buttons.
-  const showStarter = !journeys.length && !data.journeysLoading && nav.mainTab === 'journey';
+  const showStarter = !journeys.length && !data.journeysLoading;
   // Starter cards: anything operations publishes in journey_home_content comes
   // first, then built-in cards. Route cards open a curated topic page whose
   // poster reuses the topic's lead route, so they change with the season.
@@ -220,16 +205,9 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
   };
 
   const openFilters = () => {
-    // Both measurements use window coordinates; subtract the page origin so
-    // the popover follows the trigger even inside the tab pager or after scrolling.
-    pageRef.current?.measureInWindow((pageX, pageY, pageWidth, pageHeight) => {
-      filterAnchorRef.current?.measureInWindow((x, y, width) => {
-        setFilterPosition({
-          top: Math.max(0, Math.min(y - pageY - 12, pageHeight - 140)),
-          right: Math.max(0, pageWidth - (x - pageX + width)),
-        });
-        setFilterSheetOpen(true);
-      });
+    filterAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      setFilterAnchor({ x, y, width, height });
+      setFilterSheetOpen(true);
     });
   };
 
@@ -253,7 +231,7 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
   };
 
   return (
-    <View ref={pageRef} collapsable={false} style={[styles.page, { backgroundColor: theme.featureSurface }]}>
+    <View style={[styles.page, { backgroundColor: theme.featureSurface }]}>
       <LinearGradient
         colors={[accentTint(theme, 0.12), accentTint(theme, 0.045), theme.featureSurface]}
         locations={[0, 0.32, 0.46]}
@@ -262,7 +240,6 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
       />
       {/* Gesture-handler scroll view so the feature deck's vertical swipe can hold it. */}
       <GestureScrollView
-        key={pageScrollKey}
         ref={pageScrollRef}
         scrollEnabled={!deckHeld}
         showsVerticalScrollIndicator={false}
@@ -337,15 +314,18 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
           <View style={styles.listHeader}>
             <Text style={[styles.listTitle, { color: theme.text }]}>{homeContent.title}</Text>
             <View ref={filterAnchorRef} collapsable={false}>
-              <Press accessibilityRole="button" accessibilityState={{ expanded: filterSheetOpen }} onPress={openFilters} style={styles.filterButton}>
-                <SlidersHorizontal color={theme.text} size={18} strokeWidth={2.2} />
-              <Text style={[styles.filterLabel, { color: theme.text }]}>{dateFilter === 'all' ? '全部' : dateFilter === 'dated' ? '有日期' : '无日期'}</Text>
-              </Press>
+              <AppFilterButton
+                theme={theme}
+                label={dateFilter === 'all' ? '全部' : dateFilter === 'dated' ? '有日期' : '无日期'}
+                active={dateFilter !== 'all'}
+                expanded={filterSheetOpen}
+                onPress={openFilters}
+              />
             </View>
           </View>
 
           <View style={styles.cards}>
-            {nav.mainTab !== 'journey' ? null : homeVisibleJourneys.length ? homeVisibleJourneys.map((journey) => (
+            {homeVisibleJourneys.length ? homeVisibleJourneys.map((journey) => (
               <ReanimatedSwipeable
                 key={journey.id}
                 ref={(methods) => {
@@ -437,32 +417,16 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
           </View>
         </View>
       </View>
-      {filterSheetOpen ? (
-        <View style={styles.filterBackdrop}>
-          <Press accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setFilterSheetOpen(false)} style={styles.filterDismiss}>{null}</Press>
-          <View style={[styles.filterSheet, filterPosition, { width: Math.min(374, windowWidth * 0.48), backgroundColor: theme.featureSurface }]}>
-            <View style={styles.filterSegmented}>
-              {([
-                ['all', '全部'],
-                ['dated', '有日期'],
-                ['undated', '无日期'],
-              ] as const).map(([value, label]) => (
-                <Press key={value} accessibilityRole="tab" accessibilityState={{ selected: dateFilter === value }} onPress={() => setDateFilter(value)} style={[styles.filterSegment, dateFilter === value && styles.filterSegmentSelected]}>
-                  <Text style={[styles.filterSegmentText, { color: dateFilter === value ? theme.text : theme.text2 }]}>{label}</Text>
-                </Press>
-              ))}
-            </View>
-            <Press accessibilityRole="radio" accessibilityState={{ selected: sortMode === 'recent' }} onPress={() => { setSortMode('recent'); setFilterSheetOpen(false); }} style={styles.filterOption}>
-              <Text style={[styles.filterOptionText, { color: theme.text }]}>按最近编辑排序</Text>
-              <View style={[styles.radio, { borderColor: sortMode === 'recent' ? theme.text : '#D9D9D9', backgroundColor: sortMode === 'recent' ? theme.text : 'transparent' }]}>{sortMode === 'recent' ? <Check size={11} color={theme.featureSurface} strokeWidth={3} /> : null}</View>
-            </Press>
-            <Press accessibilityRole="radio" accessibilityState={{ selected: sortMode === 'date' }} onPress={() => { setSortMode('date'); setFilterSheetOpen(false); }} style={styles.filterOption}>
-              <Text style={[styles.filterOptionText, { color: theme.text }]}>按计划日期排序</Text>
-              <View style={[styles.radio, { borderColor: sortMode === 'date' ? theme.text : '#D9D9D9', backgroundColor: sortMode === 'date' ? theme.text : 'transparent' }]}>{sortMode === 'date' ? <Check size={11} color={theme.featureSurface} strokeWidth={3} /> : null}</View>
-            </Press>
-          </View>
-        </View>
-      ) : null}
+      <AppFilterPopover theme={theme} visible={filterSheetOpen} anchor={filterAnchor} width={Math.min(374, windowWidth * 0.48)} onClose={() => setFilterSheetOpen(false)} closeLabel={t('common.cancel')}>
+        <AppFilterSegmented
+          theme={theme}
+          options={[['all', '全部'], ['dated', '有日期'], ['undated', '无日期']] as const}
+          value={dateFilter}
+          onChange={setDateFilter}
+        />
+        <AppFilterOption theme={theme} label="按最近编辑排序" selected={sortMode === 'recent'} onPress={() => { setSortMode('recent'); setFilterSheetOpen(false); }} />
+        <AppFilterOption theme={theme} label="按计划日期排序" selected={sortMode === 'date'} onPress={() => { setSortMode('date'); setFilterSheetOpen(false); }} />
+      </AppFilterPopover>
       <AppActionDialog
         theme={theme}
         visible={Boolean(deleteCandidate)}
@@ -518,18 +482,6 @@ const styles = StyleSheet.create({
   listSection: { minHeight: 560, paddingTop: 2 },
   listHeader: { paddingHorizontal: 18, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   listTitle: { fontSize: 21, lineHeight: 28, fontWeight: '800', letterSpacing: 0 },
-  filterButton: { minHeight: layout.iconButton, paddingLeft: space.md, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  filterLabel: { fontSize: 14.5, fontWeight: '600', letterSpacing: 0 },
-  filterBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, backgroundColor: 'rgba(0, 0, 0, 0.12)' },
-  filterDismiss: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  filterSheet: { position: 'absolute', maxWidth: '88%', borderRadius: 23, paddingHorizontal: 11, paddingTop: 12, paddingBottom: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 12 },
-  filterSegmented: { flexDirection: 'row', borderRadius: 17, padding: 2, marginBottom: 9, minHeight: 34, backgroundColor: '#F0F0F0' },
-  filterSegment: { flex: 1, minHeight: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  filterSegmentSelected: { backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  filterSegmentText: { fontSize: 13, fontWeight: '600' },
-  filterOption: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 },
-  filterOptionText: { fontSize: 14, fontWeight: '600' },
-  radio: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   cards: { paddingHorizontal: 17, gap: 11 },
   swipeContainer: { height: 166, borderRadius: 26, overflow: 'hidden' },
   swipeActions: { width: 192, height: 166, flexDirection: 'row', alignItems: 'center' },

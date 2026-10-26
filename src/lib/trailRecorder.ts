@@ -18,7 +18,8 @@
 //   foreground service instead of AMap's or expo-location's, and take fixes
 //   from AMap or a plain watch. Its notification shows the walk's time,
 //   distance and climb live, as Komoot and AllTrails do, and stays while the
-//   recording is paused.
+//   recording is paused. On iOS the same module drives a Live Activity on the
+//   lock screen and in the Dynamic Island.
 // - A build without expo-task-manager (an older binary that got this code
 //   over the air) falls back to a foreground watch: it records while the app
 //   is open and says so on the page.
@@ -26,6 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import {
+  hasTrailLiveActivity,
   hasTrailNotification,
   startTrailNotification,
   stopTrailNotification,
@@ -35,16 +37,19 @@ import { currentLang, translate, type TKey, type TVars } from '../i18n';
 import { amapModule, ensureAmapReady } from './amapSdk';
 import { gcj02ToWgs84 } from './coordinates';
 import { getCurrentPosition } from './currentPosition';
+import { isDeviceStill, watchDeviceStillness } from './deviceStillness';
 import type { Coordinate } from './routeSegments';
 import {
   addPoint,
   EMPTY_TOTALS,
   formatClock,
   judgeFix,
+  smoothFix,
   splitDistance,
   toTrailPoint,
   type TrailFix,
   type TrailPoint,
+  type TrailSmoother,
   type TrailTotals,
 } from './trailGeo';
 
@@ -175,27 +180,37 @@ function notificationContent(): TrailNotificationContent | null {
     ascent: Math.round(session.totals.ascM),
     descent: Math.round(session.totals.descM),
   });
+  const live = {
+    name,
+    distance: `${value} ${unit}`,
+    ascent: `${Math.round(session.totals.ascM)} m`,
+    descent: `${Math.round(session.totals.descM)} m`,
+  };
   if (session.status === 'paused' || session.resumedAt == null) {
     return {
       title: t('trail.notification.paused', { name }),
       text: t('trail.notification.pausedStats', { time: formatClock(session.activeMs), stats }),
       chronometerBase: null,
       channelName: t('trail.notification.channel'),
+      live: { ...live, status: t('trail.status.paused'), paused: true, time: formatClock(session.activeMs), warning: '' },
     };
   }
+  const warning = gps === 'weak' ? t('trail.status.weak') : gps === 'searching' ? t('trail.status.searching') : undefined;
   return {
     title: name,
     text: stats,
     // Fixed for the whole run, so the time ticks in the shade without JS.
     chronometerBase: session.resumedAt - session.activeMs,
-    subText: gps === 'weak' ? t('trail.status.weak') : gps === 'searching' ? t('trail.status.searching') : undefined,
+    subText: warning,
     channelName: t('trail.notification.channel'),
+    // `time` stays empty: the lock screen and the island count up from chronometerBase themselves.
+    live: { ...live, status: t('trail.status.recording'), paused: false, time: '', warning: warning ?? '' },
   };
 }
 
-/** Shows, updates or removes the shade notification; posts only when its text changes. */
+/** Shows, updates or removes the shade notification or Live Activity; posts only when its text changes. */
 function syncNotification(): Promise<void> {
-  if (!hasTrailNotification) return notificationQueue;
+  if (!hasTrailNotification && !hasTrailLiveActivity) return notificationQueue;
   const content = notificationContent();
   const key = content ? JSON.stringify(content) : '';
   if (key === notificationKey) return notificationQueue;
@@ -296,21 +311,47 @@ function armSignalTimer() {
 }
 
 let lastPersistAt = 0;
+// Smoothing state for the current segment; a pause or a new recording starts it again.
+let smoother: TrailSmoother | null = null;
+
+// A fix reporting this speed is moving, whatever the accelerometer says: a
+// phone on the seat of a smooth train can read as still.
+const STILL_MAX_SPEED_MPS = 1.5;
+
+/** The phone lies still, so this fix's movement is GPS wander. */
+function heldStill(next: TrailFix): boolean {
+  const now = Date.now();
+  // Stillness is known for now only; a late background batch is judged on GPS.
+  if (Math.abs(now - next.t) > 5_000) return false;
+  if (next.speed != null && next.speed >= STILL_MAX_SPEED_MPS) return false;
+  return isDeviceStill(now) === true;
+}
 
 function ingest(fixes: TrailFix[]) {
   if (!fixes.length) return;
   const ordered = [...fixes].sort((a, b) => a.t - b.t);
   let added = false;
   for (const next of ordered) {
-    if (!fix || next.t >= fix.t) fix = next;
-    if (session?.status !== 'recording') continue;
+    const still = !!fix && heldStill(next);
+    // Lying still, the dot stays put on its position and that position's
+    // accuracy, unless a clearly sharper fix comes in; the time is fresh.
+    const sharper = still && next.acc != null && next.acc < (fix?.acc ?? Infinity) * 0.6;
+    if (!fix || next.t >= fix.t) {
+      fix = still && fix && !sharper
+        ? { ...next, lng: fix.lng, lat: fix.lat, alt: fix.alt, acc: fix.acc, heading: fix.heading, speed: 0 }
+        : next;
+    }
+    if (session?.status !== 'recording' || still) continue;
     const segment = session.segments[session.segments.length - 1];
     const last = segment[segment.length - 1] ?? null;
     // Judged against the track, not the latest fix: background batches can
     // arrive late, and dropping them leaves a straight line across the gap.
     if (last && next.t <= last[3]) continue;
-    if (judgeFix(next, last) !== 'accept') continue;
-    const point = toTrailPoint(next);
+    if (judgeFix(next, null) !== 'accept') continue;
+    const smoothed = smoothFix(smoother, next);
+    smoother = smoothed.state;
+    if (judgeFix(smoothed.fix, last) !== 'accept') continue;
+    const point = toTrailPoint(smoothed.fix);
     const { totals, climbRef } = addPoint(session.totals, session.climbRef, last, point);
     segment.push(point);
     session = { ...session, totals, climbRef };
@@ -378,6 +419,8 @@ if (TaskManager && Platform.OS !== 'web') {
 type Stop = () => void;
 let recordingStop: Stop | null = null;
 let previewStop: Stop | null = null;
+let recordingStillness: Stop | null = null;
+let previewStillness: Stop | null = null;
 let previewCount = 0;
 
 function amapAvailable(): boolean {
@@ -421,6 +464,17 @@ async function startExpoWatch(): Promise<Stop> {
 }
 
 async function startRecordingSource(): Promise<boolean> {
+  recordingStillness ??= watchDeviceStillness();
+  try {
+    return await openRecordingFeed();
+  } catch (cause) {
+    recordingStillness?.();
+    recordingStillness = null;
+    throw cause;
+  }
+}
+
+async function openRecordingFeed(): Promise<boolean> {
   stopPreviewSource();
   recordingStop?.();
   recordingStop = null;
@@ -479,6 +533,8 @@ async function startTaskUpdates(withService: boolean): Promise<Stop> {
 function stopRecordingSource() {
   recordingStop?.();
   recordingStop = null;
+  recordingStillness?.();
+  recordingStillness = null;
   if (TaskManager) {
     // A task left over from a killed launch is not in `recordingStop`.
     void Location.hasStartedLocationUpdatesAsync(TASK_NAME)
@@ -492,6 +548,7 @@ async function startPreviewSource() {
   if (previewStop || recordingStop) return;
   try {
     previewStop = amapAvailable() ? startAmap(false) : await startExpoWatch();
+    previewStillness ??= watchDeviceStillness();
     if (previewCount === 0 || recordingStop) stopPreviewSource();
   } catch (cause) {
     console.warn('[trailRecorder] preview location failed:', cause);
@@ -524,6 +581,8 @@ async function seedFix() {
 function stopPreviewSource() {
   previewStop?.();
   previewStop = null;
+  previewStillness?.();
+  previewStillness = null;
 }
 
 async function ensurePermission(): Promise<TrailStartError | null> {
@@ -609,6 +668,7 @@ export async function startTrail(route: TrailRouteRef | null): Promise<boolean> 
     background: false,
   };
   persistedChunks = new Set();
+  smoother = null;
   // The fix that showed "you are here" before the start becomes the first point.
   if (fix && now - fix.t < 15_000 && judgeFix(fix, null) === 'accept') {
     const point = toTrailPoint({ ...fix, t: now });
@@ -663,6 +723,7 @@ export async function resumeTrail(): Promise<boolean> {
     // An empty segment is reused rather than leaving a gap of nothing.
     segments: lastSegment.length ? [...session.segments, []] : session.segments,
   };
+  smoother = null;
   try {
     session.background = await startRecordingSource();
   } catch {

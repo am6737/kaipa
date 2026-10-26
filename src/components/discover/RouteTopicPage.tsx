@@ -7,8 +7,8 @@ import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } 
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronRight, SlidersHorizontal, Sparkles } from 'lucide-react-native';
-import { DetailPage, layout, radius, space, type } from '../../design-system';
+import { Check, ChevronRight, Sparkles } from 'lucide-react-native';
+import { AppFilterButton, DetailPage, layout, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useData } from '../../data/DataContext';
 import type { Poi } from '../../data/pois';
@@ -180,12 +180,13 @@ export function RouteTopicPage({
             <Text style={[type.sectionTitle, { color: theme.text }]}>{t('journeyHome.topic.listTitle')}</Text>
             {routes.length ? (
               <View ref={filterRef} collapsable={false}>
-                <Press accessibilityRole="button" accessibilityState={{ expanded: Boolean(filterAnchor) }} onPress={openFilters} style={styles.filterButton}>
-                  <SlidersHorizontal color={theme.text} size={18} strokeWidth={2.2} />
-                  <Text style={[styles.filterButtonText, { color: theme.text }]}>
-                    {activeFilters ? t('journeyHome.topic.filter.active', { count: activeFilters }) : t('common.all')}
-                  </Text>
-                </Press>
+                <AppFilterButton
+                  theme={theme}
+                  label={activeFilters ? t('common.filterCount', { count: activeFilters }) : t('common.all')}
+                  active={Boolean(activeFilters)}
+                  expanded={Boolean(filterAnchor)}
+                  onPress={openFilters}
+                />
               </View>
             ) : null}
           </View>
@@ -253,8 +254,7 @@ const styles = StyleSheet.create({
   empty: { paddingVertical: space.xxl, alignItems: 'center' },
   clearFilters: { marginTop: space.xs, paddingVertical: space.xs, paddingHorizontal: space.sm },
   listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  // Filter button and popover mirror the 我的旅程 list filter.
-  filterButton: { minHeight: layout.iconButton, paddingLeft: space.md, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // The popover mirrors the 我的旅程 list filter; the clear link keeps the button's old type.
   filterButtonText: { fontSize: 14.5, fontWeight: '600', letterSpacing: 0 },
   filterBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, backgroundColor: 'rgba(0, 0, 0, 0.12)' },
   filterSheet: { position: 'absolute', borderRadius: 23, paddingHorizontal: 11, paddingTop: 12, paddingBottom: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 12 },

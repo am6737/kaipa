@@ -32,7 +32,7 @@ import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypo
 import { buildRouteEndpointMarkers } from '../components/discover/routeEndpointMarkers';
 import { isLoopTrack } from '../lib/routeDirection';
 import { directedClimb } from '../data/elevation';
-import { AppActionDialog, layout, motion, radius, space, type } from '../design-system';
+import { AppActionDialog, AppFilterButton, layout, motion, radius, space, type } from '../design-system';
 import { SelectedPoiCard, type JourneyMomentFilterMenuController } from './JourneyCard';
 import { Avatar } from '../components/Avatar';
 import Svg, { Circle, ClipPath, Defs, FeDropShadow, Filter, G, Image as SvgImage, Path } from 'react-native-svg';
@@ -196,6 +196,8 @@ const MAP_TOP_CHROME_HEIGHT = 57;
 // Explore keeps the list mounted under the map and rests at peek, where the
 // tab bar stays visible; the journey list still opens at half.
 const LIST_SHEET_PEEK = 0;
+// How long 搜索此区域 stays up after the map stops moving.
+const AREA_SEARCH_OFFER_MS = 6000;
 const LIST_SHEET_INITIAL = 1;
 const LIST_SHEET_FULL = 2;
 
@@ -813,6 +815,23 @@ function DiscoverScreenView({
   // 搜索此区域: the pill appears after a hand-made pan or zoom; tapping it scopes
   // the list to the routes on screen until a province is picked again.
   const [areaSearchOffered, setAreaSearchOffered] = React.useState(false);
+  // The offer goes away once the map has been still for a while; the next pan
+  // or zoom brings it back.
+  const areaOfferTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offerAreaSearch = React.useCallback(() => {
+    setAreaSearchOffered(true);
+    if (areaOfferTimerRef.current) clearTimeout(areaOfferTimerRef.current);
+    areaOfferTimerRef.current = setTimeout(() => {
+      areaOfferTimerRef.current = null;
+      setAreaSearchOffered(false);
+    }, AREA_SEARCH_OFFER_MS);
+  }, []);
+  useEffect(() => () => {
+    if (areaOfferTimerRef.current) clearTimeout(areaOfferTimerRef.current);
+  }, []);
+  // Fades rather than pops, and stays mounted until the fade-out is done.
+  const areaPillOpacity = React.useRef(new Animated.Value(0)).current;
+  const [areaPillMounted, setAreaPillMounted] = React.useState(false);
   const [areaRouteIds, setAreaRouteIds] = React.useState<Set<string> | null>(null);
   const mapHeadingRef = React.useRef(0);
 
@@ -1515,6 +1534,13 @@ function DiscoverScreenView({
     : 0), [sheetVisible, listSheetTranslateY, full, collapsed, listPeek]);
   // The list starts at peek and keeps its detent across route cards.
   // Above peek the list covers the tab bar's strip, so the bar steps aside.
+  const areaPillShown = areaSearchOffered && active && listSheetIndex !== LIST_SHEET_FULL;
+  useEffect(() => {
+    if (areaPillShown) setAreaPillMounted(true);
+    const anim = Animated.timing(areaPillOpacity, { toValue: areaPillShown ? 1 : 0, duration: motion.standard, useNativeDriver: true });
+    anim.start(({ finished }) => { if (finished && !areaPillShown) setAreaPillMounted(false); });
+    return () => anim.stop();
+  }, [areaPillShown, areaPillOpacity]);
   const exploreListRaised = active && listShown && listSheetIndex > LIST_SHEET_PEEK;
   useEffect(() => {
     nav.setTabBarHidden('discoverList', exploreListRaised);
@@ -2310,7 +2336,7 @@ function DiscoverScreenView({
       zoom: Math.max(3, camera.zoom - 1.5),
       revision: (current?.revision ?? 0) + 1,
     }));
-    setAreaSearchOffered(true);
+    offerAreaSearch();
   };
   const routeFilterCount = activeRouteFilterCount(routeFilters);
   const exploreHeader = (
@@ -2320,20 +2346,15 @@ function DiscoverScreenView({
           ? t('discover.areaCount', { count: displayPois.length })
           : t('discover.routeCount', { region: adminRegion, count: displayPois.length })}
       </Text>
-      <Press
+      <AppFilterButton
+        theme={theme}
+        label={routeFilterCount ? t('common.filterCount', { count: routeFilterCount }) : t('common.all')}
+        active={routeFilterCount > 0}
+        expanded={routeFilterOpen}
         onPress={() => setRouteFilterOpen(true)}
-        accessibilityRole="button"
         accessibilityLabel={t('discover.filter.title')}
-        style={{ position: 'absolute', right: space.md, top: 4, height: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xxs, backgroundColor: routeFilterCount ? theme.accentSoft : theme.fieldSurface }}
-      >
-        <Icon name="filter" size={15} color={routeFilterCount ? theme.accent : theme.text} />
-        <Text style={[type.chip, { color: routeFilterCount ? theme.accent : theme.text }]}>{t('discover.filter.title')}</Text>
-        {routeFilterCount ? (
-          <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>{routeFilterCount}</Text>
-          </View>
-        ) : null}
-      </Press>
+        style={{ position: 'absolute', right: space.md, top: 0 }}
+      />
     </View>
   );
 
@@ -2380,7 +2401,7 @@ function DiscoverScreenView({
         setMapAtRouteFrame(false);
       } else {
         setMapAtCurrentLocation(false);
-        setAreaSearchOffered(true);
+        offerAreaSearch();
       }
     },
     onCameraPositionChange: (camera) => {
@@ -2392,6 +2413,8 @@ function DiscoverScreenView({
         || Math.abs(prev.center[1] - camera.center[1]) > 1e-6
         || Math.abs(prev.zoom - camera.zoom) > 0.01;
       if (!moved) return;
+      // A long pan outlasts the offer's timer; keep it up until the map settles.
+      if (areaSearchOffered && !nav.pointInfo) offerAreaSearch();
       // The move the card asked for is over: the kilometre labels can have these
       // frames to themselves instead of competing with the animation.
       setDistanceMarkersReady(true);
@@ -2640,8 +2663,8 @@ function DiscoverScreenView({
           </Animated.View>
         </View>
       </Press>
-      {areaSearchOffered && active && listSheetIndex !== LIST_SHEET_FULL ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: insets.top + MAP_TOP_CHROME_HEIGHT, alignItems: 'center', zIndex: 9 }}>
+      {areaPillMounted ? (
+        <Animated.View pointerEvents={areaPillShown ? 'box-none' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: insets.top + MAP_TOP_CHROME_HEIGHT, alignItems: 'center', zIndex: 9, opacity: areaPillOpacity, transform: [{ translateY: areaPillOpacity.interpolate({ inputRange: [0, 1], outputRange: [-space.xs, 0] }) }] }}>
           <Press
             accessibilityRole="button"
             onPress={searchArea}
@@ -2650,7 +2673,7 @@ function DiscoverScreenView({
             <Search color={theme.accent} size={17} strokeWidth={2.3} />
             <Text style={[type.chip, { color: chromeTheme.text }]}>{t('discover.searchArea')}</Text>
           </Press>
-        </View>
+        </Animated.View>
       ) : null}
       <View style={{ position: 'absolute', top: insets.top + 4, right: 16, gap: 10 }}>
         <Press
@@ -2875,7 +2898,7 @@ function DiscoverScreenView({
             >
               {locating
                 ? <ActivityIndicator size="small" color={chromeTheme.accent} />
-                : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
+                : <Icon name={mapAtCurrentLocation ? 'locate' : 'locateOutline'} color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
             </MapControlButton>
           </MapControlGroup>
         </Animated.View>

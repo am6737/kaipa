@@ -194,9 +194,27 @@ const routeFields = [
   { key: 'dist', label: '距离' },
   { key: 'asc_', label: '爬升' },
   { key: 'diff', label: '难度' },
+  // Every usual way to walk the route, in walking days: 1,2,3 for a long day or
+  // split; 3,5 when there is no common four-day plan. 1-3 is shorthand for 1,2,3.
+  { key: 'days', label: '天数', placeholder: '如 1,2,3 或 3,5' },
   { key: 'lng', label: '经度', placeholder: '0' },
   { key: 'lat', label: '纬度', placeholder: '0' },
 ]
+function routeDaysList(row: Row) {
+  return Array.isArray(row.days) ? row.days.map(Number).filter((d) => d > 0) : []
+}
+// Consecutive days collapse to a range: {1,2,3} → 1-3 天, {3,5} → 3 / 5 天.
+function routeDaysLabel(row: Row) {
+  const days = routeDaysList(row)
+  if (!days.length) return '—'
+  const runs: number[][] = []
+  for (const d of days) {
+    const run = runs[runs.length - 1]
+    if (run && d === run[run.length - 1] + 1) run.push(d)
+    else runs.push([d])
+  }
+  return `${runs.map((run) => (run.length > 1 ? `${run[0]}-${run[run.length - 1]}` : `${run[0]}`)).join(' / ')} 天`
+}
 export function RoutesAdmin() {
   const client = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
@@ -309,6 +327,7 @@ export function RoutesAdmin() {
                 <TableHead>距离</TableHead>
                 <TableHead>爬升</TableHead>
                     <TableHead>难度</TableHead>
+                    <TableHead>天数</TableHead>
                     <TableHead>创建者</TableHead>
                     <TableHead>操作</TableHead>
               </TableRow>
@@ -321,6 +340,7 @@ export function RoutesAdmin() {
                   <TableCell>{String(row.dist || '—')}</TableCell>
                   <TableCell>{String(row.asc_ || '—')}</TableCell>
                   <TableCell>{String(row.diff || '—')}</TableCell>
+                  <TableCell>{routeDaysLabel(row)}</TableCell>
                   <TableCell>{owner(row)}</TableCell>
                   <TableCell className='flex gap-1'>
                     <Button size='sm' variant='ghost' onClick={() => downloadRow(row, String(row.name || 'route'))}>下载</Button>
@@ -335,7 +355,9 @@ export function RoutesAdmin() {
                           values: Object.fromEntries(
                             routeFields.map((field) => [
                               field.key,
-                              String(row[field.key] ?? ''),
+                              field.key === 'days'
+                                ? routeDaysList(row).join(',')
+                                : String(row[field.key] ?? ''),
                             ])
                           ),
                         })

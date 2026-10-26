@@ -1,5 +1,8 @@
 {
-  "platforms": ["android"],
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TrailLiveActivityModule"]
+  },
   "android": {
     "modules": ["expo.modules.trailnotification.TrailNotificationModule"]
   }

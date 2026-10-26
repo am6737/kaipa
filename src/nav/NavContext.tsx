@@ -3,7 +3,7 @@
 // sheet, live
 // journey edits (favourites / removals), and every full-screen
 // overlay. Screens read this via useNav().
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Poi } from '../data/pois';
 import { TLRow } from '../data/timeline';
 import type { JourneyVersion } from '../hooks/useJourneyVersions';
@@ -726,4 +726,24 @@ export function useNav(): NavValue {
   const v = useContext(NavContext);
   if (!v) throw new Error('useNav must be used within NavProvider');
   return v;
+}
+
+/**
+ * Hands a hidden tab the nav value it was hidden with, so tab switches and
+ * other nav changes stop re-rendering screens nobody can see. Every request
+ * aimed at a tab also switches to it, which unfreezes it in the same render.
+ */
+export function FrozenNav({ frozen, children }: { frozen: boolean; children: React.ReactNode }) {
+  const live = useContext(NavContext);
+  const held = useRef(live);
+  const committedFrozen = useRef(frozen);
+  // The render that hides the tab still takes the live value, so the screen
+  // sees itself become inactive (mainTab moved, detail closed) before it freezes.
+  // Refs move only on commit: a transition render may be thrown away and redone.
+  const value = frozen && committedFrozen.current ? held.current : live;
+  useLayoutEffect(() => {
+    held.current = value;
+    committedFrozen.current = frozen;
+  });
+  return <NavContext.Provider value={value}>{children}</NavContext.Provider>;
 }

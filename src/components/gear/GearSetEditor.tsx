@@ -23,6 +23,7 @@ import {
 } from '../../data/gear';
 import { GearItemImage, yuan } from './parts';
 import { GearItemsList } from './GearItemsList';
+import type { MenuAnchor } from './AddGearMenu';
 import { AppCard, AppSectionHeader, DetailPage, layout, radius, space, type } from '../../design-system';
 
 export function GearSetEditor({
@@ -44,7 +45,7 @@ export function GearSetEditor({
   catMap: Record<string, GearCat>;
   onCancel: () => void;
   onSave: (name: string, description: string | undefined, items: string[], overrides: Record<string, GearSetOverride>) => void;
-  onAddGear?: (onAdded: (item: GearItem) => void) => void;
+  onAddGear?: (onAdded: (item: GearItem) => void, anchor: MenuAnchor) => void;
 }) {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -127,9 +128,9 @@ export function GearSetEditor({
             setSelectedNames(nextSelectedNames);
             setPickerOpen(false);
           },
-          onAdd: onAddGear ? () => onAddGear((item) => {
+          onAdd: onAddGear ? (anchor) => onAddGear((item) => {
             setSelectedNames((current) => new Set(current).add(item.name));
-          }) : undefined,
+          }, anchor) : undefined,
         }}
       />
     </View>

@@ -25,7 +25,12 @@ export type TrailPoint = [number, number, number | null, number];
 // A fix worse than this tells us which valley we are in, not where on the path.
 const MAX_ACCURACY_METERS = 40;
 // Below this the "movement" is GPS wander while standing still.
-const MIN_STEP_METERS = 4;
+const MIN_STEP_METERS = 5;
+// The step a fix must clear grows with its error circle up to this. Indoors and
+// under trees fixes report 15–40 m and wander about that much on their own.
+const MAX_STEP_GATE_METERS = 25;
+// Doppler speed under this means standing still, whatever the position says.
+const STILL_SPEED_MPS = 0.4;
 // Faster than a fell runner downhill is a jump, not a step.
 const MAX_SPEED_MPS = 12;
 // Altitude changes smaller than this are noise; GPS altitude wanders ±5 m.
@@ -38,11 +43,54 @@ export function judgeFix(fix: TrailFix, last: TrailPoint | null): FixVerdict {
   if (fix.acc != null && fix.acc > MAX_ACCURACY_METERS) return 'inaccurate';
   if (!last) return 'accept';
   const step = distanceMeters([last[0], last[1]], [fix.lng, fix.lat]);
-  // A step inside the fix's own error circle is wander, unless it is already big.
-  if (step < Math.max(MIN_STEP_METERS, Math.min(fix.acc ?? 0, 15) * 0.6)) return 'stationary';
+  // A step inside the fix's own error circle is wander, not walking. Measured
+  // from the last kept point, so a real walk still clears it within a few fixes.
+  const gate = Math.max(MIN_STEP_METERS, Math.min(fix.acc ?? 0, MAX_STEP_GATE_METERS));
+  if (step < gate) return 'stationary';
+  // Wander that has drifted just past the circle while the receiver says it is
+  // not moving. Network fixes report 0 here too, and they are the worst wanderers.
+  if (fix.speed != null && fix.speed < STILL_SPEED_MPS && step < gate * 2) return 'stationary';
   const seconds = (fix.t - last[3]) / 1000;
   if (seconds > 0 && step / seconds > MAX_SPEED_MPS && step > 60) return 'jump';
   return 'accept';
+}
+
+/**
+ * Accuracy-weighted smoothing of the fixes a recording keeps, so wander
+ * averages out instead of being drawn: standing still, the estimate settles;
+ * walking, the uncertainty grows with time at walking pace and each new fix
+ * pulls it along. A one-state Kalman filter on position, as most trackers use.
+ */
+export interface TrailSmoother {
+  lng: number;
+  lat: number;
+  /** Variance of the estimate, square metres. */
+  variance: number;
+  t: number;
+}
+
+// How fast the walker may have moved since the last fix, for the filter. Brisk
+// hiking pace; a fix that reports a higher speed raises it for that step.
+const SMOOTHING_SPEED_MPS = 2;
+// After a gap this long the estimate is stale; start again from the fix.
+const SMOOTHING_RESET_MS = 30_000;
+
+export function smoothFix(state: TrailSmoother | null, fix: TrailFix): { state: TrailSmoother; fix: TrailFix } {
+  const acc = Math.max(fix.acc ?? 10, 3);
+  if (!state || fix.t - state.t > SMOOTHING_RESET_MS || fix.t < state.t) {
+    return { state: { lng: fix.lng, lat: fix.lat, variance: acc * acc, t: fix.t }, fix };
+  }
+  const speed = Math.max(SMOOTHING_SPEED_MPS, fix.speed ?? 0);
+  const variance = state.variance + ((fix.t - state.t) / 1000) * speed * speed;
+  const gain = variance / (variance + acc * acc);
+  const next: TrailSmoother = {
+    lng: state.lng + gain * (fix.lng - state.lng),
+    lat: state.lat + gain * (fix.lat - state.lat),
+    variance: (1 - gain) * variance,
+    t: fix.t,
+  };
+  // Keeps the raw accuracy: judgeFix's step gate is about the receiver's error.
+  return { state: next, fix: { ...fix, lng: next.lng, lat: next.lat } };
 }
 
 export function toTrailPoint(fix: TrailFix): TrailPoint {
@@ -258,6 +306,16 @@ export function formatClock(ms: number): string {
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+/** formatClock without the hour until there is one: `mm:ss`, then `h:mm:ss`. For tight spots like the 记录 tab. */
+export function formatShortClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 /** Minutes per kilometre as m'ss", or `--` before there is enough to say. */

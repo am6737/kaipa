@@ -4,7 +4,7 @@
 // while sharing the floating chrome and metadata language of the new gear and
 // set detail pages.
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, GestureResponderEvent, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReAnimated, { Easing, cancelAnimation, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -24,12 +24,14 @@ import { usePersistedSort } from './usePersistedSort';
 import type { GearListSortMode } from './usePersistedSort';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { GearMenuTransition } from './GearMenuTransition';
+import { measureAnchor, type MenuAnchor } from './AddGearMenu';
 import { GearEmptyState } from './GearEmptyState';
+import { AssistantMark } from '../assistant/AssistantMark';
 
 const SORT_STORAGE_KEY = '@kaipa/gear/items-sort-v1';
 const DISPLAY_SETTINGS_KEY = '@kaipa/gear/items-display-v1';
 const INITIAL_RENDER_COUNT = 12;
-function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: () => void; label: string; color: string }) {
+function GearHeaderButton({ icon: IconComponent, onPress, label, color }: { icon: LucideIcon; onPress: (event: GestureResponderEvent) => void; label: string; color: string }) {
   return <Press accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={color} size={25} strokeWidth={2.2} /></Press>;
 }
 function GearHeaderIconButton({ theme, icon, onPress, label, active = false }: { theme: Theme; icon: IconName; onPress: () => void; label: string; active?: boolean }) {
@@ -40,7 +42,7 @@ type ItemDisplaySettings = { images: boolean; weight: boolean; value: boolean };
 type GearPickerConfig = {
   selectedNames: Set<string>;
   onDone: (selectedNames: Set<string>) => void;
-  onAdd?: () => void;
+  onAdd?: (anchor: MenuAnchor) => void;
 };
 
 const formatItemValue = (value: number) => {
@@ -73,7 +75,8 @@ function GearItemsListView({
   weightUnit: WeightUnit;
   onBack: () => void;
   onOpenItem: (item: GearItem) => void;
-  onAdd: () => void;
+  // Opens the 添加装备 menu next to the tapped control.
+  onAdd: (anchor: MenuAnchor) => void;
   onOpenAssistant?: () => void;
   onAddCategory: () => void;
   onEditCategory: (cat: GearCat) => void;
@@ -186,6 +189,9 @@ function GearItemsListView({
   const renderedRows = rows.slice(0, visibleItemCount);
 
   const hasActiveFilter = query.trim().length > 0 || category != null;
+  // A brand-new library keeps the page's shape: empty totals read `--`, and
+  // placeholder cards stand where the first items will appear.
+  const libraryEmpty = !picker && items.length === 0;
   const totalWeight = items.reduce((sum, item) => sum + itemWeight(item), 0);
   const itemColumns = [renderedRows.filter((_, index) => index % 2 === 0), renderedRows.filter((_, index) => index % 2 === 1)];
   const gridCardWidth = (width - 48 - 12) / 2;
@@ -290,7 +296,7 @@ function GearItemsListView({
           onClose={closeSearch}
           actions={(
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              {picker?.onAdd ? <GearHeaderButton icon={Plus} onPress={picker.onAdd} label={t('gear.itemList.newItem')} color={theme.text} /> : null}
+              {picker?.onAdd ? <GearHeaderButton icon={Plus} onPress={(event) => { const add = picker.onAdd; if (add) measureAnchor(event).then(add); }} label={t('gear.itemList.newItem')} color={theme.text} /> : null}
               <GearHeaderButton icon={Filter} onPress={() => setFilterOpen(true)} label={t('common.filter')} color={theme.text} />
               <GearHeaderButton icon={Search} onPress={() => setSearchOpen(true)} label={t('common.search')} color={theme.text} />
               <GearHeaderIconButton theme={theme} icon="checkAll" onPress={toggleAll} active={allSelected} label={t('common.selectAll')} />
@@ -335,9 +341,16 @@ function GearItemsListView({
                 <Press onPress={selectedIds.size ? confirmDelete : undefined} style={{ flex: 1, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : (theme.dark ? '#2C2C2E' : '#FFFFFF') }}>
                   <Text style={{ fontSize: 16, fontWeight: '800', color: selectedIds.size ? '#FFFFFF' : theme.text3 }}>{selectedIds.size ? t('gear.select.deleteConfirm', { count: selectedIds.size }) : t('gear.select.deletePrompt')}</Text>
                 </Press>
+              ) : libraryEmpty ? (
+                // The first placeholder card already adds an item, so only AI stays here.
+                onOpenAssistant ? (
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <BottomControl theme={theme} leading={<AssistantMark color={theme.accent} accentColor={theme.accent} size={20} />} label={t('gear.empty.askAiItems')} onPress={onOpenAssistant} minWidth={150} />
+                  </View>
+                ) : null
               ) : (
                 <>
-                  <BottomControl theme={theme} icon="plus" label={t('gear.itemList.newItem')} onPress={onAdd} minWidth={126} />
+                  <BottomControl theme={theme} icon="plus" label={t('gear.itemList.newItem')} onPress={(event) => measureAnchor(event).then(onAdd)} minWidth={126} />
                   <BottomControl theme={theme} icon="arrowDown" label={sortLabel} onPress={() => setSortOpen(true)} minWidth={150} />
                 </>
               )}
@@ -430,8 +443,8 @@ function GearItemsListView({
               <Text style={{ fontFamily: MONO, fontSize: 12, fontWeight: '700', color: theme.text3 }}>{items.length} {t('gear.unit.items')}</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 15 }}>
-              <SummaryPill theme={theme} icon="weight" label={t('gear.stat.totalWeight')} value={fmtWeight(totalWeight, weightUnit, true)} />
-              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={`¥ ${formatItemValue(totalValue)}`} />
+              <SummaryPill theme={theme} icon="weight" label={t('gear.stat.totalWeight')} value={libraryEmpty ? '--' : fmtWeight(totalWeight, weightUnit, true)} empty={libraryEmpty} />
+              <SummaryPill theme={theme} icon="value" label={t('gear.stat.totalValue')} value={libraryEmpty ? '--' : `¥ ${formatItemValue(totalValue)}`} empty={libraryEmpty} />
             </View>
         </View>
 
@@ -495,15 +508,10 @@ function GearItemsListView({
               setSearchOpen(false);
             }}
           />
+        ) : libraryEmpty ? (
+          <EmptyLibraryCards theme={theme} onAdd={onAdd} />
         ) : (
-          <GearEmptyState
-            theme={theme}
-            icon="bag"
-            title={t('gear.empty.noItemsYet')}
-            actionLabel={!picker && onOpenAssistant ? t('gear.empty.askAiItems') : undefined}
-            actionIcon="send"
-            onAction={!picker ? onOpenAssistant : undefined}
-          />
+          <GearEmptyState theme={theme} icon="bag" title={t('gear.empty.noItemsYet')} />
         )}
       </View>
     </DetailPage>
@@ -709,22 +717,52 @@ function ItemGridCard({ theme, item, cat, weightUnit, width, onPress, onLongPres
   );
 }
 
-function SummaryPill({ theme, icon, label, value }: { theme: Theme; icon: 'weight' | 'value'; label: string; value: string }) {
+function SummaryPill({ theme, icon, label, value, empty = false }: { theme: Theme; icon: 'weight' | 'value'; label: string; value: string; empty?: boolean }) {
   return (
     <View style={{ flex: 1, minWidth: 0, height: 82, paddingHorizontal: 17, paddingVertical: 13, borderRadius: 22, justifyContent: 'space-between', backgroundColor: theme.dark ? '#000000' : '#FFFFFF' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         {icon === 'weight' ? <Weight color={theme.text3} size={15} /> : <JapaneseYen color={theme.text3} size={15} />}
         <Text style={{ fontSize: 12, fontWeight: '600', color: theme.text2 }}>{label}</Text>
       </View>
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ fontFamily: MONO, fontSize: 20, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{value}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ fontFamily: MONO, fontSize: 20, fontWeight: '800', letterSpacing: -0.45, color: empty ? theme.text3 : theme.text }}>{value}</Text>
     </View>
   );
 }
 
-function BottomControl({ theme, icon, label, onPress, minWidth }: { theme: Theme; icon: IconName; label: string; onPress: () => void; minWidth: number }) {
+// Dashed stand-ins shaped like ItemListCard: the first one adds an item, the
+// fading ones behind it hint at the list that will fill in.
+function EmptyLibraryCards({ theme, onAdd }: { theme: Theme; onAdd: (anchor: MenuAnchor) => void }) {
+  const { t } = useI18n();
+  const dashed = { minHeight: 112, borderRadius: 24, padding: 14, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 15, borderWidth: 1.5, borderStyle: 'dashed' as const, borderColor: theme.border };
+  const thumb = { width: 84, height: 84, borderRadius: 16, alignItems: 'center' as const, justifyContent: 'center' as const };
+  return (
+    <View style={{ gap: 12 }}>
+      <Press accessibilityRole="button" accessibilityLabel={t('gear.empty.addFirstItem')} onPress={(event) => measureAnchor(event).then(onAdd)} style={dashed}>
+        <View style={[thumb, { backgroundColor: theme.fieldSurface }]}>
+          <Plus color={theme.text2} size={26} strokeWidth={2} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ fontSize: 16, lineHeight: 21, fontWeight: '700', color: theme.text }}>{t('gear.empty.addFirstItem')}</Text>
+          <Text numberOfLines={2} style={{ marginTop: 6, fontSize: 12, lineHeight: 17, color: theme.text2 }}>{t('gear.empty.firstItemSub')}</Text>
+        </View>
+      </Press>
+      {[0.55, 0.28].map((opacity) => (
+        <View key={opacity} pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={[dashed, { opacity }]}>
+          <View style={[thumb, { borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border }]} />
+          <View style={{ flex: 1, gap: 12 }}>
+            <View style={{ width: '64%', height: 15, borderRadius: 5, backgroundColor: theme.fieldSurface }} />
+            <View style={{ width: '42%', height: 11, borderRadius: 4, backgroundColor: theme.fieldSurface }} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function BottomControl({ theme, icon, leading, label, onPress, minWidth }: { theme: Theme; icon?: IconName; leading?: React.ReactNode; label: string; onPress: (event: GestureResponderEvent) => void; minWidth: number }) {
   return (
     <Press onPress={onPress} opacityTo={1} style={{ height: 52, minWidth, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.dark ? '#2C2C2E' : '#FFFFFF' }}>
-      <Icon name={icon} color={theme.text} size={19} strokeWidth={2.1} />
+      {leading ?? (icon ? <Icon name={icon} color={theme.text} size={19} strokeWidth={2.1} /> : null)}
       <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{label}</Text>
     </Press>
   );

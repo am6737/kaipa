@@ -49,10 +49,15 @@ export function region(coordinate: [number, number], zoom: number, size?: Size):
   const { width, height } = viewSize(size);
   const world = worldSize(zoom);
   const center = point(coordinate);
-  // Latitude is not linear in Mercator: take the span the view's height covers
-  // around this centre, so a short view isn't zoomed out to fit a square span.
+  // The zoom rides on the width. MapKit fits a region into the view less its
+  // safe area, so a latitude span for the full height came out too tall under
+  // the notch and home indicator and the whole map zoomed out to fit it — each
+  // follow step a bit more, as the zoom it read back fed the next one. Asking
+  // for the latitude of half the shorter side keeps the width binding; MapKit
+  // fills the rest of the height. (Latitude is not linear in Mercator, hence
+  // the span around this centre.)
   const y = mercatorY(center.latitude);
-  const halfHeight = (height / 2 / world) * 2 * Math.PI;
+  const halfHeight = (Math.min(width, height) / 4 / world) * 2 * Math.PI;
   return {
     ...center,
     latitudeDelta: latitudeAt(y + halfHeight) - latitudeAt(y - halfHeight),

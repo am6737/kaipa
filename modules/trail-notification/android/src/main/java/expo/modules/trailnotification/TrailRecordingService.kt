@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -41,6 +42,7 @@ class TrailRecordingService : Service() {
     private const val TAG = "TrailRecordingService"
     private const val CHANNEL_ID = "kaipa_trail_recording"
     const val NOTIFICATION_ID = 7301
+    private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
     // Renewed on every notification update; only a walk that never moves for this long lets it lapse.
     private const val WAKE_LOCK_TIMEOUT_MS = 12 * 60 * 60 * 1000L
@@ -95,7 +97,12 @@ class TrailRecordingService : Service() {
     }
 
     private fun build(context: Context, value: TrailNotificationContent): Notification {
+      // `<package>://trail` as a VIEW intent, so React Native's Linking hands it to TrailContext, which opens
+      // the 徒步导航 page (the iOS Live Activity uses the same link). The intent is explicit, so it needs no
+      // intent filter.
       val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+        action = Intent.ACTION_VIEW
+        data = Uri.parse("${context.packageName}://trail")
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
       }
       val tap = launch?.let {
@@ -114,6 +121,11 @@ class TrailRecordingService : Service() {
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+      // Android 16 Live Update: a chip in the status bar (the clock while recording) and the card pinned
+      // high on the lock screen and in the shade. Older versions and OEM skins without it ignore the
+      // extra. Set as the raw extra (Notification.EXTRA_REQUEST_PROMOTED_ONGOING) so it builds on any
+      // androidx.core; needs POST_PROMOTED_NOTIFICATIONS in the manifest, and the user can turn it off.
+      builder.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
       val base = value.chronometerBase
       if (base != null) {
         builder.setWhen(base).setShowWhen(true).setUsesChronometer(true)

@@ -90,6 +90,8 @@ module.exports = ({ config }) => {
       // Spoken trail prompts (off route, next waypoint) while the screen is
       // locked. Location keeps the app running; audio lets it be heard.
       UIBackgroundModes: [...new Set([...(config.ios?.infoPlist?.UIBackgroundModes || []), 'audio'])],
+      // 徒步记录 on the lock screen and in the Dynamic Island (targets/trail-activity).
+      NSSupportsLiveActivities: true,
     },
   },
   android: {
@@ -126,6 +128,14 @@ module.exports = ({ config }) => {
         // iOS: a recording started on screen keeps going after the screen
         // locks (blue status pill), with only while-in-use permission.
         isIosBackgroundLocationEnabled: true,
+      },
+    ],
+    [
+      'expo-sensors',
+      {
+        // Only the accelerometer is used (trail stillness), which needs no
+        // permission; this leaves the pedometer and its motion prompt out.
+        motionPermission: false,
       },
     ],
     [
@@ -176,6 +186,8 @@ module.exports = ({ config }) => {
     'expo-updates',
     'expo-apple-authentication',
     './plugins/withIosPodDeploymentTarget',
+    // Adds the Xcode targets under targets/, e.g. the trail Live Activity widget.
+    '@bacons/apple-targets',
   ],
   };
 

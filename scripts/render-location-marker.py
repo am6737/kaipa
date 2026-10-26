@@ -2,8 +2,10 @@
 
 AMap's own location layer on Android takes an image, not a view. These are
 that image, drawn to match src/components/globe/CurrentLocationMarker.tsx: a
-52pt box, the heading cone, and a 16pt accent dot with a 3pt white rim. Run
-again whenever that component or ACCENT_PRESETS changes:
+52pt box, the heading cone, and a 16pt accent dot with a 3pt white rim. The
+`-dot` variants leave the cone out, for a fix without a heading; the trail
+map's own Android marker uses both. Run again whenever that component or
+ACCENT_PRESETS changes:
 
     python3 scripts/render-location-marker.py
 """
@@ -42,14 +44,15 @@ def cone_points(k):
     return [(x * k, y * k) for x, y in pts]
 
 
-def render(color):
+def render(color, cone=True):
     k = SCALE * SS
     size = BOX * k
     r, g, b = rgb(color)
 
     # Cone: accent, alpha fading from 0.28 at the dot to 0.06 at the tip.
     mask = Image.new('L', (size, size), 0)
-    ImageDraw.Draw(mask).polygon(cone_points(k), fill=255)
+    if cone:
+        ImageDraw.Draw(mask).polygon(cone_points(k), fill=255)
     fade = Image.new('L', (size, size), 0)
     fd = ImageDraw.Draw(fade)
     for y in range(size):
@@ -76,4 +79,5 @@ if __name__ == '__main__':
     OUT.mkdir(parents=True, exist_ok=True)
     for name, color in ACCENTS.items():
         render(color).save(OUT / f'location-{name}.png', optimize=True)
+        render(color, cone=False).save(OUT / f'location-{name}-dot.png', optimize=True)
         print(OUT / f'location-{name}.png')

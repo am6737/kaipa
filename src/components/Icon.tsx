@@ -25,6 +25,7 @@ export type IconName =
   | 'close'
   | 'pin'
   | 'locate'
+  | 'locateOutline'
   | 'filter'
   | 'check'
   | 'checkAll'
@@ -290,6 +291,21 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
             fill={color}
             stroke={color}
             strokeWidth={0.6}
+            strokeLinejoin="round"
+          />
+        </Svg>
+      );
+    case 'locateOutline':
+      // Outlined twin of `locate`, for when the camera is no longer on the
+      // user. Stroked a touch heavier so it doesn't read smaller than the
+      // filled arrow it swaps with.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path
+            d="M20.5 3.5 4 10.2c-.7.3-.7 1.3 0 1.6l6.4 2.5a1 1 0 0 1 .56.56l2.5 6.4c.3.7 1.3.7 1.6 0L21.7 4.8a.9.9 0 0 0-1.2-1.2Z"
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth + 0.2}
             strokeLinejoin="round"
           />
         </Svg>

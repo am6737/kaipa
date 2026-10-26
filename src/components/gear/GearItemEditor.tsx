@@ -14,18 +14,29 @@ import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-
 import { GearWheelSelectSheet } from './GearWheelSelectSheet';
 import { useNav } from '../../nav/NavContext';
 import { removeGearImageBackground } from '../../lib/gearBackgroundRemoval';
+import { recognizeGearImage } from '../../lib/gearImageRecognition';
+import { defaultGearCat } from './gearRecognition';
+import { GearRecognitionCamera } from './GearRecognitionCamera';
 
 const numClean = (value: string) => value.replace(/[^0-9.]/g, '');
 
 type PendingPhoto = { uri: string; mimeType?: string | null };
 type PhotoVersion = 'original' | 'cutout';
+type RecognitionSource = { label: string; url?: string };
+// How a new item was started from the 添加装备 menu: open the camera first, or the
+// item was already recognized from a link and arrives prefilled for review.
+export type GearAddStart = 'photo' | 'recognized';
+// Fields recognition can fill; each stays highlighted until the user edits it.
+type FilledField = 'name' | 'weight' | 'qty' | 'category' | 'price' | 'note';
+type RecognitionState = { kind: 'idle' } | { kind: 'busy'; label: string; detail?: string } | { kind: 'error'; message: string };
 
-export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recognitionSource, existingNames = [], onCancel, onSave }: {
+export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recognitionSource: initialSource, start, existingNames = [], onCancel, onSave }: {
   theme: Theme;
   item: GearItem;
   cats: GearCat[];
   weightUnit?: WeightUnit;
-  recognitionSource?: { label: string; url?: string };
+  recognitionSource?: RecognitionSource;
+  start?: GearAddStart;
   existingNames?: string[];
   onCancel: () => void;
   onSave: (next: GearItem) => void;
@@ -54,7 +65,16 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
   const [photoVersion, setPhotoVersion] = useState<PhotoVersion>('original');
   const [cutoutUri, setCutoutUri] = useState<string | null>(null);
   const [removingBackground, setRemovingBackground] = useState(false);
-  const [recognitionNoticeVisible, setRecognitionNoticeVisible] = useState(!!recognitionSource);
+  const [recognitionSource, setRecognitionSource] = useState(initialSource);
+  const [recognitionNoticeVisible, setRecognitionNoticeVisible] = useState(!!initialSource);
+  const [recognitionState, setRecognitionState] = useState<RecognitionState>({ kind: 'idle' });
+  const [filled, setFilled] = useState<FilledField[]>(() => (start === 'recognized' ? recognizedFields(item, cats) : []));
+  const [cameraOpen, setCameraOpen] = useState(start === 'photo');
+  // Bumped per request and on unmount, so a late result never lands on a stale form.
+  const recognitionRun = useRef(0);
+  const latest = useRef({ name, cat, w, p, qty, attrs, note, photos, unit });
+  latest.current = { name, cat, w, p, qty, attrs, note, photos, unit };
+  useEffect(() => () => { recognitionRun.current += 1; }, []);
 
   const trimmed = name.trim();
   const duplicate = existingNames.includes(trimmed) && trimmed !== item.name;
@@ -76,9 +96,51 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
     setAttrs((current) => current.map((entry, entryIndex) => entryIndex === index ? (column === 0 ? [value, entry[1]] : [entry[0], value]) : entry));
   };
 
+  const isFilled = (field: FilledField) => filled.includes(field);
+  const unfill = (field: FilledField) => setFilled((current) => (current.includes(field) ? current.filter((entry) => entry !== field) : current));
+
   const editWeight = (value: string) => {
     wEdited.current = true;
+    unfill('weight');
     setW(numClean(value));
+  };
+
+  // Recognition only fills what is still empty, so nothing the user typed is overwritten.
+  const applyRecognized = (next: GearItem, source: RecognitionSource) => {
+    const current = latest.current;
+    const changed: FilledField[] = [];
+    if (!current.name.trim() && next.name.trim()) { setName(next.name.trim()); changed.push('name'); }
+    if (current.cat === defaultGearCat(cats) && next.cat !== current.cat && cats.some((candidate) => candidate.id === next.cat)) { setCat(next.cat); changed.push('category'); }
+    if (!(Number(current.w) > 0) && next.w > 0) {
+      wEdited.current = true;
+      setW(weightInputValue(next.w, current.unit));
+      changed.push('weight');
+    }
+    if (!current.p && next.p > 0) { setP(String(next.p)); changed.push('price'); }
+    if (current.qty === 1 && (next.qty || 1) > 1) { setQty(next.qty!); changed.push('qty'); }
+    if (!current.note.trim() && next.note?.trim()) { setNote(next.note.trim()); changed.push('note'); }
+    if (current.attrs.length === 0 && next.attrs?.length) setAttrs(next.attrs.map(([key, value]) => [key, value]));
+    if (current.photos.length === 0 && next.photos?.length) setPhotos(next.photos.filter(Boolean).slice(0, 9));
+    setFilled(changed);
+    setRecognitionSource(source);
+    setRecognitionNoticeVisible(true);
+    setRecognitionState({ kind: 'idle' });
+  };
+
+  const recognizePhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    setCameraOpen(false);
+    const run = ++recognitionRun.current;
+    // Show the shot right away; it is the item photo unless one was already added.
+    setPhotos((current) => (current.length ? current : [asset.uri]));
+    setRecognitionState({ kind: 'busy', label: t('gear.add.recognizingPhoto') });
+    try {
+      const next = await recognizeGearImage(asset, cats);
+      if (run !== recognitionRun.current) return;
+      applyRecognized(next, { label: t('gear.add.photoRecognize') });
+    } catch (error) {
+      if (run !== recognitionRun.current) return;
+      setRecognitionState({ kind: 'error', message: error instanceof Error && error.message ? error.message : t('gear.add.imageRecognitionFailed') });
+    }
   };
 
   const weightKg = () => (wEdited.current ? kgFromUnit(Number(w) || 0, unit) : (item.w || 0));
@@ -200,13 +262,14 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
             <TextInput
               autoFocus={!item.name}
               value={name}
-              onChangeText={setName}
+              onChangeText={(next) => { unfill('name'); setName(next); }}
               placeholder={t('gear.editor.namePlaceholder')}
               placeholderTextColor={theme.text3}
               returnKeyType="done"
-              style={[type.pageTitle, { alignSelf: 'stretch', marginTop: space.xl, padding: 0, color: theme.text, lineHeight: 32 }]}
+              style={[type.pageTitle, { alignSelf: 'stretch', marginTop: space.xl, padding: 0, color: isFilled('name') ? theme.accent : theme.text, lineHeight: 32 }]}
             />
             {duplicate ? <Text style={{ alignSelf: 'stretch', marginTop: space.xs, fontSize: 12, color: theme.danger }}>{t('gear.editor.dupName')}</Text> : null}
+            <RecognitionStatus theme={theme} state={recognitionState} />
           </View>
 
           {recognitionSource && recognitionNoticeVisible ? (
@@ -240,8 +303,8 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
           ) : null}
 
           <View style={{ flexDirection: 'row', gap: space.lg, marginTop: space.xs }}>
-            <DetailMetricInput theme={theme} label={t('gear.spec.weight')} value={w} onChangeText={editWeight} placeholder={weightPlaceholder(unit)} unit={unit} onPressUnit={() => setOpenChoice('weight')} />
-            <DetailQuantityInput theme={theme} label={t('gear.spec.qty')} value={qty} onChange={setQty} />
+            <DetailMetricInput theme={theme} label={t('gear.spec.weight')} value={w} onChangeText={editWeight} placeholder={weightPlaceholder(unit)} unit={unit} onPressUnit={() => setOpenChoice('weight')} filled={isFilled('weight')} />
+            <DetailQuantityInput theme={theme} label={t('gear.spec.qty')} value={qty} onChange={(next) => { unfill('qty'); setQty(next); }} filled={isFilled('qty')} />
           </View>
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: space.xxxl }}>
@@ -250,9 +313,10 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
               label={t('gear.spec.category')}
               value={currentCategory?.name || t('gear.uncategorized')}
               color={currentCategory?.color}
+              filled={isFilled('category')}
               onPress={() => setOpenChoice('category')}
             />
-            <DetailValueInput theme={theme} label={t('gear.spec.value')} value={p} onChangeText={(value) => setP(numClean(value))} placeholder="0" prefix="¥" />
+            <DetailValueInput theme={theme} label={t('gear.spec.value')} value={p} onChangeText={(value) => { unfill('price'); setP(numClean(value)); }} placeholder="0" prefix="¥" filled={isFilled('price')} />
             <DetailChoiceField
               theme={theme}
               label={t('gear.spec.status')}
@@ -261,7 +325,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
             />
           </View>
 
-          <DetailNoteInput theme={theme} label={t('gear.section.note')} value={note} onChangeText={setNote} placeholder={t('gear.editor.notePlaceholder')} />
+          <DetailNoteInput theme={theme} label={t('gear.section.note')} value={note} onChangeText={(next) => { unfill('note'); setNote(next); }} placeholder={t('gear.editor.notePlaceholder')} filled={isFilled('note')} />
 
           <AppSectionHeader
             theme={theme}
@@ -314,7 +378,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
           value={cat}
           data={cats.map((candidate) => ({ value: candidate.id, label: candidate.name }))}
           onClose={() => setOpenChoice(null)}
-          onConfirm={setCat}
+          onConfirm={(next) => { unfill('category'); setCat(next); }}
         />
       ) : null}
       {openChoice === 'status' ? (
@@ -375,8 +439,45 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
           setTimeout(pickFromLibrary, 380);
         }}
       />
+      {cameraOpen ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 20 }]}>
+          {/* Only opened by 拍照识别 in the menu, so backing out leaves the add flow. */}
+          <GearRecognitionCamera onCancel={onCancel} onImage={recognizePhoto} />
+        </View>
+      ) : null}
     </View>
   );
+}
+
+// Fields a prefilled recognition result actually supplied.
+function recognizedFields(item: GearItem, cats: GearCat[]): FilledField[] {
+  const fields: FilledField[] = [];
+  if (item.name.trim()) fields.push('name');
+  if ((item.w || 0) > 0) fields.push('weight');
+  if ((item.qty || 1) > 1) fields.push('qty');
+  if (item.cat !== defaultGearCat(cats)) fields.push('category');
+  if ((item.p || 0) > 0) fields.push('price');
+  if (item.note?.trim()) fields.push('note');
+  return fields;
+}
+
+// One line under the name while a link or photo is being read, or why it failed.
+function RecognitionStatus({ theme, state }: { theme: Theme; state: RecognitionState }) {
+  if (state.kind === 'busy') {
+    return (
+      <View accessibilityLiveRegion="polite" style={{ alignSelf: 'stretch', marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <ActivityIndicator size="small" color={theme.accent} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 12.5, fontWeight: '600', color: theme.text2 }}>{state.label}</Text>
+          {state.detail ? <Text numberOfLines={1} style={{ marginTop: 2, fontFamily: MONO, fontSize: 11, color: theme.text3 }}>{state.detail}</Text> : null}
+        </View>
+      </View>
+    );
+  }
+  if (state.kind === 'error') {
+    return <Text accessibilityLiveRegion="polite" style={{ alignSelf: 'stretch', marginTop: space.md, fontSize: 12.5, lineHeight: 18, color: theme.danger }}>{state.message}</Text>;
+  }
+  return null;
 }
 
 function AddGearPhotoGallery({ theme, item, photos, onPress, onEditPhoto }: { theme: Theme; item: GearItem; photos: string[]; onPress: () => void; onEditPhoto: (index: number) => void }) {
@@ -442,9 +543,9 @@ function AddGearPhotoGallery({ theme, item, photos, onPress, onEditPhoto }: { th
 }
 
 
-function DetailMetricInput({ theme, label, value, onChangeText, placeholder, unit, onPressUnit }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string; unit: string; onPressUnit: () => void }) {
+function DetailMetricInput({ theme, label, value, onChangeText, placeholder, unit, onPressUnit, filled }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string; unit: string; onPressUnit: () => void; filled?: boolean }) {
   return (
-    <View style={{ flex: 1, minHeight: 104, paddingHorizontal: space.lg, paddingVertical: 17, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: theme.fieldSurface }}>
+    <View style={{ flex: 1, minHeight: 104, paddingHorizontal: space.lg, paddingVertical: 17, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: filled ? theme.accentSofter : theme.fieldSurface }}>
       <Text style={{ fontSize: 15, color: theme.text2 }}>{label}</Text>
       <NumberFieldWithUnit
         theme={theme}
@@ -453,54 +554,54 @@ function DetailMetricInput({ theme, label, value, onChangeText, placeholder, uni
         onPressUnit={onPressUnit}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        textStyle={{ fontFamily: MONO, fontSize: 25, lineHeight: 30, fontWeight: '800', letterSpacing: -0.7, color: theme.text }}
+        textStyle={{ fontFamily: MONO, fontSize: 25, lineHeight: 30, fontWeight: '800', letterSpacing: -0.7, color: filled ? theme.accent : theme.text }}
       />
     </View>
   );
 }
 
-function DetailQuantityInput({ theme, label, value, onChange }: { theme: Theme; label: string; value: number; onChange: (value: number) => void }) {
+function DetailQuantityInput({ theme, label, value, onChange, filled }: { theme: Theme; label: string; value: number; onChange: (value: number) => void; filled?: boolean }) {
   return (
-    <View style={{ flex: 1, minHeight: 104, paddingHorizontal: space.lg, paddingVertical: 17, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: theme.fieldSurface }}>
+    <View style={{ flex: 1, minHeight: 104, paddingHorizontal: space.lg, paddingVertical: 17, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: filled ? theme.accentSofter : theme.fieldSurface }}>
       <Text style={{ fontSize: 15, color: theme.text2 }}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Press onPress={() => onChange(Math.max(1, value - 1))} hitSlop={6} style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}><Icon name="chevronL" color={value > 1 ? theme.text : theme.text3} size={14} /></Press>
-        <Text style={{ fontFamily: MONO, fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text }}>{value}</Text>
+        <Text style={{ fontFamily: MONO, fontSize: 25, lineHeight: 30, fontWeight: '800', color: filled ? theme.accent : theme.text }}>{value}</Text>
         <Press onPress={() => onChange(value + 1)} hitSlop={6} style={{ width: 30, height: 30, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}><Icon name="chevronR" color={theme.text} size={14} /></Press>
       </View>
     </View>
   );
 }
 
-function DetailChoiceField({ theme, label, value, color, onPress }: { theme: Theme; label: string; value: string; color?: string; onPress: () => void }) {
+function DetailChoiceField({ theme, label, value, color, filled, onPress }: { theme: Theme; label: string; value: string; color?: string; filled?: boolean; onPress: () => void }) {
   return (
     <Press onPress={onPress} style={{ width: '50%', paddingVertical: 14, paddingRight: space.lg }}>
       <Text style={{ fontSize: 15.5, color: theme.text2 }}>{label}</Text>
       <View style={{ minHeight: 22, marginTop: space.xs, flexDirection: 'row', alignItems: 'center' }}>
         {color ? <View style={{ width: 8, height: 8, borderRadius: 3, marginRight: space.xs, backgroundColor: color }} /> : null}
-        <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, fontWeight: '700', color: theme.text }}>{value}</Text>
+        <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, fontWeight: '700', color: filled ? theme.accent : theme.text }}>{value}</Text>
       </View>
     </Press>
   );
 }
 
-function DetailValueInput({ theme, label, value, onChangeText, placeholder, prefix }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string; prefix: string }) {
+function DetailValueInput({ theme, label, value, onChangeText, placeholder, prefix, filled }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string; prefix: string; filled?: boolean }) {
   return (
     <View style={{ width: '50%', paddingVertical: 14, paddingRight: space.lg }}>
       <Text style={{ fontSize: 15.5, color: theme.text2 }}>{label}</Text>
       <View style={{ minHeight: 22, marginTop: space.xs, flexDirection: 'row', alignItems: 'baseline' }}>
-        <Text style={{ marginRight: 2, fontFamily: MONO, fontSize: 13, fontWeight: '700', color: value ? theme.text : theme.text3 }}>{prefix}</Text>
-        <TextInput value={value} onChangeText={onChangeText} keyboardType="decimal-pad" placeholder={placeholder} placeholderTextColor={theme.text3} style={{ flex: 1, padding: 0, fontFamily: MONO, fontSize: 13, fontWeight: '700', color: theme.text }} />
+        <Text style={{ marginRight: 2, fontFamily: MONO, fontSize: 13, fontWeight: '700', color: filled ? theme.accent : value ? theme.text : theme.text3 }}>{prefix}</Text>
+        <TextInput value={value} onChangeText={onChangeText} keyboardType="decimal-pad" placeholder={placeholder} placeholderTextColor={theme.text3} style={{ flex: 1, padding: 0, fontFamily: MONO, fontSize: 13, fontWeight: '700', color: filled ? theme.accent : theme.text }} />
       </View>
     </View>
   );
 }
 
-function DetailNoteInput({ theme, label, value, onChangeText, placeholder }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string }) {
+function DetailNoteInput({ theme, label, value, onChangeText, placeholder, filled }: { theme: Theme; label: string; value: string; onChangeText: (value: string) => void; placeholder: string; filled?: boolean }) {
   return (
     <View style={{ width: '100%', paddingVertical: 14, paddingRight: space.lg }}>
       <Text style={{ fontSize: 15.5, color: theme.text2 }}>{label}</Text>
-      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={theme.text3} multiline style={{ width: '100%', minHeight: 54, marginTop: space.xs, padding: 0, fontSize: 13, lineHeight: 20, fontWeight: '700', color: theme.text, textAlignVertical: 'top' }} />
+      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={theme.text3} multiline style={{ width: '100%', minHeight: 54, marginTop: space.xs, padding: 0, fontSize: 13, lineHeight: 20, fontWeight: '700', color: filled ? theme.accent : theme.text, textAlignVertical: 'top' }} />
     </View>
   );
 }

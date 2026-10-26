@@ -4,7 +4,7 @@
 // that often would re-render every screen.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import { useData } from '../data/DataContext';
 import type { TrackDraft } from '../hooks/useTracks';
 import type { Track } from '../data/tracks';
@@ -22,6 +22,11 @@ import { getTrailGuide, setTrailGuideLanguage, subscribeTrailGuide, type TrailGu
 import { useI18n } from '../i18n';
 
 const PENDING_KEY = 'kaipa.trail.pendingSaves.v1';
+
+/** `<bundle id>://trail`, opened by a tap on the iOS Live Activity (targets/trail-activity) or the Android recording notification. */
+function isTrailLink(url: string | null): boolean {
+  return !!url && /^[a-z0-9.+-]+:\/\/trail(?:[/?#]|$)/i.test(url);
+}
 
 export type TrailSaveResult = { status: 'saved'; track: Track } | { status: 'queued' };
 
@@ -120,6 +125,14 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
     });
     return () => subscription.remove();
   }, [flushPending]);
+
+  // A cold launch from the link already reopens the page above (restoreTrail); this covers a warm one.
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      if (isTrailLink(url) && getTrailSnapshot().session) setOpen(true);
+    });
+    return () => subscription.remove();
+  }, []);
 
   const openTrail = useCallback((route?: TrailRouteRef | null) => {
     const { session } = getTrailSnapshot();

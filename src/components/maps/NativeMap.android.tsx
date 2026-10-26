@@ -48,6 +48,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   showUserLocation = false,
   platformLocationIndicator = false,
   platformLocationImage,
+  trackUserLocation = false,
   followUserLocation = false,
   markers = [],
   polylines = [],
@@ -65,15 +66,18 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const programmaticUntil = useRef(0);
   // A new object re-applies the style natively, which decodes the image again
   // on a background thread; only rebuild it when something in it changes.
-  const imageUri = platformLocationImage?.uri;
-  const imageSize = platformLocationImage?.size;
+  // Tracking only, the layer still locates but draws nothing; it gets no image
+  // either, since AMap's image loader turns the layer back on once it decodes.
+  const drawLocation = platformLocationIndicator;
+  const imageUri = drawLocation ? platformLocationImage?.uri : undefined;
+  const imageSize = drawLocation ? platformLocationImage?.size : undefined;
   const userLocationRepresentation = useMemo(() => ({
     showsAccuracyRing: false,
     showsHeadingIndicator: true,
-    showMyLocation: true,
+    showMyLocation: drawLocation,
     locationType: followUserLocation ? 'LOCATION_ROTATE' as const : 'LOCATION_ROTATE_NO_CENTER' as const,
     ...(imageUri && imageSize ? { image: imageUri, imageWidth: imageSize, imageHeight: imageSize, anchorU: 0.5, anchorV: 0.5 } : {}),
-  }), [followUserLocation, imageUri, imageSize]);
+  }), [drawLocation, followUserLocation, imageUri, imageSize]);
   // Fires onGestureStart once per user gesture instead of on every throttled
   // camera-move event (iOS fires it only at pan start). Reset when the map
   // settles so the next gesture is detected again.
@@ -201,7 +205,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       myLocationButtonEnabled={false}
       // Android renders the shared app marker from MapGlobe instead of AMap's
       // platform-specific blue location indicator, unless a page asks for it.
-      myLocationEnabled={platformLocationIndicator}
+      myLocationEnabled={platformLocationIndicator || trackUserLocation}
       followUserLocation={followUserLocation}
       userLocationRepresentation={userLocationRepresentation}
       scrollGesturesEnabled={interactive}
@@ -293,12 +297,18 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           position={point(marker.coordinate)}
           anchor={marker.anchor}
           title={marker.title}
-          pinColor={marker.content ? undefined : 'red'}
-          cacheKey={marker.id}
+          icon={marker.image?.uri}
+          iconWidth={marker.image?.size}
+          iconHeight={marker.image?.size}
+          // Flat, so the heading stays on the compass when the map turns.
+          flat={marker.rotation != null}
+          rotation={marker.rotation}
+          pinColor={marker.content || marker.image ? undefined : 'red'}
+          cacheKey={marker.image ? `${marker.id}|${marker.image.uri}` : marker.id}
           zIndex={marker.zIndex}
           onMarkerPress={() => marker.onPress?.()}
         >
-          {marker.content}
+          {marker.image ? null : marker.content}
         </Marker>
       ))}
     </MapView>

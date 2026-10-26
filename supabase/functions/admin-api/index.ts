@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const resource = url.searchParams.get('resource') || 'overview';
     if (req.method === 'POST') {
-      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; moderation_status?: string; rejection_reason?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string; section?: string; body?: string; sources?: string; as_of?: string; origin?: string };
+      const body = await req.json().catch(() => ({})) as { action?: string; id?: string; role?: string; status?: string; moderation_status?: string; rejection_reason?: string; title?: string; message?: string; caption?: string; name?: string; region?: string; dist?: string; asc_?: string; diff?: string; days?: string; lng?: string; lat?: string; tone?: string; coord?: string; track_coords?: string; track_elevation?: string; track_duration_ms?: string; track_waypoints?: string; track_file_url?: string; track_file_name?: string; file_name?: string; file_format?: string; file_url?: string; dist_m?: string; asc_m?: string; point_count?: string; email?: string; password?: string; display_name?: string; username?: string; bio?: string; ban_duration?: string; user_id?: string; weight?: string; price?: string; qty?: string; route_id?: string; category_slug?: string; fields?: string; source_url?: string; review_due_at?: string; accepted_fields?: string; note?: string; section?: string; body?: string; sources?: string; as_of?: string; origin?: string };
       const createsWithoutId = body.action === 'broadcast-notification' || body.action === 'create-route' || body.action === 'create-track' || body.action === 'create-gear' || body.action === 'create-user' || body.action === 'save-route-fact' || body.action === 'save-route-knowledge';
       if (!body.action || (!createsWithoutId && !body.id)) return json({ error: 'invalid_request' }, 400);
       const editors = ['owner', 'admin', 'editor'];
@@ -174,10 +174,23 @@ Deno.serve(async (req) => {
           if (!value) return null;
           try { return JSON.parse(value); } catch { return null; }
         };
-        const route = { name: body.name, region: body.region || '未分类', coord: body.coord || null, dist: body.dist || null, asc_: body.asc_ || null, diff: body.diff || null, tone: body.tone || 'forest', lng: Number(body.lng || 0), lat: Number(body.lat || 0), track_coords: jsonValue(body.track_coords), track_elevation: jsonValue(body.track_elevation), track_duration_ms: Number(body.track_duration_ms || 0) || null, track_waypoints: jsonValue(body.track_waypoints), track_file_url: body.track_file_url || null, track_file_name: body.track_file_name || null, created_by: auth.user.id };
+        // 天数 arrives as "1,2,3" (or "1-3"); stored sorted and unique, null when empty.
+        const parts = String(body.days || '').split(/[,，、\s]+/).filter(Boolean);
+        const dayList: number[] = [];
+        for (const part of parts) {
+          const range = part.match(/^(\d+)[-~～](\d+)$/);
+          const [from, to] = range ? [Number(range[1]), Number(range[2])] : [Number(part), Number(part)];
+          if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to > 60 || to < from) return json({ error: 'route_days_invalid' }, 400);
+          for (let d = from; d <= to; d++) dayList.push(d);
+        }
+        const days = dayList.length ? [...new Set(dayList)].sort((a, b) => a - b) : null;
+        const route: Record<string, unknown> = { name: body.name, region: body.region || '未分类', coord: body.coord || null, dist: body.dist || null, asc_: body.asc_ || null, diff: body.diff || null, tone: body.tone || 'forest', lng: Number(body.lng || 0), lat: Number(body.lat || 0), days, track_coords: jsonValue(body.track_coords), track_elevation: jsonValue(body.track_elevation), track_duration_ms: Number(body.track_duration_ms || 0) || null, track_waypoints: jsonValue(body.track_waypoints), track_file_url: body.track_file_url || null, track_file_name: body.track_file_name || null };
+        // The edit form sends only the fields it shows; an update must leave the
+        // rest (track geometry, file, owner) as stored rather than null them.
+        const changes = Object.fromEntries(Object.entries(route).filter(([key]) => key === 'name' || key in body));
         const result = body.action === 'create-route'
-          ? await service.from('routes').insert({ ...route, id: `admin-${crypto.randomUUID()}` }).select('id').single()
-          : await service.from('routes').update(route).eq('id', body.id).select('id').maybeSingle();
+          ? await service.from('routes').insert({ ...route, created_by: auth.user.id, id: `admin-${crypto.randomUUID()}` }).select('id').single()
+          : await service.from('routes').update(changes).eq('id', body.id).select('id').maybeSingle();
         if (result.error) throw result.error;
         if (!result.data) return json({ error: 'route_not_found' }, 404);
       } else if (body.action === 'delete-route') {

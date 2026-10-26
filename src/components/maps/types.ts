@@ -125,6 +125,14 @@ export interface NativeMapMarker {
    */
   zIndex?: number;
   opacity?: number;
+  /**
+   * Android (AMap) only: draw this image instead of `content`. AMap takes it
+   * as is, where a `content` view is snapshotted and can fail to show.
+   * `size` is the square size in dp.
+   */
+  image?: { uri: string; size: number };
+  /** Android (AMap) only, with `image`: degrees clockwise from north, turning with the map. */
+  rotation?: number;
   onPress?: () => void;
 }
 
@@ -178,6 +186,12 @@ export interface NativeMapProps {
    * dot sits at the image's centre.
    */
   platformLocationImage?: { uri: string; size: number };
+  /**
+   * Android only: run AMap's location layer without drawing it, so
+   * onUserLocationChange and followUserLocation keep working while the caller
+   * draws "you are here" as its own marker.
+   */
+  trackUserLocation?: boolean;
   followUserLocation?: boolean;
   markers?: NativeMapMarker[];
   polylines?: NativeMapPolyline[];

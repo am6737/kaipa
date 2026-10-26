@@ -33,10 +33,25 @@ shows the running one and toasts `trail.busy`.
 
 ## Recording
 
-- **Fix filtering** (`judgeFix`):
+- **Fix filtering** (`judgeFix`, after `smoothFix`):
   - drop fixes with accuracy worse than 40 m;
-  - drop steps inside the fix's error circle (standing still);
+  - smooth the rest with an accuracy-weighted Kalman filter (`smoothFix`,
+    reset per segment and after 30 s gaps), so standing-still wander averages
+    out instead of being drawn;
+  - drop steps from the last kept point that stay inside the fix's error circle
+    (5–25 m), or within twice that while Doppler speed is under 0.4 m/s;
   - drop jumps faster than 12 m/s.
+- **Lying still** (`src/lib/deviceStillness.ts`): while the accelerometer has
+  read still for 4 s (spread of |a| under 2% of its mean) and the fix reports
+  under 1.5 m/s, fixes add nothing to the track and the recorder's dot holds
+  its position (a fix 40% sharper may still replace it). No sensor, or no
+  samples (an older binary; Android in the background), falls back to the GPS
+  filters above.
+- **"You are here"** on the trail map is the recorder's fix on both platforms,
+  so it holds still with the track. Android draws it as an AMap marker image
+  (`assets/trail/location-*.png`, `-dot` without a heading), not AMap's own
+  location layer, which follows raw fixes; the marker's centre anchor and
+  `rotation` prop come from `patches/expo-gaode-map+*.patch`.
 - **Climb** uses 5 m hysteresis, like imports.
 - **Pause** starts a new segment, so a pause doesn't draw a straight line
   across a bus ride. Saving joins the segments into one line, and `durationMs`
@@ -85,15 +100,48 @@ discarded, paused included. Like Komoot and AllTrails, the card shows the
 route name (or 自由记录), moving time ticking in the header through the
 notification chronometer, and `距离 ↑爬升 ↓下降`; a paused walk shows
 `（已暂停）` and the banked time instead. GPS search/weak signal goes in the
-sub text. JS posts only when the text changes (`syncNotification` in
+sub text. A tap opens `<package>://trail` as an explicit VIEW intent, which
+`TrailContext` turns into the 徒步导航 page. JS posts only when the text changes (`syncNotification` in
 `trailRecorder.ts`), so the clock costs nothing with the screen off. Starting
 a recording asks for `POST_NOTIFICATIONS` on Android 13+; without it the
 service still runs, only the card is hidden. The module needs a new dev build.
+
+On Android 16 the card asks to be a Live Update (`android.requestPromotedOngoing`,
+permission `POST_PROMOTED_NOTIFICATIONS`): a status-bar chip with the running
+clock, and the card pinned on the lock screen. Earlier versions ignore it.
 
 While recording (not paused) the service also holds a partial wake lock
 (`syncWakeLock`). The foreground service alone keeps the process alive but
 lets the CPU sleep with the screen off. AMap's 2 s loop then stalls, and the
 track comes back as a few fixes joined by straight lines.
+
+### Live Activity (iOS)
+
+The same module's iOS side (`TrailLiveActivityModule`) runs an ActivityKit Live
+Activity from the same `syncNotification` calls: lock screen card, Dynamic
+Island (compact: distance and clock; expanded: status, distance, clock, climb,
+route or GPS warning). The view lives in the widget extension
+`targets/trail-activity`, added at prebuild by `@bacons/apple-targets`
+(bundle id `<app>.trailactivity`; EAS makes its provisioning profile).
+`TrailActivityAttributes.swift` exists twice, in the module and the target,
+and the copies must match. The clock ticks in the widget from `startedAt`;
+JS sends the fields under `live` and only when they change. An activity can
+only be started in the foreground, which a recording always is; one left by
+a killed process is reused. iOS ends an activity after 8 hours, so a longer
+walk keeps recording without it. Turned off in Settings, recording runs
+without it. A tap on the card or the island opens `<bundle id>://trail` (the
+bundle id is already the app's URL scheme, so dev and release builds each open
+themselves); `TrailContext` opens the 徒步导航 page on it. Needs a new build.
+
+## In-app pill
+
+While the page is minimised and the tab bar shows, the 记录 tab is the way
+back: its label becomes the moving time, `mm:ss` under an hour and `h:mm:ss` after (orange while recording, grey and
+frozen while paused). `TrailMiniBar` appears only where the tab bar is hidden
+(`tabsHidden` in `AppRoot.tsx`: detail pages, discover overlays, share
+posters and so on). A tap opens the page; a drag moves it. It snaps to the left edge, middle or right edge
+(a flick carries toward one), stays between the safe area and the tab bar, and
+keeps its spot under `kaipa.trail.miniPosition.v1`.
 
 ## Navigation and voice
 

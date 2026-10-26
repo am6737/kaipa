@@ -20,9 +20,11 @@ import { useData } from '../data/DataContext';
 import { GearItemDetail } from '../components/gear/GearItemDetail';
 import { GearSetDetail } from '../components/gear/GearSetDetail';
 import { GearSetEditor } from '../components/gear/GearSetEditor';
-import { GearItemEditor } from '../components/gear/GearItemEditor';
+import { GearItemEditor, type GearAddStart } from '../components/gear/GearItemEditor';
+import { blankGearItem } from '../components/gear/gearRecognition';
+import { GearLinkPastePage } from '../components/gear/GearLinkPastePage';
+import { AddGearMenu, type AddGearMethod, type MenuAnchor } from '../components/gear/AddGearMenu';
 import { GearCatEditor } from '../components/gear/GearCatEditor';
-import { AddGearChoose } from '../components/gear/AddGearChoose';
 import { GearSetsList } from '../components/gear/GearSetsList';
 import { GearItemsList } from '../components/gear/GearItemsList';
 import { GearEmptyState } from '../components/gear/GearEmptyState';
@@ -184,16 +186,21 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
   const [itemEditor, setItemEditor] = useState<{
     mode: 'new' | 'edit';
     item: GearItem;
+    // New items opened from 拍照识别 open the camera first; ones from 粘贴链接 arrive recognized.
+    start?: GearAddStart;
     recognitionSource?: { label: string; url?: string };
   } | null>(null);
+  // 粘贴链接 page from the 添加装备 menu.
+  const [linkPageOpen, setLinkPageOpen] = useState(false);
+  // 添加装备 popover, anchored to whichever control opened it.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [addMenuAnchor, setAddMenuAnchor] = useState<MenuAnchor | null>(null);
   // 新建 / 编辑分类 bottom sheet.
   const [catEditor, setCatEditor] = useState<{ mode: 'new' | 'edit'; cat?: GearCat } | null>(null);
-  // 添加装备入口选择（链接 / 拍照 / 手动）
-  const [addChoose, setAddChoose] = useState(false);
   const pendingSetItemAdded = useRef<((item: GearItem) => void) | null>(null);
   // Standalone gear pages own tab-bar visibility. Embedded full-screen entries
   // sit above an already-open journey detail and must not mutate its navigation chrome.
-  const fullScreenPageOpen = visiblePageStack.length > 0 || setEditor != null || itemEditor != null || catEditor != null || addChoose;
+  const fullScreenPageOpen = visiblePageStack.length > 0 || setEditor != null || itemEditor != null || catEditor != null || linkPageOpen;
   const setTabBarHidden = nav.setTabBarHidden;
   useEffect(() => {
     if (!onExit) setTabBarHidden('gear', fullScreenPageOpen);
@@ -329,17 +336,35 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
   };
 
   const catMap = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c])) as Record<string, GearCat>, [cats]);
-  const onAddResult = (item: GearItem, recognitionSource?: { label: string; url?: string }) => {
-    setAddChoose(false);
-    setItemEditor({ mode: 'new', item, recognitionSource });
+  // The memoised lists keep their first callbacks, so these only touch setters and refs.
+  const openAddMenu = (anchor: MenuAnchor) => {
+    setAddMenuAnchor(anchor);
+    setAddMenuOpen(true);
   };
-  const addGearFromSetEditor = (onAdded: (item: GearItem) => void) => {
+  const addGearFromSetEditor = (onAdded: (item: GearItem) => void, anchor: MenuAnchor) => {
     pendingSetItemAdded.current = onAdded;
-    setAddChoose(true);
+    openAddMenu(anchor);
   };
-  const cancelAddChoose = () => {
+  const closeAddMenu = () => {
+    setAddMenuOpen(false);
     pendingSetItemAdded.current = null;
-    setAddChoose(false);
+  };
+  const pickAddMethod = (method: AddGearMethod) => {
+    setAddMenuOpen(false);
+    if (method === 'link') setLinkPageOpen(true);
+    else setItemEditor({ mode: 'new', item: blankGearItem(cats), start: method === 'photo' ? 'photo' : undefined });
+  };
+  const cancelLinkPage = () => {
+    pendingSetItemAdded.current = null;
+    setLinkPageOpen(false);
+  };
+  const onLinkRecognized = (item: GearItem, recognitionSource: { label: string; url?: string }) => {
+    setLinkPageOpen(false);
+    setItemEditor({ mode: 'new', item: { ...blankGearItem(cats), ...item }, start: 'recognized', recognitionSource });
+  };
+  const onLinkManual = () => {
+    setLinkPageOpen(false);
+    setItemEditor({ mode: 'new', item: blankGearItem(cats) });
   };
   const cancelItemEditor = () => {
     if (itemEditor?.mode === 'new') pendingSetItemAdded.current = null;
@@ -410,7 +435,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
               onBack={popPage}
               entryVariant={pg.entry === 'pull' ? 'continuationY' : 'push'}
               onOpenItem={(item) => pushPage({ type: 'item', item })}
-              onAdd={() => setAddChoose(true)}
+              onAdd={openAddMenu}
               onOpenAssistant={() => nav.openAssistant('我还没有装备，请先询问我常见的出行场景、预算和偏好，再帮我创建适合我的装备。', undefined, true, undefined, true)}
               onAddCategory={() => setCatEditor({ mode: 'new' })}
               onEditCategory={(cat) => setCatEditor({ mode: 'edit', cat })}
@@ -445,10 +470,11 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
         </View>
       )}
 
-      {/* ── 添加装备入口选择 ── */}
-      {addChoose && (
+      <AddGearMenu theme={theme} visible={addMenuOpen} anchor={addMenuAnchor} onPick={pickAddMethod} onClose={closeAddMenu} />
+
+      {linkPageOpen && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 205 }]}>
-          <AddGearChoose theme={theme} cats={cats} onResult={onAddResult} onCancel={cancelAddChoose} />
+          <GearLinkPastePage theme={theme} cats={cats} onCancel={cancelLinkPage} onRecognized={onLinkRecognized} onManual={onLinkManual} />
         </View>
       )}
 
@@ -460,6 +486,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
             item={itemEditor.item}
             cats={cats}
             weightUnit={weightUnit}
+            start={itemEditor.start}
             recognitionSource={itemEditor.recognitionSource}
             existingNames={allItems.map((i) => i.name)}
             onCancel={cancelItemEditor}

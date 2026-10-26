@@ -6,6 +6,7 @@ import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from 
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
 import { platformLocationImage } from '../maps/locationImage';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
+import { useCompassHeading } from '../../lib/compassHeading';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobePoi, GlobeProps } from './types';
 import { useI18n } from '../../i18n';
@@ -680,13 +681,38 @@ export default function MapGlobe({
   // (nothing overlaid) hands NativeMap the very same array instance it already
   // has, and the pin objects inside it keep their identity — which is what lets
   // the marker elements below bail out of reconciliation entirely.
+  // Android draws "you are here" as an image marker: AMap's location layer
+  // showed its own blue arrow instead of the image it was given, and a
+  // snapshotted custom view does not reliably appear. The cone follows the
+  // compass; the pin's own heading is a one-off reading. No compass, no cone.
+  const pinLng = pin?.lng;
+  const pinLat = pin?.lat;
+  const showsLocationMarker = Platform.OS === 'android' && pinLng != null && pinLat != null && isValidMapCoordinate([pinLng, pinLat]);
+  const compassHeading = useCompassHeading(showsLocationMarker);
+  const hasHeading = compassHeading != null;
+  const locationImage = useMemo(() => platformLocationImage(theme.accent, hasHeading), [theme.accent, hasHeading]);
+  const locationMarker = useMemo<NativeMapMarker | null>(() => (
+    showsLocationMarker && locationImage
+      ? {
+        id: 'current-location',
+        coordinate: [pinLng!, pinLat!],
+        anchor: { x: 0.5, y: 0.5 },
+        zIndex: 20,
+        image: locationImage,
+        // Flat and turned from north, so the cone keeps pointing the right way
+        // when the map is rotated.
+        ...(compassHeading != null ? { rotation: compassHeading } : {}),
+      }
+      : null
+  ), [showsLocationMarker, locationImage, pinLng, pinLat, compassHeading]);
   const markers = useMemo(
-    () => (overlayMarkers.length ? [...poiMarkers, ...overlayMarkers] : poiMarkers),
-    [overlayMarkers, poiMarkers],
+    () => (overlayMarkers.length || locationMarker
+      ? [...poiMarkers, ...overlayMarkers, ...(locationMarker ? [locationMarker] : [])]
+      : poiMarkers),
+    [locationMarker, overlayMarkers, poiMarkers],
   );
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
-  const locationImage = useMemo(() => platformLocationImage(theme.accent), [theme.accent]);
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.fieldSurface }]}>
@@ -700,11 +726,9 @@ export default function MapGlobe({
         mapStyle={mapStyle}
         showLabels={showMapLabels}
         showUserLocation={!!pin}
-        // Android draws "you are here" with AMap's own location layer, wearing
-        // the shared marker's image: a custom marker is a view snapshot, and
-        // that snapshot does not reliably appear.
-        platformLocationIndicator={Platform.OS === 'android' && !!pin}
-        platformLocationImage={locationImage}
+        // AMap's location layer keeps feeding onUserLocationChange and the
+        // follow mode; the dot itself is locationMarker above.
+        trackUserLocation={Platform.OS === 'android' && !!pin}
         followUserLocation={followUserLocation}
         markers={markers}
         polylines={polylines}

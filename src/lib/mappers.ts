@@ -34,6 +34,7 @@ export function toRoutePoi(r: any): Poi {
     trackFileName: r.track_file_name ?? undefined,
     bestMonths: r.best_months ?? undefined,
     seasonNote: r.season_note ?? undefined,
+    routeDays: Array.isArray(r.days) && r.days.length ? r.days : undefined,
   };
 }
 

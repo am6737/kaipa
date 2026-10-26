@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { useTheme } from './theme/AppearanceContext';
 import { useI18n } from './i18n';
-import { NavProvider, useNav } from './nav/NavContext';
+import { FrozenNav, NavProvider, useNav } from './nav/NavContext';
 import { DataProvider, useData } from './data/DataContext';
 import { MembershipProvider } from './membership/MembershipContext';
 import { authStorageKey, supabase } from './lib/supabase';
@@ -21,6 +21,7 @@ import { JourneyScreen } from './screens/JourneyScreen';
 import { GearScreen } from './screens/GearScreen';
 import { MeScreen } from './screens/MeScreen';
 import { BottomTabs } from './components/BottomTabs';
+import { TabPage } from './components/TabPage';
 import { MapPresentationProvider } from './components/maps/MapPresentationContext';
 import { ActionSheet } from './components/overlays/ActionSheet';
 import { AddRouteSheet } from './components/overlays/AddRouteSheet';
@@ -79,8 +80,9 @@ function AppShell() {
   }, [assistantReturnJourneyId, nav.assistantOpen, nav.pointInfo]);
 
   const detailOpen = !!nav.pointInfo;
-  const sheetUp = detailOpen || (nav.mainTab === 'discover' && nav.sheetOpen);
-  const hidden = { display: 'none' as const };
+  // The discover list hides the bar itself above peek (setTabBarHidden). nav.sheetOpen
+  // outlives a route card closed back to the list, so it must not hide the bar here.
+  const tabsHidden = detailOpen || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi || !!passphrasePoi;
   const managedPoi = nav.manageCompanions
     ? journeys.find((journey) => journey.id === nav.manageCompanions?.poi.id) || nav.manageCompanions.poi
     : null;
@@ -115,47 +117,57 @@ function AppShell() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View
-        pointerEvents={nav.mainTab === 'discover' || detailOpen ? 'auto' : 'none'}
-        accessibilityElementsHidden={nav.mainTab !== 'discover' && !detailOpen}
-        importantForAccessibility={nav.mainTab !== 'discover' && !detailOpen ? 'no-hide-descendants' : 'auto'}
-        // iOS must never take this container out of the hierarchy: a MapView
-        // that leaves and re-enters the window comes back with empty reused
-        // annotation views (every route pin gone), and unmounting it reloads
-        // the tiles, which reads as a flash. DiscoverScreen slides the map
-        // off-screen instead, via keepMapWarm. Android keeps the old teardown.
-        style={[
-          StyleSheet.absoluteFill,
-          Platform.OS === 'android' && !['discover', 'journey'].includes(nav.mainTab) && !detailOpen && hidden,
-        ]}
-      >
-        <DiscoverScreen
-          theme={theme}
-          active={nav.mainTab === 'discover' || detailOpen}
-          keepMapWarm={Platform.OS === 'ios'}
-          covered={nav.searchOpen && searchOpaque}
-          externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
-          onBlockingOverlayChange={setDiscoverOverlayOpen}
-        />
+      {/* Own stacking context: TabPage raises the incoming page with zIndex,
+          which must not lift it over the overlays rendered after this. */}
+      <View style={StyleSheet.absoluteFill}>
+        {/* iOS must never take Discover out of the hierarchy: a MapView that
+            leaves and re-enters the window comes back with empty reused
+            annotation views (every route pin gone), and unmounting it reloads
+            the tiles, which reads as a flash. DiscoverScreen slides the map
+            off-screen instead, via keepMapWarm. Android keeps the old teardown. */}
+        <TabPage
+          selected={nav.mainTab === 'discover'}
+          forced={detailOpen}
+          whenHidden={Platform.OS === 'android' && nav.mainTab !== 'journey' ? 'none' : 'keep'}
+        >
+          {(shown) => (
+            <FrozenNav frozen={nav.mainTab !== 'discover' && !detailOpen}>
+              <DiscoverScreen
+                theme={theme}
+                active={shown}
+                keepMapWarm={Platform.OS === 'ios'}
+                covered={nav.searchOpen && searchOpaque}
+                externalOverlayOpen={Boolean(sharePosterPoi || passphrasePoi)}
+                onBlockingOverlayChange={setDiscoverOverlayOpen}
+              />
+            </FrozenNav>
+          )}
+        </TabPage>
+        {/* Kept laid out (like 我的) rather than display:none: un-hiding rebuilt the
+            whole page's native views on every tab switch, which lagged the tap. */}
+        <TabPage selected={nav.mainTab === 'journey'} covered={detailOpen} whenHidden="transparent">
+          {() => (
+            <FrozenNav frozen={nav.mainTab !== 'journey' || detailOpen}>
+              <JourneyScreen theme={theme} />
+            </FrozenNav>
+          )}
+        </TabPage>
+        <TabPage selected={nav.mainTab === 'gear'} covered={detailOpen} whenHidden="none">
+          {() => (
+            <FrozenNav frozen={nav.mainTab !== 'gear' || detailOpen}>
+              <GearScreen theme={theme} />
+            </FrozenNav>
+          )}
+        </TabPage>
+        <TabPage selected={nav.mainTab === 'me'} covered={detailOpen} whenHidden="transparent">
+          {() => (
+            <FrozenNav frozen={nav.mainTab !== 'me' || detailOpen}>
+              <MeScreen theme={theme} />
+            </FrozenNav>
+          )}
+        </TabPage>
       </View>
-      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'journey' || detailOpen) && hidden]}>
-        <JourneyScreen theme={theme} />
-      </View>
-      <View style={[StyleSheet.absoluteFill, (nav.mainTab !== 'gear' || detailOpen) && hidden]}>
-        <GearScreen theme={theme} />
-      </View>
-      <View
-        pointerEvents={nav.mainTab === 'me' && !detailOpen ? 'auto' : 'none'}
-        accessibilityElementsHidden={nav.mainTab !== 'me' || detailOpen}
-        importantForAccessibility={nav.mainTab !== 'me' || detailOpen ? 'no-hide-descendants' : 'auto'}
-        style={[StyleSheet.absoluteFill, { opacity: nav.mainTab === 'me' && !detailOpen ? 1 : 0 }]}
-      >
-        <MeScreen theme={theme} />
-      </View>
-      <BottomTabs
-        theme={theme}
-        hidden={sheetUp || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi || !!passphrasePoi}
-      />
+      <BottomTabs theme={theme} hidden={tabsHidden} />
 
       {nav.addRouteOpen && (
         <AddRouteSheet
@@ -464,7 +476,7 @@ function AppShell() {
           else nav.openGearPage(target.page);
         }}
       />
-      <TrailLayer theme={theme} />
+      <TrailLayer theme={theme} tabsVisible={!tabsHidden} />
       {nav.actionSheet && <ActionSheet theme={theme} config={nav.actionSheet} onClose={() => nav.closeActionSheet()} />}
       {nav.toast ? <Toast message={nav.toast.message} placement={nav.toast.placement} dark={theme.dark} /> : null}
     </View>

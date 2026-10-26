@@ -1,6 +1,9 @@
 export { AppCard } from './components/AppCard';
 export { AppChoiceChip } from './components/AppChoiceChip';
 export { AppFieldCard } from './components/AppFieldCard';
+export { AppFilterButton } from './components/AppFilterButton';
+export { AppFilterOption, AppFilterPopover, AppFilterSegmented } from './components/AppFilterPopover';
+export type { AppFilterAnchor } from './components/AppFilterPopover';
 export { AppMeasurementPanel } from './components/AppMeasurementPanel';
 export { AppQuestionHeader } from './components/AppQuestionHeader';
 export { AppReadout } from './components/AppReadout';
@@ -9,6 +12,7 @@ export { AppActionDialog } from './components/AppActionDialog';
 export { AppIconButton } from './components/AppIconButton';
 export { AppMetricStrip } from './components/AppMetricStrip';
 export type { AppMetric } from './components/AppMetricStrip';
+export { AppStepSlider } from './components/AppStepSlider';
 export { AppProgressBar } from './components/AppProgressBar';
 export { AppPropertyRow } from './components/AppPropertyRow';
 export { AppSectionHeader } from './components/AppSectionHeader';

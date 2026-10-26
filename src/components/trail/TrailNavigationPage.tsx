@@ -4,7 +4,9 @@
 // minimise at the top left, one column of map controls on the right, and
 // everything else in a card at the bottom.
 //
-// Before starting and once finished the card is a plain panel. While
+// Before starting the card is docked to the bottom edge like the recording
+// sheet it turns into, with the start pill and settings behind a grab handle;
+// once finished it is a plain panel docked the same way. While
 // recording it is a sheet with three detents, after AllTrails and Komoot: the
 // lowest shows only time, distance and pause, so the map gets the screen; the
 // middle adds the live numbers (and the elevation profile on a route); fully
@@ -14,8 +16,8 @@
 // Minimising never stops anything. The recording lives in trailRecorder.ts
 // and a pill at the top of every screen leads back here (TrailMiniBar).
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, BackHandler, Linking, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, BackHandler, Linking, PanResponder, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { platformLocationImage } from '../maps/locationImage';
 import { AppProgressBar, motion, radius, space, type } from '../../design-system';
@@ -42,10 +44,12 @@ import { TrailSheet } from '../Sheet';
 import { buildRouteEndpointMarkers } from '../discover/routeEndpointMarkers';
 import { useMapPresentation } from '../maps/MapPresentationContext';
 import { MapCompassReveal, useMapHeading } from '../maps/MapCompass';
-import { MapControlButton, MapControlGroup, MapRoundButton } from '../MapControls';
+import { MapScaleBar, useMapScale } from '../maps/MapScale';
+import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup, MapRoundButton } from '../MapControls';
 import { NativeMap, NATIVE_MAP_AVAILABLE, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { Icon, type IconName } from '../Icon';
 import { Press } from '../Press';
+import { TrailControlButton } from './TrailControlButton';
 import { TrailProfile } from './TrailProfile';
 import { TrailSummary } from './TrailSummary';
 
@@ -80,6 +84,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   // while it does, the way the locate button is while following.
   const [routeFramed, setRouteFramed] = useState(false);
   const { heading: mapHeading, offNorth: mapOffNorth, onOrientation: onMapOrientation } = useMapHeading();
+  const { scale: mapScale, onZoom: onMapScaleZoom, onLatitude: onMapScaleLatitude } = useMapScale();
   const [starting, setStarting] = useState(false);
   const [, setTick] = useState(0);
 
@@ -160,39 +165,53 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     })
     : NO_MARKERS), [endpointCoords, t, theme]);
 
-  // "You are here". Android uses AMap's own location layer wearing the shared
-  // marker's image: the marker itself is a snapshotted custom view there, and
-  // on the trail map it did not show up on device. iOS draws the shared
-  // marker from the recorder's fix.
+  // "You are here", drawn from the recorder's fix on both platforms, so it
+  // holds still while the phone lies still (AMap's own location layer would
+  // wander with every raw fix). Android draws the shared marker's image rather
+  // than its view: a snapshotted custom view did not show up on device there.
   const headingKey = fix?.heading != null ? Math.round(fix.heading / 15) * 15 : null;
   const markers = useMemo<NativeMapMarker[]>(() => {
-    if (Platform.OS === 'android' || !fix) return endpointMarkers;
+    if (!fix) return endpointMarkers;
+    const image = platformLocationImage(theme.accent, headingKey != null);
     return [...endpointMarkers, {
-      id: `trail-location-${headingKey ?? 'none'}`,
+      id: Platform.OS === 'android' ? 'trail-location' : `trail-location-${headingKey ?? 'none'}`,
       coordinate: [fix.lng, fix.lat],
       anchor: { x: 0.5, y: 0.5 },
       zIndex: 10,
+      ...(image ? { image, rotation: headingKey ?? 0 } : {}),
       content: <CurrentLocationMarker theme={theme} heading={headingKey ?? undefined} />,
     }];
   }, [endpointMarkers, fix, headingKey, theme]);
 
-  const topChrome = insets.top + space.xs + 36;
+  const topChrome = insets.top + space.xs + MAP_CONTROL_SIZE;
 
   // ─── the live sheet ───────────────────────────────────────────────────────
   const sheetGrabber = 19; // TrailSheet's grab handle above the body
   const footerHeight = status === 'paused' ? space.sm + 52 + space.sm + insets.bottom : 0;
-  const snapHeights = useMemo(() => {
-    const min = sheetGrabber + quickHeight + space.xs + insets.bottom + footerHeight;
-    const mid = Math.max(min + 40, sheetGrabber + midHeight + space.md + insets.bottom + footerHeight);
+  const snapsFor = useCallback((footer: number) => {
+    // Lowest detent ends at the quick row itself: its own bottom padding is the
+    // gap to the next block, not to the home indicator, so it is left out.
+    // Paused, the footer already clears the home indicator; the sheet only
+    // keeps a small gap above its buttons.
+    const homeClearance = footer > 0 ? 0 : insets.bottom;
+    const min = sheetGrabber + quickHeight - space.xs + (footer > 0 ? space.xs : Math.max(insets.bottom, space.md)) + footer;
+    const mid = Math.max(min + 40, sheetGrabber + midHeight + space.md + homeClearance + footer);
     const full = Math.max(mid + 40, windowHeight - topChrome - space.sm);
     return [min, mid, full];
-  }, [quickHeight, midHeight, footerHeight, insets.bottom, windowHeight, topChrome]);
+  }, [quickHeight, midHeight, insets.bottom, windowHeight, topChrome]);
+  const snapHeights = useMemo(() => snapsFor(footerHeight), [snapsFor, footerHeight]);
   useEffect(() => {
     if (!live) setSheetIndex(1);
   }, [live]);
   // Fully open covers the map, so the camera keeps framing for the middle.
   const bottomInset = live ? snapHeights[Math.min(sheetIndex, 1)] : panelHeight;
   const cameraPadding = useCallback((): [number, number, number, number] => [topChrome + space.lg, 40, bottomInset + space.lg, 40], [bottomInset, topChrome]);
+  // Following frames for the sheet as it is while recording: the paused
+  // footer comes and goes with 暂停 and 继续, and re-centring for it slid the
+  // map each time. The walker still sits well clear of the sheet. Fitting a
+  // route uses the full padding.
+  const followBottom = live ? snapsFor(0)[Math.min(sheetIndex, 1)] : panelHeight;
+  const followPadding = useCallback((): [number, number, number, number] => [topChrome + space.lg, 40, followBottom + space.lg, 40], [followBottom, topChrome]);
 
   // Follow the walker; a pan or pinch hands the camera back to them.
   const lastFollowAt = useRef(0);
@@ -202,8 +221,8 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     if (now - lastFollowAt.current < 1500) return;
     lastFollowAt.current = now;
     setRouteFramed(false);
-    mapRef.current?.moveCamera([fix.lng, fix.lat], Math.max(zoomRef.current, 14), 600, { edgePadding: cameraPadding() });
-  }, [fix, following, cameraPadding]);
+    mapRef.current?.moveCamera([fix.lng, fix.lat], Math.max(zoomRef.current, 14), 600, { edgePadding: followPadding() });
+  }, [fix, following, followPadding]);
 
   // Frame the finished walk once its summary has laid out, so the padding
   // knows how tall the panel is.
@@ -231,7 +250,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     setRouteFramed(false);
     lastFollowAt.current = 0;
     const here: Coordinate | null = fix ? [fix.lng, fix.lat] : mapLocation.current;
-    if (here) mapRef.current?.moveCamera(here, FOLLOW_ZOOM, 600, { edgePadding: cameraPadding() });
+    if (here) mapRef.current?.moveCamera(here, FOLLOW_ZOOM, 600, { edgePadding: followPadding() });
   };
 
   // ─── controls ─────────────────────────────────────────────────────────────
@@ -254,6 +273,9 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     if (next) previewTrailVoice();
   };
   const initialCenter: Coordinate = route?.coords[0] ?? (fix ? [fix.lng, fix.lat] : [116.39, 39.9]);
+  // The scale needs a latitude; where the walker is is close enough.
+  const scaleLatitude = fix?.lat ?? initialCenter[1];
+  useEffect(() => onMapScaleLatitude(scaleLatitude), [onMapScaleLatitude, scaleLatitude]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.featureSurface, zIndex: 320 }]}>
@@ -292,8 +314,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           initialFitCoordinates={route && route.coords.length >= 2 ? route.coords : undefined}
           initialPadding={[topChrome + space.lg, 40, bottomInset + space.lg, 40]}
           mapStyle={mapStyle}
-          platformLocationIndicator={Platform.OS === 'android'}
-          platformLocationImage={platformLocationImage(theme.accent)}
           polylines={polylines}
           markers={markers}
           onUserLocationChange={(coordinate) => {
@@ -302,10 +322,10 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             if (!fix && following && Date.now() - lastFollowAt.current > 1500) {
               lastFollowAt.current = Date.now();
               setRouteFramed(false);
-              mapRef.current?.moveCamera(coordinate, Math.max(zoomRef.current, 14), 600, { edgePadding: cameraPadding() });
+              mapRef.current?.moveCamera(coordinate, Math.max(zoomRef.current, 14), 600, { edgePadding: followPadding() });
             }
           }}
-          onZoomChange={(zoom) => { zoomRef.current = zoom; }}
+          onZoomChange={(zoom) => { zoomRef.current = zoom; onMapScaleZoom(zoom); }}
           onGestureStart={() => { if (fingerDown.current) { setFollowing(false); setRouteFramed(false); } }}
           onCameraChange={onMapOrientation}
         />
@@ -319,9 +339,10 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
       {/* Top: minimise, and while paused a pill saying so — the map is most of
           the screen, and a pause mistaken for recording loses a stretch of track. */}
       <View style={{ position: 'absolute', top: insets.top + space.xs, left: space.md }}>
-        <MapControlButton theme={theme} icon="chevronDown" onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
+        <MapControlButton theme={theme} element={<Icon name="chevronDown" color={theme.text} size={28} />} onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
       </View>
       {status === 'paused' && session ? <PausedPill theme={theme} pausedAt={session.pausedAt ?? null} top={insets.top + space.xs} /> : null}
+      {status === 'recording' ? <GpsPill theme={theme} gps={gps} top={insets.top + space.xs} /> : null}
 
       {/* One banner at a time under the chrome; being lost outranks arriving. */}
       {status === 'finished' ? null : offRoute && progress ? (
@@ -363,8 +384,13 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             accessibilityLabel={t('trail.action.layers')}
           />
           {route ? <MapControlButton theme={theme} icon="expand" active={routeFramed} onPress={fitRoute} accessibilityLabel={t('trail.action.fitRoute')} /> : null}
-          <MapControlButton theme={theme} icon="locate" active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
+          <MapControlButton theme={theme} icon={following ? 'locate' : 'locateOutline'} active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
         </MapControlGroup>
+        {/* Under the buttons, komoot-style: shows while zooming, fades after.
+            The room is kept so the buttons don't jump when it first appears. */}
+        <View style={{ height: 30, marginTop: space.xs, justifyContent: 'flex-end' }}>
+          <MapScaleBar scale={mapScale} theme={theme} />
+        </View>
       </Animated.View>
 
       {live && session ? (
@@ -385,7 +411,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
               theme={theme}
               session={session}
               fix={fix}
-              gps={gps}
               error={error}
               progress={progress}
               routeFraction={routeFraction}
@@ -398,15 +423,50 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
               footerHeight={footerHeight}
               onQuickHeight={setQuickHeight}
               onMidHeight={setMidHeight}
+              restOpacity={sheetY.interpolate({ inputRange: [snapHeights[2] - snapHeights[1], snapHeights[2] - snapHeights[0]], outputRange: [1, 0], extrapolate: 'clamp' })}
+              settingsActive={sheetIndex >= 2}
+              settingsOpacity={sheetY.interpolate({ inputRange: [0, snapHeights[2] - snapHeights[1]], outputRange: [1, 0], extrapolate: 'clamp' })}
             />
           </TrailSheet>
           {status === 'paused' ? (
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.sm, backgroundColor: theme.featureSurface }}>
-              <ControlButton theme={theme} icon="stop" label={t('trail.action.finish')} danger onPress={() => void finishTrail()} />
-              <ControlButton theme={theme} icon="play" label={t('trail.action.resume')} primary grow={2} onPress={() => void resumeTrail()} />
+              <TrailControlButton theme={theme} icon="stop" label={t('trail.action.finish')} danger onPress={() => void finishTrail()} />
+              <TrailControlButton theme={theme} icon="play" label={t('trail.action.resume')} primary grow={2} onPress={() => void resumeTrail()} />
             </View>
           ) : null}
         </>
+      ) : status !== 'finished' ? (
+        // Before starting the card is docked edge to edge, the same shape as
+        // the recording sheet, so 开始 doesn't change the card's outline.
+        // Measured with the home indicator room, so the camera and controls clear it.
+        <View
+          onLayout={(event) => setPanelHeight(Math.round(event.nativeEvent.layout.height))}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingBottom: insets.bottom,
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+            backgroundColor: theme.featureSurface,
+            boxShadow: theme.dark ? '0px -2px 16px rgba(0,0,0,0.4)' : '0px -2px 16px rgba(0,0,0,0.08)',
+          }}
+        >
+          <ReadyPanel
+            theme={theme}
+            routeName={route?.name}
+            totalM={measure?.totalMeters ?? null}
+            ascentM={route?.elevation ? remainingAscent(route.elevation, 0) : null}
+            toStartM={route && fix ? distanceMeters([fix.lng, fix.lat], route.coords[0]) : null}
+            error={error}
+            starting={starting}
+            onStart={() => void start()}
+            gps={gps}
+            voice={guide.voiceAvailable ? guide.voice : null}
+            onVoice={toggleVoice}
+          />
+        </View>
       ) : (
         <View
           onLayout={(event) => setPanelHeight(Math.round(event.nativeEvent.layout.height))}
@@ -424,21 +484,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             boxShadow: theme.dark ? '0px -2px 16px rgba(0,0,0,0.4)' : '0px -2px 16px rgba(0,0,0,0.08)',
           }}
         >
-          {status === 'finished' && session ? (
-            <TrailSummary theme={theme} session={session} arrived={arrived} />
-          ) : (
-            <ReadyPanel
-              theme={theme}
-              routeName={route?.name}
-              totalM={measure?.totalMeters ?? null}
-              ascentM={route?.elevation ? remainingAscent(route.elevation, 0) : null}
-              toStartM={route && fix ? distanceMeters([fix.lng, fix.lat], route.coords[0]) : null}
-              error={error}
-              starting={starting}
-              onStart={() => void start()}
-              gps={gps}
-            />
-          )}
+          {session ? <TrailSummary theme={theme} session={session} arrived={arrived} /> : null}
         </View>
       )}
 
@@ -508,18 +554,40 @@ function PausedPill({ theme, pausedAt, top }: { theme: Theme; pausedAt: number |
   const duration = pausedAt != null ? pausedDuration(now - pausedAt, t) : null;
   const label = duration ? t('trail.pausedFor', { time: duration }) : t('trail.status.paused');
   return (
+    <TopPill theme={theme} label={label} top={top}>
+      <Animated.View style={{ opacity: pulse }}>
+        <Icon name="pause" color={theme.text} size={14} />
+      </Animated.View>
+    </TopPill>
+  );
+}
+
+// Recording only: in the sheet it faded out at the lowest detent, the one
+// most walks are spent at. No pulse — on the paused pill that means "not
+// recording". Paused, that pill takes this spot instead.
+function GpsPill({ theme, gps, top }: { theme: Theme; gps: string; top: number }) {
+  const { t } = useI18n();
+  if (gps !== 'searching' && gps !== 'weak') return null;
+  return (
+    <TopPill theme={theme} label={t(`trail.status.${gps}`)} top={top}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: gps === 'weak' ? theme.danger : theme.text3 }} />
+    </TopPill>
+  );
+}
+
+// Centred between the minimise button and the right-hand controls.
+function TopPill({ theme, label, top, children }: { theme: Theme; label: string; top: number; children: ReactNode }) {
+  return (
     <View pointerEvents="none" style={{ position: 'absolute', top, left: space.md + 48, right: space.md + 48, height: 40, alignItems: 'center', justifyContent: 'center' }}>
       <View
         accessible
         accessibilityRole="text"
         accessibilityLabel={label}
         accessibilityLiveRegion="polite"
-        style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md, borderRadius: 18, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+        style={{ height: 36, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md, borderRadius: 18, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
       >
-        <Animated.View style={{ opacity: pulse }}>
-          <Icon name="pause" color={theme.text} size={14} />
-        </Animated.View>
-        <Text numberOfLines={1} style={[type.labelStrong, { color: theme.text }]}>{label}</Text>
+        {children}
+        <Text numberOfLines={1} style={[type.labelStrong, { color: theme.text, flexShrink: 1 }]}>{label}</Text>
       </View>
     </View>
   );
@@ -543,6 +611,9 @@ function Banner({ theme, icon, tone, title, body, top }: { theme: Theme; icon: I
   );
 }
 
+// Before starting, after komoot: what is about to be recorded on the left,
+// one pill to start on the right, and the settings behind the grab handle —
+// tap or swipe it open. No zeroed time and distance: they say nothing yet.
 function ReadyPanel({
   theme,
   routeName,
@@ -553,6 +624,8 @@ function ReadyPanel({
   starting,
   onStart,
   gps,
+  voice,
+  onVoice,
 }: {
   theme: Theme;
   routeName?: string;
@@ -563,9 +636,14 @@ function ReadyPanel({
   starting: boolean;
   onStart: () => void;
   gps: string;
+  voice: boolean | null;
+  onVoice: () => void;
 }) {
   const { t } = useI18n();
+  const [open, setOpen] = useState(false);
   const isRoute = routeName != null;
+  const hasSettings = voice != null;
+  const zeroDistance = splitDistance(0);
   const facts = isRoute
     ? [
       totalM != null ? `${t('trail.fact.total')} ${formatMeters(totalM)}` : null,
@@ -573,42 +651,78 @@ function ReadyPanel({
       toStartM != null ? `${t('trail.fact.toStart')} ${formatMeters(toStartM)}` : null,
     ].filter(Boolean).join('   ')
     : '';
-  const zero = splitDistance(0);
+  const swipe = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dy < -16) setOpen(true);
+      else if (gesture.dy > 16) setOpen(false);
+    },
+  }), []);
+
   return (
     <View>
-      {isRoute ? (
-        <View style={{ marginBottom: space.sm }}>
-          <Text numberOfLines={2} style={[type.planTitle, { color: theme.text }]}>{routeName}</Text>
-          {facts ? <Text style={[type.small, { color: theme.text2, marginTop: space.xxs, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
+      <View {...(hasSettings ? swipe.panHandlers : null)} style={{ paddingHorizontal: space.lg, paddingBottom: space.md }}>
+        {hasSettings ? (
+          <Press
+            onPress={() => setOpen((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={t('trail.settings.title')}
+            accessibilityState={{ expanded: open }}
+            hitSlop={8}
+            style={{ alignSelf: 'stretch', alignItems: 'center', paddingTop: space.xs, paddingBottom: space.sm }}
+          >
+            <View style={{ width: 30, height: 4, borderRadius: 2, backgroundColor: theme.fieldBorder }} />
+          </Press>
+        ) : <View style={{ height: space.md }} />}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {/* A free walk has nothing to say before it starts, so it shows the
+                live row at zero: on 开始 the same numbers begin to run in place. */}
+            {isRoute ? (
+              <Text numberOfLines={2} style={[type.cardTitle, { color: theme.text }]}>{routeName}</Text>
+            ) : (
+              <View accessible accessibilityLabel={t('trail.freeTitle')} style={{ flexDirection: 'row', gap: space.xl }}>
+                <LiveValue theme={theme} dim label={t('trail.stat.time')} value={formatClock(0)} />
+                <LiveValue theme={theme} dim label={t('trail.stat.distance')} value={zeroDistance.value} unit={zeroDistance.unit} />
+              </View>
+            )}
+            {facts ? <Text numberOfLines={1} style={[type.small, { color: theme.text2, marginTop: space.xxs, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
+            <GpsNotice theme={theme} gps={gps} />
+          </View>
+          <Press
+            onPress={onStart}
+            disabled={starting}
+            accessibilityRole="button"
+            accessibilityLabel={isRoute ? t('trail.startRoute') : t('trail.startFree')}
+            accessibilityState={{ busy: starting }}
+            style={{ height: 52, paddingHorizontal: space.xl, borderRadius: radius.pill, backgroundColor: theme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, opacity: starting ? 0.6 : 1 }}
+          >
+            <Icon name="play" color="#FFFFFF" size={18} />
+            <Text style={[type.quickReply, { color: '#FFFFFF' }]}>{starting ? t('trail.starting') : t('trail.action.start')}</Text>
+          </Press>
+        </View>
+        {isRoute && toStartM != null && toStartM > 500 ? (
+          <Text style={[type.hint, { color: theme.text2, marginTop: space.xs }]}>{t('trail.farFromStart', { distance: formatMeters(toStartM) })}</Text>
+        ) : null}
+        {!trailBackgroundSupported() ? (
+          <Text style={[type.hint, { color: theme.text3, marginTop: space.xs }]}>{t('trail.foregroundOnly')}</Text>
+        ) : null}
+        {error ? <ErrorLine theme={theme} error={error} /> : null}
+      </View>
+      {open && voice != null ? (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>
+            <Switch
+              accessibilityLabel={t('trail.settings.voice')}
+              value={voice}
+              onValueChange={onVoice}
+              trackColor={{ false: theme.progressTrack, true: theme.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={theme.progressTrack}
+            />
+          </SettingRow>
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', gap: space.xl }}>
-          <LiveValue theme={theme} label={t('trail.stat.time')} value={formatClock(0)} />
-          <LiveValue theme={theme} label={t('trail.stat.distance')} value={zero.value} unit={zero.unit} />
-        </View>
-        <Press
-          onPress={onStart}
-          disabled={starting}
-          accessibilityRole="button"
-          accessibilityLabel={isRoute ? t('trail.startRoute') : t('trail.startFree')}
-          accessibilityState={{ busy: starting }}
-          style={{ height: 52, paddingHorizontal: space.xl, borderRadius: radius.card, backgroundColor: theme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, opacity: starting ? 0.6 : 1 }}
-        >
-          <Icon name="play" color="#FFFFFF" size={18} />
-          <Text style={[type.quickReply, { color: '#FFFFFF' }]}>{starting ? t('trail.starting') : t('trail.action.start')}</Text>
-        </Press>
-      </View>
-      <View style={{ marginTop: space.xs }}>
-        <GpsNotice theme={theme} gps={gps} />
-      </View>
-      {isRoute && toStartM != null && toStartM > 500 ? (
-        <Text style={[type.hint, { color: theme.text2, marginTop: space.xxs }]}>{t('trail.farFromStart', { distance: formatMeters(toStartM) })}</Text>
-      ) : null}
-      {!trailBackgroundSupported() ? (
-        <Text style={[type.hint, { color: theme.text3, marginTop: space.xxs }]}>{t('trail.foregroundOnly')}</Text>
-      ) : null}
-      {error ? <ErrorLine theme={theme} error={error} /> : null}
     </View>
   );
 }
@@ -631,7 +745,6 @@ type LiveSheetProps = {
   theme: Theme;
   session: TrailSession;
   fix: TrailFix | null;
-  gps: string;
   error: Parameters<typeof ErrorLine>[0]['error'] | null;
   progress: RouteProgress | null;
   routeFraction: number;
@@ -644,6 +757,9 @@ type LiveSheetProps = {
   footerHeight: number;
   onQuickHeight: (height: number) => void;
   onMidHeight: (height: number) => void;
+  restOpacity: Animated.AnimatedInterpolation<number>;
+  settingsOpacity: Animated.AnimatedInterpolation<number>;
+  settingsActive: boolean;
 };
 
 // The live sheet's content, top to bottom in the order the detents reveal it.
@@ -653,7 +769,6 @@ function LiveSheetBody({
   theme,
   session,
   fix,
-  gps,
   error,
   progress,
   routeFraction,
@@ -666,6 +781,9 @@ function LiveSheetBody({
   footerHeight,
   onQuickHeight,
   onMidHeight,
+  restOpacity,
+  settingsOpacity,
+  settingsActive,
 }: LiveSheetProps) {
   const { t } = useI18n();
   const route = session.route;
@@ -688,9 +806,11 @@ function LiveSheetBody({
     avgSpeed: <GridStat theme={theme} dim={paused} label={t('trail.stat.avgSpeed')} value={avgSpeed} unit={avgSpeed !== '--' ? 'km/h' : undefined} />,
     remainingAscent: <GridStat theme={theme} dim={paused} label={t('trail.stat.remainingAscent')} value={remainingAscentM != null ? String(remainingAscentM) : '--'} unit={remainingAscentM != null ? 'm' : undefined} />,
   };
-  // On a route what is left leads; on a free walk, the climb.
-  const main = route ? [cells.remaining, cells.ascent, cells.altitude, cells.pace] : [cells.ascent, cells.pace, cells.altitude, cells.speed];
-  const more = route ? [cells.remainingAscent, cells.descent] : [cells.descent, cells.avgSpeed];
+  // On a route what is left leads; on a free walk, the climb. All of them
+  // fit the middle detent, which leaves out only the settings.
+  const stats = route
+    ? [cells.remaining, cells.ascent, cells.altitude, cells.pace, cells.remainingAscent, cells.descent]
+    : [cells.ascent, cells.pace, cells.altitude, cells.speed, cells.descent, cells.avgSpeed];
 
   return (
     <View style={{ paddingHorizontal: space.lg }}>
@@ -709,49 +829,53 @@ function LiveSheetBody({
               onPress={onPause}
               accessibilityRole="button"
               accessibilityLabel={t('trail.action.pause')}
-              style={{ width: 52, height: 52, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
+              style={{ width: 96, height: 52, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
             >
               <Icon name="pause" color={theme.text} size={20} />
             </Press>
           ) : null}
         </View>
-        <GpsNotice theme={theme} gps={gps} />
-        <StatGrid>{main}</StatGrid>
-        {route ? (
-          <View style={{ marginTop: space.md }}>
-            {route.elevation && route.elevation.length >= 2
-              ? <TrailProfile theme={theme} profile={route.elevation} fraction={routeFraction} />
-              : <AppProgressBar theme={theme} value={routeFraction * 100} />}
-            {waypoint ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm }}>
-                <Icon name="pin" color={theme.text2} size={15} />
-                <Text numberOfLines={1} style={[type.small, { color: theme.text, flexShrink: 1, fontWeight: '600' }]}>{t('trail.nextWaypoint', { name: waypoint.name })}</Text>
-                <Text style={[type.small, { color: theme.text2, fontVariant: ['tabular-nums'] }]}>{t('trail.nextWaypointAhead', { distance: formatMeters(waypoint.aheadM) })}</Text>
-              </View>
-            ) : null}
-          </View>
+        {/* Below the quick row everything fades out toward the lowest detent:
+            the sheet runs on under the home indicator, where the top of the
+            grid would otherwise peek out. */}
+        <Animated.View style={{ opacity: restOpacity }}>
+          <StatGrid>{stats}</StatGrid>
+          {route ? (
+            <View style={{ marginTop: space.md }}>
+              {route.elevation && route.elevation.length >= 2
+                ? <TrailProfile theme={theme} profile={route.elevation} fraction={routeFraction} />
+                : <AppProgressBar theme={theme} value={routeFraction * 100} />}
+              {waypoint ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm }}>
+                  <Icon name="pin" color={theme.text2} size={15} />
+                  <Text numberOfLines={1} style={[type.small, { color: theme.text, flexShrink: 1, fontWeight: '600' }]}>{t('trail.nextWaypoint', { name: waypoint.name })}</Text>
+                  <Text style={[type.small, { color: theme.text2, fontVariant: ['tabular-nums'] }]}>{t('trail.nextWaypointAhead', { distance: formatMeters(waypoint.aheadM) })}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+          {!session.background ? <Text style={[type.hint, { color: theme.text3, marginTop: space.sm }]}>{t('trail.foregroundOnly')}</Text> : null}
+          {error ? <ErrorLine theme={theme} error={error} /> : null}
+        </Animated.View>
+      </View>
+
+      {/* Only fully open shows the settings; at the middle detent their title
+          would sit in the space left above the home indicator. */}
+      <Animated.View pointerEvents={settingsActive ? 'auto' : 'none'} style={{ opacity: settingsOpacity }}>
+        <Text style={[type.eyebrow, { color: theme.text2, marginTop: space.xxl, marginBottom: space.xxs }]}>{t('trail.settings.title')}</Text>
+        {voice != null ? (
+          <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>
+            <Switch
+              accessibilityLabel={t('trail.settings.voice')}
+              value={voice}
+              onValueChange={onVoice}
+              trackColor={{ false: theme.progressTrack, true: theme.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={theme.progressTrack}
+            />
+          </SettingRow>
         ) : null}
-        {!session.background ? <Text style={[type.hint, { color: theme.text3, marginTop: space.sm }]}>{t('trail.foregroundOnly')}</Text> : null}
-        {error ? <ErrorLine theme={theme} error={error} /> : null}
-      </View>
-
-      <View style={{ marginTop: space.lg }}>
-        <StatGrid>{more}</StatGrid>
-      </View>
-
-      <Text style={[type.eyebrow, { color: theme.text2, marginTop: space.xxl, marginBottom: space.xxs }]}>{t('trail.settings.title')}</Text>
-      {voice != null ? (
-        <SettingRow theme={theme} icon="volume" title={t('trail.settings.voice')} hint={t('trail.settings.voiceHint')}>
-          <Switch
-            accessibilityLabel={t('trail.settings.voice')}
-            value={voice}
-            onValueChange={onVoice}
-            trackColor={{ false: theme.progressTrack, true: theme.accent }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor={theme.progressTrack}
-          />
-        </SettingRow>
-      ) : null}
+      </Animated.View>
       <View style={{ height: footerHeight }} />
     </View>
   );
@@ -802,20 +926,5 @@ function SettingRow({ theme, icon, title, hint, children }: { theme: Theme; icon
       </View>
       {children}
     </View>
-  );
-}
-
-function ControlButton({ theme, icon, label, primary, danger, grow = 1, onPress }: { theme: Theme; icon: IconName; label: string; primary?: boolean; danger?: boolean; grow?: number; onPress: () => void }) {
-  const color = primary ? '#FFFFFF' : danger ? theme.danger : theme.text;
-  return (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={{ flex: grow, height: 52, borderRadius: radius.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: primary ? theme.accent : theme.fieldSurface }}
-    >
-      <Icon name={icon} color={color} size={18} />
-      <Text style={[type.quickReply, { color }]}>{label}</Text>
-    </Press>
   );
 }
