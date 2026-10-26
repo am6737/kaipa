@@ -80,6 +80,11 @@ sub text. JS posts only when the text changes (`syncNotification` in
 a recording asks for `POST_NOTIFICATIONS` on Android 13+; without it the
 service still runs, only the card is hidden. The module needs a new dev build.
 
+While recording (not paused) the service also holds a partial wake lock
+(`syncWakeLock`). The foreground service alone keeps the process alive but
+lets the CPU sleep with the screen off. AMap's 2 s loop then stalls, and the
+track comes back as a few fixes joined by straight lines.
+
 ## Navigation and voice
 
 `trailGuide.ts` subscribes to the recorder at module level, not from a

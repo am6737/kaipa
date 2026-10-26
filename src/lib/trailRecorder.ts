@@ -300,11 +300,13 @@ function ingest(fixes: TrailFix[]) {
   const ordered = [...fixes].sort((a, b) => a.t - b.t);
   let added = false;
   for (const next of ordered) {
-    if (fix && next.t < fix.t) continue;
-    fix = next;
+    if (!fix || next.t >= fix.t) fix = next;
     if (session?.status !== 'recording') continue;
     const segment = session.segments[session.segments.length - 1];
     const last = segment[segment.length - 1] ?? null;
+    // Judged against the track, not the latest fix: background batches can
+    // arrive late, and dropping them leaves a straight line across the gap.
+    if (last && next.t <= last[3]) continue;
     if (judgeFix(next, last) !== 'accept') continue;
     const point = toTrailPoint(next);
     const { totals, climbRef } = addPoint(session.totals, session.climbRef, last, point);
@@ -423,35 +425,53 @@ async function startRecordingSource(): Promise<boolean> {
   if (hasTrailNotification) {
     // The service must be in the foreground before the walker can leave the app.
     await syncNotification();
-    recordingStop = amapAvailable() ? startAmap(true, false) : await startExpoWatch();
-    return true;
+    if (amapAvailable()) {
+      recordingStop = startAmap(true, false);
+      return true;
+    }
+    // expo-location's watch on Android stops whenever the app leaves the
+    // foreground, so it would record nothing until the walker came back. The
+    // task feed keeps going; our service already holds the process, so it
+    // needs no service of its own.
+    if (TaskManager) {
+      recordingStop = await startTaskUpdates(false);
+      return true;
+    }
+    recordingStop = await startExpoWatch();
+    return false;
   }
   if (amapAvailable()) {
     recordingStop = startAmap(true);
     return true;
   }
   if (TaskManager) {
-    const running = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
-    if (!running) {
-      await Location.startLocationUpdatesAsync(TASK_NAME, {
-        accuracy: Location.Accuracy.BestForNavigation,
-        distanceInterval: 3,
-        timeInterval: 2_000,
-        activityType: Location.ActivityType.Fitness,
-        pausesUpdatesAutomatically: false,
-        showsBackgroundLocationIndicator: true,
+    recordingStop = await startTaskUpdates(true);
+    return true;
+  }
+  recordingStop = await startExpoWatch();
+  return false;
+}
+
+async function startTaskUpdates(withService: boolean): Promise<Stop> {
+  const running = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
+  if (!running) {
+    await Location.startLocationUpdatesAsync(TASK_NAME, {
+      accuracy: Location.Accuracy.BestForNavigation,
+      distanceInterval: 3,
+      timeInterval: 2_000,
+      activityType: Location.ActivityType.Fitness,
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+      ...(withService ? {
         foregroundService: {
           notificationTitle: '开爬正在记录轨迹',
           notificationBody: '回到开爬可查看路线和数据',
           killServiceOnDestroy: false,
         },
-      });
-    }
-    recordingStop = () => { void Location.stopLocationUpdatesAsync(TASK_NAME).catch(() => undefined); };
-    return true;
+      } : {}),
+    });
   }
-  recordingStop = await startExpoWatch();
-  return false;
+  return () => { void Location.stopLocationUpdatesAsync(TASK_NAME).catch(() => undefined); };
 }
 
 function stopRecordingSource() {

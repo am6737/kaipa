@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
@@ -29,6 +30,11 @@ data class TrailNotificationContent(
  *
  * The time ticks natively through the notification chronometer, so JS only posts an update when the
  * distance, climb or status changes; JS timers are throttled once the screen is off.
+ *
+ * While the walk is recording (not paused) it also holds a partial wake lock. A foreground service
+ * keeps the process alive but not the CPU awake: with the screen off the phone sleeps between GPS
+ * wake-ups, AMap's 2 s location loop stalls, and the track comes back as a few points joined by
+ * straight lines.
  */
 class TrailRecordingService : Service() {
   companion object {
@@ -36,8 +42,27 @@ class TrailRecordingService : Service() {
     private const val CHANNEL_ID = "kaipa_trail_recording"
     const val NOTIFICATION_ID = 7301
 
+    // Renewed on every notification update; only a walk that never moves for this long lets it lapse.
+    private const val WAKE_LOCK_TIMEOUT_MS = 12 * 60 * 60 * 1000L
+
     @Volatile var content: TrailNotificationContent? = null
     @Volatile var running = false
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    /** Holds the CPU awake while recording; the chronometer runs only then. */
+    @Synchronized
+    fun syncWakeLock(context: Context, recording: Boolean) {
+      if (recording) {
+        val lock = wakeLock ?: (context.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
+          .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "kaipa:trail-recording")
+          .apply { setReferenceCounted(false) }
+          .also { wakeLock = it }
+        lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+      } else {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
+      }
+    }
 
     fun start(context: Context) {
       val intent = Intent(context, TrailRecordingService::class.java)
@@ -55,6 +80,7 @@ class TrailRecordingService : Service() {
       val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
       ensureChannel(context, manager, value.channelName)
       manager.notify(NOTIFICATION_ID, build(context, value))
+      syncWakeLock(context, value.chronometerBase != null)
     }
 
     private fun ensureChannel(context: Context, manager: NotificationManager, name: String) {
@@ -115,6 +141,7 @@ class TrailRecordingService : Service() {
         startForeground(NOTIFICATION_ID, build(this, value))
       }
       running = true
+      syncWakeLock(this, value.chronometerBase != null)
     } catch (cause: Exception) {
       // Location permission withdrawn, or Android 12+ refusing a start from the background.
       Log.w(TAG, "startForeground failed", cause)
@@ -128,6 +155,7 @@ class TrailRecordingService : Service() {
 
   override fun onDestroy() {
     running = false
+    syncWakeLock(this, false)
     super.onDestroy()
   }
 }
