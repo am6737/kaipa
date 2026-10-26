@@ -23,6 +23,8 @@ export interface DataValue {
   /** The last profile read failed (usually offline); `profile` is cached or empty. */
   profileStale: boolean;
   updateProfile: (field: string, value: string) => Promise<void>;
+  /** 本地立即生效的偏好写入；离线时排队，联网后自动补发。 */
+  updateProfileOffline: (field: string, value: string) => Promise<void>;
   completeOnboarding: () => Promise<void>;
   updateAvatar: (localUri: string) => Promise<void>;
   planningProfile: UserPlanningProfile;
@@ -95,7 +97,7 @@ function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) 
 
 export function DataProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
   const {
-    profile, loading: profileLoading, stale: profileStale, updateProfile, completeOnboarding, updateAvatar,
+    profile, loading: profileLoading, stale: profileStale, updateProfile, updateProfileOffline, completeOnboarding, updateAvatar,
   } = useProfile(userId);
   const { routes, loading: routesLoading, updateRoute, toggleFavorite: toggleRouteFavorite, refetch: refetchRoutes } = useRoutes(userId);
   const {
@@ -141,6 +143,7 @@ export function DataProvider({ userId, children }: { userId: string; children: R
 
   const stable = {
     updateProfile: useStable(updateProfile),
+    updateProfileOffline: useStable(updateProfileOffline),
     completeOnboarding: useStable(completeOnboarding),
     updateAvatar: useStable(updateAvatar),
     savePlanningProfile: useStable(savePlanningProfile),

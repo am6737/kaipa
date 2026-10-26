@@ -62,6 +62,7 @@ export type IconName =
   | 'globe'
   | 'link'
   | 'layers'
+  | 'map'
   | 'expand'
   | 'shrink'
   | 'info'
@@ -521,6 +522,14 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Path d="M12 3 3 8l9 5 9-5-9-5Z" {...common} />
           <Path d="M3 12l9 5 9-5" {...common} />
           <Path d="M3 16l9 5 9-5" {...common} />
+        </Svg>
+      );
+    case 'map':
+      // folded paper map — switch from a list back to the map
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 4Z" {...common} />
+          <Path d="M9 4v14M15 6v14" {...common} />
         </Svg>
       );
     case 'expand':

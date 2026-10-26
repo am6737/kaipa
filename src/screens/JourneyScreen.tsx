@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Platform, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowRight, Check, Copy, LogOut, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,6 +111,20 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
   const [refreshing, setRefreshing] = useState(false);
   const pageScrollRef = useRef<React.ElementRef<typeof GestureScrollView>>(null);
   const [deckHeld, setDeckHeld] = useState(false);
+  // AppRoot keeps this page under display:none until the tab is first opened,
+  // and on iOS (Fabric) a hidden view has no native backing. Gesture-handler
+  // gives up binding the page scroll view after ~2.5 s of retries and never
+  // tries again, so the feature deck's blocksExternalGesture has nothing to
+  // block and vertical swipes on the deck also scroll the page. Remount the
+  // scroll view once it is first on screen so its handler binds for real.
+  const pageVisible = nav.mainTab === 'journey' && !nav.pointInfo;
+  const mountedHiddenRef = useRef(!pageVisible);
+  const [pageScrollKey, setPageScrollKey] = useState(0);
+  useEffect(() => {
+    if (!pageVisible || !mountedHiddenRef.current) return;
+    mountedHiddenRef.current = false;
+    if (Platform.OS === 'ios') setPageScrollKey(1);
+  }, [pageVisible]);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const suppressedCardIdsRef = useRef<Set<string>>(new Set());
   const pressResetTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -248,6 +262,7 @@ function JourneyScreenView({ theme }: { theme: Theme }) {
       />
       {/* Gesture-handler scroll view so the feature deck's vertical swipe can hold it. */}
       <GestureScrollView
+        key={pageScrollKey}
         ref={pageScrollRef}
         scrollEnabled={!deckHeld}
         showsVerticalScrollIndicator={false}

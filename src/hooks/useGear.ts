@@ -131,30 +131,38 @@ export function useGear(userId: string | undefined) {
   const updateItem = async (id: number, patch: Partial<GearItem>) => {
     if (!userId) return;
     const previous = items.find((item) => item.id === id);
-    const cloudPhotos = patch.photos !== undefined
-      ? await ensureCloudGearMedia(patch.photos, userId, `gear-${id}`, previous?.photos)
-      : undefined;
-    const resolvedPatch = cloudPhotos !== undefined ? { ...patch, photos: cloudPhotos } : patch;
-    const row: any = {};
-    if (resolvedPatch.name !== undefined) row.name = resolvedPatch.name;
-    if (resolvedPatch.cat !== undefined) row.cat_id = resolvedPatch.cat === 'uncat' ? null : resolvedPatch.cat;
-    if (resolvedPatch.w !== undefined) row.weight = resolvedPatch.w;
-    if (resolvedPatch.p !== undefined) row.price = resolvedPatch.p;
-    if (resolvedPatch.qty !== undefined) row.qty = resolvedPatch.qty;
-    if (resolvedPatch.photos !== undefined) row.photo_uris = resolvedPatch.photos;
-    if (resolvedPatch.attrs !== undefined) row.attrs = resolvedPatch.attrs;
-    if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
-    if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;
-    if (resolvedPatch.owned !== undefined) row.owned = resolvedPatch.owned;
-    if (Object.keys(row).length) {
+    const paint = (next: Partial<GearItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...next } : i)));
+    // Show the edit before the round trip; a rejected save paints the old row back.
+    if (previous) paint(patch);
+    const rollback = () => { if (previous) setItems((prev) => prev.map((i) => (i.id === id ? previous : i))); };
+    try {
+      const cloudPhotos = patch.photos !== undefined
+        ? await ensureCloudGearMedia(patch.photos, userId, `gear-${id}`, previous?.photos)
+        : undefined;
+      const resolvedPatch = cloudPhotos !== undefined ? { ...patch, photos: cloudPhotos } : patch;
+      const row: any = {};
+      if (resolvedPatch.name !== undefined) row.name = resolvedPatch.name;
+      if (resolvedPatch.cat !== undefined) row.cat_id = resolvedPatch.cat === 'uncat' ? null : resolvedPatch.cat;
+      if (resolvedPatch.w !== undefined) row.weight = resolvedPatch.w;
+      if (resolvedPatch.p !== undefined) row.price = resolvedPatch.p;
+      if (resolvedPatch.qty !== undefined) row.qty = resolvedPatch.qty;
+      if (resolvedPatch.photos !== undefined) row.photo_uris = resolvedPatch.photos;
+      if (resolvedPatch.attrs !== undefined) row.attrs = resolvedPatch.attrs;
+      if (resolvedPatch.note !== undefined) row.note = resolvedPatch.note;
+      if (resolvedPatch.status !== undefined) row.status = resolvedPatch.status;
+      if (resolvedPatch.owned !== undefined) row.owned = resolvedPatch.owned;
+      if (!Object.keys(row).length) return;
       const { error } = await supabase.from('gear_items').update(row).eq('id', id).select('id').single();
       if (error) { if (/^[0-9A-Z]{5}$/.test(error.code)) await removeMedia((cloudPhotos || []).filter(uri => !previous?.photos?.includes(uri))).catch(()=>{}); throw error; }
       const saved = previous ? { ...previous, ...resolvedPatch } : undefined;
-      setItems(prev => prev.map(i => i.id === id ? { ...i, ...resolvedPatch } : i));
+      paint(resolvedPatch);
       // Let reference-aware maintenance collect detached pictures. A photo
       // may still be used by another item, journey or historical snapshot.
       resourceUsageChanged();
       return saved;
+    } catch (error) {
+      rollback();
+      throw error;
     }
   };
 

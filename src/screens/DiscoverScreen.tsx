@@ -9,10 +9,10 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { Theme } from '../theme/theme';
-import { useNav, useNavSubTab } from '../nav/NavContext';
+import { useNav } from '../nav/NavContext';
 import { countRender } from '../lib/tabSwitchProbe';
 import { visiblePinKeys as railVisibleKeys } from '../lib/pinVisibility';
-import { useI18n, TKey } from '../i18n';
+import { useI18n } from '../i18n';
 import { Poi } from '../data/pois';
 import type { TLRow } from '../data/timeline';
 import { JourneyGroupMoveSheet } from '../components/journey/JourneyGroupMoveSheet';
@@ -24,10 +24,9 @@ import { Icon, type IconName } from '../components/Icon';
 import { Press } from '../components/Press';
 import { TrailSheet, TrailSheetHandle } from '../components/Sheet';
 import { KPState, KPSkeletonLine } from '../components/State';
-import { StaggerIn } from '../components/StaggerIn';
-import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
+import { DiscoverCollectionHeader, DiscoverRouteList } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
-import { trailRouteFromPoi, useOpenTrail, useRecordTrail } from '../trail/trailRoutes';
+import { trailRouteFromPoi, useOpenTrail } from '../trail/trailRoutes';
 import { RouteShareSheet } from '../components/discover/RouteShareSheet';
 import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypoints } from '../components/discover/routeWaypointMarkers';
 import { buildRouteEndpointMarkers } from '../components/discover/routeEndpointMarkers';
@@ -48,6 +47,7 @@ import {
 import type { NativeMapMarker } from '../components/maps/types';
 import { useMapPresentation } from '../components/maps/MapPresentationContext';
 import { MapCompassReveal, useMapHeading } from '../components/maps/MapCompass';
+import { MapScaleBar, useMapScale } from '../components/maps/MapScale';
 import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup, MapRoundButton } from '../components/MapControls';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
@@ -59,7 +59,9 @@ import { JOURNEY_SEGMENT_COLORS, measureTrack } from '../lib/routeSegments';
 import { planJourneyDirections, type PlannedLeg } from '../lib/amapGeocoding';
 import { CurrentPositionError, getCurrentPosition } from '../lib/currentPosition';
 import { isWriteBusy } from '../lib/writeErrors';
+import { BOTTOM_TABS_HEIGHT } from '../components/BottomTabs';
 import { MapStylePickerSheet, type MapPresentationStyle } from '../components/MapStylePickerSheet';
+import { activeRouteFilterCount, applyRouteFilters, DEFAULT_ROUTE_FILTERS, RouteFilterSheet, type RouteFilters } from '../components/discover/RouteFilterSheet';
 import { AssistantMark } from '../components/assistant/AssistantMark';
 import { Maximize2, RotateCcw, Search } from 'lucide-react-native';
 import { restoreJourneyVersion } from '../hooks/useJourneyVersions';
@@ -67,10 +69,6 @@ import { refetchJourneyInspo } from '../hooks/useInspo';
 import { refetchJourneyPacking } from '../hooks/useJourneyPacking';
 import { FeedbackPage } from '../components/me/FeedbackPage';
 
-// Chips carry a stable id (used by the filter logic + as the i18n key suffix);
-// their display label is resolved per-language at render time.
-const EXPLORE_CHIPS = ['all', 'easy', 'highAsc', 'near', 'mine'] as const;
-const MEMORY_CHIPS = ['all', 'fav'] as const;
 const ROUTE_COMPARISON_COLORS = ['#F08A5D', '#26B7E8', '#6C63F5', '#35B779', '#E35D9A', '#D9A21B'] as const;
 const ADMIN_REGION_OPTIONS = [
   '全国', '北京', '上海', '天津', '重庆',
@@ -146,7 +144,7 @@ function provinceAt(lng: number, lat: number, geocoded?: string | null): string 
 // A province's bounding box is mostly empty corners, so fitting all of it
 // leaves the province small on screen. Fit the middle of the box instead; the
 // edges stay a short pan away. The national view keeps its full extent.
-const ADMIN_REGION_FIT_SCALE = 0.7;
+const ADMIN_REGION_FIT_SCALE = 0.8;
 
 function adminRegionFit(region: string): [number, number][] | undefined {
   const bounds = ADMIN_REGION_BOUNDS[region];
@@ -189,10 +187,17 @@ function mapDisplaySettingsKey(userId: string | null) {
   return `${MAP_DISPLAY_SETTINGS_KEY}:${userId || 'anonymous'}`;
 }
 
-// Vertical step of the list-mode column: one 40pt round button plus the gap
-// the compass already keeps above the control group. The compass is two steps
-// above the group because the lone record button rides between them.
-const LIST_MAP_TOOL_PITCH = MAP_CONTROL_SIZE + space.sm;
+// The tallest top-right chrome: the journey card's 52pt share/settings row at
+// insets.top + 5 (the list's search button ends a little higher).
+const MAP_TOP_CHROME_HEIGHT = 57;
+
+// List sheet detents: peek (header only), half (map over the first cards), full.
+// It opens at half, the height the two-detent sheet used to open at.
+// Explore keeps the list mounted under the map and rests at peek, where the
+// tab bar stays visible; the journey list still opens at half.
+const LIST_SHEET_PEEK = 0;
+const LIST_SHEET_INITIAL = 1;
+const LIST_SHEET_FULL = 2;
 
 // A companion's live position as an avatar badge — no droplet silhouette at
 // all (2026-09-24 用户拍板). The body is a *pure circle*: the photo clipped
@@ -485,6 +490,41 @@ function poiMapCoordinate(p: Poi): [number, number] {
   return [p.lng ?? 0, p.lat ?? 0];
 }
 
+// 搜索此区域: the routes whose trailhead sits inside a screen rectangle of the
+// current camera. Zoom is the native maps' shared Mercator scale (the world is
+// 256 * 2^zoom points wide) with the camera centre at the middle of the screen;
+// heading turns the screen against north. Pitch is ignored, which only loosens
+// the far edge of a tilted map.
+function poisInViewport(
+  list: Poi[],
+  camera: { center: [number, number]; zoom: number },
+  heading: number,
+  screen: { width: number; height: number },
+  rect: { top: number; bottom: number },
+): Set<string> {
+  const world = 256 * 2 ** camera.zoom;
+  const project = ([lng, lat]: [number, number]) => {
+    const phi = (Math.max(-85, Math.min(85, lat)) * Math.PI) / 180;
+    return [((lng + 180) / 360) * world, ((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * world];
+  };
+  const [cx, cy] = project(camera.center);
+  const h = (heading * Math.PI) / 180;
+  const cos = Math.cos(h);
+  const sin = Math.sin(h);
+  const ids = new Set<string>();
+  list.forEach((poi) => {
+    const [px, py] = project(poiMapCoordinate(poi));
+    let dx = px - cx;
+    if (dx > world / 2) dx -= world;
+    else if (dx < -world / 2) dx += world;
+    const dy = py - cy;
+    const x = screen.width / 2 + dx * cos + dy * sin;
+    const y = screen.height / 2 - dx * sin + dy * cos;
+    if (x >= 0 && x <= screen.width && y >= rect.top && y <= rect.bottom) ids.add(poi.id);
+  });
+  return ids;
+}
+
 // One pin per place: journeys sharing a trailhead are grouped under one marker.
 const placeKey = (p: Poi) => {
   const [lng, lat] = poiMapCoordinate(p);
@@ -560,6 +600,7 @@ type MapHandlerSet = {
   onCameraGestureStart: NonNullable<GlobeProps['onCameraGestureStart']>;
   onCameraPositionChange: NonNullable<GlobeProps['onCameraPositionChange']>;
   onCameraOrientationChange: NonNullable<GlobeProps['onCameraOrientationChange']>;
+  onCameraZoomChange: NonNullable<GlobeProps['onCameraZoomChange']>;
   onJourneyDayLabelPress: NonNullable<GlobeProps['onJourneyDayLabelPress']>;
   onJourneyStopPress: NonNullable<GlobeProps['onJourneyStopPress']>;
   onUserLocationChange: NonNullable<GlobeProps['onUserLocationChange']>;
@@ -576,12 +617,6 @@ const NO_FOCUS_SEGMENTS: GlobeRouteSegment[] = [];
 
 const NO_COMPANION_PINS: NativeMapMarker[] = [];
 const NO_ROUTE_WAYPOINT_MARKERS: NativeMapMarker[] = [];
-
-// Shared empty selection: `selectedIds` is only read or replaced wholesale, so one
-// instance lets `exitSelect()` bail instead of handing React a new Set identity and
-// forcing a render pass that draws the same pixels (measured: every sub-tab tap's
-// second `Discover` render).
-const NO_SELECTION: Set<string> = new Set();
 
 function DiscoverScreenView({
   theme,
@@ -611,13 +646,8 @@ function DiscoverScreenView({
   useEffect(() => {
     if (!dataLoading && !entrancePlayed) setEntrancePlayed(true);
   }, [dataLoading, entrancePlayed]);
-  const chipLabel = (id: string) =>
-    t(`discover.chip${id.charAt(0).toUpperCase()}${id.slice(1)}` as TKey);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const subTab = useNavSubTab();
-  const isMemory = subTab === 'memory';
-  const [chip, setChip] = React.useState(0);
   const { mapStyle, setMapStyle, mapLabelsVisible, setMapLabelsVisible } = useMapPresentation();
   const [mapStylePickerOpen, setMapStylePickerOpen] = useState(false);
   const [routeFeedbackOpen, setRouteFeedbackOpen] = useState(false);
@@ -628,6 +658,7 @@ function DiscoverScreenView({
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
   // Only a twist off north reveals the compass; see MapCompass.
   const { heading: mapHeading, offNorth: mapNorthOff, onOrientation: onMapOrientation } = useMapHeading();
+  const { scale: mapScale, onZoom: onMapScaleZoom, onLatitude: onMapScaleLatitude } = useMapScale();
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
   const [routeWaypointsVisible, setRouteWaypointsVisible] = useState(true);
   // Keep a route-detail selection separate from the route whose card is open,
@@ -675,7 +706,6 @@ function DiscoverScreenView({
   }, []);
 
   const openTrail = useOpenTrail();
-  const recordTrail = useRecordTrail();
   const followRoute = (route: Poi) => openTrail(trailRouteFromPoi(route, routeReversed));
   const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
     if (routeNavigationRouteId === route.id) {
@@ -774,6 +804,17 @@ function DiscoverScreenView({
   const routeJourneyTransitionRef = React.useRef(false);
   const journeyDetailScrollY = React.useRef(new Animated.Value(0)).current;
   const pointSheetTranslateY = React.useRef(new Animated.Value(0)).current;
+  // The list sheet's own mirror: the map tools ride it between its lower two
+  // detents, and the index says when the list covers the map (LIST_SHEET_FULL).
+  const listSheetTranslateY = React.useRef(new Animated.Value(0)).current;
+  const [listSheetIndex, setListSheetIndex] = React.useState(LIST_SHEET_PEEK);
+  const [routeFilters, setRouteFilters] = React.useState<RouteFilters>(DEFAULT_ROUTE_FILTERS);
+  const [routeFilterOpen, setRouteFilterOpen] = React.useState(false);
+  // 搜索此区域: the pill appears after a hand-made pan or zoom; tapping it scopes
+  // the list to the routes on screen until a province is picked again.
+  const [areaSearchOffered, setAreaSearchOffered] = React.useState(false);
+  const [areaRouteIds, setAreaRouteIds] = React.useState<Set<string> | null>(null);
+  const mapHeadingRef = React.useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -934,9 +975,6 @@ function DiscoverScreenView({
     }));
   }, [active]);
 
-  // ── multi-select (long-press to enter, batch delete) ──
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => NO_SELECTION);
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [journeySheetIndex, setJourneySheetIndex] = useState(1);
   const [detailBodyHeight, setDetailBodyHeight] = useState(0);
@@ -1265,34 +1303,11 @@ function DiscoverScreenView({
     }
   };
 
-  const enterSelect = useCallback((id: string) => {
-    setSelectMode(true);
-    setSelectedIds(new Set([id]));
-  }, []);
-  const exitSelect = useCallback(() => {
-    setSelectMode((on) => (on ? false : on));
-    setSelectedIds((ids) => (ids.size ? NO_SELECTION : ids));
-  }, []);
-  const toggleSelect = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-  }, []);
 
   const chromeTheme = theme;
 
-  React.useEffect(() => {
-    setChip(0);
-    setPlaceSel(null);
-  }, [isMemory]);
-
   // Public-track journeys to inject into explore tab: shared journeys from
   // the user (and eventually from other users) that are trackPublic + have track data.
-  // Not gated on the visible mode: while 旅程 is on screen this is still the layer
-  // the map has to keep mounted and hidden, so it needs the same list.
   const publicTrackPois: Poi[] = useMemo(() => {
     const all = [...nav.extraJourneys, ...journeys];
     const seen = new Set<string>();
@@ -1304,20 +1319,8 @@ function DiscoverScreenView({
       .map((p) => ({ ...p, kind: 'route' as const, mine: true, fav: false })); // show as route card in explore tab
   }, [nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
 
-  // Both modes' lists, built independently and *without* the chip or the
-  // route-detail rules, because those say which pins are visible and not what a pin
-  // is: keeping the two layers' content free of the mode means a switch changes no
-  // object identity at all, which is the whole point of the rail below.
-  const memoryBasePois: Poi[] = useMemo(() => {
-    const merged = [...nav.extraJourneys, ...journeys];
-    const seen = new Set<string>();
-    return merged
-      .filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
-      .filter((p) => !nav.removedIds.includes(p.id))
-      .map((p) => nav.merged(p));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.extraJourneys, journeys, nav.removedIds, nav.journeyPatch]);
-
+  // Built without the route-detail rules, because those say which pins are visible
+  // and not what a pin is: see the rail below.
   const exploreBasePois: Poi[] = useMemo(() => {
     const merged = [...nav.savedRoutes, ...routes, ...publicTrackPois];
     const seen = new Set<string>();
@@ -1331,22 +1334,16 @@ function DiscoverScreenView({
       : exploreBasePois.filter((poi) => adminRegionOf(poi) === adminRegion),
     [adminRegion, exploreBasePois],
   );
-  const basePois: Poi[] = isMemory ? memoryBasePois : regionBasePois;
+  const basePois: Poi[] = regionBasePois;
 
-  const pois = useMemo(() => {
-    let list = [...basePois];
-    if (isMemory) {
-      const key = MEMORY_CHIPS[chip];
-      if (key === 'fav') list = list.filter((p) => p.fav);
-    } else {
-      const key = EXPLORE_CHIPS[chip];
-      if (key === 'easy') list = list.filter((p) => p.diff === '易' || p.diff === '中');
-      else if (key === 'highAsc') list = [...list].sort((a, b) => num(b.asc) - num(a.asc));
-      else if (key === 'near') list = [...list].sort((a, b) => num(a.dist) - num(b.dist));
-      else if (key === 'mine') list = list.filter((p) => p.mine);
-    }
-    return list;
-  }, [basePois, chip, isMemory]);
+  const areaBasePois = useMemo(
+    () => (areaRouteIds ? exploreBasePois.filter((p) => areaRouteIds.has(p.id)) : basePois),
+    [areaRouteIds, exploreBasePois, basePois],
+  );
+  const pois = useMemo(
+    () => applyRouteFilters(areaBasePois, routeFilters, { location: currentLocation }),
+    [areaBasePois, routeFilters, currentLocation],
+  );
 
   // The sheet's list: scoped to one trailhead when a clustered pin is tapped,
   // otherwise the full (chip-filtered) list. The map still shows every place.
@@ -1389,11 +1386,17 @@ function DiscoverScreenView({
     }
   }, []);
 
+  // Picking a province again leaves the searched area.
+  useEffect(() => {
+    setAreaRouteIds(null);
+    setAreaSearchOffered(false);
+  }, [adminRegion]);
+
   // The shared search page can change the active destination directly through
   // navigation state. Keep the map camera in sync with that selection.
   useEffect(() => {
     const coordinates = adminRegionFit(adminRegion);
-    if (!coordinates || isMemory) return;
+    if (!coordinates) return;
     setMapAtCurrentLocation(false);
     setPlaceSel(null);
     setMapCameraAction((current) => ({
@@ -1402,7 +1405,7 @@ function DiscoverScreenView({
       coordinates,
       padding: [24, 24, 24, 24],
     }));
-  }, [adminRegion, isMemory]);
+  }, [adminRegion]);
 
   // The whole country is a heap of overlapping avatars, so the map opens on
   // the user's province instead: locate once at launch and switch the region,
@@ -1444,27 +1447,7 @@ function DiscoverScreenView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const allSelected = displayPois.length > 0 && selectedIds.size === displayPois.length;
-  const toggleAll = useCallback(() => {
-    setSelectedIds(allSelected ? NO_SELECTION : new Set(displayPois.map((p) => p.id)));
-  }, [allSelected, displayPois]);
-  const deleteSelected = useCallback(() => {
-    nav.openActionSheet({
-      title: t('discover.selectDeleteTitle'),
-      message: t('discover.selectDeleteMessage', { count: selectedIds.size }),
-      items: [{
-        label: t('discover.selectDeleteConfirm', { count: selectedIds.size }),
-        destructive: true,
-        onPress: () => {
-          nav.removeJourneys([...selectedIds]);
-          nav.closeActionSheet();
-          exitSelect();
-        },
-      }],
-    });
-  }, [nav, selectedIds, t, exitSelect]);
 
-  React.useEffect(() => { exitSelect(); }, [isMemory, chip, exitSelect]);
 
   // In place view the header ＋ means 再次出发 on this trailhead: seed the new
   // journey flow with the place's first matching route as the template.
@@ -1506,11 +1489,37 @@ function DiscoverScreenView({
   // card that is currently off screen.
   const immersiveFitBottom = Math.round(insets.bottom + 28);
 
-  const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
+  // The list's lowest detent shows only its header (grabber and title) above
+  // the home indicator. The header is measured, like journeyMinimum.
+  // The peek also clears the tab bar, which stays up at that detent.
+  const listPeekBase = Math.max(insets.bottom, space.sm) + BOTTOM_TABS_HEIGHT;
+  const listPeek = !nav.pointInfo && detailHeaderHeight > 0
+    ? Math.min(detailHeaderHeight + listPeekBase + space.xs, collapsed - space.xxxl)
+    : Math.round(height * 0.15);
+
+  // The route list is always there under the map.
+  const listShown = !nav.pointInfo;
+  const sheetVisible = listShown || !!nav.pointInfo;
   // Bottom of the list-mode map tool column. The compass sits one slot above it
   // rather than inside it: a column that grows mid-gesture drags every button
   // that is already under the finger.
-  const listMapToolsBottom = sheetVisible ? collapsed + 16 : tabSpace + 56;
+  // With the list open the column is anchored at the full detent and rides the
+  // sheet down from half to peek. Above half the list covers it, so it stays put.
+  const listMapToolsBottom = sheetVisible ? full + 16 : tabSpace + 56;
+  const listMapToolsShift = useMemo(() => (sheetVisible
+    ? listSheetTranslateY.interpolate({
+        inputRange: [0, full - collapsed, full - listPeek],
+        outputRange: [full - collapsed, full - collapsed, full - listPeek],
+        extrapolate: 'clamp',
+      })
+    : 0), [sheetVisible, listSheetTranslateY, full, collapsed, listPeek]);
+  // The list starts at peek and keeps its detent across route cards.
+  // Above peek the list covers the tab bar's strip, so the bar steps aside.
+  const exploreListRaised = active && listShown && listSheetIndex > LIST_SHEET_PEEK;
+  useEffect(() => {
+    nav.setTabBarHidden('discoverList', exploreListRaised);
+  }, [exploreListRaised, nav.setTabBarHidden]);
+  useEffect(() => () => nav.setTabBarHidden('discoverList', false), [nav.setTabBarHidden]);
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
@@ -1870,10 +1879,6 @@ function DiscoverScreenView({
   // is fixed (the snap animation translates the sheet, it doesn't resize it).
   const detailBottomInset = nav.pointInfo?.kind === 'journey' ? 76 : 0;
   const detailPagerBodyHeight = Math.max(0, detailBodyHeight - detailBottomInset);
-  // Round buttons in the card's right-hand stack above its control plate
-  // (全屏, plus 清除对比 while comparing); the plate holds 复位 and 图层 and the
-  // compass rides one step above the top round button.
-  const pointMapToolSlots = 1 + (nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? 1 : 0);
   const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
     ? journeySheetIndex < 2
     : nav.pointInfo?.kind === 'route'
@@ -2206,22 +2211,16 @@ function DiscoverScreenView({
     () => pinsFromGroups(groupByPlace(regionBasePois), 'explore', null),
     [regionBasePois],
   );
-  const memoryLayerPins = useMemo(
-    () => pinsFromGroups(groupByPlace(memoryBasePois), 'memory', null),
-    [memoryBasePois],
-  );
-  // Ordered by layer, never by role, so this array is the same object on both sides
-  // of a switch - which is the point: the map is never asked to re-render for one.
-  const railPins = useMemo(() => [...exploreLayerPins, ...memoryLayerPins], [exploreLayerPins, memoryLayerPins]);
+  const railPins = exploreLayerPins;
   const liveLayerPins = useMemo(
     () => pinsFromGroups(
       placeGroups,
-      subTab,
+      'explore',
       nav.pointInfo?.kind === 'route'
         ? { id: nav.pointInfo.id, comparisonIds: comparisonRouteIds }
         : null,
     ),
-    [comparisonRouteIds, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, subTab],
+    [comparisonRouteIds, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups],
   );
   const mapPois = useRail ? railPins : liveLayerPins;
   const visiblePinKeys = useMemo(() => {
@@ -2234,30 +2233,30 @@ function DiscoverScreenView({
     // built pins from, said as who may be seen rather than who exists.
     return railVisibleKeys(
       placeGroups,
-      subTab,
+      'explore',
       nav.pointInfo?.kind === 'route'
         ? { id: nav.pointInfo.id, comparisonIds: comparisonRouteIds }
         : null,
     );
-  }, [comparisonRouteIds, mapPois, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, subTab, useRail]);
-  const pushedModeRef = React.useRef<typeof subTab | null>(null);
-  const pinVisibilityStateRef = React.useRef({ visiblePinKeys, subTab });
-  pinVisibilityStateRef.current = { visiblePinKeys, subTab };
+  }, [comparisonRouteIds, mapPois, nav.pointInfo?.id, nav.pointInfo?.kind, placeGroups, useRail]);
+  const pinsEnteredRef = React.useRef(false);
+  const pinVisibilityStateRef = React.useRef({ visiblePinKeys });
+  pinVisibilityStateRef.current = { visiblePinKeys };
   const syncPinVisibility = React.useCallback(() => {
     const api = pinVisibilityApi.current;
     if (!api) return;
-    const { visiblePinKeys, subTab } = pinVisibilityStateRef.current;
-    // A new mode (or the first paint of one) arrives one pin at a time, like the
-    // catalog did on the first screen; everything else is immediate.
-    const stagger = pushedModeRef.current !== subTab;
+    const { visiblePinKeys } = pinVisibilityStateRef.current;
+    // The first paint arrives one pin at a time, like the catalog did on the
+    // first screen; everything else is immediate.
+    const stagger = !pinsEnteredRef.current;
     // An empty catalog has not played an entrance yet. Keep it pending until
     // the first visible places arrive from the route request.
-    if (visiblePinKeys.size > 0) pushedModeRef.current = subTab;
+    if (visiblePinKeys.size > 0) pinsEnteredRef.current = true;
     api.apply(visiblePinKeys, { stagger });
   }, []);
   React.useEffect(() => {
     syncPinVisibility();
-  }, [visiblePinKeys, subTab, active, syncPinVisibility]);
+  }, [visiblePinKeys, active, syncPinVisibility]);
 
   const listState = 'normal'; // could be wired to a tweak later
 
@@ -2268,20 +2267,74 @@ function DiscoverScreenView({
     <DiscoverCollectionHeader
       theme={theme}
       eyebrow={placeSel ? t('discover.titleMyJourneys') : ''}
-      title={placeSel ? t('discover.titlePlace') : isMemory ? t('discover.titleMyJourneys') : t('discover.titleFeatured')}
-      summary={isMemory || placeSel
+      title={placeSel ? t('discover.titlePlace') : t('discover.titleFeatured')}
+      summary={placeSel
         ? t('discover.countJourneys', { count: displayPois.length, km: Math.round(totalKm) })
         : ''}
-      filters={(isMemory ? MEMORY_CHIPS : []).map((id) => ({ id, label: chipLabel(id) }))}
-      activeFilter={chip}
-      onFilterChange={setChip}
+      filters={[]}
+      activeFilter={0}
+      onFilterChange={() => {}}
       onFilter={() => nav.showToast(t('discover.toastFilter'))}
-      onSecondary={isMemory ? () => nav.openNearbyJoin() : undefined}
-      secondaryIcon={isMemory ? 'download' : undefined}
-      onAdd={() => placeSel ? nav.openNewJourney(placePreset) : isMemory ? nav.openNewJourney() : nav.openAddRoute()}
+      onAdd={() => placeSel ? nav.openNewJourney(placePreset) : nav.openAddRoute()}
       onBack={placeSel ? () => setPlaceSel(null) : undefined}
-      showActions={isMemory || !!placeSel}
+      showActions={!!placeSel}
     />
+  );
+
+  // Explore's list header: no title, just how many routes the map holds, with
+  // every filter behind one button.
+  // The searched area is the map left between the top chrome and the list at
+  // its current detent; the part under the sheet isn't on screen to the user.
+  const searchArea = () => {
+    const camera = mapCameraRef.current;
+    if (!camera) return;
+    const sheetHeight = [listPeek, collapsed, full][listSheetIndex] ?? collapsed;
+    const ids = poisInViewport(exploreBasePois, camera, mapHeadingRef.current, { width, height }, {
+      top: insets.top + MAP_TOP_CHROME_HEIGHT,
+      bottom: height - sheetHeight,
+    });
+    setAreaRouteIds(ids);
+    setAreaSearchOffered(false);
+    setPlaceSel(null);
+    if (ids.size && listSheetIndex === LIST_SHEET_PEEK) {
+      setListSheetIndex(LIST_SHEET_INITIAL);
+      sheetRef.current?.snapTo(LIST_SHEET_INITIAL);
+    }
+  };
+  const zoomOutArea = () => {
+    const camera = mapCameraRef.current;
+    if (!camera) return;
+    setMapCameraAction((current) => ({
+      type: 'restore',
+      coordinate: camera.center,
+      zoom: Math.max(3, camera.zoom - 1.5),
+      revision: (current?.revision ?? 0) + 1,
+    }));
+    setAreaSearchOffered(true);
+  };
+  const routeFilterCount = activeRouteFilterCount(routeFilters);
+  const exploreHeader = (
+    <View style={{ minHeight: layout.iconButton, paddingHorizontal: space.md, paddingBottom: space.sm, alignItems: 'center', justifyContent: 'center' }}>
+      <Text numberOfLines={1} style={[type.chip, { color: theme.text2, maxWidth: width - 2 * (space.md + 96) }]}>
+        {areaRouteIds
+          ? t('discover.areaCount', { count: displayPois.length })
+          : t('discover.routeCount', { region: adminRegion, count: displayPois.length })}
+      </Text>
+      <Press
+        onPress={() => setRouteFilterOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={t('discover.filter.title')}
+        style={{ position: 'absolute', right: space.md, top: 4, height: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xxs, backgroundColor: routeFilterCount ? theme.accentSoft : theme.fieldSurface }}
+      >
+        <Icon name="filter" size={15} color={routeFilterCount ? theme.accent : theme.text} />
+        <Text style={[type.chip, { color: routeFilterCount ? theme.accent : theme.text }]}>{t('discover.filter.title')}</Text>
+        {routeFilterCount ? (
+          <View style={{ minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accent }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>{routeFilterCount}</Text>
+          </View>
+        ) : null}
+      </Press>
+    </View>
   );
 
   // ── what the map has to catch up with ──
@@ -2325,9 +2378,13 @@ function DiscoverScreenView({
       if (nav.pointInfo) {
         mapPointGestureRef.current = true;
         setMapAtRouteFrame(false);
-      } else setMapAtCurrentLocation(false);
+      } else {
+        setMapAtCurrentLocation(false);
+        setAreaSearchOffered(true);
+      }
     },
     onCameraPositionChange: (camera) => {
+      onMapScaleLatitude(camera.center[1]);
       const prev = mapCameraRef.current;
       mapCameraRef.current = camera;
       const moved = !prev
@@ -2352,7 +2409,11 @@ function DiscoverScreenView({
     },
     // The heading turns the needle through an Animated.Value; re-rendering this
     // screen for every degree of a twist would rebuild the annotations mid-gesture.
-    onCameraOrientationChange: (heading) => onMapOrientation(heading),
+    onCameraOrientationChange: (heading) => {
+      mapHeadingRef.current = heading;
+      onMapOrientation(heading);
+    },
+    onCameraZoomChange: (zoom) => onMapScaleZoom(zoom),
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
       const stop = itineraryStops.find((item) => item.rowId === rowId);
@@ -2388,7 +2449,8 @@ function DiscoverScreenView({
       }
       setPlaceSel(placeKey(group[0]));
       nav.closePoint();
-      nav.openSheet();
+      setListSheetIndex(LIST_SHEET_INITIAL);
+      sheetRef.current?.snapTo(LIST_SHEET_INITIAL);
     },
     // Under a point detail the map *is* the content, and the card's own back
     // button closes it, so a tap on the map must stay a tap. Collapsing the list
@@ -2413,7 +2475,10 @@ function DiscoverScreenView({
         if (nav.pointInfo.kind === 'route') setRouteEndpointActionOpen(false);
         return;
       }
-      sheetRef.current?.dismiss();
+      // The list never leaves; a map tap lowers it back to peek.
+      setPlaceSel(null);
+      setListSheetIndex(LIST_SHEET_PEEK);
+      sheetRef.current?.snapTo(LIST_SHEET_PEEK);
     },
   };
   const mapHandlersRef = React.useRef(mapHandlers);
@@ -2424,6 +2489,7 @@ function DiscoverScreenView({
     onCameraGestureStart: () => mapHandlersRef.current.onCameraGestureStart(),
     onCameraPositionChange: (camera) => mapHandlersRef.current.onCameraPositionChange(camera),
     onCameraOrientationChange: (heading, pitch) => mapHandlersRef.current.onCameraOrientationChange(heading, pitch),
+    onCameraZoomChange: (zoom) => mapHandlersRef.current.onCameraZoomChange(zoom),
     onJourneyDayLabelPress: (day) => mapHandlersRef.current.onJourneyDayLabelPress(day),
     onJourneyStopPress: (rowId) => mapHandlersRef.current.onJourneyStopPress(rowId),
     onUserLocationChange: (coordinate) => mapHandlersRef.current.onUserLocationChange(coordinate),
@@ -2491,6 +2557,7 @@ function DiscoverScreenView({
           onCameraGestureStart={globeHandlers.onCameraGestureStart}
           onCameraPositionChange={globeHandlers.onCameraPositionChange}
           onCameraOrientationChange={globeHandlers.onCameraOrientationChange}
+          onCameraZoomChange={globeHandlers.onCameraZoomChange}
           // Framing must not wait for the transition gate: the journey track is
           // already in memory, and a camera that only moves once
           // InteractionManager drains reads as the map freezing for seconds.
@@ -2517,7 +2584,7 @@ function DiscoverScreenView({
           onBackgroundPress={globeHandlers.onBackgroundPress}
         />
         ) : null}
-        {!nav.pointInfo && !mapImmersive && !isMemory && routesLoading && exploreBasePois.length === 0 ? (
+        {!nav.pointInfo && !mapImmersive && routesLoading && exploreBasePois.length === 0 ? (
           <View
             pointerEvents="none"
             accessibilityLiveRegion="polite"
@@ -2544,31 +2611,46 @@ function DiscoverScreenView({
       {/* top-right chrome */}
       {!nav.pointInfo && !mapImmersive ? (
       <>
-      {!isMemory ? (
-        <Press
-          accessibilityRole="button"
-          accessibilityLabel="选择行政区"
-          onPress={() => nav.openSearch()}
-          style={{
-            position: 'absolute', top: insets.top + 4, left: 19,
-            height: 44, alignItems: 'flex-start', justifyContent: 'center',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: 0.88 }}>
-            <Text style={{
-              color: chromeTheme.text,
-              fontSize: 20,
-              lineHeight: 25,
-              fontWeight: '600',
-              textShadowColor: chromeTheme.dark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.58)',
-              textShadowOffset: { width: 0, height: 1 },
-              textShadowRadius: 2,
-            }}>{adminRegion}</Text>
-            <Animated.View style={{ transform: [{ rotate: adminRegionChevronProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-              <Icon name="chevronDown" color={chromeTheme.text} size={15} strokeWidth={2.3} />
-            </Animated.View>
-          </View>
-        </Press>
+      <Press
+        accessibilityRole="button"
+        accessibilityLabel="选择行政区"
+        onPress={() => {
+          // Back to the province: picking the same one again wouldn't change it.
+          setAreaRouteIds(null);
+          setAreaSearchOffered(false);
+          nav.openSearch();
+        }}
+        style={{
+          position: 'absolute', top: insets.top + 4, left: 19,
+          height: 44, alignItems: 'flex-start', justifyContent: 'center',
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: 0.88 }}>
+          <Text style={{
+            color: chromeTheme.text,
+            fontSize: 20,
+            lineHeight: 25,
+            fontWeight: '600',
+            textShadowColor: chromeTheme.dark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.58)',
+            textShadowOffset: { width: 0, height: 1 },
+            textShadowRadius: 2,
+          }}>{areaRouteIds ? t('discover.areaTitle') : adminRegion}</Text>
+          <Animated.View style={{ transform: [{ rotate: adminRegionChevronProgress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+            <Icon name="chevronDown" color={chromeTheme.text} size={15} strokeWidth={2.3} />
+          </Animated.View>
+        </View>
+      </Press>
+      {areaSearchOffered && active && listSheetIndex !== LIST_SHEET_FULL ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: insets.top + MAP_TOP_CHROME_HEIGHT, alignItems: 'center', zIndex: 9 }}>
+          <Press
+            accessibilityRole="button"
+            onPress={searchArea}
+            style={{ height: MAP_CONTROL_SIZE, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: chromeTheme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: chromeTheme.fieldBorder, boxShadow: chromeTheme.dark ? '0px 4px 12px rgba(0,0,0,0.45)' : '0px 4px 12px rgba(0,0,0,0.10)' }}
+          >
+            <Search color={theme.accent} size={17} strokeWidth={2.3} />
+            <Text style={[type.chip, { color: chromeTheme.text }]}>{t('discover.searchArea')}</Text>
+          </Press>
+        </View>
       ) : null}
       <View style={{ position: 'absolute', top: insets.top + 4, right: 16, gap: 10 }}>
         <Press
@@ -2627,8 +2709,8 @@ function DiscoverScreenView({
           full-screen Modal. A native Modal creates another window and its
           platform fade can stall while the map is rendering. */}
       {adminRegionPickerMounted ? <Animated.View
-        pointerEvents={adminRegionPickerOpen && !isMemory ? 'auto' : 'none'}
-        accessibilityViewIsModal={adminRegionPickerOpen && !isMemory}
+        pointerEvents={adminRegionPickerOpen ? 'auto' : 'none'}
+        accessibilityViewIsModal={adminRegionPickerOpen}
         style={[StyleSheet.absoluteFill, {
           zIndex: 100,
           elevation: 100,
@@ -2706,15 +2788,31 @@ function DiscoverScreenView({
               />
             </Animated.View>
           ) : null}
-          {/* The two view-state controls share one plate, like the list column
-              and 自由记录: 复位 is the locate equivalent, 图层 the style toggle.
-              全屏 and 清除对比 are one-shot actions, so they stay round buttons
-              stacked above it. */}
+          {/* One column, bottom-anchored: the two view-state controls share a
+              plate (复位 is the locate equivalent, 图层 the style toggle) and the
+              one-shot actions (全屏, 清除对比) stay round buttons above it. Order
+              and gap come from the column itself, so a round button can never
+              be dropped onto the plate by a mis-counted offset. */}
           <Animated.View style={[{
             position: 'absolute',
             right: space.md,
             bottom: full + space.md,
+            alignItems: 'flex-end',
           }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
+              <MapRoundButton
+                theme={theme}
+                icon="close"
+                onPress={() => setComparisonRoutes([])}
+                accessibilityLabel={t('common.clearComparison')}
+              />
+            ) : null}
+            <MapRoundButton
+              theme={theme}
+              element={<Maximize2 color={theme.text} size={18} strokeWidth={2} />}
+              onPress={enterMapImmersive}
+              accessibilityLabel={t('journey.map.enterFullscreen')}
+            />
             <MapControlGroup theme={theme}>
               <MapControlButton
                 theme={theme}
@@ -2736,94 +2834,31 @@ function DiscoverScreenView({
             </MapControlGroup>
           </Animated.View>
 
-          <Animated.View style={[{
-            position: 'absolute',
-            right: space.md,
-            bottom: full + space.md + LIST_MAP_TOOL_PITCH,
-          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-            <MapRoundButton
-              theme={theme}
-              element={<Maximize2 color={theme.text} size={18} strokeWidth={2} />}
-              onPress={enterMapImmersive}
-              accessibilityLabel={t('journey.map.enterFullscreen')}
-            />
-          </Animated.View>
-          {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
-            <Animated.View style={[{
-              position: 'absolute',
-              right: space.md,
-              bottom: full + space.md + LIST_MAP_TOOL_PITCH * 2,
-            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-              <MapRoundButton
-                theme={theme}
-                icon="close"
-                onPress={() => setComparisonRoutes([])}
-                accessibilityLabel={t('common.clearComparison')}
-              />
-            </Animated.View>
-          ) : null}
-
-          {/* Directly above the top round button of the stack, however many it
-              has right now, and only while the camera is turned off north. */}
-          <Animated.View pointerEvents="box-none" style={[{
-            position: 'absolute',
-            right: space.md,
-            bottom: full + space.md + LIST_MAP_TOOL_PITCH * pointMapToolSlots,
-          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-            <MapCompassReveal visible={mapNorthOff}>
-              <MapRoundButton
-                theme={theme}
-                heading={mapHeading}
-                onPress={resetMapNorth}
-                accessibilityLabel={t('journey.map.north')}
-              />
-            </MapCompassReveal>
-          </Animated.View>
         </>
       ) : null}
 
-      {/* Fullscreen drops all other chrome, but a turned map still needs its
-          way back to north; it takes the corner the tool stack sits in. */}
-      {mapImmersive ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', right: space.md, bottom: insets.bottom + space.md, zIndex: 8 }}>
+      {/* Compass and scale share the top-right corner, komoot-style, just under
+          the top chrome (搜索 in the list, 分享/设置 on a journey card): the
+          compass while the map is turned, the scale below it while it zooms. */}
+      {mapImmersive || !nav.pointInfo || pointMapControlsVisible ? (
+        <View
+          pointerEvents="box-none"
+          style={{ position: 'absolute', right: space.md, top: insets.top + (mapImmersive ? space.md : MAP_TOP_CHROME_HEIGHT + space.sm), zIndex: 8, alignItems: 'flex-end' }}
+        >
           <MapCompassReveal visible={mapNorthOff}>
             <MapRoundButton
-              theme={theme}
+              theme={nav.pointInfo || mapImmersive ? theme : chromeTheme}
               heading={mapHeading}
               onPress={resetMapNorth}
               accessibilityLabel={t('journey.map.north')}
             />
           </MapCompassReveal>
-        </View>
-      ) : null}
-
-      {/* Above the lone record button and the grouped tools (two 40pt controls). */}
-      {!nav.pointInfo && !mapImmersive ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom + LIST_MAP_TOOL_PITCH * 2, zIndex: 8 }}>
-          <MapCompassReveal visible={mapNorthOff}>
-            <MapRoundButton
-              theme={chromeTheme}
-              heading={mapHeading}
-              onPress={resetMapNorth}
-              accessibilityLabel={t('journey.map.north')}
-            />
-          </MapCompassReveal>
+          <MapScaleBar scale={mapScale} theme={nav.pointInfo || mapImmersive ? theme : chromeTheme} />
         </View>
       ) : null}
 
       {!nav.pointInfo && !mapImmersive ? (
-        <View style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom + LIST_MAP_TOOL_PITCH }}>
-          <MapRoundButton
-            theme={chromeTheme}
-            icon="record"
-            onPress={recordTrail}
-            accessibilityLabel={t('trail.entry.record')}
-          />
-        </View>
-      ) : null}
-
-      {!nav.pointInfo && !mapImmersive ? (
-        <View style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom }}>
+        <Animated.View style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom, alignItems: 'flex-end', transform: [{ translateY: listMapToolsShift }] }}>
           <MapControlGroup theme={chromeTheme}>
             <MapControlButton
               theme={chromeTheme}
@@ -2843,26 +2878,26 @@ function DiscoverScreenView({
                 : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
             </MapControlButton>
           </MapControlGroup>
-        </View>
+        </Animated.View>
       ) : null}
 
       {/* Stays mounted through fullscreen: see enterMapImmersive. */}
       {sheetVisible && (
       <TrailSheet
         ref={sheetRef}
-        key={`${subTab}-${nav.pointInfo ? 'card' : 'list'}`}
+        key={nav.pointInfo ? 'card' : 'list'}
         theme={theme}
-        snapHeights={nav.pointInfo ? [journeyMinimum, focusPanel, full] : [collapsed, full]}
-        initialIndex={nav.pointInfo ? 1 : 0}
-        dismissOnDrag={!nav.pointInfo}
+        snapHeights={nav.pointInfo ? [journeyMinimum, focusPanel, full] : [listPeek, collapsed, full]}
+        initialIndex={nav.pointInfo ? 1 : listSheetIndex}
+        dismissOnDrag={false}
         onIndexChange={nav.pointInfo ? (index) => {
           if (nav.pointInfo?.kind === 'journey') setJourneySheetIndex(index);
           else setRouteSheetIndex(index);
           if (index !== 0) setMapStylePickerOpen(false);
-        } : undefined}
-        header={nav.pointInfo ? <View /> : header}
+        } : setListSheetIndex}
+        header={nav.pointInfo ? <View /> : !placeSel ? exploreHeader : header}
         compact={false}
-        backgroundColor={nav.newJourneyOpen ? 'transparent' : nav.pointInfo ? theme.featureSurface : isMemory ? theme.groupedBg : theme.featureSurface}
+        backgroundColor={nav.newJourneyOpen ? 'transparent' : theme.featureSurface}
         containerStyle={{ opacity: nav.newJourneyOpen ? 0 : 1 }}
         borderless={nav.pointInfo?.kind === 'route'}
         bodyOverlay={
@@ -2879,7 +2914,7 @@ function DiscoverScreenView({
           ) : undefined
         }
         bodyScrollY={nav.pointInfo?.kind === 'journey' ? journeyDetailScrollY : undefined}
-        animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : undefined}
+        animatedTranslateY={nav.pointInfo ? pointSheetTranslateY : listSheetTranslateY}
         bottomOffset={0}
         onBodyHeightChange={setDetailBodyHeight}
         onHeaderHeightChange={setDetailHeaderHeight}
@@ -2887,7 +2922,6 @@ function DiscoverScreenView({
           setPlaceSel(null);
           if (nav.pointInfo && focusReturnToList) {
             nav.closePoint();
-            nav.openSheet();
           } else {
             nav.closeSheet();
           }
@@ -2960,50 +2994,24 @@ function DiscoverScreenView({
             displayPois.length === 0 ? (
               <KPState
                 theme={theme}
-                icon={isMemory ? 'route' : 'search'}
-                title={isMemory ? t('discover.emptyJourneysTitle') : t('discover.emptyRoutesTitle')}
-                body={isMemory ? t('discover.emptyJourneysBody') : t('discover.emptyRoutesBody')}
+                icon="search"
+                title={areaRouteIds?.size === 0 ? t('discover.emptyAreaTitle') : t('discover.emptyRoutesTitle')}
+                body={areaRouteIds?.size === 0 ? t('discover.emptyAreaBody') : t('discover.emptyRoutesBody')}
+                action={areaRouteIds?.size === 0 ? { label: t('discover.zoomOut'), onPress: zoomOutArea } : undefined}
               />
             ) : (
-              <View style={{ gap: isMemory ? space.sm : space.md, paddingTop: space.xxs }}>
-                {displayPois.map((p, index) => (
-                  <StaggerIn key={p.id} index={index} staggered={!entrancePlayed}>
-                    {isMemory && p.kind === 'journey' ? (
-                      <DiscoverJourneyCard
-                        theme={theme}
-                        poi={p}
-                        selectMode={selectMode}
-                        selected={selectedIds.has(p.id)}
-                        onPress={() => {
-                          if (selectMode) toggleSelect(p.id);
-                          else {
-                            setFocusReturnToList(true);
-                            openPointFromCurrentMap(p);
-                          }
-                        }}
-                        onInvite={() => nav.openManageCompanions(p, 'invite')}
-                        inviteAccessibilityLabel={t('journey.manage.inviteParticipant')}
-                        onLongPress={() => (selectMode ? toggleSelect(p.id) : enterSelect(p.id))}
-                      />
-                    ) : (
-                      <DiscoverRouteCard theme={theme} poi={p} feedbackLabel={t('discover.routeFeedback')} onFeedback={() => setRouteFeedbackOpen(true)} onPress={() => {
-                        setFocusReturnToList(true);
-                        openPointFromCurrentMap(p);
-                      }} />
-                    )}
-                  </StaggerIn>
-                ))}
-              </View>
+              <DiscoverRouteList theme={theme} routes={displayPois} staggered={!entrancePlayed} onOpen={(p) => {
+                setFocusReturnToList(true);
+                openPointFromCurrentMap(p);
+              }} />
             )
           ) : (
-            <View style={{ gap: 14, paddingTop: 8 }}>
-              {[0, 1, 2].map((i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                  <View style={{ width: 60, height: 60, borderRadius: 14, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }} />
-                  <View style={{ flex: 1, gap: 8 }}>
-                    <KPSkeletonLine theme={theme} width="62%" />
-                    <KPSkeletonLine theme={theme} width="40%" height={10} />
-                  </View>
+            <View style={{ gap: space.xl, paddingTop: space.xxs }}>
+              {[0, 1].map((i) => (
+                <View key={i} style={{ gap: space.xs }}>
+                  <View style={{ aspectRatio: 1 / 0.62, borderRadius: radius.feature, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }} />
+                  <KPSkeletonLine theme={theme} width="62%" />
+                  <KPSkeletonLine theme={theme} width="40%" height={10} />
                 </View>
               ))}
             </View>
@@ -3012,6 +3020,38 @@ function DiscoverScreenView({
         )}
       </TrailSheet>
       )}
+      {/* Full list hides the map; this is the visible way back besides dragging. */}
+      {listShown && listSheetIndex === LIST_SHEET_FULL && !nav.newJourneyOpen && !mapImmersive ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space.md, alignItems: 'center' }}>
+          <Press
+            accessibilityRole="button"
+            accessibilityLabel={t('discover.showMap')}
+            onPress={() => sheetRef.current?.snapTo(LIST_SHEET_INITIAL)}
+            style={{
+              height: 48,
+              paddingHorizontal: space.lg,
+              borderRadius: radius.pill,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.xs,
+              backgroundColor: theme.accent,
+              boxShadow: theme.dark ? '0px 6px 16px rgba(0,0,0,0.38)' : '0px 6px 16px rgba(0,0,0,0.14)',
+            }}
+          >
+            <Icon name="map" color="#FFFFFF" size={20} strokeWidth={2} />
+            <Text style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 20, fontWeight: '700' }}>{t('discover.showMap')}</Text>
+          </Press>
+        </View>
+      ) : null}
+      {routeFilterOpen ? (
+        <RouteFilterSheet
+          theme={theme}
+          value={routeFilters}
+          countFor={(draft) => applyRouteFilters(areaBasePois, draft).length}
+          onApply={(next) => { setRouteFilters(next); setRouteFilterOpen(false); }}
+          onClose={() => setRouteFilterOpen(false)}
+        />
+      ) : null}
       {mapStylePickerVisible ? (
         <MapStylePickerSheet
           theme={theme}
@@ -3497,28 +3537,6 @@ function DiscoverScreenView({
           }}
         >
           <RoutePreviewActions theme={theme} poi={nav.pointInfo} onPlanRoute={planRouteJourney} onNavigate={navigateToRoute} navigationActive={routeNavigationRouteId === nav.pointInfo.id} onFollow={followRoute} />
-        </View>
-      ) : null}
-      {selectMode ? (
-        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 160, paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: Math.max(insets.bottom, space.md) + 6, backgroundColor: theme.surfaceTop, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.hairline }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Press onPress={exitSelect} style={{ height: 44, paddingHorizontal: space.md, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-              <Text style={[type.body, { fontWeight: '600', color: theme.text }]}>{t('common.cancel')}</Text>
-            </Press>
-            <Press onPress={toggleAll} style={{ minWidth: 80, height: 44, paddingHorizontal: space.md, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.accent }}>
-                {allSelected ? t('discover.selectDeselectAll') : t('discover.selectAll')}
-              </Text>
-            </Press>
-            <Press
-              onPress={selectedIds.size ? deleteSelected : undefined}
-              style={{ flex: 1, height: 50, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: selectedIds.size ? theme.danger : theme.fieldSurface }}
-            >
-              <Text style={{ fontSize: 15, fontWeight: '700', color: selectedIds.size ? '#fff' : theme.text3 }}>
-                {selectedIds.size ? t('discover.selectDelete', { count: selectedIds.size }) : t('discover.selectDeletePrompt')}
-              </Text>
-            </Press>
-          </View>
         </View>
       ) : null}
       <JourneyGroupMoveSheet

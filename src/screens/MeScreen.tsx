@@ -50,6 +50,8 @@ import {
   itemPrice,
   itemWeight,
   fmtWeight,
+  WEIGHT_UNITS,
+  type WeightUnit,
 } from "../data/gear";
 import { useNotifCenter, Notif } from "../data/notifications";
 import { ColorDot } from "../components/me/parts";
@@ -137,7 +139,7 @@ type MePage =
   | { type: "picker"; picker: AppearancePopup }
   | { type: "legalDocument"; document: "agreement" | "privacy" };
 
-type AppearancePopup = "theme" | "accent" | "language";
+type AppearancePopup = "theme" | "accent" | "language" | "weight";
 type PopupAnchor = { x: number; y: number; width: number; height: number };
 const SETTINGS_ROW_HEIGHT = layout.listRowMinHeight;
 const flatMeCardStyle = { boxShadow: "none" as const };
@@ -2240,6 +2242,27 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
             />
           );
         }
+        if (picker === "weight") {
+          const currentUnit = data.profile.gearWeightUnit || "kg";
+          return (
+            <CardPickerPage
+              theme={theme}
+              navTitle={t("me.gearWeightUnit")}
+              options={WEIGHT_UNITS.map((unit) => ({
+                id: unit,
+                title: unit,
+                description: t("me.gearWeightUnitDesc", { unit }),
+              }))}
+              selectedId={currentUnit}
+              onSelect={(key) => {
+                const unit = key as WeightUnit;
+                if (unit === currentUnit) return;
+                void data.updateProfileOffline("gearWeightUnit", unit);
+              }}
+              onBack={pop}
+            />
+          );
+        }
         const navTitle =
           picker === "theme" ? t("me.theme") : t("me.accent");
         const options: CardPickerOption[] =
@@ -2355,6 +2378,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
     { key: "theme", icon: mode === "dark" ? "moon" : mode === "light" ? "sun" : "system", label: t("me.theme"), value: modeLabel, go: () => push({ type: "picker", picker: "theme" }) },
     { key: "accent", dot: true, label: t("me.accent"), value: accentName, go: () => push({ type: "picker", picker: "accent" }) },
     { key: "language", icon: "globe", label: t("me.language"), value: langLabel, go: () => push({ type: "picker", picker: "language" }) },
+    { key: "weight", icon: "gearSettings", label: t("me.gearWeightUnit"), value: data.profile.gearWeightUnit || "kg", go: () => push({ type: "picker", picker: "weight" }) },
     { key: "feedback", icon: "send", label: t("me.helpFeedback"), go: () => push({ type: "feedback" }) },
     { key: "about", icon: "info", label: t("me.about"), value: appVersionLabel, go: () => push({ type: "about" }) },
   ];

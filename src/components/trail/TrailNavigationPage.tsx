@@ -339,9 +339,10 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           position: 'absolute',
           right: space.md,
           bottom: snapHeights[2] + space.md,
+          alignItems: 'flex-end',
           transform: [{ translateY: sheetY }],
           opacity: sheetY.interpolate({ inputRange: [(snapHeights[2] - snapHeights[1]) / 2, snapHeights[2] - snapHeights[1]], outputRange: [0, 1], extrapolate: 'clamp' }),
-        } : { position: 'absolute', right: space.md, bottom: panelHeight + space.md }}
+        } : { position: 'absolute', right: space.md, bottom: panelHeight + space.md, alignItems: 'flex-end' }}
       >
         {/* Its own button above the group, and only while the map is turned:
             north-up has nothing to reset. */}

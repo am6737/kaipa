@@ -8,12 +8,20 @@ import { useNav, MainTab } from '../nav/NavContext';
 import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
-import { AssistantMark } from './assistant/AssistantMark';
+import { useTrail, useTrailSnapshot } from '../trail/TrailContext';
 
-const TABS: MainTab[] = ['discover', 'journey', 'me'];
+// 记录 is an action rather than a screen: it opens the 徒步导航 page over
+// whichever tab is showing, ready for a free walk or the running recording.
+type TabEntry = MainTab | 'record';
+const TABS: TabEntry[] = ['discover', 'journey', 'record', 'me'];
 
-export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: Theme; hidden?: boolean; onOpenAssistant?: () => void }) {
+/** Height of the floating tab bar; screens that dock content above it read this. */
+export const BOTTOM_TABS_HEIGHT = 52;
+
+export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: boolean }) {
   const nav = useNav();
+  const trail = useTrail();
+  const { session } = useTrailSnapshot();
   countRender('Tabs');
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -58,6 +66,27 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
       <View style={styles.row}>
         <View style={[styles.bar, barSurface]}>
           {TABS.map((tab) => {
+            if (tab === 'record') {
+              return (
+                <Press
+                  key={tab}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('tabs.record')}
+                  onPress={() => trail.openTrail()}
+                  style={styles.tab}
+                >
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                    style={[styles.label, { color: session ? theme.text : theme.text3, fontWeight: session ? '700' : '600' }]}
+                  >
+                    {t('tabs.record')}
+                  </Text>
+                  {session ? <View style={[styles.badge, { backgroundColor: session.status === 'recording' ? theme.trailMine : theme.text3, borderColor: theme.controlSurface }]} /> : null}
+                </Press>
+              );
+            }
             // Gear is reached from the Me shortcuts now, so keep Me as the
             // selected section while its list/detail surface is open.
             const active = nav.mainTab === tab || (tab === 'me' && nav.mainTab === 'gear');
@@ -82,22 +111,11 @@ export function BottomTabs({ theme, hidden = false, onOpenAssistant }: { theme: 
                 >
                   {t(`tabs.${tab}`)}
                 </Text>
-                {tab === 'me' && unread > 0 ? <View style={[styles.unread, { backgroundColor: theme.danger, borderColor: theme.controlSurface }]} /> : null}
+                {tab === 'me' && unread > 0 ? <View style={[styles.badge, { backgroundColor: theme.danger, borderColor: theme.controlSurface }]} /> : null}
               </Press>
             );
           })}
         </View>
-        {onOpenAssistant ? (
-          <Press
-            accessibilityRole="button"
-            accessibilityLabel={t('agent.open')}
-            onPress={onOpenAssistant}
-            style={[styles.assistant, { backgroundColor: theme.accent }]}
-          >
-            <AssistantMark color="#FFFFFF" size={27} />
-            <Text numberOfLines={1} style={styles.assistantLabel}>{t('agent.open')}</Text>
-          </Press>
-        ) : null}
       </View>
     </Animated.View>
   );
@@ -115,8 +133,8 @@ const styles = StyleSheet.create({
   bar: {
     flexGrow: 0,
     flexShrink: 1,
-    flexBasis: 210,
-    height: 52,
+    flexBasis: 290,
+    height: BOTTOM_TABS_HEIGHT,
     flexDirection: 'row',
     paddingVertical: space.xxs,
     paddingHorizontal: space.sm,
@@ -128,27 +146,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xxxl,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.xs,
-  },
-  // In flow (not absolute) so the tab bar shrinks to make room on narrow
-  // screens instead of sliding under the button.
-  assistant: {
-    flexShrink: 0,
-    width: 88,
-    height: 52,
-    borderRadius: radius.pill,
-    flexDirection: 'row',
-    gap: space.xxs,
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  assistantLabel: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '700',
-    letterSpacing: 0,
   },
   tab: {
     flex: 1,
@@ -162,7 +160,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     letterSpacing: 0,
   },
-  unread: {
+  badge: {
     position: 'absolute',
     right: 8,
     top: 9,

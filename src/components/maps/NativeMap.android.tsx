@@ -136,11 +136,20 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         const target = options?.edgePadding
           ? shiftedTarget(gcj02, zoom, layoutSize.current, options.edgePadding)
           : gcj02;
-        void mapRef.current?.moveCamera({
+        const map = mapRef.current;
+        if (!map) return;
+        if (options?.resetOrientation) {
+          void map.moveCamera({ target, zoom, bearing: 0, tilt: 0 }, duration).catch(() => undefined);
+          return;
+        }
+        // AMap builds a whole new camera from what it's given, so leaving out
+        // bearing and tilt turns the map back to north; carry the current ones.
+        void map.getCameraPosition().then((camera) => map.moveCamera({
           target,
           zoom,
-          ...(options?.resetOrientation ? { bearing: 0, tilt: 0 } : {}),
-        }, duration);
+          bearing: camera.bearing ?? 0,
+          tilt: camera.tilt ?? 0,
+        }, duration)).catch(() => undefined);
       });
     },
     resetNorth: () => {

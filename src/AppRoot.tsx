@@ -155,7 +155,6 @@ function AppShell() {
       <BottomTabs
         theme={theme}
         hidden={sheetUp || discoverOverlayOpen || nav.tabBarHidden || nav.blockingOverlayOpen || !!sharePosterPoi || !!passphrasePoi}
-        onOpenAssistant={() => nav.openAssistant()}
       />
 
       {nav.addRouteOpen && (

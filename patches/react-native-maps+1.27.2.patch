@@ -11,11 +11,80 @@ index 17c1755..da36be0 100644
  @property (nonatomic, copy) RCTBubblingEventBlock onPress;
  @property (nonatomic, copy) RCTBubblingEventBlock onLongPress;
  @property (nonatomic, copy) RCTDirectEventBlock onPanDrag;
+diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMap.mm b/node_modules/react-native-maps/ios/AirMaps/AIRMap.mm
+index f7da1e0..346a13e 100644
+--- a/node_modules/react-native-maps/ios/AirMaps/AIRMap.mm
++++ b/node_modules/react-native-maps/ios/AirMaps/AIRMap.mm
+@@ -54,6 +54,7 @@ const NSInteger AIRMapMaxZoomLevel = 20;
+     UIView *_legalLabel;
+     UIView *_appleLogo;
+     BOOL _initialRegionSet;
++    MKMapType _kaipaMapType;
+     BOOL _initialRegionProvided;
+     BOOL _initialCameraProvided;
+     BOOL _initialCameraSet;
+@@ -110,6 +111,9 @@ const NSInteger AIRMapMaxZoomLevel = 20;
+         _initialized = YES;
+         _showsPointsOfInterests = YES;
+         _pointsOfInterestFilter = @[];
++        // Start on the realistic-elevation configuration too: a map that stays
++        // on the default type never receives a mapType prop change.
++        self.mapType = MKMapTypeStandard;
+         [self listenToMemoryWarnings];
+     }
+     return self;
+@@ -625,6 +629,46 @@ const NSInteger AIRMapMaxZoomLevel = 20;
+     }
+ }
+ 
++// Kaipa: MKMapView's flat (legacy mapType) mode springs the map back to north
++// and refuses pitch once zoomed out past city level. Apple Maps doesn't, because
++// it draws the realistic-elevation configuration (3D, globe when far out), so
++// on iOS 16+ every map type is expressed as that configuration instead.
++- (void)setMapType:(MKMapType)mapType
++{
++    _kaipaMapType = mapType;
++    if (@available(iOS 16.0, *)) {
++        MKMapConfiguration *config;
++        switch (mapType) {
++            case MKMapTypeSatellite:
++            case MKMapTypeSatelliteFlyover:
++                config = [[MKImageryMapConfiguration alloc] initWithElevationStyle:MKMapElevationStyleRealistic];
++                break;
++            case MKMapTypeHybrid:
++            case MKMapTypeHybridFlyover:
++                config = [[MKHybridMapConfiguration alloc] initWithElevationStyle:MKMapElevationStyleRealistic];
++                break;
++            case MKMapTypeMutedStandard:
++                config = [[MKStandardMapConfiguration alloc] initWithElevationStyle:MKMapElevationStyleRealistic
++                                                                     emphasisStyle:MKStandardMapEmphasisStyleMuted];
++                break;
++            default:
++                config = [[MKStandardMapConfiguration alloc] initWithElevationStyle:MKMapElevationStyleRealistic];
++                break;
++        }
++        self.preferredConfiguration = config;
++        // The POI setters copy preferredConfiguration, so re-run them onto the new one.
++        if (_initialized) [self setPointsOfInterestFilter:_pointsOfInterestFilter];
++        return;
++    }
++    [super setMapType:mapType];
++}
++
++- (MKMapType)mapType
++{
++    if (@available(iOS 16.0, *)) return _kaipaMapType;
++    return [super mapType];
++}
++
+ - (void)setCacheEnabled:(BOOL)cacheEnabled {
+     _cacheEnabled = cacheEnabled;
+     if (self.cacheEnabled && self.cacheImageView.image == nil) {
 diff --git a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
 index d034034..a719dd4 100644
 --- a/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
 +++ b/node_modules/react-native-maps/ios/AirMaps/AIRMapManager.m
-@@ -48,6 +48,10 @@ @implementation AIRMapManager{
+@@ -48,6 +48,10 @@ RCT_EXPORT_MODULE()
  - (UIView *)view
  {
      AIRMap *map = [AIRMap new];
@@ -26,7 +95,7 @@ index d034034..a719dd4 100644
      map.delegate = self;
  
      map.isAccessibilityElement = NO;
-@@ -117,6 +121,7 @@ - (UIView *)view
+@@ -117,6 +121,7 @@ RCT_EXPORT_VIEW_PROPERTY(onRegionChangeStart, RCTDirectEventBlock)
  RCT_EXPORT_VIEW_PROPERTY(onRegionChange, RCTDirectEventBlock)
  RCT_EXPORT_VIEW_PROPERTY(onRegionChangeComplete, RCTDirectEventBlock)
  RCT_EXPORT_VIEW_PROPERTY(onPanDrag, RCTDirectEventBlock)
@@ -34,7 +103,7 @@ index d034034..a719dd4 100644
  RCT_EXPORT_VIEW_PROPERTY(onPress, RCTBubblingEventBlock)
  RCT_EXPORT_VIEW_PROPERTY(onLongPress, RCTBubblingEventBlock)
  RCT_EXPORT_VIEW_PROPERTY(onDoublePress, RCTDirectEventBlock)
-@@ -781,6 +786,40 @@ - (void)mapView:(AIRMap *)mapView didAddAnnotationViews:(NSArray<MKAnnotationVie
+@@ -781,6 +786,40 @@ RCT_EXPORT_METHOD(getAddressFromCoordinates:(nonnull NSNumber *)reactTag
  
  - (void)mapView:(AIRMap *)mapView didSelectAnnotationView:(MKAnnotationView *)view
  {
@@ -75,7 +144,7 @@ index d034034..a719dd4 100644
      if ([view.annotation isKindOfClass:[AIRMapMarker class]]) {
          [(AIRMapMarker *)view.annotation showCalloutView];
      } else if ([view.annotation isKindOfClass:[MKUserLocation class]] && mapView.userLocationAnnotationTitle != nil && view.annotation.title != mapView.userLocationAnnotationTitle) {
-@@ -790,6 +829,12 @@ - (void)mapView:(AIRMap *)mapView didSelectAnnotationView:(MKAnnotationView *)vi
+@@ -790,6 +829,12 @@ RCT_EXPORT_METHOD(getAddressFromCoordinates:(nonnull NSNumber *)reactTag
  }
  
  - (void)mapView:(AIRMap *)mapView didDeselectAnnotationView:(MKAnnotationView *)view {
@@ -92,7 +161,7 @@ diff --git a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm b/node_
 index 447520d..909b260 100644
 --- a/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
 +++ b/node_modules/react-native-maps/ios/AirMaps/RNMapsMapView.mm
-@@ -188,6 +188,35 @@ - (void) prepareMapView
+@@ -188,6 +188,35 @@ using namespace facebook::react;
          }
      };
  

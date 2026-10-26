@@ -235,26 +235,32 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
     nav.clearGearPageRequest();
   }, [nav.gearPageRequest]);
 
+  // Rewrite the open pages when an item is renamed or edited; the same call
+  // applied backwards is how a failed optimistic save is undone.
+  const swapInStack = (fromName: string, to: GearItem) =>
+    setPageStack((stk) =>
+      stk.map((pg) => {
+        if (pg.type === 'item' && pg.item.name === fromName) return { type: 'item', item: to };
+        if (pg.type === 'set' && to.name !== fromName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === fromName ? to.name : n)) } };
+        return pg;
+      })
+    );
+
   const updateItem = async (oldName: string, ni: GearItem) => {
     const oldItem = allItems.find(it => it.name === oldName);
     if (oldItem && sameGearItem(oldItem, ni)) {
       setItemEditor(null);
       return;
     }
+    swapInStack(oldName, ni);
+    setItemEditor(null);
+    if (!oldItem?.id) return;
     try {
-      const saved = oldItem?.id ? await data.updateItem(oldItem.id, ni) : undefined;
-      const nextItem = saved ?? ni;
-      setPageStack((stk) =>
-        stk.map((pg) => {
-          if (pg.type === 'item' && pg.item.name === oldName) return { type: 'item', item: nextItem };
-          if (pg.type === 'set' && nextItem.name !== oldName) return { type: 'set', set: { ...pg.set, items: pg.set.items.map((n) => (n === oldName ? nextItem.name : n)) } };
-          return pg;
-        })
-      );
-      setItemEditor(null);
-      nav.showToast(t('gear.toast.itemUpdated'), 'top');
+      const saved = await data.updateItem(oldItem.id, ni);
+      if (saved) swapInStack(ni.name, saved);
     } catch (error) {
       console.warn('[Gear] item update failed:', error);
+      swapInStack(ni.name, oldItem);
       nav.showToast(t('gear.toast.saveFailed'), 'top');
     }
   };

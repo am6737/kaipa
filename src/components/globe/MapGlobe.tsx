@@ -106,6 +106,7 @@ export default function MapGlobe({
   onCameraOrientationChange,
   onCameraGestureStart,
   onCameraPositionChange,
+  onCameraZoomChange,
 }: GlobeProps) {
   const { t } = useI18n();
   const { width, height } = useWindowDimensions();
@@ -209,6 +210,7 @@ export default function MapGlobe({
   const handleZoomChange = useCallback((zoom: number) => {
     if (!Number.isFinite(zoom)) return;
     liveZoom.current = zoom;
+    onCameraZoomChange?.(zoom);
     syncTrackEndpoints(zoom);
     const quantizedZoom = Math.round(zoom * 4) / 4;
     // Quantize to quarter-zoom steps so the scale only steps a few times
@@ -242,7 +244,7 @@ export default function MapGlobe({
         setCameraDetailZoom(detailZoom);
       }, 180);
     }
-  }, [pinScale]);
+  }, [onCameraZoomChange, pinScale]);
   const validFocusCoords = useMemo(
     () => keepValidCoordinates(focusCoords),
     [focusCoords],

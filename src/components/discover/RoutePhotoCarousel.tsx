@@ -30,7 +30,11 @@ export function RoutePhotoCarousel({ theme, photos, width, height, radius: corne
 
   return (
     <View style={{ width, height, borderRadius: corner, overflow: 'hidden' }}>
-      {hasPhotos ? (
+      {items.length === 1 ? (
+        <Pressable onPress={(event) => openViewer(0, event)} style={StyleSheet.absoluteFill}>
+          <Image source={{ uri: items[0] }} recyclingKey={items[0]} cachePolicy="memory-disk" transition={0} contentFit="cover" style={StyleSheet.absoluteFill} />
+        </Pressable>
+      ) : hasPhotos ? (
         <FlatList
           data={items}
           horizontal
@@ -38,10 +42,15 @@ export function RoutePhotoCarousel({ theme, photos, width, height, radius: corne
           showsHorizontalScrollIndicator={false}
           bounces={items.length > 1}
           keyExtractor={(uri, i) => `${uri}-${i}`}
+          // Only the visible page and its neighbour are built; the rest mount on swipe.
+          initialNumToRender={1}
+          maxToRenderPerBatch={1}
+          windowSize={3}
+          getItemLayout={(_, itemIndex) => ({ length: width, offset: width * itemIndex, index: itemIndex })}
           onMomentumScrollEnd={(event) => setIndex(Math.round(event.nativeEvent.contentOffset.x / width))}
           renderItem={({ item, index: itemIndex }) => (
             <Pressable onPress={(event) => openViewer(itemIndex, event)} style={{ width, height }}>
-              <Image source={{ uri: item }} contentFit="cover" style={StyleSheet.absoluteFill} />
+              <Image source={{ uri: item }} recyclingKey={item} cachePolicy="memory-disk" transition={0} contentFit="cover" style={StyleSheet.absoluteFill} />
             </Pressable>
           )}
         />

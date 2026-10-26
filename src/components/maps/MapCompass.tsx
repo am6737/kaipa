@@ -1,11 +1,13 @@
 // The map's compass, done the way Apple Maps does it: hidden while the map is
-// north-up, revealed by a twist, its needle turning with the map so it always
-// points at real north, and a tap levels the map before it fades back out.
+// north-up, revealed by a twist, its dial turning with the map so the north
+// marker always sits on real north, and a tap levels the map before it fades back out.
 // Zooming and panning never reveal it — that is the reset/locate button's job.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated } from 'react-native';
+import { Animated, Text } from 'react-native';
+import Svg, { Line, Path } from 'react-native-svg';
 import { motion } from '../../design-system';
-import { Icon } from '../Icon';
+import { useT } from '../../i18n';
+import { useTheme } from '../../theme/AppearanceContext';
 
 // A fitted camera can settle a fraction of a degree askew, and a compass
 // flickering in on every one of those reads as a bug.
@@ -62,12 +64,39 @@ export function MapCompassReveal({ visible, children }: { visible: boolean; chil
   );
 }
 
-/** The compass glyph turned against the map heading, so its red needle stays on north. */
-export function MapCompassGlyph({ heading, color, size = 18 }: { heading: Animated.Value; color: string; size?: number }) {
+// komoot's dial: a thin tick every 30°, solid at E/S/W and faint between; the
+// north tick is replaced by the marker. Drawn in a 40-unit box, the button size.
+const DIAL_TICKS = [30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+
+/**
+ * The compass dial, turned against the map heading as one piece — ticks, the
+ * red north marker and the 北 letter — so the marker always sits on real north.
+ */
+export function MapCompassGlyph({ heading, color, size = 40 }: { heading: Animated.Value; color: string; size?: number }) {
+  const theme = useTheme();
+  const t = useT();
   const rotate = heading.interpolate({ inputRange: [-360, 360], outputRange: ['360deg', '-360deg'] });
   return (
-    <Animated.View style={{ transform: [{ rotate }] }}>
-      <Icon name="compassN" color={color} size={size} />
+    <Animated.View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', transform: [{ rotate }] }}>
+      <Svg width={size} height={size} viewBox="0 0 40 40" style={{ position: 'absolute' }}>
+        {DIAL_TICKS.map((deg) => (
+          <Line
+            key={deg}
+            x1={20}
+            y1={5.2}
+            x2={20}
+            y2={9.4}
+            stroke={deg % 90 === 0 ? color : theme.text3}
+            strokeWidth={1.25}
+            strokeLinecap="round"
+            transform={`rotate(${deg} 20 20)`}
+          />
+        ))}
+        <Path d="M20 4.6 22.6 9.2 17.4 9.2Z" fill={theme.danger} stroke={theme.danger} strokeWidth={0.6} strokeLinejoin="round" />
+      </Svg>
+      <Text allowFontScaling={false} style={{ color, fontSize: 12.5 * (size / 40), fontWeight: '600', includeFontPadding: false }}>
+        {t('journey.map.compassNorth')}
+      </Text>
     </Animated.View>
   );
 }

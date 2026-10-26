@@ -12,14 +12,14 @@ import { Theme } from '../../theme/theme';
 import { GlobePoi } from './types';
 import { paletteFor, photoUrlFor } from '../../data/tones';
 
-// Sized down from a 40px photo and a two-line 12pt name: with the whole catalog
-// on a country-wide map the pins read as a wall.
-export const PHOTO_SIZE = 28;
+// Between the old 40px photo (a wall of pins country-wide) and 28px (too small
+// to read once the map opens on one province).
+export const PHOTO_SIZE = 34;
 const ACTIVE_SCALE = 1.08;
 const PHOTO_RADIUS = 6;
 
-export const PHOTO_PIN_WIDTH = 100;
-export const PHOTO_PIN_HEIGHT = 50;
+export const PHOTO_PIN_WIDTH = 112;
+export const PHOTO_PIN_HEIGHT = 58;
 export const PHOTO_PIN_ANCHOR_Y = (PHOTO_SIZE / 2) / PHOTO_PIN_HEIGHT;
 
 export function photoPinScaleForZoom(zoom: number): number {
@@ -166,10 +166,10 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
           style={{
             minWidth: 40,
             maxWidth: PHOTO_PIN_WIDTH,
-            height: 21,
+            height: 23,
             marginTop: -5,
             paddingTop: 5,
-            paddingHorizontal: 6,
+            paddingHorizontal: 7,
             borderRadius: 999,
             borderCurve: 'continuous',
             backgroundColor: theme.dark ? theme.surfaceStrong : '#FFFFFF',
@@ -184,8 +184,8 @@ export function PhotoPin({ theme, poi, active, mapScale = 1, staticRender = fals
             numberOfLines={1}
             style={{
               color: poi.muted ? theme.text3 : theme.text,
-              fontSize: 11,
-              lineHeight: 14,
+              fontSize: 12.5,
+              lineHeight: 16,
               fontWeight: '600',
               textAlign: 'center',
             }}

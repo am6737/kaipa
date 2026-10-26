@@ -1,28 +1,19 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
+import React, { memo, useEffect, useState } from 'react';
+import { InteractionManager, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import Svg, { Circle, Polyline } from 'react-native-svg';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
-import { orderCompanionsForDisplay, Poi } from '../../data/pois';
-import { AppCard, layout, radius, space, type } from '../../design-system';
+import { Poi } from '../../data/pois';
+import { layout, radius, space, type } from '../../design-system';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 import { Press } from '../Press';
-import { ParticipantAvatar } from '../overlays/ParticipantAvatar';
+import { simplifyTrack } from '../maps/extent';
+import { useI18n } from '../../i18n';
+import { StaggerIn } from '../StaggerIn';
 
 type Filter = { id: string; label: string };
-
-const ROUTE_TEASERS: Record<string, string> = {
-  e1: '沿九溪十八涧慢慢下行，在茶香和溪声里走完一个轻松周末。',
-  e2: '把云海、草甸和日出串成三天，是让人一走再走的经典穿越。',
-  e3: '贴近贡嘎雪山与冰川行走，留给准备充分的重装徒步者。',
-  e4: '沿秦岭主脊穿过石海与冷杉林，在拔仙台等一场云海。',
-  e5: '从哈巴村走进杜鹃林和高山牧场，为雪山攀登温柔热身。',
-  e6: '穿过原始森林去往神瀑与冰湖，把梅里雪山的清晨留在旅途中。',
-  e7: '半日走进高山草甸与雪山倒影，适合和家人一起慢慢逛。',
-  e8: '沿火山地貌登向天池，夏季花海和云开见池都值得等待。',
-};
 
 export function DiscoverCollectionHeader({
   theme,
@@ -132,200 +123,191 @@ function HeaderButton({ theme, name, onPress }: { theme: Theme; name: IconName; 
   );
 }
 
-export function DiscoverRouteCard({ theme, poi, onPress, onFeedback, feedbackLabel = 'Feedback' }: { theme: Theme; poi: Poi; onPress: () => void; onFeedback?: () => void; feedbackLabel?: string }) {
+const DIFF_COLORS: Record<NonNullable<Poi['diff']>, string> = {
+  易: '#5E8C3A',
+  中: '#4A5A2A',
+  中高: '#C26A1E',
+  高: '#A8322A',
+};
+
+const fmtCount = (n: number) => n.toLocaleString('en-US');
+
+// The catalog has no moving time, so a route without a recorded duration gets
+// the DIN 33466 hiking-time estimate (4 km/h on the flat, 300 m/h of climb).
+function routeDurationMinutes(poi: Poi): number | undefined {
+  if (poi.trackDurationMs && poi.trackDurationMs > 0) return Math.round(poi.trackDurationMs / 60000);
+  const km = parseFloat(poi.dist.replace(/,/g, '')) || 0;
+  const climb = parseFloat(poi.asc.replace(/[+,]/g, '')) || 0;
+  if (!km) return undefined;
+  const flat = km / 4;
+  const up = climb / 300;
+  return Math.round((Math.max(flat, up) + Math.min(flat, up) / 2) * 60);
+}
+
+// Cards a list renders on its first frame; the rest mount a batch per idle frame
+// so opening the list or switching a filter doesn't build every photo at once.
+const FIRST_BATCH = 4;
+const NEXT_BATCH = 4;
+
+/**
+ * The Discover route list. `onOpen` may change identity on every parent render;
+ * cards only re-render when their route or the theme changes.
+ */
+export function DiscoverRouteList({ theme, routes, onOpen, staggered }: { theme: Theme; routes: Poi[]; onOpen: (route: Poi) => void; staggered: boolean }) {
+  const openRef = React.useRef(onOpen);
+  openRef.current = onOpen;
+  const open = React.useCallback((route: Poi) => openRef.current(route), []);
+  const [count, setCount] = useState(FIRST_BATCH);
+  const [batchedRoutes, setBatchedRoutes] = useState(routes);
+  if (batchedRoutes !== routes) {
+    setBatchedRoutes(routes);
+    setCount(FIRST_BATCH);
+  }
+  useEffect(() => {
+    if (count >= routes.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => setCount((current) => current + NEXT_BATCH));
+    });
+    return () => task.cancel();
+  }, [count, routes.length]);
   return (
-    <View style={{ borderRadius: radius.card }}>
-      <Press onPress={onPress} style={{ borderRadius: radius.card }}>
-        <View style={{ flexDirection: 'row', minHeight: 100, gap: space.sm, alignItems: 'flex-start' }}>
+    <View style={{ gap: space.xl, paddingTop: space.xxs }}>
+      {routes.slice(0, count).map((route, index) => (
+        <StaggerIn key={route.id} index={index} staggered={staggered}>
+          <DiscoverRouteCard theme={theme} poi={route} onOpen={open} />
+        </StaggerIn>
+      ))}
+    </View>
+  );
+}
+
+export const DiscoverRouteCard = memo(function DiscoverRouteCard({ theme, poi, onOpen }: { theme: Theme; poi: Poi; onOpen: (route: Poi) => void }) {
+  const { t } = useI18n();
+  // The list pads the sheet by space.md on both sides.
+  const width = useWindowDimensions().width - space.md * 2;
+  const photoHeight = Math.round(width * 0.62);
+  const minutes = routeDurationMinutes(poi);
+  const duration = minutes == null
+    ? undefined
+    : minutes < 60
+      ? t('record.dur.minutes', { n: minutes })
+      : minutes % 60
+        ? t('record.dur.hoursMinutes', { h: Math.floor(minutes / 60), m: minutes % 60 })
+        : t('record.dur.hours', { h: minutes / 60 });
+  const ascent = poi.asc.replace('+', '');
+  const region = poi.region.replace(/\s*·\s*/g, ' ');
+  return (
+    <View>
+      <Press onPress={() => onOpen(poi)} style={{ borderRadius: radius.feature }}>
+        <View>
           <RoutePhotoCarousel
             theme={theme}
             photos={poi.photoUris}
-            width={92}
-            height={92}
-            radius={radius.card}
-            fallback={<PhotoTile tone={poi.tone} seed={poi.id} radius={radius.card} resWidth={280} style={StyleSheet.absoluteFill} />}
+            width={width}
+            height={photoHeight}
+            radius={radius.feature}
+            fallback={<PhotoTile tone={poi.tone} seed={poi.id} radius={radius.feature} resWidth={900} style={StyleSheet.absoluteFill} />}
           />
-          <View style={{ flex: 1, minWidth: 0, minHeight: 92, justifyContent: 'space-between' }}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                <Text numberOfLines={1} style={{ flex: 1, fontSize: 16.5, lineHeight: 21, fontWeight: '800', letterSpacing: -0.2, color: theme.text }}>{poi.name}</Text>
-                {poi.mine ? <Icon name="user" color={theme.accent} size={14} /> : null}
+          {poi.diff ? (
+            <View pointerEvents="none" style={{ position: 'absolute', left: space.sm, top: space.sm, height: 26, paddingHorizontal: 9, borderRadius: 8, justifyContent: 'center', backgroundColor: DIFF_COLORS[poi.diff] }}>
+              <Text style={[type.labelStrong, { color: '#fff' }]}>{t(`discover.diffBadge.${poi.diff}`)}</Text>
+            </View>
+          ) : null}
+          {poi.trackCoords && poi.trackCoords.length >= 2 ? (
+            <View pointerEvents="none" style={{ position: 'absolute', right: space.sm, bottom: space.sm }}>
+              <RouteShapeThumb theme={theme} coords={poi.trackCoords} />
+            </View>
+          ) : null}
+        </View>
+        <View style={{ paddingTop: space.sm, paddingHorizontal: space.xxs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minWidth: 0 }}>
+            {poi.rating ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                <Icon name="starFill" color={theme.accent} size={15} />
+                <Text style={[type.small, { fontWeight: '600', color: theme.text2, fontVariant: ['tabular-nums'] }]}>{poi.rating}</Text>
               </View>
-              <MetaLine theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} />
-              {poi.desc ? <Text numberOfLines={2} style={{ marginTop: 5, fontSize: 12.5, lineHeight: 16, color: theme.text2 }}>{ROUTE_TEASERS[poi.id] || poi.desc}</Text> : null}
+            ) : null}
+            {poi.reviews ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs }}>
+                <Icon name="people" color={theme.accent} size={15} />
+                <Text style={[type.small, { fontWeight: '600', color: theme.text2, fontVariant: ['tabular-nums'] }]}>{fmtCount(poi.reviews)}</Text>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, flex: 1, minWidth: 0 }}>
+              <Icon name="pin" color={theme.text3} size={13} />
+              <Text numberOfLines={1} style={[type.small, { color: theme.text2, flexShrink: 1 }]}>{region}</Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
-              <RouteStatPill theme={theme} text={poi.dist} mono />
-              <RouteStatPill theme={theme} text={`↑ ${poi.asc.replace('+', '')}`} mono />
-              {poi.diff ? <RouteStatPill theme={theme} text={poi.diff} /> : null}
-            </View>
+            {poi.mine ? <Icon name="user" color={theme.accent} size={14} /> : null}
+          </View>
+          <Text numberOfLines={2} style={[type.threadCardTitle, { fontSize: 18, lineHeight: 24, fontWeight: '800', color: theme.text, marginTop: space.xs }]}>{poi.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: space.md, rowGap: space.xxs, marginTop: space.xs }}>
+            {duration ? <RouteStat theme={theme} icon="clock" text={duration} /> : null}
+            {poi.dist ? <RouteStat theme={theme} icon="distance" text={poi.dist} /> : null}
+            {ascent ? <RouteStat theme={theme} icon="arrowUp" text={ascent} /> : null}
           </View>
         </View>
       </Press>
-      {onFeedback ? (
-        <Press
-          onPress={(event) => { event.stopPropagation(); onFeedback(); }}
-          accessibilityRole="button"
-          accessibilityLabel={feedbackLabel}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm, paddingTop: space.sm, paddingBottom: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-        >
-          <Icon name="message" color={theme.accent} size={14} />
-          <Text style={{ fontSize: 12, fontWeight: '400', color: theme.accent }}>{feedbackLabel}</Text>
-        </Press>
-      ) : null}
+    </View>
+  );
+});
+
+function RouteStat({ theme, icon, text }: { theme: Theme; icon: IconName; text: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+      <Icon name={icon} color={theme.text2} size={16} />
+      <Text numberOfLines={1} style={{ fontFamily: MONO, fontSize: 14, fontWeight: '600', color: theme.text2, fontVariant: ['tabular-nums'] }}>{text}</Text>
     </View>
   );
 }
 
-export function DiscoverJourneyCard({
-  theme,
-  poi,
-  onPress,
-  onInvite,
-  inviteAccessibilityLabel = 'Invite companions',
-  onLongPress,
-  selectMode,
-  selected,
-}: {
-  theme: Theme;
-  poi: Poi;
-  onPress: () => void;
-  onInvite?: () => void;
-  inviteAccessibilityLabel?: string;
-  onLongPress?: () => void;
-  selectMode?: boolean;
-  selected?: boolean;
-}) {
-  return (
-    <Press onPress={onPress} onLongPress={onLongPress} delayLongPress={380} style={{ borderRadius: radius.feature }}>
-      <AppCard
-        theme={theme}
-        radius={radius.feature}
-        style={{
-          overflow: 'hidden',
-          borderWidth: selected ? 1.5 : 0,
-          borderColor: selected ? theme.accent : 'transparent',
-          backgroundColor: selected ? theme.accentSofter : theme.surfaceTop,
-        }}
-      >
-        <View style={{ flexDirection: 'row', minHeight: 118 }}>
-          <PhotoTile tone={poi.tone} seed={poi.id} radius={0} resWidth={320} style={{ width: 112, alignSelf: 'stretch' }}>
-            {poi.photoUris?.[0] ? <Image source={{ uri: poi.photoUris[0] }} contentFit="cover" style={StyleSheet.absoluteFill} /> : null}
-            {selectMode ? <View style={{ position: 'absolute', left: space.xs, top: space.xs }}><SelectionMark theme={theme} selected={!!selected} /></View> : null}
-          </PhotoTile>
-          <View style={{ flex: 1, minWidth: 0, justifyContent: 'space-between', padding: space.sm }}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-                <Text numberOfLines={1} style={[type.cardTitle, { color: theme.text, fontSize: 16, flex: 1 }]}>{poi.name}</Text>
-                {poi.fav ? <Icon name="heartFill" color={theme.trailMine} size={13} /> : null}
-              </View>
-              <JourneyParticipants theme={theme} poi={poi} onInvite={onInvite} inviteAccessibilityLabel={inviteAccessibilityLabel} />
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minWidth: 0, marginTop: 6 }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <CompactMeta theme={theme} icon="pin" text={poi.region.replace(/\s*·\s*/g, ' ')} />
-                </View>
-                <CompactMeta theme={theme} icon="calendar" text={poi.plannedDate || poi.date || poi.days || '—'} />
-              </View>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-              <Metric theme={theme} icon="route" value={poi.dist} />
-              <Metric theme={theme} icon="arrowUp" value={poi.asc.replace('+', '')} />
-            </View>
-          </View>
-        </View>
-      </AppCard>
-    </Press>
-  );
+const THUMB = 64;
+const THUMB_PAD = 10;
+
+// Shapes keyed by the track array itself, so a card that remounts (filter
+// switch, list re-batch) doesn't walk a thousands-of-points track again.
+const shapeCache = new WeakMap<[number, number][], { points: string; start: number[] }>();
+
+function routeShape(coords: [number, number][]) {
+  const cached = shapeCache.get(coords);
+  if (cached) return cached;
+  // A 44 pt drawing needs a few hundred points at most; sample before simplifying.
+  const stride = Math.max(1, Math.floor(coords.length / 400));
+  const sampled = stride > 1 ? coords.filter((_, i) => i % stride === 0 || i === coords.length - 1) : coords;
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const [lng, lat] of sampled) {
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  const xScale = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180) || 1;
+  const spanX = (maxLng - minLng) * xScale;
+  const spanY = maxLat - minLat;
+  const span = Math.max(spanX, spanY) || 1;
+  const inner = THUMB - THUMB_PAD * 2;
+  const offsetX = THUMB_PAD + (inner - (spanX / span) * inner) / 2;
+  const offsetY = THUMB_PAD + (inner - (spanY / span) * inner) / 2;
+  const project = ([lng, lat]: [number, number]) => [
+    offsetX + (((lng - minLng) * xScale) / span) * inner,
+    offsetY + ((maxLat - lat) / span) * inner,
+  ];
+  const shape = {
+    points: simplifyTrack(sampled, span / 150).map((c) => project(c).map((v) => v.toFixed(1)).join(',')).join(' '),
+    start: project(coords[0]),
+  };
+  shapeCache.set(coords, shape);
+  return shape;
 }
 
-function JourneyParticipants({
-  theme,
-  poi,
-  onInvite,
-  inviteAccessibilityLabel,
-}: {
-  theme: Theme;
-  poi: Poi;
-  onInvite?: () => void;
-  inviteAccessibilityLabel: string;
-}) {
-  const people = orderCompanionsForDisplay(poi.companionList || []).slice(0, 2);
-  if (!people.length && !onInvite) return null;
-  const size = 24;
+/** The route's outline on a small tile, so its shape reads before the photo does. */
+function RouteShapeThumb({ theme, coords }: { theme: Theme; coords: [number, number][] }) {
+  const shape = routeShape(coords);
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', height: 28, marginTop: 6 }}>
-      {people.map((person, index) => (
-        <View key={`${person.id || person.ini}-${index}`} style={{ marginLeft: index ? -7 : 0, zIndex: people.length - index }}>
-          <ParticipantAvatar theme={theme} uri={person.avatarUrl} size={size} backgroundColor={theme.groupedBg} ring ringColor={theme.surfaceTop} ringWidth={2} />
-        </View>
-      ))}
-      {onInvite ? (
-        <Press
-          onPress={(event) => {
-            event.stopPropagation();
-            onInvite();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={inviteAccessibilityLabel}
-          hitSlop={6}
-          style={{
-            width: size,
-            height: size,
-            marginLeft: people.length ? -7 : 0,
-            borderRadius: size / 2,
-            borderWidth: 1.5,
-            borderColor: theme.fieldBorder,
-            backgroundColor: theme.controlSurface,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name="plus" color={theme.text2} size={14} strokeWidth={2.1} />
-        </Press>
-      ) : null}
-    </View>
-  );
-}
-
-function MetaLine({ theme, icon, text }: { theme: Theme; icon: IconName; text: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, marginTop: 6, minWidth: 0 }}>
-      <Icon name={icon} color={theme.text3} size={12} />
-      <Text numberOfLines={1} style={[type.caption, { color: theme.text2, flexShrink: 1 }]}>{text}</Text>
-    </View>
-  );
-}
-
-function CompactMeta({ theme, icon, text }: { theme: Theme; icon: IconName; text: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 }}>
-      <Icon name={icon} color={theme.text3} size={12} />
-      <Text numberOfLines={1} style={{ fontSize: 10.5, color: theme.text2, flexShrink: 1 }}>{text}</Text>
-    </View>
-  );
-}
-
-function RouteStatPill({ theme, text, mono, accent }: { theme: Theme; text: string; mono?: boolean; accent?: boolean }) {
-  return (
-    <View style={{ height: 22, paddingHorizontal: 7, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: accent ? theme.accentSoft : theme.fieldSurface }}>
-      <Text numberOfLines={1} style={{ fontFamily: mono ? MONO : undefined, fontSize: 10, fontWeight: '700', color: accent ? theme.accent : theme.text2 }}>{text}</Text>
-    </View>
-  );
-}
-
-function Metric({ theme, icon, value, iconColor, mono = true }: { theme: Theme; icon: IconName; value: string; iconColor?: string; mono?: boolean }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xxs, minWidth: 0 }}>
-      <Icon name={icon} color={iconColor || theme.text3} size={13} />
-      <Text numberOfLines={1} style={{ fontFamily: mono ? MONO : undefined, fontSize: 10.5, color: theme.text2, flexShrink: 1 }}>{value}</Text>
-    </View>
-  );
-}
-
-function SelectionMark({ theme, selected }: { theme: Theme; selected: boolean }) {
-  return (
-    <View style={{ alignSelf: 'center', width: 22, height: 22, borderRadius: radius.pill, borderWidth: 2, borderColor: selected ? theme.accent : 'rgba(255,255,255,0.86)', backgroundColor: selected ? theme.accent : 'rgba(0,0,0,0.28)', alignItems: 'center', justifyContent: 'center' }}>
-      {selected ? <Icon name="check" color="#fff" size={13} strokeWidth={3} /> : null}
+    <View style={{ width: THUMB, height: THUMB, borderRadius: radius.control + 2, borderWidth: 2, borderColor: '#fff', backgroundColor: theme.surfaceTop, overflow: 'hidden' }}>
+      <Svg width={THUMB - 4} height={THUMB - 4} viewBox={`2 2 ${THUMB - 4} ${THUMB - 4}`}>
+        <Polyline points={shape.points} fill="none" stroke={theme.accent} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+        <Circle cx={shape.start[0]} cy={shape.start[1]} r={4} fill={theme.text} stroke="#fff" strokeWidth={1.5} />
+      </Svg>
     </View>
   );
 }

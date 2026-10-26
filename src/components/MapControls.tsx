@@ -73,8 +73,11 @@ export function MapControlButton({
   );
 }
 
-// A lone round button, `space.sm` above whatever sits under it: the compass,
-// which only appears while the map is turned off north, and 开始记录.
+// A lone round button: the compass, which only appears while the map is turned
+// off north. Its `space.sm` bottom margin *is* the gap to whatever
+// sits under it, so a column stacks these in flex order — positioning one
+// absolutely over a plate's bottom double-counts the margin and drops it onto
+// the plate.
 export function MapRoundButton({ theme, heading, icon, element, onPress, accessibilityLabel }: {
   theme: Theme;
   /** When set, the button shows the live compass needle instead of an icon. */

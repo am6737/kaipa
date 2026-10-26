@@ -168,6 +168,8 @@ export interface GlobeProps {
   /** reports that the user has moved the camera away from its programmatic route framing */
   onCameraGestureStart?: () => void;
   onCameraPositionChange?: (camera: NativeMapCamera) => void;
+  /** every zoom frame while the camera moves, for a live scale bar */
+  onCameraZoomChange?: (zoom: number) => void;
 }
 
 export function poiColor(p: GlobePoi, theme: Theme): { fill: string; hollow: boolean } {
