@@ -41,6 +41,7 @@ import { CurrentLocationMarker } from '../globe/CurrentLocationMarker';
 import { TrailSheet } from '../Sheet';
 import { buildRouteEndpointMarkers } from '../discover/routeEndpointMarkers';
 import { useMapPresentation } from '../maps/MapPresentationContext';
+import { MapCompassGlyph, MapCompassReveal, useMapHeading } from '../maps/MapCompass';
 import { NativeMap, NATIVE_MAP_AVAILABLE, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { Icon, type IconName } from '../Icon';
 import { Press } from '../Press';
@@ -74,6 +75,10 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const [quickHeight, setQuickHeight] = useState(68);
   const [midHeight, setMidHeight] = useState(300);
   const [following, setFollowing] = useState(true);
+  // Whether the camera still shows the whole route; the fit button is tinted
+  // while it does, the way the locate button is while following.
+  const [routeFramed, setRouteFramed] = useState(false);
+  const { heading: mapHeading, offNorth: mapOffNorth, onOrientation: onMapOrientation } = useMapHeading();
   const [starting, setStarting] = useState(false);
   const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [, setTick] = useState(0);
@@ -189,17 +194,20 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     const now = Date.now();
     if (now - lastFollowAt.current < 1500) return;
     lastFollowAt.current = now;
+    setRouteFramed(false);
     mapRef.current?.moveCamera([fix.lng, fix.lat], Math.max(zoomRef.current, 14), 600, { edgePadding: cameraPadding() });
   }, [fix, following, cameraPadding]);
 
   const fitRoute = () => {
     if (!route || route.coords.length < 2) return;
     setFollowing(false);
+    setRouteFramed(true);
     mapRef.current?.fitCoordinates(route.coords, cameraPadding(), motion.emphasized * 2);
   };
 
   const followMe = () => {
     setFollowing(true);
+    setRouteFramed(false);
     lastFollowAt.current = 0;
     const here: Coordinate | null = fix ? [fix.lng, fix.lat] : mapLocation.current;
     if (here) mapRef.current?.moveCamera(here, FOLLOW_ZOOM, 600, { edgePadding: cameraPadding() });
@@ -249,6 +257,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             if (touches.length > 1 || Math.hypot(pageX - start.x, pageY - start.y) > 10) {
               touchStart.current = null;
               setFollowing(false);
+              setRouteFramed(false);
             }
           }}
           onTouchEnd={() => { touchStart.current = null; fingerDown.current = false; }}
@@ -271,11 +280,13 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             // Until the recorder has a fix, the map's dot leads the camera.
             if (!fix && following && Date.now() - lastFollowAt.current > 1500) {
               lastFollowAt.current = Date.now();
+              setRouteFramed(false);
               mapRef.current?.moveCamera(coordinate, Math.max(zoomRef.current, 14), 600, { edgePadding: cameraPadding() });
             }
           }}
           onZoomChange={(zoom) => { zoomRef.current = zoom; }}
-          onGestureStart={() => { if (fingerDown.current) setFollowing(false); }}
+          onGestureStart={() => { if (fingerDown.current) { setFollowing(false); setRouteFramed(false); } }}
+          onCameraChange={onMapOrientation}
         />
         </View>
       ) : (
@@ -309,6 +320,18 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           opacity: sheetY.interpolate({ inputRange: [(snapHeights[2] - snapHeights[1]) / 2, snapHeights[2] - snapHeights[1]], outputRange: [0, 1], extrapolate: 'clamp' }),
         } : { position: 'absolute', right: space.md, bottom: panelHeight + space.md }}
       >
+        {/* Its own button above the group, and only while the map is turned:
+            north-up has nothing to reset. */}
+        <MapCompassReveal visible={mapOffNorth}>
+          <Press
+            onPress={() => mapRef.current?.resetNorth()}
+            accessibilityRole="button"
+            accessibilityLabel={t('trail.action.north')}
+            style={{ width: 40, height: 40, borderRadius: 20, marginBottom: space.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+          >
+            <MapCompassGlyph heading={mapHeading} color={theme.text} />
+          </Press>
+        </MapCompassReveal>
         <View style={{ borderRadius: 20, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
           <MapControl
             theme={theme}
@@ -317,8 +340,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
             onPress={() => setMapStyle((value) => (value === 'satellite' ? 'standard' : 'satellite'))}
             accessibilityLabel={t('trail.action.layers')}
           />
-          <MapControl theme={theme} icon="compassN" onPress={() => mapRef.current?.resetNorth()} accessibilityLabel={t('trail.action.north')} />
-          {route ? <MapControl theme={theme} icon="expand" onPress={fitRoute} accessibilityLabel={t('trail.action.fitRoute')} /> : null}
+          {route ? <MapControl theme={theme} icon="expand" active={routeFramed} onPress={fitRoute} accessibilityLabel={t('trail.action.fitRoute')} /> : null}
           <MapControl theme={theme} icon="locate" active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
         </View>
       </Animated.View>

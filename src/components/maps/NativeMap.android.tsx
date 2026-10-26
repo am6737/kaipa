@@ -146,7 +146,14 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     resetNorth: () => {
       markProgrammaticMove(360);
       runWhenMapIsUsable(() => {
-        void mapRef.current?.moveCamera({ bearing: 0, tilt: 0 }, 360);
+        const map = mapRef.current;
+        if (!map) return;
+        // AMap only applies a camera that carries a target, and the module
+        // rejects one without it, so keep the centre and zoom and level the rest.
+        void map.getCameraPosition().then((camera) => {
+          if (!camera.target) return;
+          return map.moveCamera({ target: camera.target, zoom: camera.zoom, bearing: 0, tilt: 0 }, 360);
+        }).catch(() => undefined);
       });
     },
   }), []);
@@ -242,6 +249,9 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onCameraMove={(event) => {
         const camera = event.nativeEvent.cameraPosition;
         if (typeof camera.zoom === 'number') onZoomChange?.(camera.zoom);
+        // Reported while the camera moves, not only on idle, so the compass
+        // shows up and turns during the twist rather than after the lift.
+        onCameraChange?.(camera.bearing || 0, camera.tilt || 0);
         if (!followUserLocation && Date.now() > programmaticUntil.current && !gestureStartFired.current) {
           gestureStartFired.current = true;
           onGestureStart?.();

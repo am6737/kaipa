@@ -151,20 +151,21 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   /**
    * MapKit has no rotation event. A two-finger twist only shows up as a region
    * change — the lat/lon box the view covers grows — so orientation is read off
-   * the camera while region changes are arriving, at most once every 140ms, and
-   * only reported when it actually moved: a plain pan also changes the region.
+   * the camera while region changes are arriving and only reported when it
+   * actually turned: a plain pan also changes the region. The read rate is what
+   * the compass needle animates at, so it stays near frame rate during a twist.
    */
   const reportOrientation = (force = false) => {
     if (!onCameraChange) return;
     const now = Date.now();
-    if (!force && now - orientationReadAt.current < 140) return;
+    if (!force && now - orientationReadAt.current < 48) return;
     orientationReadAt.current = now;
     void mapRef.current?.getCamera().then((camera) => {
       const heading = camera.heading ?? 0;
       const pitch = camera.pitch ?? 0;
       const last = orientationSent.current;
       const turn = Math.abs(heading - last.heading);
-      if (!force && Math.min(turn, 360 - turn) < 2 && Math.abs(pitch - last.pitch) < 2) return;
+      if (!force && Math.min(turn, 360 - turn) < 0.5 && Math.abs(pitch - last.pitch) < 0.5) return;
       orientationSent.current = { heading, pitch };
       onCameraChange(heading, pitch);
     });

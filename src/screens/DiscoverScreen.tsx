@@ -47,6 +47,7 @@ import {
 } from '../lib/companionPresence';
 import type { NativeMapMarker } from '../components/maps/types';
 import { useMapPresentation } from '../components/maps/MapPresentationContext';
+import { MapCompassGlyph, MapCompassReveal, useMapHeading } from '../components/maps/MapCompass';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
@@ -205,33 +206,8 @@ function MapToolButton({
   );
 }
 
-// Apple Maps only shows its compass once the map is off north-up, so the button
-// reveals itself on orientation instead of sitting there permanently. The
-// tolerance is for settling: a fitted camera can land a fraction of a degree
-// askew, and a button flickering on every one of those reads as a bug.
-const NORTH_TOLERANCE_DEG = 4;
-
-function isMapOffNorth(heading: number, pitch: number) {
-  const turned = (((heading % 360) + 360) % 360);
-  const deviation = Math.min(turned, 360 - turned);
-  return deviation > NORTH_TOLERANCE_DEG || Math.abs(pitch) > NORTH_TOLERANCE_DEG;
-}
-
-/** Reveal for the compass control: springs in when it appears. */
-function CompassReveal({ children }: { children: React.ReactNode }) {
-  const reveal = React.useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.spring(reveal, { toValue: 1, useNativeDriver: true, ...motion.pageSpring }).start();
-  }, [reveal]);
-  return (
-    <Animated.View style={{
-      opacity: reveal,
-      transform: [{ scale: reveal.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] }) }],
-    }}>
-      {children}
-    </Animated.View>
-  );
-}
+// Vertical step of the point card's map tool stack: a 36pt button and a 10pt gap.
+const POINT_MAP_TOOL_PITCH = 46;
 
 // A companion's live position as an avatar badge — no droplet silhouette at
 // all (2026-09-24 用户拍板). The body is a *pure circle*: the photo clipped
@@ -665,9 +641,8 @@ function DiscoverScreenView({
   const [journeyTrackVisible, setJourneyTrackVisible] = useState(true);
   const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
-  // Whether the camera is turned away from north — the only thing that reveals
-  // the compass control.
-  const [mapNorthOff, setMapNorthOff] = useState(false);
+  // Only a twist off north reveals the compass; see MapCompass.
+  const { heading: mapHeading, offNorth: mapNorthOff, onOrientation: onMapOrientation } = useMapHeading();
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
   const [routeWaypointsVisible, setRouteWaypointsVisible] = useState(true);
   // Keep a route-detail selection separate from the route whose card is open,
@@ -1910,6 +1885,9 @@ function DiscoverScreenView({
   // is fixed (the snap animation translates the sheet, it doesn't resize it).
   const detailBottomInset = nav.pointInfo?.kind === 'journey' ? 76 : 0;
   const detailPagerBodyHeight = Math.max(0, detailBodyHeight - detailBottomInset);
+  // Buttons in the card's right-hand tool stack (复位, 图层, 全屏, and 清除对比
+  // while comparing); the compass rides one pitch above the top one.
+  const pointMapToolSlots = 3 + (nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? 1 : 0);
   const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
     ? journeySheetIndex < 2
     : nav.pointInfo?.kind === 'route'
@@ -1925,7 +1903,6 @@ function DiscoverScreenView({
   // left them, only the twist and the tilt come back to north-up.
   const resetMapNorth = () => {
     setMapStylePickerOpen(false);
-    setMapNorthOff(false);
     setMapCameraAction((current) => ({ type: 'resetNorth', revision: (current?.revision ?? 0) + 1 }));
   };
 
@@ -2387,13 +2364,9 @@ function DiscoverScreenView({
       const hidden = !wasMapActiveRef.current;
       if (hidden) mapCameraEventRef.current = { at: Date.now() };
     },
-    onCameraOrientationChange: (heading, pitch) => {
-      // Only the boolean crosses into state: the glyph points north on its own,
-      // and re-rendering this screen for every degree of a two-finger twist
-      // would rebuild the annotations mid-gesture.
-      const off = isMapOffNorth(heading, pitch);
-      setMapNorthOff((current) => (current === off ? current : off));
-    },
+    // The heading turns the needle through an Animated.Value; re-rendering this
+    // screen for every degree of a twist would rebuild the annotations mid-gesture.
+    onCameraOrientationChange: (heading) => onMapOrientation(heading),
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
       const stop = itineraryStops.find((item) => item.rowId === rowId);
@@ -2805,45 +2778,63 @@ function DiscoverScreenView({
               accessibilityState={{ selected: mapAtRouteFrame }}
               style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
             >
-              <RotateCcw color={theme.text2} size={18} strokeWidth={2} />
+              {/* Tinted while the camera still frames the route, like Apple's
+                  locate arrow; a pan or pinch drops it back to neutral. */}
+              <RotateCcw color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} strokeWidth={2} />
             </Press>
           </Animated.View>
 
-          {/* Top slot of the stack, only when the camera is turned away from
-              north — see isMapOffNorth. */}
-          {mapNorthOff ? (
-            <Animated.View style={[{
-              position: 'absolute',
-              right: space.md,
-              bottom: full + space.md + 184,
-            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-              <CompassReveal>
-                <Press
-                  onPress={resetMapNorth}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('journey.map.north')}
-                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-                >
-                  <Icon name="compassN" color={theme.text2} size={18} />
-                </Press>
-              </CompassReveal>
-            </Animated.View>
-          ) : null}
+          {/* Directly above the top button of the stack, however many it has
+              right now, and only while the camera is turned off north. */}
+          <Animated.View pointerEvents="box-none" style={[{
+            position: 'absolute',
+            right: space.md,
+            bottom: full + space.md + pointMapToolSlots * POINT_MAP_TOOL_PITCH,
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <MapCompassReveal visible={mapNorthOff}>
+              <Press
+                onPress={resetMapNorth}
+                accessibilityRole="button"
+                accessibilityLabel={t('journey.map.north')}
+                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+              >
+                <MapCompassGlyph heading={mapHeading} color={theme.text2} />
+              </Press>
+            </MapCompassReveal>
+          </Animated.View>
         </>
       ) : null}
 
-      {mapNorthOff && !nav.pointInfo && !mapImmersive ? (
-        <View style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom + 138, zIndex: 8 }}>
-          <CompassReveal>
+      {/* Fullscreen drops all other chrome, but a turned map still needs its
+          way back to north; it takes the corner the tool stack sits in. */}
+      {mapImmersive ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', right: space.md, bottom: insets.bottom + space.md, zIndex: 8 }}>
+          <MapCompassReveal visible={mapNorthOff}>
+            <Press
+              onPress={resetMapNorth}
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.map.north')}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+            >
+              <MapCompassGlyph heading={mapHeading} color={theme.text2} />
+            </Press>
+          </MapCompassReveal>
+        </View>
+      ) : null}
+
+      {/* Above the three list tools (36 tall, 10 apart). */}
+      {!nav.pointInfo && !mapImmersive ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom + 138, zIndex: 8 }}>
+          <MapCompassReveal visible={mapNorthOff}>
             <MapToolButton
               theme={chromeTheme}
               size={36}
               onPress={resetMapNorth}
               accessibilityLabel={t('journey.map.north')}
             >
-              <Icon name="compassN" color={chromeTheme.text} size={18} />
+              <MapCompassGlyph heading={mapHeading} color={chromeTheme.text} />
             </MapToolButton>
-          </CompassReveal>
+          </MapCompassReveal>
         </View>
       ) : null}
 
