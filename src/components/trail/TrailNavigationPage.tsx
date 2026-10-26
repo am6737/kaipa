@@ -41,7 +41,8 @@ import { CurrentLocationMarker } from '../globe/CurrentLocationMarker';
 import { TrailSheet } from '../Sheet';
 import { buildRouteEndpointMarkers } from '../discover/routeEndpointMarkers';
 import { useMapPresentation } from '../maps/MapPresentationContext';
-import { MapCompassGlyph, MapCompassReveal, useMapHeading } from '../maps/MapCompass';
+import { MapCompassReveal, useMapHeading } from '../maps/MapCompass';
+import { MapControlButton, MapControlGroup, MapRoundButton } from '../MapControls';
 import { NativeMap, NATIVE_MAP_AVAILABLE, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
 import { Icon, type IconName } from '../Icon';
 import { Press } from '../Press';
@@ -318,7 +319,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
       {/* Top: minimise, and while paused a pill saying so — the map is most of
           the screen, and a pause mistaken for recording loses a stretch of track. */}
       <View style={{ position: 'absolute', top: insets.top + space.xs, left: space.md }}>
-        <MapControl theme={theme} icon="chevronDown" onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
+        <MapControlButton theme={theme} icon="chevronDown" onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
       </View>
       {status === 'paused' && session ? <PausedPill theme={theme} pausedAt={session.pausedAt ?? null} top={insets.top + space.xs} /> : null}
 
@@ -345,26 +346,24 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         {/* Its own button above the group, and only while the map is turned:
             north-up has nothing to reset. */}
         <MapCompassReveal visible={mapOffNorth}>
-          <Press
+          <MapRoundButton
+            theme={theme}
+            heading={mapHeading}
             onPress={() => mapRef.current?.resetNorth()}
-            accessibilityRole="button"
             accessibilityLabel={t('trail.action.north')}
-            style={{ width: 40, height: 40, borderRadius: 20, marginBottom: space.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
-          >
-            <MapCompassGlyph heading={mapHeading} color={theme.text} />
-          </Press>
+          />
         </MapCompassReveal>
-        <View style={{ borderRadius: 20, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}>
-          <MapControl
+        <MapControlGroup theme={theme}>
+          <MapControlButton
             theme={theme}
             icon="layers"
             active={mapStyle === 'satellite'}
             onPress={() => setMapStyle((value) => (value === 'satellite' ? 'standard' : 'satellite'))}
             accessibilityLabel={t('trail.action.layers')}
           />
-          {route ? <MapControl theme={theme} icon="expand" active={routeFramed} onPress={fitRoute} accessibilityLabel={t('trail.action.fitRoute')} /> : null}
-          <MapControl theme={theme} icon="locate" active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
-        </View>
+          {route ? <MapControlButton theme={theme} icon="expand" active={routeFramed} onPress={fitRoute} accessibilityLabel={t('trail.action.fitRoute')} /> : null}
+          <MapControlButton theme={theme} icon="locate" active={following} onPress={followMe} accessibilityLabel={t('trail.action.follow')} />
+        </MapControlGroup>
       </Animated.View>
 
       {live && session ? (
@@ -464,23 +463,6 @@ function GpsNotice({ theme, gps }: { theme: Theme; gps: string }) {
     </View>
   );
 }
-
-// One stop in the right-hand control column: the column is the surface, each
-// control only an icon that turns accent while its state is on.
-function MapControl({ theme, icon, active, onPress, accessibilityLabel }: { theme: Theme; icon: IconName; active?: boolean; onPress: () => void; accessibilityLabel: string }) {
-  return (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={active != null ? { selected: active } : undefined}
-      style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
-    >
-      <Icon name={icon} color={active ? theme.accent : theme.text} size={18} />
-    </Press>
-  );
-}
-
 function pausedDuration(ms: number, t: ReturnType<typeof useI18n>['t']): string | null {
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 1) return null;

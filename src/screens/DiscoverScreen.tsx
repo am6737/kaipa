@@ -47,7 +47,8 @@ import {
 } from '../lib/companionPresence';
 import type { NativeMapMarker } from '../components/maps/types';
 import { useMapPresentation } from '../components/maps/MapPresentationContext';
-import { MapCompassGlyph, MapCompassReveal, useMapHeading } from '../components/maps/MapCompass';
+import { MapCompassReveal, useMapHeading } from '../components/maps/MapCompass';
+import { MAP_CONTROL_SIZE, MapControlButton, MapControlGroup, MapRoundButton } from '../components/MapControls';
 import { JourneyChecklistPickerSheet, type JourneyChecklistFilterMenuController } from '../components/journey/JourneyChecklistTab';
 import { refetchJourneyTimeline, useTimeline } from '../hooks/useTimeline';
 import { useJourneyLegGeometry } from '../hooks/useJourneyLegGeometry';
@@ -188,42 +189,10 @@ function mapDisplaySettingsKey(userId: string | null) {
   return `${MAP_DISPLAY_SETTINGS_KEY}:${userId || 'anonymous'}`;
 }
 
-function MapToolButton({
-  theme,
-  onPress,
-  accessibilityLabel,
-  children,
-  size = 36,
-}: {
-  theme: Theme;
-  onPress: () => void;
-  accessibilityLabel: string;
-  children: React.ReactNode;
-  size?: number;
-}) {
-  return (
-    <Press
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.controlSurface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.fieldBorder,
-      }}
-    >
-      {children}
-    </Press>
-  );
-}
-
-// Vertical step of the point card's map tool stack: a 36pt button and a 10pt gap.
-const POINT_MAP_TOOL_PITCH = 46;
+// Vertical step of the list-mode column: one 40pt round button plus the gap
+// the compass already keeps above the control group. The compass is two steps
+// above the group because the lone record button rides between them.
+const LIST_MAP_TOOL_PITCH = MAP_CONTROL_SIZE + space.sm;
 
 // A companion's live position as an avatar badge — no droplet silhouette at
 // all (2026-09-24 用户拍板). The body is a *pure circle*: the photo clipped
@@ -1901,9 +1870,10 @@ function DiscoverScreenView({
   // is fixed (the snap animation translates the sheet, it doesn't resize it).
   const detailBottomInset = nav.pointInfo?.kind === 'journey' ? 76 : 0;
   const detailPagerBodyHeight = Math.max(0, detailBodyHeight - detailBottomInset);
-  // Buttons in the card's right-hand tool stack (复位, 图层, 全屏, and 清除对比
-  // while comparing); the compass rides one pitch above the top one.
-  const pointMapToolSlots = 3 + (nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? 1 : 0);
+  // Round buttons in the card's right-hand stack above its control plate
+  // (全屏, plus 清除对比 while comparing); the plate holds 复位 and 图层 and the
+  // compass rides one step above the top round button.
+  const pointMapToolSlots = 1 + (nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? 1 : 0);
   const pointMapControlsVisible = nav.pointInfo?.kind === 'journey'
     ? journeySheetIndex < 2
     : nav.pointInfo?.kind === 'route'
@@ -2736,86 +2706,77 @@ function DiscoverScreenView({
               />
             </Animated.View>
           ) : null}
-          <Animated.View style={[{
-            position: 'absolute',
-            right: space.md,
-            bottom: full + space.md + 92,
-          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-            <Press
-              onPress={enterMapImmersive}
-              accessibilityRole="button"
-              accessibilityLabel={t('journey.map.enterFullscreen')}
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-            >
-              <Maximize2 color={theme.text2} size={18} strokeWidth={2} />
-            </Press>
-          </Animated.View>
-          {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
-            <Animated.View style={[{
-              position: 'absolute',
-              right: space.md,
-              bottom: full + space.md + 138,
-            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-              <Press
-                onPress={() => setComparisonRoutes([])}
-                accessibilityRole="button"
-                accessibilityLabel={t('common.clearComparison')}
-                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-              >
-                <Icon name="close" color={theme.text2} size={18} />
-              </Press>
-            </Animated.View>
-          ) : null}
-          <Animated.View style={[{
-            position: 'absolute',
-            right: space.md,
-            bottom: full + space.md + 46,
-          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-            <Press
-              onPress={() => setMapStylePickerOpen((value) => !value)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: mapStylePickerOpen }}
-              accessibilityLabel={t('journey.map.layerTitle')}
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-            >
-              <Icon name="layers" color={mapStylePickerOpen ? theme.accent : theme.text2} size={18} />
-            </Press>
-          </Animated.View>
-
+          {/* The two view-state controls share one plate, like the list column
+              and 自由记录: 复位 is the locate equivalent, 图层 the style toggle.
+              全屏 and 清除对比 are one-shot actions, so they stay round buttons
+              stacked above it. */}
           <Animated.View style={[{
             position: 'absolute',
             right: space.md,
             bottom: full + space.md,
           }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
-            <Press
-              onPress={fitMapRoute}
-              accessibilityRole="button"
-              accessibilityLabel={t('journey.map.fitRoute')}
-              accessibilityState={{ selected: mapAtRouteFrame }}
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-            >
-              {/* Tinted while the camera still frames the route, like Apple's
-                  locate arrow; a pan or pinch drops it back to neutral. */}
-              <RotateCcw color={mapAtRouteFrame ? theme.accent : theme.text2} size={18} strokeWidth={2} />
-            </Press>
+            <MapControlGroup theme={theme}>
+              <MapControlButton
+                theme={theme}
+                active={mapAtRouteFrame}
+                onPress={fitMapRoute}
+                accessibilityLabel={t('journey.map.fitRoute')}
+              >
+                {/* Tinted while the camera still frames the route, like Apple's
+                    locate arrow; a pan or pinch drops it back to neutral. */}
+                <RotateCcw color={mapAtRouteFrame ? theme.accent : theme.text} size={18} strokeWidth={2} />
+              </MapControlButton>
+              <MapControlButton
+                theme={theme}
+                icon="layers"
+                active={mapStylePickerOpen}
+                onPress={() => setMapStylePickerOpen((value) => !value)}
+                accessibilityLabel={t('journey.map.layerTitle')}
+              />
+            </MapControlGroup>
           </Animated.View>
 
-          {/* Directly above the top button of the stack, however many it has
-              right now, and only while the camera is turned off north. */}
+          <Animated.View style={[{
+            position: 'absolute',
+            right: space.md,
+            bottom: full + space.md + LIST_MAP_TOOL_PITCH,
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <MapRoundButton
+              theme={theme}
+              element={<Maximize2 color={theme.text} size={18} strokeWidth={2} />}
+              onPress={enterMapImmersive}
+              accessibilityLabel={t('journey.map.enterFullscreen')}
+            />
+          </Animated.View>
+          {nav.pointInfo?.kind === 'route' && comparisonRoutes.length > 0 ? (
+            <Animated.View style={[{
+              position: 'absolute',
+              right: space.md,
+              bottom: full + space.md + LIST_MAP_TOOL_PITCH * 2,
+            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              <MapRoundButton
+                theme={theme}
+                icon="close"
+                onPress={() => setComparisonRoutes([])}
+                accessibilityLabel={t('common.clearComparison')}
+              />
+            </Animated.View>
+          ) : null}
+
+          {/* Directly above the top round button of the stack, however many it
+              has right now, and only while the camera is turned off north. */}
           <Animated.View pointerEvents="box-none" style={[{
             position: 'absolute',
             right: space.md,
-            bottom: full + space.md + pointMapToolSlots * POINT_MAP_TOOL_PITCH,
+            bottom: full + space.md + LIST_MAP_TOOL_PITCH * pointMapToolSlots,
           }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
             <MapCompassReveal visible={mapNorthOff}>
-              <Press
+              <MapRoundButton
+                theme={theme}
+                heading={mapHeading}
                 onPress={resetMapNorth}
-                accessibilityRole="button"
                 accessibilityLabel={t('journey.map.north')}
-                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-              >
-                <MapCompassGlyph heading={mapHeading} color={theme.text2} />
-              </Press>
+              />
             </MapCompassReveal>
           </Animated.View>
         </>
@@ -2826,62 +2787,62 @@ function DiscoverScreenView({
       {mapImmersive ? (
         <View pointerEvents="box-none" style={{ position: 'absolute', right: space.md, bottom: insets.bottom + space.md, zIndex: 8 }}>
           <MapCompassReveal visible={mapNorthOff}>
-            <Press
+            <MapRoundButton
+              theme={theme}
+              heading={mapHeading}
               onPress={resetMapNorth}
-              accessibilityRole="button"
               accessibilityLabel={t('journey.map.north')}
-              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
-            >
-              <MapCompassGlyph heading={mapHeading} color={theme.text2} />
-            </Press>
+            />
           </MapCompassReveal>
         </View>
       ) : null}
 
-      {/* Above the three list tools (36 tall, 10 apart). */}
+      {/* Above the lone record button and the grouped tools (two 40pt controls). */}
       {!nav.pointInfo && !mapImmersive ? (
-        <View pointerEvents="box-none" style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom + 138, zIndex: 8 }}>
+        <View pointerEvents="box-none" style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom + LIST_MAP_TOOL_PITCH * 2, zIndex: 8 }}>
           <MapCompassReveal visible={mapNorthOff}>
-            <MapToolButton
+            <MapRoundButton
               theme={chromeTheme}
-              size={36}
+              heading={mapHeading}
               onPress={resetMapNorth}
               accessibilityLabel={t('journey.map.north')}
-            >
-              <MapCompassGlyph heading={mapHeading} color={chromeTheme.text} />
-            </MapToolButton>
+            />
           </MapCompassReveal>
         </View>
       ) : null}
 
       {!nav.pointInfo && !mapImmersive ? (
-        <View style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom, gap: 10 }}>
-          <MapToolButton
+        <View style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom + LIST_MAP_TOOL_PITCH }}>
+          <MapRoundButton
             theme={chromeTheme}
-            size={36}
+            icon="record"
             onPress={recordTrail}
             accessibilityLabel={t('trail.entry.record')}
-          >
-            <Icon name="record" color={chromeTheme.text} size={18} />
-          </MapToolButton>
-          <MapToolButton
-            theme={chromeTheme}
-            size={36}
-            onPress={() => setMapStylePickerOpen((value) => !value)}
-            accessibilityLabel={t('journey.map.layerTitle')}
-          >
-            <Icon name="layers" color={mapStylePickerOpen ? chromeTheme.accent : chromeTheme.text} size={18} />
-          </MapToolButton>
-          <MapToolButton
-            theme={chromeTheme}
-            size={36}
-            onPress={locateCurrentPosition}
-            accessibilityLabel={t('discover.toastLocate')}
-          >
-            {locating
-              ? <ActivityIndicator size="small" color={chromeTheme.accent} />
-              : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
-          </MapToolButton>
+          />
+        </View>
+      ) : null}
+
+      {!nav.pointInfo && !mapImmersive ? (
+        <View style={{ position: 'absolute', right: space.md, bottom: listMapToolsBottom }}>
+          <MapControlGroup theme={chromeTheme}>
+            <MapControlButton
+              theme={chromeTheme}
+              icon="layers"
+              active={mapStylePickerOpen}
+              onPress={() => setMapStylePickerOpen((value) => !value)}
+              accessibilityLabel={t('journey.map.layerTitle')}
+            />
+            <MapControlButton
+              theme={chromeTheme}
+              active={mapAtCurrentLocation}
+              onPress={locateCurrentPosition}
+              accessibilityLabel={t('discover.toastLocate')}
+            >
+              {locating
+                ? <ActivityIndicator size="small" color={chromeTheme.accent} />
+                : <Icon name="locate" color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
+            </MapControlButton>
+          </MapControlGroup>
         </View>
       ) : null}
 
