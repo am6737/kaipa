@@ -73,9 +73,9 @@ export function TrailSummary({ theme, session }: { theme: Theme; session: TrailS
           disabled={saving}
           accessibilityRole="button"
           accessibilityState={{ busy: saving }}
-          style={{ marginTop: space.md, height: 56, borderRadius: radius.pill, backgroundColor: theme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, opacity: saving ? 0.6 : 1 }}
+          style={{ marginTop: space.md, height: 52, borderRadius: radius.card, backgroundColor: theme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, opacity: saving ? 0.6 : 1 }}
         >
-          <Icon name="check" color="#FFFFFF" size={20} />
+          <Icon name="check" color="#FFFFFF" size={18} />
           <Text style={[type.quickReply, { color: '#FFFFFF' }]}>{saving ? t('trail.summary.saving') : t('trail.summary.save')}</Text>
         </Press>
       ) : null}
@@ -84,7 +84,7 @@ export function TrailSummary({ theme, session }: { theme: Theme; session: TrailS
           onPress={() => void reopenTrail()}
           disabled={saving}
           accessibilityRole="button"
-          style={{ flex: 1, height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
+          style={{ flex: 1, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}
         >
           <Text style={[type.chip, { color: theme.text }]}>{t('trail.summary.resume')}</Text>
         </Press>
@@ -92,7 +92,7 @@ export function TrailSummary({ theme, session }: { theme: Theme; session: TrailS
           onPress={() => setDiscardOpen(true)}
           disabled={saving}
           accessibilityRole="button"
-          style={{ flex: 1, height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' }}
+          style={{ flex: 1, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center' }}
         >
           <Text style={[type.chip, { color: theme.danger }]}>{t('trail.summary.discard')}</Text>
         </Press>

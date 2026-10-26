@@ -36,6 +36,15 @@ function resolveString(dict: DictNode, key: string): string | undefined {
   return typeof cur === 'string' ? cur : undefined;
 }
 
+// The language the provider last resolved, for code outside React (the
+// recording notification). Before the provider mounts it is the device's.
+let activeLang: ResolvedLang | null = null;
+
+export function currentLang(): ResolvedLang {
+  activeLang ??= detectDeviceLang();
+  return activeLang;
+}
+
 export function translate(resolved: ResolvedLang, key: TKey, vars?: TVars): string {
   const str =
     resolveString(DICTS[resolved], key) ??
@@ -75,6 +84,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resolved: ResolvedLang = lang === 'system' ? deviceLang : lang;
+  activeLang = resolved;
 
   const t = useMemo(
     () => (key: TKey, vars?: TVars) => translate(resolved, key, vars),

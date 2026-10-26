@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 import { reverseRoute } from '../lib/routeDirection';
 import type { TrailRouteRef } from '../lib/trailRecorder';
 import { useNav } from '../nav/NavContext';
+import { getTrailSnapshot } from '../lib/trailRecorder';
 import { useTrail } from './TrailContext';
 
 /** A catalog route, walked in the direction the route card is showing. */
@@ -21,6 +22,7 @@ export function trailRouteFromPoi(poi: Poi, reversed = false): TrailRouteRef | n
     elevation: route.trackElevation,
     waypoints: route.trackWaypoints,
     reversed,
+    region: route.region,
   };
 }
 
@@ -44,4 +46,16 @@ export function useOpenTrail() {
   return useCallback((route: TrailRouteRef | null) => {
     if (trail.openTrail(route) === 'busy') nav.showToast(t('trail.busy'));
   }, [nav, t, trail]);
+}
+
+/**
+ * The 记录轨迹 buttons: a free recording, or straight back to the one already
+ * running, whatever it is following. Never a "busy" toast from here.
+ */
+export function useRecordTrail() {
+  const trail = useTrail();
+  return useCallback(() => {
+    if (getTrailSnapshot().session) trail.openTrail();
+    else trail.openTrail(null);
+  }, [trail]);
 }

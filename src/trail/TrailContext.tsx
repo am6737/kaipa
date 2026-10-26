@@ -18,6 +18,8 @@ import {
   type TrailSnapshot,
 } from '../lib/trailRecorder';
 import { elevationProfile } from '../lib/trailGeo';
+import { getTrailGuide, setTrailGuideLanguage, subscribeTrailGuide, type TrailGuideState } from '../lib/trailGuide';
+import { useI18n } from '../i18n';
 
 const PENDING_KEY = 'kaipa.trail.pendingSaves.v1';
 
@@ -42,6 +44,10 @@ const TrailContext = createContext<TrailValue | null>(null);
 
 export function useTrailSnapshot(): TrailSnapshot {
   return useSyncExternalStore(subscribeTrail, getTrailSnapshot, getTrailSnapshot);
+}
+
+export function useTrailGuide(): TrailGuideState {
+  return useSyncExternalStore(subscribeTrailGuide, getTrailGuide, getTrailGuide);
 }
 
 export function useTrail(): TrailValue {
@@ -76,11 +82,14 @@ async function readPending(): Promise<TrackDraft[]> {
 
 export function TrailProvider({ children }: { children: React.ReactNode }) {
   const data = useData();
+  const { resolved } = useI18n();
   const [open, setOpen] = useState(false);
   const [plannedRoute, setPlannedRoute] = useState<TrailRouteRef | null>(null);
   const [pendingSaves, setPendingSaves] = useState(0);
   const flushing = useRef(false);
   const createTrack = data.createTrack;
+
+  useEffect(() => setTrailGuideLanguage(resolved), [resolved]);
 
   const flushPending = useCallback(async () => {
     if (flushing.current) return;

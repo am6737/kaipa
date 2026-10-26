@@ -64,7 +64,10 @@ export type IconName =
   | 'shrink'
   | 'info'
   | 'livePhoto'
-  | 'grip';
+  | 'grip'
+  | 'volume'
+  | 'volumeOff'
+  | 'record';
 
 interface Props {
   name: IconName;
@@ -304,6 +307,30 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Polyline points="2.5 12.5 6.5 16.5 13.5 9.5" {...common} strokeWidth={strokeWidth + 0.2} />
           <Polyline points="9 12.5 13 16.5 21.5 7.5" {...common} strokeWidth={strokeWidth + 0.2} />
+        </Svg>
+      );
+    case 'record':
+      // A ring around a dot: the universal "start recording" mark, the dot
+      // kept small so it weighs the same as the line icons beside it.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={12} cy={12} r={8.5} {...common} fill="none" />
+          <Circle cx={12} cy={12} r={3.25} fill={color} />
+        </Svg>
+      );
+    case 'volume':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" {...common} />
+          <Path d="M15.5 9a4 4 0 0 1 0 6" {...common} fill="none" />
+          <Path d="M18 6.5a7.5 7.5 0 0 1 0 11" {...common} fill="none" />
+        </Svg>
+      );
+    case 'volumeOff':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" {...common} />
+          <Path d="m16 9.5 5 5M21 9.5l-5 5" {...common} fill="none" />
         </Svg>
       );
     case 'bell':

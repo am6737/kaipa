@@ -1,0 +1,7 @@
+{
+  "name": "trail-notification",
+  "version": "1.0.0",
+  "description": "App-local Android foreground service that shows a live 徒步记录 in the notification shade.",
+  "main": "src/index.ts",
+  "private": true
+}

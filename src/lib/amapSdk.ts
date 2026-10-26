@@ -10,7 +10,8 @@ if (Platform.OS === 'android') {
     // Lazy loading keeps Expo Go usable when the AMap native module is absent.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     amap = require('expo-gaode-map') as AmapModule;
-  } catch {
+  } catch (error) {
+    console.warn('[amap] native module unavailable', error);
     amap = null;
   }
 }
@@ -34,7 +35,9 @@ export function ensureAmapReady(module: AmapModule): boolean {
     module.ExpoGaodeMapModule.initSDK({});
     amapInitialized = true;
     return true;
-  } catch {
+  } catch (error) {
+    // Every map then renders as a blank view; say why instead of failing quietly.
+    console.warn('[amap] SDK init failed', error);
     return false;
   }
 }

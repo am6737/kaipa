@@ -453,7 +453,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
             theme={theme}
             item={itemEditor.item}
             cats={cats}
-            mode={itemEditor.mode}
+            weightUnit={weightUnit}
             recognitionSource={itemEditor.recognitionSource}
             existingNames={allItems.map((i) => i.name)}
             onCancel={cancelItemEditor}

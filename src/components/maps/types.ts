@@ -165,6 +165,19 @@ export interface NativeMapProps {
   showLabels?: boolean;
   interactive?: boolean;
   showUserLocation?: boolean;
+  /**
+   * Android only: also draw AMap's own location dot, fed by the map SDK's
+   * location client. Off by default because most maps draw the shared
+   * CurrentLocationMarker; the trail page turns it on so "you are here" never
+   * depends on a custom marker snapshot.
+   */
+  platformLocationIndicator?: boolean;
+  /**
+   * Android only: the image for that dot, so it looks like the shared marker
+   * instead of AMap's blue arrow. `size` is the square size in dp, and the
+   * dot sits at the image's centre.
+   */
+  platformLocationImage?: { uri: string; size: number };
   followUserLocation?: boolean;
   markers?: NativeMapMarker[];
   polylines?: NativeMapPolyline[];

@@ -10,14 +10,29 @@ export type JourneyInvite = {
   code: string;
 };
 
+// Invite QRs carry the web URL baked into the inviter's build, and that URL has moved
+// (e.g. the self-hosted web port changed). Requiring an exact origin match made a phone on an
+// older or newer build reject a perfectly good invite, so accept the configured host, the
+// public kaipa.app hosts, and any sibling host under the configured host's parent domain.
+function isKaipaWebHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  if (host === 'kaipa.app' || host.endsWith('.kaipa.app')) return true;
+  try {
+    const configured = new URL(process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app').hostname.toLowerCase();
+    if (host === configured) return true;
+    const parent = configured.split('.').slice(1).join('.');
+    return parent.includes('.') && host.endsWith(`.${parent}`);
+  } catch {
+    return false;
+  }
+}
+
 export function parseJourneyInviteUrl(value: string): JourneyInvite | null {
   try {
     const url = new URL(value.trim());
-    const configuredWebUrl = process.env.EXPO_PUBLIC_WEB_URL || 'https://kaipa.app';
-    const allowedOrigin = new URL(configuredWebUrl).origin;
     const match = decodeURIComponent(url.pathname).match(JOURNEY_INVITE_PATH);
     const code = match ? normalizeJourneyCode(match[1]) : '';
-    if (url.origin !== allowedOrigin || !match || !/^[0-9A-Z]{4}$/.test(code)) return null;
+    if (!/^https?:$/.test(url.protocol) || !isKaipaWebHost(url.hostname) || !match || !/^[0-9A-Z]{4}$/.test(code)) return null;
     return { url: url.toString(), code };
   } catch {
     return null;

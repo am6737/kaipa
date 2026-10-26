@@ -14,19 +14,34 @@
 //   Android is Google's fused provider only, which most new Huawei/Honor phones
 //   don't have (see currentPosition.ts). AMap's foreground service keeps the
 //   process, and with it this JS listener, alive with the screen off.
+// - Android builds with the app-local trail-notification module run their own
+//   foreground service instead of AMap's or expo-location's, and take fixes
+//   from AMap or a plain watch. Its notification shows the walk's time,
+//   distance and climb live, as Komoot and AllTrails do, and stays while the
+//   recording is paused.
 // - A build without expo-task-manager (an older binary that got this code
 //   over the air) falls back to a foreground watch: it records while the app
 //   is open and says so on the page.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import { AppState, Platform } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
+import {
+  hasTrailNotification,
+  startTrailNotification,
+  stopTrailNotification,
+  type TrailNotificationContent,
+} from '../../modules/trail-notification';
+import { currentLang, translate, type TKey, type TVars } from '../i18n';
 import { amapModule, ensureAmapReady } from './amapSdk';
 import { gcj02ToWgs84 } from './coordinates';
+import { getCurrentPosition } from './currentPosition';
 import type { Coordinate } from './routeSegments';
 import {
   addPoint,
   EMPTY_TOTALS,
+  formatClock,
   judgeFix,
+  splitDistance,
   toTrailPoint,
   type TrailFix,
   type TrailPoint,
@@ -60,6 +75,8 @@ export interface TrailRouteRef {
   waypoints?: { name: string; km: number }[];
   /** Walked from the route's recorded finish. */
   reversed?: boolean;
+  /** Catalog region such as "四川 · 甘孜"; picks the offline map to offer. */
+  region?: string;
 }
 
 export type TrailStatus = 'recording' | 'paused' | 'finished';
@@ -118,6 +135,7 @@ let signalTimer: ReturnType<typeof setTimeout> | null = null;
 function emit() {
   snapshot = { session, fix, gps, error };
   listeners.forEach((listener) => listener());
+  void syncNotification();
 }
 
 export function subscribeTrail(listener: () => void): () => void {
@@ -136,7 +154,54 @@ export function trailMovingMs(value: TrailSession | null, now = Date.now()): num
 }
 
 export function trailBackgroundSupported(): boolean {
-  return Platform.OS === 'android' ? !!amapModule() || !!TaskManager : !!TaskManager;
+  return Platform.OS === 'android' ? hasTrailNotification || !!amapModule() || !!TaskManager : !!TaskManager;
+}
+
+// ─── notification ───────────────────────────────────────────────────────────
+
+let notificationKey = '';
+let notificationQueue: Promise<void> = Promise.resolve();
+
+function notificationContent(): TrailNotificationContent | null {
+  if (!session || session.status === 'finished') return null;
+  const lang = currentLang();
+  const t = (key: TKey, vars?: TVars) => translate(lang, key, vars);
+  const name = session.route?.name ?? t('trail.freeTitle');
+  const { value, unit } = splitDistance(session.totals.distM);
+  const stats = t('trail.notification.stats', {
+    distance: `${value} ${unit}`,
+    ascent: Math.round(session.totals.ascM),
+    descent: Math.round(session.totals.descM),
+  });
+  if (session.status === 'paused' || session.resumedAt == null) {
+    return {
+      title: t('trail.notification.paused', { name }),
+      text: t('trail.notification.pausedStats', { time: formatClock(session.activeMs), stats }),
+      chronometerBase: null,
+      channelName: t('trail.notification.channel'),
+    };
+  }
+  return {
+    title: name,
+    text: stats,
+    // Fixed for the whole run, so the time ticks in the shade without JS.
+    chronometerBase: session.resumedAt - session.activeMs,
+    subText: gps === 'weak' ? t('trail.status.weak') : gps === 'searching' ? t('trail.status.searching') : undefined,
+    channelName: t('trail.notification.channel'),
+  };
+}
+
+/** Shows, updates or removes the shade notification; posts only when its text changes. */
+function syncNotification(): Promise<void> {
+  if (!hasTrailNotification) return notificationQueue;
+  const content = notificationContent();
+  const key = content ? JSON.stringify(content) : '';
+  if (key === notificationKey) return notificationQueue;
+  notificationKey = key;
+  notificationQueue = notificationQueue
+    .then(() => (content ? startTrailNotification(content) : stopTrailNotification()))
+    .catch((cause) => console.warn('[trailRecorder] notification failed:', cause));
+  return notificationQueue;
 }
 
 // ─── persistence ────────────────────────────────────────────────────────────
@@ -316,14 +381,21 @@ function amapAvailable(): boolean {
   return Platform.OS === 'android' && !!module && ensureAmapReady(module);
 }
 
-function startAmap(background: boolean): Stop {
+/**
+ * `recording` holds the first answer for a GPS fix; `amapService` runs AMap's
+ * own foreground service, needed only when nothing else keeps the process up.
+ */
+function startAmap(recording: boolean, amapService = recording): Stop {
   const gaode = amapModule()!.ExpoGaodeMapModule;
   gaode.setLocatingWithReGeocode(false);
   gaode.setLocationMode(1 as any); // 高精度：卫星 + 网络
-  gaode.setGpsFirst(true);
+  // GPS-first holds the first answer back for up to 30 s while the satellites
+  // are found; the map would show no position all that time. Recording wants
+  // it, since judgeFix drops the network fixes anyway.
+  gaode.setGpsFirst(recording);
   gaode.setSensorEnable(true);
   gaode.setInterval(2_000);
-  gaode.setAllowsBackgroundLocationUpdates(background);
+  gaode.setAllowsBackgroundLocationUpdates(amapService);
   const subscription = gaode.addLocationListener((raw) => {
     const next = fromAmap(raw);
     if (next) ingest([next]);
@@ -348,6 +420,12 @@ async function startRecordingSource(): Promise<boolean> {
   stopPreviewSource();
   recordingStop?.();
   recordingStop = null;
+  if (hasTrailNotification) {
+    // The service must be in the foreground before the walker can leave the app.
+    await syncNotification();
+    recordingStop = amapAvailable() ? startAmap(true, false) : await startExpoWatch();
+    return true;
+  }
   if (amapAvailable()) {
     recordingStop = startAmap(true);
     return true;
@@ -398,6 +476,29 @@ async function startPreviewSource() {
   }
 }
 
+// A continuous watch can take a while for its first answer, longer indoors.
+// The one-shot locate races AMap and the system provider and may answer from
+// a recent cache, so "you are here" shows at once. It only places the dot: a
+// recording takes its points from the watch.
+async function seedFix() {
+  if (fix && Date.now() - fix.t < 60_000) return;
+  try {
+    const position = await getCurrentPosition(10_000);
+    if (fix && fix.t >= position.timestamp) return;
+    fix = {
+      lng: position.lng,
+      lat: position.lat,
+      acc: position.accuracy ?? undefined,
+      heading: position.heading,
+      t: position.timestamp,
+    };
+    if (gps === 'searching') gps = position.accuracy != null && position.accuracy > 40 ? 'weak' : 'good';
+    emit();
+  } catch {
+    // The watch will still answer, or the signal timer reports the search.
+  }
+}
+
 function stopPreviewSource() {
   previewStop?.();
   previewStop = null;
@@ -408,6 +509,20 @@ async function ensurePermission(): Promise<TrailStartError | null> {
   let permission = await Location.getForegroundPermissionsAsync();
   if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
   return permission.granted ? null : 'permission';
+}
+
+/**
+ * Android 13+ hides a foreground service's notification until the app may post
+ * notifications. The recording runs either way; this only makes it visible.
+ */
+async function askNotificationPermission() {
+  if (!hasTrailNotification || Number(Platform.Version) < 33) return;
+  try {
+    const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+    if (!(await PermissionsAndroid.check(permission))) await PermissionsAndroid.request(permission);
+  } catch {
+    // Declined or unavailable: record without the shade card.
+  }
 }
 
 /**
@@ -427,7 +542,10 @@ export function watchTrailPosition(): () => void {
         emit();
         return;
       }
-      if (previewCount > 0) void startPreviewSource();
+      if (previewCount > 0) {
+        void startPreviewSource();
+        void seedFix();
+      }
     });
   }
   return () => {
@@ -453,6 +571,7 @@ export async function startTrail(route: TrailRouteRef | null): Promise<boolean> 
     emit();
     return false;
   }
+  await askNotificationPermission();
   const now = Date.now();
   session = {
     id: `trail-${now}`,

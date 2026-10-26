@@ -2,7 +2,7 @@
 // metrics and progress now live in src/design-system; compatibility aliases are
 // kept here so older gear editors can migrate without a visual rewrite.
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle, StyleProp } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { Image } from 'expo-image';
 import { JapaneseYen, Package, Weight } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
@@ -155,6 +155,62 @@ export function GearItemRow({ theme, item, cat, last, onPress, weightUnit = 'kg'
 }
 
 export const StatStrip = AppMetricStrip;
+
+// The unit rendering shared by every gear weight field, so the add form and the
+// detail page never drift apart. The chevron keeps its slot even when the unit
+// cannot be tapped, which holds the unit text on the same x either way.
+export function UnitAffordance({ theme, unit, onPressUnit }: { theme: Theme; unit: string; onPressUnit?: () => void }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{unit}</Text>
+      <View style={{ width: 14, alignItems: 'center', justifyContent: 'center' }}>
+        {onPressUnit ? (
+          <Press onPress={onPressUnit} hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }} accessibilityRole="button">
+            <Icon name="chevronDown" color={theme.text3} size={12} strokeWidth={2.4} />
+          </Press>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+// Number on the left, unit pinned to the right edge of the card, whether the
+// number is a static tile or a field being typed in.
+export function NumberFieldWithUnit({ theme, value, unit, onPressUnit, onChangeText, onBlur, autoFocus, placeholder, selectTextOnFocus, textStyle }: {
+  theme: Theme;
+  value: string;
+  unit?: string;
+  onPressUnit?: () => void;
+  onChangeText?: (value: string) => void;
+  onBlur?: () => void;
+  autoFocus?: boolean;
+  placeholder?: string;
+  selectTextOnFocus?: boolean;
+  textStyle: TextStyle;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      {onChangeText ? (
+        <TextInput
+          autoFocus={autoFocus}
+          value={value}
+          onChangeText={onChangeText}
+          onBlur={onBlur}
+          keyboardType="decimal-pad"
+          placeholder={placeholder}
+          placeholderTextColor={theme.text3}
+          selectTextOnFocus={selectTextOnFocus}
+          style={{ ...textStyle, flex: 1, minWidth: 0, padding: 0, textAlign: 'left' }}
+        />
+      ) : (
+        <Text numberOfLines={1} adjustsFontSizeToFit style={{ ...textStyle, flexShrink: 1 }}>
+          {value}
+        </Text>
+      )}
+      {unit ? <UnitAffordance theme={theme} unit={unit} onPressUnit={onPressUnit} /> : null}
+    </View>
+  );
+}
 
 // Horizontal share bar: label on the left, % + filled track, sub caption.
 export function ShareBar({ theme, label, pct, sub, color, last }: { theme: Theme; label: string; pct: number; sub: string; color: string; last?: boolean }) {

@@ -7,7 +7,8 @@
 // confirm and not after.
 import React, { useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useOpenTrail } from '../../trail/trailRoutes';
+import { useRecordTrail } from '../../trail/trailRoutes';
+import { offlineMapsAvailable, openOfflineMapManager } from '../../lib/offlineMaps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionDialog, AppHeaderSearch, AppProgressBar, DetailPage, radius } from '../../design-system';
 import { Icon } from '../Icon';
@@ -336,7 +337,7 @@ export function TracksPage({
 }) {
   const { t } = useI18n();
   const nav = useNav();
-  const openTrail = useOpenTrail();
+  const recordTrail = useRecordTrail();
   const insets = useSafeAreaInsets();
   const data = useData();
 
@@ -526,6 +527,7 @@ export function TracksPage({
             onClose={closeSearch}
             actions={(
               <View style={{ flexDirection: 'row', gap: 10 }}>
+                {Platform.OS !== 'web' ? <HeaderButton theme={theme} icon="record" onPress={recordTrail} label={t('trail.entry.record')} /> : null}
                 <HeaderButton theme={theme} icon="filter" onPress={() => setFilterOpen(true)} label={t('tracks.filter.title')} />
                 <HeaderButton theme={theme} icon="search" onPress={() => setSearchOpen(true)} label={t('common.search')} />
                 <HeaderButton theme={theme} icon="more" onPress={() => setMoreOpen(true)} label={t('journey.section.more')} />
@@ -634,7 +636,6 @@ export function TracksPage({
           </View>
 
           <TrackDropMenu theme={theme} visible={moreOpen} top={insets.top + 66} width={Math.min(216, width - 28)} onClose={() => setMoreOpen(false)}>
-            <TrackMenuRow theme={theme} icon="play" label={t('trail.entry.record')} onPress={() => closeMoreThen(() => openTrail(null))} />
             {data.tracks.length ? (
               <>
                 <TrackMenuCaption theme={theme} text={t('journey.section.manage')} />
@@ -644,6 +645,12 @@ export function TracksPage({
             <TrackMenuCaption theme={theme} text={t('tracks.view.title')} spaced={!data.tracks.length} />
             <TrackMenuRow theme={theme} icon="grid" label={t('tracks.view.grid')} selected={layout === 'grid'} onPress={() => closeMoreThen(() => setLayout('grid'))} />
             <TrackMenuRow theme={theme} icon="list" label={t('tracks.view.list')} selected={layout === 'list'} onPress={() => closeMoreThen(() => setLayout('list'))} />
+            {offlineMapsAvailable() ? (
+              <>
+                <TrackMenuCaption theme={theme} text={t('trail.offline.title')} />
+                <TrackMenuRow theme={theme} icon="download" label={t('trail.offline.manage')} onPress={() => closeMoreThen(openOfflineMapManager)} />
+              </>
+            ) : null}
           </TrackDropMenu>
 
           <TrackChoiceMenu

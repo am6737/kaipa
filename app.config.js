@@ -85,6 +85,12 @@ module.exports = ({ config }) => {
     ...config.ios,
     bundleIdentifier: variantId(config.ios.bundleIdentifier),
     userInterfaceStyle: 'automatic',
+    infoPlist: {
+      ...config.ios?.infoPlist,
+      // Spoken trail prompts (off route, next waypoint) while the screen is
+      // locked. Location keeps the app running; audio lets it be heard.
+      UIBackgroundModes: [...new Set([...(config.ios?.infoPlist?.UIBackgroundModes || []), 'audio'])],
+    },
   },
   android: {
     ...config.android,
@@ -150,6 +156,16 @@ module.exports = ({ config }) => {
       {
         microphonePermission: '开爬需要使用麦克风，以便将你的语音转换为文字。',
         speechRecognitionPermission: '开爬需要使用系统语音识别，以便将你的语音转换为文字。',
+      },
+    ],
+    [
+      'expo-audio',
+      {
+        microphonePermission: '开爬需要使用麦克风，以便将你的语音转换为文字。',
+        // Trail prompts only speak; Android needs no media service for that,
+        // and iOS gets its background audio mode from infoPlist above.
+        recordAudioAndroid: false,
+        enableBackgroundPlayback: false,
       },
     ],
     'expo-font',

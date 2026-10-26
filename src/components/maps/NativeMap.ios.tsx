@@ -132,6 +132,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const pendingCameraAction = useRef<(() => void) | null>(null);
   const programmaticStartedAt = useRef(0);
   const pendingProgrammaticCompletions = useRef(0);
+  const orientationReadAt = useRef(0);
+  const orientationSent = useRef({ heading: 0, pitch: 0 });
 
   const markProgrammaticMove = (duration: number) => {
     programmaticUntil.current = Date.now() + duration + 180;
@@ -144,6 +146,28 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
     const action = pendingCameraAction.current;
     pendingCameraAction.current = null;
     requestAnimationFrame(action);
+  };
+
+  /**
+   * MapKit has no rotation event. A two-finger twist only shows up as a region
+   * change — the lat/lon box the view covers grows — so orientation is read off
+   * the camera while region changes are arriving, at most once every 140ms, and
+   * only reported when it actually moved: a plain pan also changes the region.
+   */
+  const reportOrientation = (force = false) => {
+    if (!onCameraChange) return;
+    const now = Date.now();
+    if (!force && now - orientationReadAt.current < 140) return;
+    orientationReadAt.current = now;
+    void mapRef.current?.getCamera().then((camera) => {
+      const heading = camera.heading ?? 0;
+      const pitch = camera.pitch ?? 0;
+      const last = orientationSent.current;
+      const turn = Math.abs(heading - last.heading);
+      if (!force && Math.min(turn, 360 - turn) < 2 && Math.abs(pitch - last.pitch) < 2) return;
+      orientationSent.current = { heading, pitch };
+      onCameraChange(heading, pitch);
+    });
   };
 
   const runWhenMapIsUsable = (action: () => void) => {
@@ -253,6 +277,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onPanDrag={onGestureStart ? () => onGestureStart() : undefined}
       onRegionChange={(visibleRegion) => {
         if (visibleRegion.longitudeDelta > 0) onZoomChange?.(zoomForSpan(visibleRegion.longitudeDelta, layoutSize.current));
+        reportOrientation();
       }}
       onRegionChangeComplete={(visibleRegion) => {
         if (visibleRegion.longitudeDelta > 0) {
@@ -273,9 +298,7 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           && Date.now() - programmaticStartedAt.current < 4000;
         if (counted) pendingProgrammaticCompletions.current -= 1;
         if (!counted && !followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
-        if (onCameraChange) {
-          void mapRef.current?.getCamera().then((camera) => onCameraChange(camera.heading, camera.pitch));
-        }
+        reportOrientation(true);
       }}
     >
       {polylines.map((line) => cachedElement(line, () => (

@@ -51,6 +51,10 @@ export const type = {
   hint: { fontSize: 12, lineHeight: 19 },
   chip: { fontSize: 14, fontWeight: '600' as const },
   readoutLabel: { fontSize: 14, fontWeight: '500' as const },
+  // Live readouts on the recording card: the always-visible row and the grid.
+  liveValue: { fontFamily: MONO, fontSize: 26, fontWeight: '700' as const, letterSpacing: -0.5, fontVariant: tabular },
+  liveValueLarge: { fontFamily: MONO, fontSize: 30, fontWeight: '700' as const, letterSpacing: -0.5, fontVariant: tabular },
+  liveUnit: { fontSize: 13, fontWeight: '600' as const },
   display: { fontSize: 86, fontWeight: '600' as const, letterSpacing: -3, fontVariant: tabular },
   displayUnit: { fontSize: 19, fontWeight: '600' as const },
   // Reading roles, taken from the 攻略详情 pages. Long Chinese text needs the

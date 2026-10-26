@@ -14,8 +14,8 @@ import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
 import { Press } from '../Press';
 import { useI18n } from '../../i18n';
-import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, WeightUnit, splitWeight, fmtWeight } from '../../data/gear';
-import { GearItemImage, ShareBar, yuan, fmtKg } from './parts';
+import { GearItem, GearCat, GearSet, UNCAT, itemStatus, itemWeight, itemPrice, WeightUnit, WEIGHT_UNITS, splitWeight, fmtWeight, kgFromUnit, weightInputValue } from '../../data/gear';
+import { GearItemImage, NumberFieldWithUnit, ShareBar, yuan, fmtKg } from './parts';
 import { AppSectionHeader, DetailPage, radius, space, type } from '../../design-system';
 import { GearDeleteDialog } from './GearDeleteDialog';
 import { createMediaLibraryAsset, requestMediaLibraryPermissions } from '../../lib/mediaLibrary';
@@ -30,14 +30,15 @@ function DetailActionButton({ theme, icon: IconComponent, onPress, danger }: { t
   return <Press accessibilityRole="button" onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><IconComponent color={danger ? theme.danger : theme.text} size={25} strokeWidth={2.2} /></Press>;
 }
 
-function StatTile({ theme, label, value, unit }: { theme: Theme; label: string; value: string; unit?: string }) {
+const metricCard = (theme: Theme) => ({ flex: 1, minHeight: 104, borderRadius: 24, backgroundColor: softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: softBorder(theme), paddingHorizontal: 20, paddingVertical: 17, justifyContent: 'space-between' as const });
+const metricLabel = (theme: Theme) => ({ fontSize: 15, color: theme.text2, letterSpacing: -0.1 });
+const metricValue = (theme: Theme) => ({ fontSize: 25, lineHeight: 30, fontWeight: '800' as const, color: theme.text, letterSpacing: -0.7 });
+
+function StatTile({ theme, label, value, unit, onPressUnit }: { theme: Theme; label: string; value: string; unit?: string; onPressUnit?: () => void }) {
   return (
-    <View style={{ flex: 1, minHeight: 104, borderRadius: 24, backgroundColor: softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: softBorder(theme), paddingHorizontal: 20, paddingVertical: 17, justifyContent: 'space-between' }}>
-      <Text style={{ fontSize: 15, color: theme.text2, letterSpacing: -0.1 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
-        <Text numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text, letterSpacing: -0.7 }}>{value}</Text>
-        {unit ? <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{unit}</Text> : null}
-      </View>
+    <View style={metricCard(theme)}>
+      <Text style={metricLabel(theme)}>{label}</Text>
+      <NumberFieldWithUnit theme={theme} value={value} unit={unit} onPressUnit={onPressUnit} textStyle={metricValue(theme)} />
     </View>
   );
 }
@@ -109,22 +110,21 @@ function EditableValueCell({ theme, label, value, prefix, onChangeText }: { them
   );
 }
 
-function EditableMetric({ theme, label, value, unit, onChangeText, onBlur }: { theme: Theme; label: string; value: string; unit?: string; onChangeText: (value: string) => void; onBlur: () => void }) {
+function EditableMetric({ theme, label, value, unit, onChangeText, onBlur, onPressUnit }: { theme: Theme; label: string; value: string; unit?: string; onChangeText: (value: string) => void; onBlur: () => void; onPressUnit?: () => void }) {
   return (
-    <View style={{ flex: 1, minHeight: 104, borderRadius: 24, backgroundColor: softBg(theme), borderWidth: StyleSheet.hairlineWidth, borderColor: softBorder(theme), paddingHorizontal: 20, paddingVertical: 17, justifyContent: 'space-between' }}>
-      <Text style={{ fontSize: 15, color: theme.text2 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
-        <TextInput
-          autoFocus
-          value={value}
-          onChangeText={onChangeText}
-          onBlur={onBlur}
-          keyboardType="decimal-pad"
-          selectTextOnFocus
-          style={{ flex: 1, minWidth: 44, padding: 0, fontSize: 25, lineHeight: 30, fontWeight: '800', color: theme.text, letterSpacing: -0.7 }}
-        />
-        {unit ? <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{unit}</Text> : null}
-      </View>
+    <View style={metricCard(theme)}>
+      <Text style={metricLabel(theme)}>{label}</Text>
+      <NumberFieldWithUnit
+        theme={theme}
+        value={value}
+        unit={unit}
+        onPressUnit={onPressUnit}
+        onChangeText={onChangeText}
+        onBlur={onBlur}
+        autoFocus
+        selectTextOnFocus
+        textStyle={metricValue(theme)}
+      />
     </View>
   );
 }
@@ -487,11 +487,15 @@ function GearItemDetailView({
   const { width: windowWidth } = useWindowDimensions();
   const [isEditing, setIsEditing] = React.useState(false);
   const [draft, setDraft] = React.useState<GearItem>(item);
-  const [weightInput, setWeightInput] = React.useState(String(itemWeight(item) || ''));
+  const [weightInput, setWeightInput] = React.useState(() => weightInputValue(itemWeight(item), weightUnit));
+  // The unit typed into the weight field only. Displays keep the profile unit.
+  const [editUnit, setEditUnit] = React.useState<WeightUnit>(weightUnit);
+  const weightInputEdited = React.useRef(false);
+  const qtyInputEdited = React.useRef(false);
   const [qtyInput, setQtyInput] = React.useState(String(item.qty || 1));
   const [priceInput, setPriceInput] = React.useState(String(item.p || ''));
   const [activeField, setActiveField] = React.useState<'weight' | 'qty' | null>(null);
-  const [pickerField, setPickerField] = React.useState<'category' | 'status' | null>(null);
+  const [pickerField, setPickerField] = React.useState<'category' | 'status' | 'weightUnit' | null>(null);
   const [photoViewerIndex, setPhotoViewerIndex] = React.useState<number | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [titleLineCount, setTitleLineCount] = React.useState(0);
@@ -509,17 +513,36 @@ function GearItemDetailView({
     if (!isEditing) setDraft(item);
   }, [isEditing, item]);
 
+  React.useEffect(() => {
+    if (!isEditing) setEditUnit(weightUnit);
+  }, [isEditing, weightUnit]);
+
   const patchDraft = (patch: Partial<GearItem>) => setDraft((current) => ({ ...current, ...patch }));
+  const editedTotalKg = () => (weightInputEdited.current
+    ? kgFromUnit(Number(weightInput) || 0, editUnit)
+    : (qtyInputEdited.current ? itemWeight(draft) : itemWeight(item)));
+
+  const applyEditUnit = (next: WeightUnit) => {
+    if (next === editUnit) return;
+    setEditUnit(next);
+    setWeightInput(weightInputValue(editedTotalKg(), next));
+  };
+
   const beginEditing = () => {
     setDraft(item);
-    setWeightInput(String(itemWeight(item) || ''));
+    setWeightInput(weightInputValue(itemWeight(item), editUnit));
+    weightInputEdited.current = false;
+    qtyInputEdited.current = false;
     setQtyInput(String(item.qty || 1));
     setPriceInput(String(item.p || ''));
-    setActiveField(null);
+    // Land in the weight field so the unit entry is visible right away.
+    setActiveField('weight');
     setIsEditing(true);
   };
   const cancelEditing = () => {
     setDraft(item);
+    weightInputEdited.current = false;
+    qtyInputEdited.current = false;
     setPickerField(null);
     setActiveField(null);
     setIsEditing(false);
@@ -530,10 +553,14 @@ function GearItemDetailView({
     const attrs = (draft.attrs || [])
       .map(([key, value]) => [key.trim(), value.trim()] as [string, string])
       .filter(([key, value]) => key && value);
+    const totalQty = Math.max(1, draft.qty || 1);
+    // An untouched field only ever holds a rounded display value; keep item.w.
+    const totalKg = editedTotalKg();
     onSave({
       ...draft,
       name,
-      qty: Math.max(1, draft.qty || 1),
+      w: totalKg / totalQty,
+      qty: totalQty,
       note: draft.note?.trim() || undefined,
       attrs: attrs.length ? attrs : undefined,
     });
@@ -685,11 +712,13 @@ function GearItemDetailView({
                     theme={theme}
                     label={t('gear.spec.totalWeight')}
                     value={weightInput}
-                    unit="kg"
+                    unit={editUnit}
+                    onPressUnit={() => setPickerField('weightUnit')}
                     onChangeText={(value) => {
                       const next = value.replace(/[^0-9.]/g, '');
+                      weightInputEdited.current = true;
                       setWeightInput(next);
-                      patchDraft({ w: (Number(next) || 0) / qty });
+                      patchDraft({ w: kgFromUnit(Number(next) || 0, editUnit) / qty });
                     }}
                     onBlur={() => setActiveField(null)}
                   />
@@ -703,9 +732,10 @@ function GearItemDetailView({
                     value={qtyInput}
                     onChangeText={(value) => {
                       const next = value.replace(/\D/g, '');
+                      qtyInputEdited.current = true;
                       setQtyInput(next);
                       const nextQty = Math.max(1, Number(next) || 1);
-                      patchDraft({ qty: nextQty, w: (Number(weightInput) || 0) / nextQty });
+                      patchDraft({ qty: nextQty, w: kgFromUnit(Number(weightInput) || 0, editUnit) / nextQty });
                     }}
                     onBlur={() => setActiveField(null)}
                   />
@@ -895,6 +925,19 @@ function GearItemDetailView({
           onClose={() => setPickerField(null)}
           onConfirm={(status) => {
             patchDraft({ status: status as GearItem['status'] });
+            setPickerField(null);
+          }}
+        />
+      ) : null}
+      {pickerField === 'weightUnit' ? (
+        <GearWheelSelectSheet
+          theme={theme}
+          title={t('gear.unit.changeWeight')}
+          value={editUnit}
+          data={WEIGHT_UNITS.map((candidate) => ({ value: candidate, label: candidate }))}
+          onClose={() => setPickerField(null)}
+          onConfirm={(next) => {
+            applyEditUnit(next as WeightUnit);
             setPickerField(null);
           }}
         />

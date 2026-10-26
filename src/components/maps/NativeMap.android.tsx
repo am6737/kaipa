@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { amapModule, ensureAmapReady } from '../../lib/amapSdk';
@@ -46,6 +46,8 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   showLabels = true,
   interactive = true,
   showUserLocation = false,
+  platformLocationIndicator = false,
+  platformLocationImage,
   followUserLocation = false,
   markers = [],
   polylines = [],
@@ -61,6 +63,17 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const fitted = useRef(false);
   const poiPressAt = useRef(0);
   const programmaticUntil = useRef(0);
+  // A new object re-applies the style natively, which decodes the image again
+  // on a background thread; only rebuild it when something in it changes.
+  const imageUri = platformLocationImage?.uri;
+  const imageSize = platformLocationImage?.size;
+  const userLocationRepresentation = useMemo(() => ({
+    showsAccuracyRing: false,
+    showsHeadingIndicator: true,
+    showMyLocation: true,
+    locationType: followUserLocation ? 'LOCATION_ROTATE' as const : 'LOCATION_ROTATE_NO_CENTER' as const,
+    ...(imageUri && imageSize ? { image: imageUri, imageWidth: imageSize, imageHeight: imageSize, anchorU: 0.5, anchorV: 0.5 } : {}),
+  }), [followUserLocation, imageUri, imageSize]);
   // Fires onGestureStart once per user gesture instead of on every throttled
   // camera-move event (iOS fires it only at pan start). Reset when the map
   // settles so the next gesture is detected again.
@@ -171,15 +184,10 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       zoomControlsEnabled={false}
       myLocationButtonEnabled={false}
       // Android renders the shared app marker from MapGlobe instead of AMap's
-      // platform-specific blue location indicator.
-      myLocationEnabled={false}
+      // platform-specific blue location indicator, unless a page asks for it.
+      myLocationEnabled={platformLocationIndicator}
       followUserLocation={followUserLocation}
-      userLocationRepresentation={{
-        showsAccuracyRing: false,
-        showsHeadingIndicator: true,
-        showMyLocation: true,
-        locationType: followUserLocation ? 'LOCATION_ROTATE' : 'LOCATION_ROTATE_NO_CENTER',
-      }}
+      userLocationRepresentation={userLocationRepresentation}
       scrollGesturesEnabled={interactive}
       zoomGesturesEnabled={interactive}
       rotateGesturesEnabled={interactive}

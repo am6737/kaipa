@@ -27,7 +27,7 @@ import { KPState, KPSkeletonLine } from '../components/State';
 import { StaggerIn } from '../components/StaggerIn';
 import { DiscoverCollectionHeader, DiscoverJourneyCard, DiscoverRouteCard } from '../components/discover/DiscoverCollection';
 import { RoutePreviewActions, RoutePreviewPanel } from '../components/discover/RoutePreviewPanel';
-import { trailRouteFromPoi, useOpenTrail } from '../trail/trailRoutes';
+import { trailRouteFromPoi, useOpenTrail, useRecordTrail } from '../trail/trailRoutes';
 import { RouteShareSheet } from '../components/discover/RouteShareSheet';
 import { buildRouteWaypointMarkers, estimateRouteWaypointZoom, projectRouteWaypoints } from '../components/discover/routeWaypointMarkers';
 import { buildRouteEndpointMarkers } from '../components/discover/routeEndpointMarkers';
@@ -118,6 +118,33 @@ const ADMIN_REGION_BOUNDS: Record<string, [number, number][]> = {
   尼泊尔: [[80.05, 26.35], [88.25, 30.45]],
 };
 
+// The province the map opens on. A geocoded name ("广东省", "广西壮族自治区")
+// wins when it maps onto an option; otherwise (offline, English-locale
+// geocoder) the smallest box holding the point decides, which is right for
+// every city and only wrong within a few km of a border. Abroad gives null.
+function provinceAt(lng: number, lat: number, geocoded?: string | null): string | null {
+  const named = geocoded?.trim();
+  if (named) {
+    const match = ADMIN_REGION_OPTIONS.find((region) => region !== '全国' && named.startsWith(region));
+    if (match) return match;
+  }
+  let best: string | null = null;
+  let bestArea = Infinity;
+  for (const region of ADMIN_REGION_OPTIONS) {
+    const bounds = region === '全国' ? undefined : ADMIN_REGION_BOUNDS[region];
+    if (!bounds) continue;
+    const [[west, south], [east, north]] = bounds;
+    if (lng < west || lng > east || lat < south || lat > north) continue;
+    const area = (east - west) * (north - south);
+    if (area < bestArea) { best = region; bestArea = area; }
+  }
+  return best;
+}
+
+// Once per app launch: a remount (or a region the user picked) must not pull
+// the map back to the located province.
+let launchProvinceSettled = false;
+
 function adminRegionOf(poi: Poi): string {
   return poi.region.split('·')[0]?.trim() || poi.region;
 }
@@ -175,6 +202,34 @@ function MapToolButton({
     >
       {children}
     </Press>
+  );
+}
+
+// Apple Maps only shows its compass once the map is off north-up, so the button
+// reveals itself on orientation instead of sitting there permanently. The
+// tolerance is for settling: a fitted camera can land a fraction of a degree
+// askew, and a button flickering on every one of those reads as a bug.
+const NORTH_TOLERANCE_DEG = 4;
+
+function isMapOffNorth(heading: number, pitch: number) {
+  const turned = (((heading % 360) + 360) % 360);
+  const deviation = Math.min(turned, 360 - turned);
+  return deviation > NORTH_TOLERANCE_DEG || Math.abs(pitch) > NORTH_TOLERANCE_DEG;
+}
+
+/** Reveal for the compass control: springs in when it appears. */
+function CompassReveal({ children }: { children: React.ReactNode }) {
+  const reveal = React.useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(reveal, { toValue: 1, useNativeDriver: true, ...motion.pageSpring }).start();
+  }, [reveal]);
+  return (
+    <Animated.View style={{
+      opacity: reveal,
+      transform: [{ scale: reveal.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] }) }],
+    }}>
+      {children}
+    </Animated.View>
   );
 }
 
@@ -543,6 +598,7 @@ const NO_HIDDEN_JOURNEY_ROUTES: ReadonlySet<string> = new Set();
 type MapHandlerSet = {
   onCameraGestureStart: NonNullable<GlobeProps['onCameraGestureStart']>;
   onCameraPositionChange: NonNullable<GlobeProps['onCameraPositionChange']>;
+  onCameraOrientationChange: NonNullable<GlobeProps['onCameraOrientationChange']>;
   onJourneyDayLabelPress: NonNullable<GlobeProps['onJourneyDayLabelPress']>;
   onJourneyStopPress: NonNullable<GlobeProps['onJourneyStopPress']>;
   onUserLocationChange: NonNullable<GlobeProps['onUserLocationChange']>;
@@ -609,6 +665,9 @@ function DiscoverScreenView({
   const [journeyTrackVisible, setJourneyTrackVisible] = useState(true);
   const [journeyDistanceVisible, setJourneyDistanceVisible] = useState(true);
   const [mapAtRouteFrame, setMapAtRouteFrame] = useState(true);
+  // Whether the camera is turned away from north — the only thing that reveals
+  // the compass control.
+  const [mapNorthOff, setMapNorthOff] = useState(false);
   const [mapDistanceMarkersVisible, setMapDistanceMarkersVisible] = useState(true);
   const [routeWaypointsVisible, setRouteWaypointsVisible] = useState(true);
   // Keep a route-detail selection separate from the route whose card is open,
@@ -656,6 +715,7 @@ function DiscoverScreenView({
   }, []);
 
   const openTrail = useOpenTrail();
+  const recordTrail = useRecordTrail();
   const followRoute = (route: Poi) => openTrail(trailRouteFromPoi(route, routeReversed));
   const navigateToRoute = async (route: Poi, mode: 'driving' | 'walking' = 'driving') => {
     if (routeNavigationRouteId === route.id) {
@@ -1349,6 +1409,7 @@ function DiscoverScreenView({
   }, [adminRegionQuery, adminRegionScope, exploreBasePois]);
 
   const chooseAdminRegion = useCallback((region: string) => {
+    launchProvinceSettled = true;
     nav.setDiscoverRegion(region);
     setAdminRegionPickerOpen(false);
     setAdminRegionQuery('');
@@ -1382,6 +1443,46 @@ function DiscoverScreenView({
       padding: [24, 24, 24, 24],
     }));
   }, [adminRegion, isMemory]);
+
+  // The whole country is a heap of overlapping avatars, so the map opens on
+  // the user's province instead: locate once at launch and switch the region,
+  // which the effect above turns into a camera fit. A region the user picked
+  // while the fix was pending is left alone.
+  const adminRegionRef = React.useRef(adminRegion);
+  adminRegionRef.current = adminRegion;
+  useEffect(() => {
+    if (launchProvinceSettled) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        let permission = await Location.getForegroundPermissionsAsync();
+        if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted || cancelled) return;
+        const position = await getCurrentPosition();
+        if (cancelled) return;
+        setCurrentLocation((current) => current ?? { lng: position.lng, lat: position.lat, heading: position.heading });
+        let geocoded = position.place?.region;
+        if (!geocoded) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const addresses = await Promise.race([
+            Location.reverseGeocodeAsync({ latitude: position.lat, longitude: position.lng }).catch(() => null),
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2000); }),
+          ]);
+          clearTimeout(timer);
+          geocoded = addresses?.[0]?.region ?? undefined;
+        }
+        const province = provinceAt(position.lng, position.lat, geocoded);
+        if (cancelled || launchProvinceSettled) return;
+        launchProvinceSettled = true;
+        if (province && adminRegionRef.current === '全国') nav.setDiscoverRegion(province);
+      } catch (error) {
+        // Without a fix the map simply stays on the national view.
+        console.warn('Failed to locate launch province', error instanceof Error ? error.message : error);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allSelected = displayPois.length > 0 && selectedIds.size === displayPois.length;
   const toggleAll = useCallback(() => {
@@ -1446,6 +1547,10 @@ function DiscoverScreenView({
   const immersiveFitBottom = Math.round(insets.bottom + 28);
 
   const sheetVisible = nav.sheetOpen || !!nav.pointInfo;
+  // Bottom of the list-mode map tool column. The compass sits one slot above it
+  // rather than inside it: a column that grows mid-gesture drags every button
+  // that is already under the finger.
+  const listMapToolsBottom = sheetVisible ? collapsed + 16 : tabSpace + 56;
   const rawFocusCoords = useMemo<[number, number][] | null>(() => {
     const point = nav.pointInfo;
     if (!point) return null;
@@ -1814,6 +1919,14 @@ function DiscoverScreenView({
     setMapStylePickerOpen(false);
     setMapAtRouteFrame(true);
     setMapCameraAction((current) => ({ type: 'fitRoute', revision: (current?.revision ?? 0) + 1 }));
+  };
+
+  // Levels the camera without moving it: centre and zoom stay where the user
+  // left them, only the twist and the tilt come back to north-up.
+  const resetMapNorth = () => {
+    setMapStylePickerOpen(false);
+    setMapNorthOff(false);
+    setMapCameraAction((current) => ({ type: 'resetNorth', revision: (current?.revision ?? 0) + 1 }));
   };
 
   // Fullscreen is a card/camera state, not another page: the detail sheet stays
@@ -2274,6 +2387,13 @@ function DiscoverScreenView({
       const hidden = !wasMapActiveRef.current;
       if (hidden) mapCameraEventRef.current = { at: Date.now() };
     },
+    onCameraOrientationChange: (heading, pitch) => {
+      // Only the boolean crosses into state: the glyph points north on its own,
+      // and re-rendering this screen for every degree of a two-finger twist
+      // would rebuild the annotations mid-gesture.
+      const off = isMapOffNorth(heading, pitch);
+      setMapNorthOff((current) => (current === off ? current : off));
+    },
     onJourneyDayLabelPress: (day) => selectJourneyDayFromMap(selectedJourneyDay === day ? undefined : day),
     onJourneyStopPress: (rowId) => {
       const stop = itineraryStops.find((item) => item.rowId === rowId);
@@ -2344,6 +2464,7 @@ function DiscoverScreenView({
   const globeHandlers = React.useMemo<MapHandlerSet>(() => ({
     onCameraGestureStart: () => mapHandlersRef.current.onCameraGestureStart(),
     onCameraPositionChange: (camera) => mapHandlersRef.current.onCameraPositionChange(camera),
+    onCameraOrientationChange: (heading, pitch) => mapHandlersRef.current.onCameraOrientationChange(heading, pitch),
     onJourneyDayLabelPress: (day) => mapHandlersRef.current.onJourneyDayLabelPress(day),
     onJourneyStopPress: (rowId) => mapHandlersRef.current.onJourneyStopPress(rowId),
     onUserLocationChange: (coordinate) => mapHandlersRef.current.onUserLocationChange(coordinate),
@@ -2410,6 +2531,7 @@ function DiscoverScreenView({
           staggerPins={!entrancePlayed}
           onCameraGestureStart={globeHandlers.onCameraGestureStart}
           onCameraPositionChange={globeHandlers.onCameraPositionChange}
+          onCameraOrientationChange={globeHandlers.onCameraOrientationChange}
           // Framing must not wait for the transition gate: the journey track is
           // already in memory, and a camera that only moves once
           // InteractionManager drains reads as the map freezing for seconds.
@@ -2686,11 +2808,55 @@ function DiscoverScreenView({
               <RotateCcw color={theme.text2} size={18} strokeWidth={2} />
             </Press>
           </Animated.View>
+
+          {/* Top slot of the stack, only when the camera is turned away from
+              north — see isMapOffNorth. */}
+          {mapNorthOff ? (
+            <Animated.View style={[{
+              position: 'absolute',
+              right: space.md,
+              bottom: full + space.md + 184,
+            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+              <CompassReveal>
+                <Press
+                  onPress={resetMapNorth}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('journey.map.north')}
+                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}
+                >
+                  <Icon name="compassN" color={theme.text2} size={18} />
+                </Press>
+              </CompassReveal>
+            </Animated.View>
+          ) : null}
         </>
       ) : null}
 
+      {mapNorthOff && !nav.pointInfo && !mapImmersive ? (
+        <View style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom + 138, zIndex: 8 }}>
+          <CompassReveal>
+            <MapToolButton
+              theme={chromeTheme}
+              size={36}
+              onPress={resetMapNorth}
+              accessibilityLabel={t('journey.map.north')}
+            >
+              <Icon name="compassN" color={chromeTheme.text} size={18} />
+            </MapToolButton>
+          </CompassReveal>
+        </View>
+      ) : null}
+
       {!nav.pointInfo && !mapImmersive ? (
-        <View style={{ position: 'absolute', right: 16, bottom: sheetVisible ? collapsed + 16 : tabSpace + 56, gap: 10 }}>
+        <View style={{ position: 'absolute', right: 16, bottom: listMapToolsBottom, gap: 10 }}>
+          <MapToolButton
+            theme={chromeTheme}
+            size={36}
+            onPress={recordTrail}
+            accessibilityLabel={t('trail.entry.record')}
+          >
+            <Icon name="record" color={chromeTheme.text} size={18} />
+          </MapToolButton>
           <MapToolButton
             theme={chromeTheme}
             size={36}

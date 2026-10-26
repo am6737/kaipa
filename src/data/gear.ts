@@ -202,6 +202,32 @@ export function splitWeight(kg: number, unit: WeightUnit = 'kg', compact = false
   return i > 0 ? { value: text.slice(0, i), unit: text.slice(i + 1) } : { value: text, unit };
 }
 
+// ── Weight entry: the editors keep kg in the model and only ever show one unit.
+export function kgFromUnit(value: number, unit: WeightUnit): number {
+  if (unit === 'g') return value / 1000;
+  if (unit === 'oz') return value / 35.27396195;
+  if (unit === 'lb') return value / 2.2046226218;
+  return value;
+}
+
+// Decimals match fmtWeight(), so a typed value and a converted one read alike.
+export function weightDecimals(unit: WeightUnit): number {
+  return unit === 'g' ? 0 : unit === 'kg' ? 2 : 1;
+}
+
+// Only drop formatting zeros, never significant ones: 850.00 g stays 850.
+const trimZeros = (text: string) => (text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text);
+
+export function weightInputValue(kg: number, unit: WeightUnit): string {
+  const shown = convertWeight(kg, unit);
+  if (!Number.isFinite(shown) || shown <= 0) return '';
+  return trimZeros(shown.toFixed(weightDecimals(unit)));
+}
+
+export function weightPlaceholder(unit: WeightUnit): string {
+  return unit === 'g' ? '0' : `0.${'0'.repeat(weightDecimals(unit))}`;
+}
+
 const fmtPriceValue = (value: number): string => {
   const rounded = Math.round(value);
   if (Math.abs(rounded) <= 100000) return String(rounded);
