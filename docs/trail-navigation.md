@@ -40,7 +40,17 @@ shows the running one and toasts `trail.busy`.
 - **Climb** uses 5 m hysteresis, like imports.
 - **Pause** starts a new segment, so a pause doesn't draw a straight line
   across a bus ride. Saving joins the segments into one line, and `durationMs`
-  is moving time.
+  is moving time. While paused, a pill at the top of the page shows
+  `已暂停 N 分钟` from `pausedAt` (sessions stored before it existed show just
+  `已暂停`), so a pause isn't mistaken for recording when the map fills the screen.
+- **Finish** has no confirm dialog: the summary's visible `继续记录` is the way
+  back from a mis-tap. The map stops following and frames the walked track
+  with its own start/end markers. The summary shows name (rename via ✎ or ⋯),
+  date and start–end time, distance, six stats (time, ascent, descent, avg
+  speed, max altitude, paused), the elevation profile, and `已走完全程` only
+  when `guide.arrived` fired on a route (never a percentage). `放弃` lives in ⋯,
+  except for a too-short recording, where it sits beside `继续记录`. A save
+  that reaches the server opens the track in 我的轨迹 (`nav.openTrackPage`).
 - **Storage**: the session survives a kill. AsyncStorage holds a meta key plus
   200-point chunks, and only the open chunk is rewritten. Writes are throttled
   to every 5 s and flushed when the app goes to background. On next launch the
@@ -120,12 +130,17 @@ shown agree.
 Route geometry, GPS, recording, guidance and saving all work with no network.
 
 **Android base map**:
-- The ready panel offers the AMap offline package for the route's city.
-  `matchOfflineCity` matches the catalog region, e.g. "四川 · 甘孜" →
-  甘孜藏族自治州.
+- The route card (`RoutePreviewPanel`, above 反馈这条路线) offers the AMap
+  offline package for the route's city, through `OfflineMapRow`
+  (`src/components/maps/`). `matchOfflineCity` matches the catalog region,
+  e.g. "四川 · 甘孜" → 甘孜藏族自治州.
+- It belongs to planning, while there is signal. The trail page doesn't offer
+  it: at the trailhead there is often no signal, and a whole prefecture package
+  is the wrong thing to ask for there. Komoot, AllTrails and 两步路 keep
+  downloads in planning too.
 - With live progress. Once downloaded, the AMap view uses it automatically.
-- Routes without a region (tracks, free recording) open the SDK's own offline
-  city manager.
+- Tracks and free recording have no region; 我的轨迹's more menu opens the
+  SDK's own offline city manager.
 
 **iOS base map**: still only MapKit's cache, because MapKit has no offline API.
 The way forward is the same work as a terrain layer: our own raster tiles

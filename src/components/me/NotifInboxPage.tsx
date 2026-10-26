@@ -38,7 +38,7 @@ function Glyph({ theme, item }: { theme: Theme; item: Notif }) {
         justifyContent: 'center',
       }}
     >
-      <Icon name={danger ? 'flag' : 'bell'} color={danger ? theme.danger : theme.text2} size={21} />
+      <Icon name={danger ? 'alert' : 'bell'} color={danger ? theme.danger : theme.text2} size={21} />
     </View>
   );
 }

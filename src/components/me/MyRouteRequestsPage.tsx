@@ -201,7 +201,7 @@ function RequestCard({
   const closed = request.status === "rejected" || request.status === "duplicate";
   const color =
     request.status === "pending" ? theme.accent : closed ? theme.danger : theme.text2;
-  const statusIcon = request.status === "pending" ? "clock" : closed ? "flag" : "check";
+  const statusIcon = request.status === "pending" ? "clock" : closed ? "close" : "check";
   const statusLabel = t(`routeRequest.${request.status}`);
   const photo = request.attachments?.find((a) => a.mime.startsWith("image/"))?.url;
   const hasTrack = Boolean(request.trackSnapshot);

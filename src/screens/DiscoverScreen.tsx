@@ -142,6 +142,22 @@ function provinceAt(lng: number, lat: number, geocoded?: string | null): string 
   return best;
 }
 
+// A province's bounding box is mostly empty corners, so fitting all of it
+// leaves the province small on screen. Fit the middle of the box instead; the
+// edges stay a short pan away. The national view keeps its full extent.
+const ADMIN_REGION_FIT_SCALE = 0.7;
+
+function adminRegionFit(region: string): [number, number][] | undefined {
+  const bounds = ADMIN_REGION_BOUNDS[region];
+  if (!bounds || region === '全国') return bounds;
+  const [[west, south], [east, north]] = bounds;
+  const lng = (west + east) / 2;
+  const lat = (south + north) / 2;
+  const halfLng = ((east - west) / 2) * ADMIN_REGION_FIT_SCALE;
+  const halfLat = ((north - south) / 2) * ADMIN_REGION_FIT_SCALE;
+  return [[lng - halfLng, lat - halfLat], [lng + halfLng, lat + halfLat]];
+}
+
 // Once per app launch: a remount (or a region the user picked) must not pull
 // the map back to the located province.
 let launchProvinceSettled = false;
@@ -1389,7 +1405,7 @@ function DiscoverScreenView({
     setAdminRegionPickerOpen(false);
     setAdminRegionQuery('');
     setPlaceSel(null);
-    const coordinates = ADMIN_REGION_BOUNDS[region];
+    const coordinates = adminRegionFit(region);
     if (coordinates) {
       setMapAtCurrentLocation(false);
       setMapCameraAction((current) => ({
@@ -1407,7 +1423,7 @@ function DiscoverScreenView({
   // The shared search page can change the active destination directly through
   // navigation state. Keep the map camera in sync with that selection.
   useEffect(() => {
-    const coordinates = ADMIN_REGION_BOUNDS[adminRegion];
+    const coordinates = adminRegionFit(adminRegion);
     if (!coordinates || isMemory) return;
     setMapAtCurrentLocation(false);
     setPlaceSel(null);

@@ -90,6 +90,8 @@ export interface TrailSession {
   activeMs: number;
   /** When the current run of recording began; null while paused or finished. */
   resumedAt: number | null;
+  /** When the current pause began; absent on sessions stored before it was kept. */
+  pausedAt?: number | null;
   endedAt: number | null;
   /** Each pause starts a new segment, so a bus ride between them isn't drawn as a walk. */
   segments: TrailPoint[][];
@@ -634,7 +636,7 @@ export async function startTrail(route: TrailRouteRef | null): Promise<boolean> 
 function pauseInMemory() {
   if (!session || session.status !== 'recording') return;
   const now = Date.now();
-  session = { ...session, status: 'paused', activeMs: trailMovingMs(session, now), resumedAt: null };
+  session = { ...session, status: 'paused', activeMs: trailMovingMs(session, now), resumedAt: null, pausedAt: now };
 }
 
 export async function pauseTrail() {
@@ -657,6 +659,7 @@ export async function resumeTrail(): Promise<boolean> {
     ...session,
     status: 'recording',
     resumedAt: Date.now(),
+    pausedAt: null,
     // An empty segment is reused rather than leaving a gap of nothing.
     segments: lastSegment.length ? [...session.segments, []] : session.segments,
   };
@@ -687,7 +690,7 @@ export async function finishTrail(): Promise<TrailSession | null> {
 /** Back from the summary to keep walking. */
 export async function reopenTrail(): Promise<boolean> {
   if (session?.status !== 'finished') return false;
-  session = { ...session, status: 'paused', endedAt: null };
+  session = { ...session, status: 'paused', pausedAt: session.endedAt, endedAt: null };
   emit();
   await persist();
   return resumeTrail();

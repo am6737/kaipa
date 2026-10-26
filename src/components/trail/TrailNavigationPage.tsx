@@ -15,9 +15,10 @@
 // and a pill at the top of every screen leads back here (TrailMiniBar).
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, BackHandler, Image, Linking, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Animated, BackHandler, Linking, Platform, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppActionDialog, AppProgressBar, motion, radius, space, type } from '../../design-system';
+import { platformLocationImage } from '../maps/locationImage';
+import { AppProgressBar, motion, radius, space, type } from '../../design-system';
 import { useI18n } from '../../i18n';
 import { useNav } from '../../nav/NavContext';
 import type { Theme } from '../../theme/theme';
@@ -25,7 +26,6 @@ import { useTrail, useTrailGuide, useTrailSnapshot } from '../../trail/TrailCont
 import { distanceMeters, JOURNEY_SEGMENT_COLORS, type Coordinate } from '../../lib/routeSegments';
 import { formatClock, formatPace, remainingAscent, routeMeasure, splitDistance, type RouteProgress, type TrailFix } from '../../lib/trailGeo';
 import { previewTrailVoice, setTrailVoice } from '../../lib/trailGuide';
-import { useOfflineCity } from '../../lib/offlineMaps';
 import {
   clearTrailError,
   finishTrail,
@@ -80,7 +80,6 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   const [routeFramed, setRouteFramed] = useState(false);
   const { heading: mapHeading, offNorth: mapOffNorth, onOrientation: onMapOrientation } = useMapHeading();
   const [starting, setStarting] = useState(false);
-  const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const [, setTick] = useState(0);
 
   const route = session ? session.route : trail.plannedRoute;
@@ -101,12 +100,11 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (finishConfirmOpen) setFinishConfirmOpen(false);
-      else trail.closeTrail();
+      trail.closeTrail();
       return true;
     });
     return () => subscription.remove();
-  }, [finishConfirmOpen, trail]);
+  }, [trail]);
 
   useEffect(() => {
     nav.setTabBarHidden('trail', true);
@@ -141,17 +139,25 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     return lines;
   }, [route, recordedCoords, theme.trailMine]);
 
-  const endpointMarkers = useMemo(() => (route && route.coords.length >= 2
+  // Once finished, the walk itself is what the map shows: its ends, framed whole.
+  const finishedCoords = useMemo<Coordinate[] | null>(() => {
+    if (status !== 'finished') return null;
+    const coords = recordedCoords.flat();
+    return coords.length >= 2 ? coords : null;
+  }, [status, recordedCoords]);
+  const endpointCoords = finishedCoords ?? (route && route.coords.length >= 2 ? route.coords : null);
+
+  const endpointMarkers = useMemo(() => (endpointCoords
     ? buildRouteEndpointMarkers({
       theme,
-      drawnCoords: route.coords,
-      loop: distanceMeters(route.coords[0], route.coords[route.coords.length - 1]) <= 300,
+      drawnCoords: endpointCoords,
+      loop: distanceMeters(endpointCoords[0], endpointCoords[endpointCoords.length - 1]) <= 300,
       labels: { start: t('route.direction.start'), finish: t('route.direction.finish'), action: '' },
       actionOpen: false,
       onEndpointPress: () => undefined,
       onActionPress: () => undefined,
     })
-    : NO_MARKERS), [route, t, theme]);
+    : NO_MARKERS), [endpointCoords, t, theme]);
 
   // "You are here". Android uses AMap's own location layer wearing the shared
   // marker's image: the marker itself is a snapshotted custom view there, and
@@ -197,6 +203,20 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
     setRouteFramed(false);
     mapRef.current?.moveCamera([fix.lng, fix.lat], Math.max(zoomRef.current, 14), 600, { edgePadding: cameraPadding() });
   }, [fix, following, cameraPadding]);
+
+  // Frame the finished walk once its summary has laid out, so the padding
+  // knows how tall the panel is.
+  const framedSessionId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!finishedCoords || !session || panelHeight <= 0 || framedSessionId.current === session.id) return;
+    framedSessionId.current = session.id;
+    setFollowing(false);
+    setRouteFramed(false);
+    mapRef.current?.fitCoordinates(finishedCoords, cameraPadding(), motion.emphasized * 2);
+  }, [finishedCoords, session, panelHeight, cameraPadding]);
+  useEffect(() => {
+    if (status !== 'finished') framedSessionId.current = null;
+  }, [status]);
 
   const fitRoute = () => {
     if (!route || route.coords.length < 2) return;
@@ -295,16 +315,18 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
         </View>
       )}
 
-      {/* Top: minimise only. The state sits in the panel, next to the numbers. */}
+      {/* Top: minimise, and while paused a pill saying so — the map is most of
+          the screen, and a pause mistaken for recording loses a stretch of track. */}
       <View style={{ position: 'absolute', top: insets.top + space.xs, left: space.md }}>
         <MapControl theme={theme} icon="chevronDown" onPress={trail.closeTrail} accessibilityLabel={t('trail.action.minimize')} />
       </View>
+      {status === 'paused' && session ? <PausedPill theme={theme} pausedAt={session.pausedAt ?? null} top={insets.top + space.xs} /> : null}
 
       {/* One banner at a time under the chrome; being lost outranks arriving. */}
-      {offRoute && progress ? (
+      {status === 'finished' ? null : offRoute && progress ? (
         <Banner theme={theme} icon="info" tone="danger" title={t('trail.offRoute', { distance: formatMeters(progress.offsetM) })} body={t('trail.offRouteHint')} top={topChrome + space.xs} />
       ) : arrived ? (
-        <Banner theme={theme} icon="flag" tone="accent" title={t('trail.arrived')} top={topChrome + space.xs} />
+        <Banner theme={theme} icon="check" tone="accent" title={t('trail.arrived')} top={topChrome + space.xs} />
       ) : null}
 
       {/* Map controls down the right edge, riding on top of the card. On the
@@ -380,7 +402,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           </TrailSheet>
           {status === 'paused' ? (
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: insets.bottom + space.sm, backgroundColor: theme.featureSurface }}>
-              <ControlButton theme={theme} icon="flag" label={t('trail.action.finish')} danger onPress={() => setFinishConfirmOpen(true)} />
+              <ControlButton theme={theme} icon="stop" label={t('trail.action.finish')} danger onPress={() => void finishTrail()} />
               <ControlButton theme={theme} icon="play" label={t('trail.action.resume')} primary grow={2} onPress={() => void resumeTrail()} />
             </View>
           ) : null}
@@ -403,7 +425,7 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
           }}
         >
           {status === 'finished' && session ? (
-            <TrailSummary theme={theme} session={session} />
+            <TrailSummary theme={theme} session={session} arrived={arrived} />
           ) : (
             <ReadyPanel
               theme={theme}
@@ -414,49 +436,14 @@ export function TrailNavigationPage({ theme }: { theme: Theme }) {
               error={error}
               starting={starting}
               onStart={() => void start()}
-              region={route?.region}
               gps={gps}
             />
           )}
         </View>
       )}
 
-      <AppActionDialog
-        theme={theme}
-        visible={finishConfirmOpen}
-        title={t('trail.finishConfirm.title')}
-        message={t('trail.finishConfirm.message')}
-        confirmLabel={t('trail.finishConfirm.confirm')}
-        cancelLabel={t('common.cancel')}
-        confirmIcon="flag"
-        onCancel={() => setFinishConfirmOpen(false)}
-        onConfirm={() => {
-          setFinishConfirmOpen(false);
-          void finishTrail();
-        }}
-      />
     </View>
   );
-}
-
-// The shared location marker as images for AMap's location layer, one per
-// accent preset (scripts/render-location-marker.py draws them).
-const LOCATION_IMAGES: Record<string, number> = {
-  '#0a84ff': require('../../../assets/trail/location-blue.png'),
-  '#5e5ce6': require('../../../assets/trail/location-indigo.png'),
-  '#0eafb1': require('../../../assets/trail/location-teal.png'),
-  '#2eb85c': require('../../../assets/trail/location-green.png'),
-  '#ff9500': require('../../../assets/trail/location-orange.png'),
-  '#ff375f': require('../../../assets/trail/location-pink.png'),
-  '#000000': require('../../../assets/trail/location-black.png'),
-};
-
-function platformLocationImage(accent: string): { uri: string; size: number } | undefined {
-  if (Platform.OS !== 'android') return undefined;
-  const source = Image.resolveAssetSource(LOCATION_IMAGES[accent.toLowerCase()] ?? LOCATION_IMAGES['#0a84ff']);
-  // A dev build serves it from Metro (http), a release names the drawable,
-  // an OTA update hands a file:// path; AMap's image loader takes all three.
-  return source?.uri ? { uri: source.uri, size: 52 } : undefined;
 }
 
 function formatMeters(meters: number): string {
@@ -494,6 +481,67 @@ function MapControl({ theme, icon, active, onPress, accessibilityLabel }: { them
   );
 }
 
+function pausedDuration(ms: number, t: ReturnType<typeof useI18n>['t']): string | null {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return null;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return t('trail.voice.minutes', { m });
+  return m === 0 ? t('trail.voice.hours', { h }) : t('trail.voice.hoursMinutes', { h, m });
+}
+
+// Display only: 继续 is the big button at the bottom. Counts whole minutes, so
+// it re-renders itself on a slow tick instead of driving the page's clock.
+function PausedPill({ theme, pausedAt, top }: { theme: Theme; pausedAt: number | null; top: number }) {
+  const { t } = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (pausedAt == null) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, [pausedAt]);
+
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | null = null;
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
+      if (cancelled || reduce) return;
+      loop = Animated.loop(Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ]));
+      loop.start();
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      loop?.stop();
+      pulse.setValue(1);
+    };
+  }, [pulse]);
+
+  const duration = pausedAt != null ? pausedDuration(now - pausedAt, t) : null;
+  const label = duration ? t('trail.pausedFor', { time: duration }) : t('trail.status.paused');
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', top, left: space.md + 48, right: space.md + 48, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={label}
+        accessibilityLiveRegion="polite"
+        style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingHorizontal: space.md, borderRadius: 18, backgroundColor: theme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder, boxShadow: theme.dark ? '0px 4px 12px rgba(0,0,0,0.38)' : '0px 4px 12px rgba(0,0,0,0.08)' }}
+      >
+        <Animated.View style={{ opacity: pulse }}>
+          <Icon name="pause" color={theme.text} size={14} />
+        </Animated.View>
+        <Text numberOfLines={1} style={[type.labelStrong, { color: theme.text }]}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
 function Banner({ theme, icon, tone, title, body, top }: { theme: Theme; icon: IconName; tone: 'danger' | 'accent'; title: string; body?: string; top: number }) {
   const color = tone === 'danger' ? theme.danger : theme.accent;
   return (
@@ -521,11 +569,9 @@ function ReadyPanel({
   error,
   starting,
   onStart,
-  region,
   gps,
 }: {
   theme: Theme;
-  region?: string;
   routeName?: string;
   totalM: number | null;
   ascentM: number | null;
@@ -551,9 +597,6 @@ function ReadyPanel({
         <View style={{ marginBottom: space.sm }}>
           <Text numberOfLines={2} style={[type.planTitle, { color: theme.text }]}>{routeName}</Text>
           {facts ? <Text style={[type.small, { color: theme.text2, marginTop: space.xxs, fontVariant: ['tabular-nums'] }]}>{facts}</Text> : null}
-          {/* A free walk has no destination to offer a package for, and starts
-              on the spot; the city list lives in 轨迹's more menu instead. */}
-          <OfflineMapRow theme={theme} region={region} />
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
@@ -585,64 +628,6 @@ function ReadyPanel({
       {error ? <ErrorLine theme={theme} error={error} /> : null}
     </View>
   );
-}
-
-// Android only: offers the AMap offline package for the route's city, or the
-// SDK's own city list when the route has no region (a saved track).
-function OfflineMapRow({ theme, region }: { theme: Theme; region?: string }) {
-  const { t } = useI18n();
-  const { state, download, openManager } = useOfflineCity(region);
-  if (state.status === 'unavailable') return null;
-  if (!('city' in state)) {
-    return (
-      <Press onPress={openManager} accessibilityRole="button" style={offlineRowStyle()}>
-        <Icon name="download" color={theme.text2} size={18} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[type.rowTitle, { color: theme.text }]}>{t('trail.offline.manage')}</Text>
-          <Text style={[type.meta, { color: theme.text2 }]}>{t('trail.offline.hint')}</Text>
-        </View>
-        <Icon name="chevronR" color={theme.text3} size={16} />
-      </Press>
-    );
-  }
-  const city = state.city.cityName;
-  const size = state.city.size > 0 ? `${Math.max(1, Math.round(state.city.size / 1048576))} MB` : null;
-  const done = state.status === 'downloaded';
-  const busy = state.status === 'downloading';
-  const title = done
-    ? t('trail.offline.downloaded', { city })
-    : busy
-      ? t('trail.offline.downloading', { city, progress: Math.round(state.progress) })
-      : t('trail.offline.download', { city });
-  return (
-    <Press onPress={done || busy ? openManager : () => void download()} accessibilityRole="button" accessibilityState={{ busy }} style={offlineRowStyle()}>
-      <Icon name={done ? 'check' : 'download'} color={done ? theme.accent : theme.text2} size={18} />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={1} style={[type.rowTitle, { color: theme.text }]}>{title}</Text>
-        {busy ? (
-          <View style={{ marginTop: space.xxs }}>
-            <AppProgressBar theme={theme} value={state.progress} height={3} />
-          </View>
-        ) : (
-          <Text numberOfLines={1} style={[type.meta, { color: state.status === 'failed' ? theme.danger : theme.text2 }]}>
-            {state.status === 'failed' ? t('trail.offline.failed') : done ? t('trail.offline.manage') : [size, t('trail.offline.hint')].filter(Boolean).join('  ')}
-          </Text>
-        )}
-      </View>
-      {done || busy ? <Icon name="chevronR" color={theme.text3} size={16} /> : null}
-    </Press>
-  );
-}
-
-// An open row like the settings under it: no box, no rules.
-function offlineRowStyle() {
-  return {
-    minHeight: 56,
-    paddingVertical: space.xs,
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    gap: space.sm,
-  };
 }
 
 function ErrorLine({ theme, error }: { theme: Theme; error: 'permission' | 'services_disabled' | 'unavailable' }) {
@@ -756,7 +741,7 @@ function LiveSheetBody({
               : <AppProgressBar theme={theme} value={routeFraction * 100} />}
             {waypoint ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm }}>
-                <Icon name="flag" color={theme.text2} size={15} />
+                <Icon name="pin" color={theme.text2} size={15} />
                 <Text numberOfLines={1} style={[type.small, { color: theme.text, flexShrink: 1, fontWeight: '600' }]}>{t('trail.nextWaypoint', { name: waypoint.name })}</Text>
                 <Text style={[type.small, { color: theme.text2, fontVariant: ['tabular-nums'] }]}>{t('trail.nextWaypointAhead', { distance: formatMeters(waypoint.aheadM) })}</Text>
               </View>
@@ -784,7 +769,6 @@ function LiveSheetBody({
           />
         </SettingRow>
       ) : null}
-      {route ? <OfflineMapRow theme={theme} region={route.region} /> : null}
       <View style={{ height: footerHeight }} />
     </View>
   );

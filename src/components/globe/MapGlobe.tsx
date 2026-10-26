@@ -4,7 +4,7 @@ import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPo
 import { isValidMapCoordinate, keepValidCoordinates, type MapCoordinate } from '../maps/types';
 import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
-import { CurrentLocationMarker } from './CurrentLocationMarker';
+import { platformLocationImage } from '../maps/locationImage';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
 import type { GlobePoi, GlobeProps } from './types';
@@ -592,19 +592,6 @@ export default function MapGlobe({
     const values: NativeMapMarker[] = [];
     values.push(...distanceMarkers);
 
-    // AMap's built-in location indicator does not match the iOS/ fallback
-    // presentation. Render the shared marker on Android instead. Include the
-    // heading in the id because Android caches marker content by cacheKey.
-    if (Platform.OS === 'android' && pin && isValidMapCoordinate([pin.lng, pin.lat])) {
-      const headingKey = Number.isFinite(pin.heading) ? Math.round(pin.heading as number) : 'none';
-      values.push({
-        id: `current-location-${headingKey}`,
-        coordinate: [pin.lng, pin.lat],
-        anchor: { x: 0.5, y: 0.5 },
-        content: <CurrentLocationMarker theme={theme} heading={pin.heading} />,
-      });
-    }
-
     validJourneyStops?.forEach((stop) => {
       values.push({
         // Android caches marker content by id, so the number has to live in it.
@@ -685,7 +672,7 @@ export default function MapGlobe({
       }
     }
     return values;
-  }, [distanceMarkers, extraMarkers, pin, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
+  }, [distanceMarkers, extraMarkers, theme, trackEndpointsVisible, validFocusCoords, validFocusSegments, validJourneyDayLabels, validJourneyStops]);
 
   // Concatenated rather than spread into one array so that the common case
   // (nothing overlaid) hands NativeMap the very same array instance it already
@@ -697,6 +684,7 @@ export default function MapGlobe({
   );
 
   const requestedCenter: [number, number] = [center?.lon ?? 100, center?.lat ?? 32];
+  const locationImage = useMemo(() => platformLocationImage(theme.accent), [theme.accent]);
   const initialCenter: [number, number] = isValidMapCoordinate(requestedCenter) ? requestedCenter : [100, 32];
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.fieldSurface }]}>
@@ -710,6 +698,11 @@ export default function MapGlobe({
         mapStyle={mapStyle}
         showLabels={showMapLabels}
         showUserLocation={!!pin}
+        // Android draws "you are here" with AMap's own location layer, wearing
+        // the shared marker's image: a custom marker is a view snapshot, and
+        // that snapshot does not reliably appear.
+        platformLocationIndicator={Platform.OS === 'android' && !!pin}
+        platformLocationImage={locationImage}
         followUserLocation={followUserLocation}
         markers={markers}
         polylines={polylines}

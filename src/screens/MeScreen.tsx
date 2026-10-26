@@ -1778,6 +1778,12 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
     setStack([{ type: "membership" }]);
     nav.clearMembershipPageRequest();
   }, [nav.membershipPageRequest]);
+  useEffect(() => {
+    if (!nav.trackPageRequest) return;
+    // Under the library, so 返回 lands on 我的轨迹 rather than the root.
+    setStack([{ type: "tracks" }, { type: "trackDetail", trackId: nav.trackPageRequest }]);
+    nav.clearTrackPageRequest();
+  }, [nav.trackPageRequest]);
   const [appearancePopup, setAppearancePopup] =
     useState<AppearancePopup | null>(null);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
@@ -2343,7 +2349,7 @@ function MeScreenView({ theme: baseTheme }: { theme: Theme }) {
   const drawerItems: MeDrawerItem[] = [
     { key: "account", icon: "userCircle", label: t("account.security.pageTitle"), go: () => push({ type: "accountSecurity" }) },
     { key: "planning", icon: "user", label: t("planningProfile.title"), go: () => push({ type: "planningProfile" }) },
-    { key: "requests", icon: "flag", label: t("routeRequest.drawerTitle"), go: () => push({ type: "routeRequests" }) },
+    { key: "requests", icon: "route", label: t("routeRequest.drawerTitle"), go: () => push({ type: "routeRequests" }) },
     { key: "trash", icon: "trash", label: t("journeyHome.trash.title"), go: () => push({ type: "trash" }) },
     { key: "notif", icon: "bell", label: t("me.notifications"), value: notif.push ? t("common.on") : t("common.off"), go: () => push({ type: "notif" }) },
     { key: "theme", icon: mode === "dark" ? "moon" : mode === "light" ? "sun" : "system", label: t("me.theme"), value: modeLabel, go: () => push({ type: "picker", picker: "theme" }) },

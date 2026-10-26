@@ -40,7 +40,7 @@ function statusColor(theme: Theme, status: Status) {
 function GuideCard({ theme, guide, route, onPress }: { theme: Theme; guide: MyRouteGuide; route?: Poi; onPress: () => void }) {
   const photo = route?.photoUris?.[0];
   const color = statusColor(theme, guide.status);
-  const statusIcon = guide.status === 'rejected' ? 'flag' : guide.status === 'pending' ? 'clock' : 'check';
+  const statusIcon = guide.status === 'rejected' ? 'close' : guide.status === 'pending' ? 'clock' : 'check';
   return (
     <Press onPress={onPress} accessibilityRole="button" style={{ borderRadius: radius.feature }}>
       <AppCard theme={theme} radius={radius.feature} style={[styles.card, { backgroundColor: theme.fieldSurface }]}>

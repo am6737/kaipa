@@ -169,7 +169,7 @@ export function DiscoverRouteCard({ theme, poi, onPress, onFeedback, feedbackLab
           accessibilityLabel={feedbackLabel}
           style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, marginTop: space.sm, paddingTop: space.sm, paddingBottom: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.fieldBorder }}
         >
-          <Icon name="flag" color={theme.accent} size={14} />
+          <Icon name="message" color={theme.accent} size={14} />
           <Text style={{ fontSize: 12, fontWeight: '400', color: theme.accent }}>{feedbackLabel}</Text>
         </Press>
       ) : null}

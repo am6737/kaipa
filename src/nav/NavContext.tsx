@@ -146,6 +146,10 @@ export interface NavValue {
   membershipPageRequest: boolean;
   openMembershipPage: () => void;
   clearMembershipPageRequest: () => void;
+  /** Set when another layer asks 我的 to show one library track, e.g. one just saved. */
+  trackPageRequest: string | null;
+  openTrackPage: (trackId: string) => void;
+  clearTrackPageRequest: () => void;
 
   elevFull: OverlayCfg | null;
   openElevation: (c: OverlayCfg) => void;
@@ -286,6 +290,7 @@ export function NavProvider({
   const [routeTopic, setRouteTopic] = useState<RouteTopic | null>(null);
   const [plusPosterOpen, setPlusPosterOpen] = useState(false);
   const [membershipPageRequest, setMembershipPageRequest] = useState(false);
+  const [trackPageRequest, setTrackPageRequest] = useState<string | null>(null);
   const [elevFull, setElevFull] = useState<OverlayCfg | null>(null);
   const [photoWall, setPhotoWall] = useState<(OverlayCfg & { mode?: string }) | null>(null);
   const [timelineAdd, setTimelineAdd] = useState<{ poi: Poi; day?: string; editRow?: TLRow; groups?: string[] } | null>(null);
@@ -563,6 +568,12 @@ export function NavProvider({
         setMainTab('me');
       },
       clearMembershipPageRequest: () => setMembershipPageRequest(false),
+      trackPageRequest,
+      openTrackPage: (trackId) => {
+        setTrackPageRequest(trackId);
+        setMainTab('me');
+      },
+      clearTrackPageRequest: () => setTrackPageRequest(null),
       elevFull,
       openElevation: (c) => setElevFull(c),
       closeElevation: () => setElevFull(null),
@@ -707,6 +718,7 @@ export function NavProvider({
       routeTopic,
       plusPosterOpen,
       membershipPageRequest,
+      trackPageRequest,
       elevFull,
       photoWall,
       timelineAdd,

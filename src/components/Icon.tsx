@@ -53,9 +53,11 @@ export type IconName =
   | 'starFill'
   | 'eye'
   | 'eyeOff'
-  | 'flag'
+  | 'message'
+  | 'alert'
   | 'play'
   | 'pause'
+  | 'stop'
   | 'people'
   | 'globe'
   | 'link'
@@ -486,12 +488,6 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Path d="M9.5 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.6M6.5 7.6A16 16 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 3-.5" {...common} />
         </Svg>
       );
-    case 'flag':
-      return (
-        <Svg width={s} height={s} viewBox="0 0 24 24">
-          <Path d="M6 21V4M6 5h11l-2 3 2 3H6" {...common} />
-        </Svg>
-      );
     case 'play':
       return (
         <Svg width={s} height={s} viewBox="0 0 24 24">
@@ -503,6 +499,12 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
         <Svg width={s} height={s} viewBox="0 0 24 24">
           <Rect x="6" y="4" width="4" height="16" rx="1" fill={color} stroke="none" />
           <Rect x="14" y="4" width="4" height="16" rx="1" fill={color} stroke="none" />
+        </Svg>
+      );
+    case 'stop':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Rect x="5.5" y="5.5" width="13" height="13" rx="2.5" fill={color} stroke="none" />
         </Svg>
       );
     case 'link':
@@ -545,6 +547,22 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
       return (
         <Svg width={s} height={s} viewBox="0 0 1024 1024">
           <Path d="M512 896a32 32 0 1 1 0 64 32 32 0 0 1 0-64z m138.56 9.6a32 32 0 1 1-61.76 16.512 32 32 0 0 1 61.824-16.576z m-237.952-22.656a32 32 0 1 1-16.512 61.76 32 32 0 0 1 16.512-61.76zM320 844.544a32 32 0 1 1-32 55.424 32 32 0 0 1 32-55.424z m384 0a32 32 0 1 1 32 55.424 32 32 0 0 1-32-55.36z m-508.8-61.056a32 32 0 1 1 45.248 45.248 32 32 0 0 1-45.248-45.248z m633.6 0a32 32 0 1 1-45.312 45.312 32 32 0 0 1 45.312-45.248zM512 192a320 320 0 1 1 0 640A320 320 0 0 1 512 192z m0 64a256 256 0 1 0 0 512 256 256 0 0 0 0-512z m332.544 448a32 32 0 1 1 55.424 32 32 32 0 0 1-55.424-32zM179.456 704a32 32 0 1 1-55.424 32 32 32 0 0 1 55.424-32zM512 352a160 160 0 1 1 0 320 160 160 0 0 1 0-320zM101.888 588.8a32 32 0 1 1 16.576 61.76 32 32 0 0 1-16.64-61.824z m820.224 0a32 32 0 1 1-16.64 61.76 32 32 0 0 1 16.64-61.824zM512 416a96 96 0 1 0 0 192 96 96 0 0 0 0-192z m416 64a32 32 0 1 1 0 64 32 32 0 0 1 0-64z m-832 0a32 32 0 1 1 0 64 32 32 0 0 1 0-64z m809.536-106.56a32 32 0 1 1 16.576 61.824 32 32 0 0 1-16.64-61.824z m-787.072 0a32 32 0 1 1-16.64 61.824 32 32 0 0 1 16.64-61.824zM124.032 288a32 32 0 1 1 55.424 32 32 32 0 0 1-55.424-32z m775.936 0a32 32 0 1 1-55.424 32 32 32 0 0 1 55.424-32zM240.448 195.2a32 32 0 1 1-45.248 45.312 32 32 0 0 1 45.248-45.248z m543.104 0a32 32 0 1 1 45.248 45.248 32 32 0 0 1-45.248-45.248zM288 124.032a32 32 0 1 1 32 55.424 32 32 0 0 1-32-55.424z m448 0a32 32 0 1 1-32 55.424 32 32 0 0 1 32-55.424z m-300.8-22.144a32 32 0 1 1-61.76 16.64 32 32 0 0 1 61.824-16.64z m192.768-22.592a32 32 0 1 1-16.64 61.76 32 32 0 0 1 16.64-61.76zM512 64a32 32 0 1 1 0 64 32 32 0 0 1 0-64z" fill={color} />
+        </Svg>
+      );
+    case 'message':
+      // speech bubble — feedback / 反馈
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-7.5L7 21v-3.5H5A1.5 1.5 0 0 1 3.5 16V7A1.5 1.5 0 0 1 5 5.5Z" {...common} />
+          <Path d="M8 10.5h8M8 13.5h5" {...common} />
+        </Svg>
+      );
+    case 'alert':
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={12} cy={12} r={9} {...common} />
+          <Path d="M12 7.6v5" {...common} />
+          <Path d="M12 16.2h.01" {...common} />
         </Svg>
       );
     case 'info':

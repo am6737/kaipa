@@ -12,6 +12,7 @@ import { useNav } from '../../nav/NavContext';
 import { Icon, IconName } from '../Icon';
 import { PhotoTile } from '../PhotoTile';
 import { Press } from '../Press';
+import { OfflineMapRow } from '../maps/OfflineMapRow';
 import { RoutePhotoCarousel } from './RoutePhotoCarousel';
 import { RouteGuideRow, RouteGuideSectionHeader, RouteWeatherCard } from './RouteGuideContent';
 import { routeGuideCopy } from './routeGuideCopy';
@@ -90,6 +91,10 @@ export function RoutePreviewPanel({ theme, poi, onClose, onShare, showActions = 
       <View style={{ marginTop: space.xxxl }}>
         <RouteGuideSectionHeader theme={theme} title={c.guides} tight action={c.allGuides} onAction={() => nav.openRouteGuide({ route, view: 'guides', reversed })} />
         {guidesLoading || officialLoading ? <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.text2 }}>…</Text></View> : guideEntries.length ? guideEntries.slice(0, 2).map((entry) => <RouteGuideRow key={entry.id} theme={theme} guide={entry.kind === 'community' ? entry.guide : undefined} officialTitle={entry.kind === 'official' ? entry.plan.payload.name : undefined} compact onPress={() => nav.openRouteGuide({ route, view: 'guide', reversed, ...(entry.kind === 'official' ? { planId: entry.plan.id } : { guideId: entry.guide.id }) })} />) : <View style={{ minHeight: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.md }}><Text style={{ color: theme.text2, textAlign: 'center' }}>{c.noGuides}</Text></View>}
+      </View>
+      {/* Downloaded while planning, with signal; the trail page doesn't ask at the trailhead. */}
+      <View style={{ marginTop: space.xl }}>
+        <OfflineMapRow theme={theme} region={route.region} />
       </View>
       {showActions ? <RoutePreviewActions theme={theme} poi={route} style={{ marginTop: space.xl }} onPlanRoute={onPlanRoute} onNavigate={onNavigate} navigationActive={navigationActive} /> : null}
       {onFeedback ? (
