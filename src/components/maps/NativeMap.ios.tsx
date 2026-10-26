@@ -135,30 +135,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   const orientationReadAt = useRef(0);
   const orientationSent = useRef({ heading: 0, pitch: 0 });
 
-  // TEMP(camera-reset): dev-only trace of every camera command and settle, to
-  // find what levels the map after a two-finger tilt. Remove once found.
-  const traceCamera = (label: string, withStack = true) => {
-    if (!__DEV__) return;
-    void mapRef.current?.getCamera().then((camera) => {
-      console.log(`[map-trace] ${label} heading=${(camera.heading ?? 0).toFixed(1)} pitch=${(camera.pitch ?? 0).toFixed(1)}`
-        + (withStack ? `\n${new Error().stack?.split('\n').slice(2, 10).join('\n')}` : ''));
-    });
-  };
-
-  // TEMP(camera-reset): log which native-facing props change between renders.
-  const tracedProps = useRef<Record<string, unknown> | null>(null);
-  if (__DEV__) {
-    const next: Record<string, unknown> = {
-      center: initialCenter?.join(','), zoom: initialZoom, mapStyle, showLabels, interactive, showUserLocation, followUserLocation,
-    };
-    const prev = tracedProps.current;
-    if (prev) {
-      const changed = Object.keys(next).filter((key) => prev[key] !== next[key]);
-      if (changed.length) console.log(`[map-trace] props changed: ${changed.map((key) => `${key} ${String(prev[key])}→${String(next[key])}`).join(', ')}`);
-    }
-    tracedProps.current = next;
-  }
-
   const markProgrammaticMove = (duration: number) => {
     programmaticUntil.current = Date.now() + duration + 180;
     programmaticStartedAt.current = Date.now();
@@ -214,14 +190,12 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
   useImperativeHandle(ref, () => ({
     fitCoordinates: (coordinates, edgePadding, duration = 600) => {
       if (!coordinates.length) return;
-      traceCamera('fitCoordinates');
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
         mapRef.current?.fitToCoordinates(projectTrack(fitBoundsCorners(coordinates)), { edgePadding: padding(edgePadding), animated: duration > 0 });
       });
     },
     moveCamera: (coordinate, zoom = 11, duration = 500, options) => {
-      traceCamera(`moveCamera reset=${!!options?.resetOrientation}`);
       markProgrammaticMove(duration);
       runWhenMapIsUsable(() => {
         const target = offsetCenter(coordinate, zoom, options?.edgePadding, layoutSize.current);
@@ -250,7 +224,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       });
     },
     resetNorth: () => {
-      traceCamera('resetNorth');
       markProgrammaticMove(360);
       runWhenMapIsUsable(() => {
         void mapRef.current?.getCamera().then((camera) => {
@@ -285,7 +258,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       rotateEnabled={interactive}
       pitchEnabled={interactive}
       onMapReady={() => {
-        if (__DEV__) console.log('[map-trace] mapReady (a second one means the map was remounted)');
         mapReady.current = true;
         if (!fitted.current && initialFitCoordinates?.length) {
           fitted.current = true;
@@ -318,8 +290,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
       onRegionChange={(visibleRegion) => {
         if (visibleRegion.longitudeDelta > 0) onZoomChange?.(visibleZoom(visibleRegion.longitudeDelta));
         reportOrientation();
-        // TEMP(camera-reset): heading frame by frame, to see a spring vs a jump.
-        if (__DEV__) void mapRef.current?.getCamera().then((camera) => console.log(`[map-trace] move t=${Date.now() % 100000} heading=${(camera.heading ?? 0).toFixed(1)} pitch=${(camera.pitch ?? 0).toFixed(1)} zoom=${zoomForSpan(visibleRegion.longitudeDelta, layoutSize.current).toFixed(1)}`));
       }}
       onRegionChangeComplete={(visibleRegion) => {
         if (visibleRegion.longitudeDelta > 0) {
@@ -339,7 +309,6 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
         const counted = pendingProgrammaticCompletions.current > 0
           && Date.now() - programmaticStartedAt.current < 4000;
         if (counted) pendingProgrammaticCompletions.current -= 1;
-        traceCamera(`regionChangeComplete counted=${counted} zoom=${zoomForSpan(visibleRegion.longitudeDelta, layoutSize.current).toFixed(1)}`, false);
         if (!counted && !followUserLocation && Date.now() > programmaticUntil.current) onGestureStart?.();
         reportOrientation(true);
       }}
