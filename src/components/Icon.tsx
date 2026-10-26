@@ -70,7 +70,8 @@ export type IconName =
   | 'grip'
   | 'volume'
   | 'volumeOff'
-  | 'record';
+  | 'record'
+  | 'journey';
 
 interface Props {
   name: IconName;
@@ -398,6 +399,15 @@ export function Icon({ name, color = '#000', size = 22, strokeWidth = 1.8, fill 
           <Circle cx={12} cy={12} r={9} {...common} />
           <Circle cx={12} cy={10} r={2.8} {...common} />
           <Path d="M6.6 17.9c1-1.9 3-3.1 5.4-3.1s4.4 1.2 5.4 3.1" {...common} />
+        </Svg>
+      );
+    case 'journey':
+      // Start and end dots joined by a switchback trail — the 旅程 tab mark.
+      return (
+        <Svg width={s} height={s} viewBox="0 0 24 24">
+          <Circle cx={5.5} cy={5} r={2} {...common} />
+          <Circle cx={18.5} cy={19} r={2} {...common} />
+          <Path d="M8 5h7a3.5 3.5 0 0 1 0 7H9a3.5 3.5 0 0 0 0 7h7" {...common} fill="none" />
         </Svg>
       );
     case 'route':

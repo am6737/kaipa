@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space } from '../design-system';
 import { Theme } from '../theme/theme';
 import { Press } from './Press';
+import { Icon, IconName } from './Icon';
 import { useNav, MainTab } from '../nav/NavContext';
 import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
@@ -14,9 +15,16 @@ import { useTrail, useTrailSnapshot } from '../trail/TrailContext';
 // whichever tab is showing, ready for a free walk or the running recording.
 type TabEntry = MainTab | 'record';
 const TABS: TabEntry[] = ['discover', 'journey', 'record', 'me'];
+const TAB_ICONS: Record<TabEntry, IconName> = {
+  discover: 'compass',
+  journey: 'journey',
+  record: 'record',
+  gear: 'bag',
+  me: 'user',
+};
 
 /** Height of the floating tab bar; screens that dock content above it read this. */
-export const BOTTOM_TABS_HEIGHT = 52;
+export const BOTTOM_TABS_HEIGHT = 62;
 
 export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: boolean }) {
   const nav = useNav();
@@ -44,12 +52,37 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
         backgroundColor: '#242426',
         borderColor: 'rgba(255,255,255,0.10)',
         boxShadow: '0px 6px 16px rgba(0,0,0,0.30), 0px 1px 4px rgba(0,0,0,0.16)',
+        activeFill: 'rgba(255,255,255,0.10)',
       }
     : {
         backgroundColor: '#FCFCFA',
         borderColor: 'rgba(255,255,255,0.98)',
         boxShadow: '0px 7px 18px rgba(34,34,28,0.08), 0px 1px 5px rgba(34,34,28,0.03)',
+        activeFill: 'rgba(34,34,28,0.06)',
       };
+
+  const { activeFill, ...barStyle } = barSurface;
+
+  // Icon over label, the selected tab sitting on a soft pill.
+  const renderContent = (tab: TabEntry, active: boolean, badgeColor?: string) => {
+    const color = active ? theme.text : theme.text3;
+    return (
+      <View style={[styles.tabInner, active && { backgroundColor: activeFill }]}>
+        <View>
+          <Icon name={TAB_ICONS[tab]} size={23} color={color} strokeWidth={active ? 2.1 : 1.8} />
+          {badgeColor ? <View style={[styles.badge, { backgroundColor: badgeColor, borderColor: theme.controlSurface }]} /> : null}
+        </View>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+          style={[styles.label, { color, fontWeight: active ? '700' : '600' }]}
+        >
+          {t(`tabs.${tab}`)}
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <Animated.View
@@ -64,7 +97,7 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
       ]}
     >
       <View style={styles.row}>
-        <View style={[styles.bar, barSurface]}>
+        <View style={[styles.bar, barStyle]}>
           {TABS.map((tab) => {
             if (tab === 'record') {
               return (
@@ -75,15 +108,7 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
                   onPress={() => trail.openTrail()}
                   style={styles.tab}
                 >
-                  <Text
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.82}
-                    style={[styles.label, { color: session ? theme.text : theme.text3, fontWeight: session ? '700' : '600' }]}
-                  >
-                    {t('tabs.record')}
-                  </Text>
-                  {session ? <View style={[styles.badge, { backgroundColor: session.status === 'recording' ? theme.trailMine : theme.text3, borderColor: theme.controlSurface }]} /> : null}
+                  {renderContent(tab, false, session ? (session.status === 'recording' ? theme.trailMine : theme.text3) : undefined)}
                 </Press>
               );
             }
@@ -103,15 +128,7 @@ export function BottomTabs({ theme, hidden = false }: { theme: Theme; hidden?: b
                 }}
                 style={styles.tab}
               >
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                  style={[styles.label, { color: active ? theme.text : theme.text3, fontWeight: active ? '700' : '600' }]}
-                >
-                  {t(`tabs.${tab}`)}
-                </Text>
-                {tab === 'me' && unread > 0 ? <View style={[styles.badge, { backgroundColor: theme.danger, borderColor: theme.controlSurface }]} /> : null}
+                {renderContent(tab, active, tab === 'me' && unread > 0 ? theme.danger : undefined)}
               </Press>
             );
           })}
@@ -133,37 +150,41 @@ const styles = StyleSheet.create({
   bar: {
     flexGrow: 0,
     flexShrink: 1,
-    flexBasis: 290,
+    flexBasis: 340,
     height: BOTTOM_TABS_HEIGHT,
     flexDirection: 'row',
-    paddingVertical: space.xxs,
-    paddingHorizontal: space.sm,
+    padding: space.xxs,
     borderRadius: radius.pill,
     borderWidth: 1.5,
   },
   row: {
     width: '100%',
-    paddingHorizontal: space.xxxl,
+    paddingHorizontal: space.xl,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   tab: {
     flex: 1,
+  },
+  tabInner: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: space.xxs,
     borderRadius: radius.pill,
   },
   label: {
     maxWidth: '100%',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 11.5,
+    lineHeight: 14,
     letterSpacing: 0,
   },
   badge: {
     position: 'absolute',
-    right: 8,
-    top: 9,
+    right: -3,
+    top: -1,
     width: 7,
     height: 7,
     borderRadius: radius.pill,
