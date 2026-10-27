@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, Animated, Easing, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { NativeMap, type NativeMapHandle, type NativeMapMarker, type NativeMapPolyline } from '../maps/NativeMap';
-import { isValidMapCoordinate, keepValidCoordinates, type MapCoordinate } from '../maps/types';
+import { isValidMapCoordinate, keepValidCoordinates, withColorAlpha, type MapCoordinate } from '../maps/types';
 import { simplifyTrack, trackSpanOnScreen, trackWorldSpan, zoomToFitSpan } from '../maps/extent';
 import { PhotoPin, PHOTO_PIN_ANCHOR_Y, PHOTO_PIN_HEIGHT, PHOTO_PIN_WIDTH, PHOTO_SIZE, photoPinScaleForZoom } from './PhotoPin';
-import { systemLocationImage } from '../maps/locationImage';
+import { platformLocationImage } from '../maps/locationImage';
 import { pickPinUnderPress } from '../../lib/pinOverlap';
 import { useCompassHeading } from '../../lib/compassHeading';
 import { STAGGER_MAX_DELAY_MS, STAGGER_STEP_MS } from '../StaggerIn';
@@ -678,8 +678,8 @@ export default function MapGlobe({
   const showsLocationMarker = Platform.OS === 'android' && pinLng != null && pinLat != null && isValidMapCoordinate([pinLng, pinLat]);
   const compassHeading = useCompassHeading(showsLocationMarker);
   const hasHeading = compassHeading != null;
-  // The same dot iOS draws (MapKit's), not the app's accent marker.
-  const locationImage = useMemo(() => systemLocationImage(hasHeading), [hasHeading]);
+  // The app's accent marker, the same one the trail page draws.
+  const locationImage = useMemo(() => platformLocationImage(theme.accent, hasHeading), [theme.accent, hasHeading]);
   const locationMarker = useMemo<NativeMapMarker | null>(() => (
     showsLocationMarker && locationImage
       ? {
@@ -694,13 +694,13 @@ export default function MapGlobe({
       }
       : null
   ), [showsLocationMarker, locationImage, pinLng, pinLat, compassHeading]);
-  // MapKit's accuracy halo: system blue, faint, the fix's radius in metres.
+  // A faint accuracy halo in the marker's accent, the fix's radius in metres.
   const pinAccuracy = pin?.accuracy;
   const accuracyCircle = useMemo(() => (
     showsLocationMarker && pinAccuracy != null && pinAccuracy > 0
-      ? { coordinate: [pinLng!, pinLat!] as [number, number], radius: pinAccuracy, fillColor: 'rgba(0,122,255,0.12)', strokeColor: 'rgba(0,122,255,0.28)' }
+      ? { coordinate: [pinLng!, pinLat!] as [number, number], radius: pinAccuracy, fillColor: withColorAlpha(theme.accent, 0.12), strokeColor: withColorAlpha(theme.accent, 0.28) }
       : undefined
-  ), [showsLocationMarker, pinLng, pinLat, pinAccuracy]);
+  ), [showsLocationMarker, pinLng, pinLat, pinAccuracy, theme.accent]);
   const markers = useMemo(
     () => (overlayMarkers.length || locationMarker
       ? [...poiMarkers, ...overlayMarkers, ...(locationMarker ? [locationMarker] : [])]

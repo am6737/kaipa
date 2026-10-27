@@ -53,7 +53,9 @@ export function ProfileOverview({ theme, tiles, gear, yearDistance }: {
               accessibilityLabel={`${tile.label} ${tile.count}`}
               scaleTo={0.98}
               style={{
-                width: '48.5%',
+                // 固定 48.5% 宽度加 10 的间距，在 360dp 宽的安卓机上放不下两张，会掉成一列；
+                // 改成小基准宽度再均分剩余空间，任何屏宽都稳定两列。
+                flexBasis: '40%',
                 flexGrow: 1,
                 minHeight: 96,
                 paddingTop: space.sm,
