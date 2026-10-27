@@ -309,17 +309,8 @@ export function splitDistance(meters: number | null | undefined): { value: strin
   return { value: (meters / 1000).toFixed(meters < 100_000 ? 2 : 1), unit: 'km' };
 }
 
+/** Moving time: `mm:ss`, then `h:mm:ss` once there is an hour. */
 export function formatClock(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-}
-
-/** formatClock without the hour until there is one: `mm:ss`, then `h:mm:ss`. For tight spots like the 记录 tab. */
-export function formatShortClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);

@@ -114,32 +114,8 @@ export function AppActionDialog({
           <Text style={[type.pageTitle, { color: theme.text, lineHeight: 31 }]}>{title}</Text>
           <Text style={[type.body, { marginTop: space.sm, color: theme.text2, lineHeight: 22 }]}>{message}</Text>
 
-          <View style={{ marginTop: space.xl, gap: space.sm }}>
-            <Press
-              accessibilityRole="button"
-              accessibilityLabel={confirmLabel}
-              accessibilityState={{ busy: confirming, disabled: confirming }}
-              onPress={confirming ? undefined : onConfirm}
-              opacityTo={1}
-              style={{
-                height: 52,
-                borderRadius: radius.card,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: space.xs,
-                backgroundColor: confirmColor,
-              }}
-            >
-              {confirming ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  {confirmIcon ? <Icon name={confirmIcon} color="#FFFFFF" size={18} strokeWidth={2.1} /> : null}
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
-                </>
-              )}
-            </Press>
+          {/* One row, cancel first and the action on the right, as in the rename dialog. Labels shrink rather than wrap. */}
+          <View style={{ marginTop: space.xl, flexDirection: 'row', gap: space.sm }}>
             <Press
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
@@ -147,7 +123,9 @@ export function AppActionDialog({
               onPress={confirming ? undefined : onCancel}
               opacityTo={1}
               style={{
+                flex: 1,
                 height: 50,
+                paddingHorizontal: space.sm,
                 borderRadius: radius.card,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -156,7 +134,34 @@ export function AppActionDialog({
                 borderColor: theme.fieldBorder,
               }}
             >
-              <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{cancelLabel}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{cancelLabel}</Text>
+            </Press>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={confirmLabel}
+              accessibilityState={{ busy: confirming, disabled: confirming }}
+              onPress={confirming ? undefined : onConfirm}
+              opacityTo={1}
+              style={{
+                flex: 1,
+                height: 50,
+                paddingHorizontal: space.sm,
+                borderRadius: radius.card,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: space.xxs + 2,
+                backgroundColor: confirmColor,
+              }}
+            >
+              {confirming ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  {confirmIcon ? <Icon name={confirmIcon} color="#FFFFFF" size={17} strokeWidth={2.1} /> : null}
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ flexShrink: 1, fontSize: 15.5, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
+                </>
+              )}
             </Press>
           </View>
         </Animated.View>

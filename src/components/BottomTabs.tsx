@@ -10,7 +10,7 @@ import { countRender, markTabTap } from '../lib/tabSwitchProbe';
 import { useI18n } from '../i18n';
 import { useNotifCenter } from '../data/notifications';
 import { useTrail, useTrailSnapshot } from '../trail/TrailContext';
-import { formatShortClock } from '../lib/trailGeo';
+import { formatClock } from '../lib/trailGeo';
 import { trailMovingMs } from '../lib/trailRecorder';
 
 // 记录 is an action rather than a screen: it opens the 徒步导航 page over
@@ -201,7 +201,7 @@ function RecordClock({ theme }: { theme: Theme }) {
       minimumFontScale={0.82}
       style={[styles.label, styles.clock, { color: recording ? theme.trailMine : theme.text3 }]}
     >
-      {formatShortClock(trailMovingMs(session))}
+      {formatClock(trailMovingMs(session))}
     </Text>
   );
 }

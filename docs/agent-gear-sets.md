@@ -39,3 +39,26 @@ their own intent and write.
   It sends a hidden prompt carrying the set ID.
 - The assistant shows a result card (“已加入 N 件装备，其中 M 件待购”) that opens the
   sets page.
+
+## Adding to the library by naming gear
+
+The gear page's “AI 创建装备” opens a new conversation with “添加装备：” typed in,
+not a questionnaire. Users list gear they already own (“添加装备：黑钻头灯、2L水袋”,
+“帮我加一下始祖鸟冲锋衣、火枫炉头”), and every named item is saved without
+follow-up questions (2026-10-27).
+
+- Routing: with no current journey, adding one or more concrete items is
+  `gear_add` even without the word 装备; with a journey open it still clarifies.
+  The interpreter is told the same, because `applyIntent` can only narrow its writes.
+- `add_gear` skips an item whose name is already in the library (ignoring case
+  and spaces) and returns `existing: true`. That still counts as a receipt, so an
+  all-duplicate request completes instead of reporting partial work. The result
+  card lists only items actually added. `add_gear` has no undo.
+- Speed: the user's categories are put in the task input, so the agent skips
+  `list_gear`; a task whose only write is `add_gear` runs execution on the flash
+  model. A turn went from about 56 s to about 32 s (median, 19 scenarios). What
+  remains is the topic rail, routing and interpretation (~16 s) plus the
+  write and reply rounds.
+- Live evaluation: `node scripts/evaluate-agent-gear.mjs` (19 scenarios:
+  list formats, units, quantities, English, duplicates, a same-thread follow-up,
+  and no-write cases).

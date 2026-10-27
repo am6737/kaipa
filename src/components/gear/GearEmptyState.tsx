@@ -5,7 +5,6 @@ import { radius, space, type } from '../../design-system';
 import { Icon } from '../Icon';
 import type { IconName } from '../Icon';
 import { Press } from '../Press';
-import { AssistantMark } from '../assistant/AssistantMark';
 
 export function GearEmptyState({
   theme,
@@ -63,9 +62,7 @@ export function GearEmptyState({
             backgroundColor: actionIcon === 'send' ? theme.accent : theme.controlSurface,
           }}
         >
-          {actionIcon === 'send' ? (
-            <AssistantMark color="#FFFFFF" accentColor="#FFFFFF" size={22} />
-          ) : (
+          {actionIcon === 'send' ? null : (
             <Icon name={actionIcon} color={theme.text2} size={15} strokeWidth={2.1} />
           )}
           <Text style={{ fontSize: 13, fontWeight: '700', color: actionIcon === 'send' ? '#FFFFFF' : theme.text }}>{actionLabel}</Text>

@@ -13,10 +13,12 @@ import { Icon } from '../Icon';
 const PAD = 10;
 const MAX_POINTS = 140;
 
-export const TrackThumbnail = React.memo(function TrackThumbnail({ theme, coords, size = 84 }: {
+export const TrackThumbnail = React.memo(function TrackThumbnail({ theme, coords, size = 84, color }: {
   theme: Theme;
   coords?: [number, number][];
   size?: number;
+  /** The line's colour where it means something (an overlay's map colour); the accent otherwise. */
+  color?: string;
 }) {
   const path = useMemo(() => {
     const pts = (coords ?? []).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
@@ -56,13 +58,13 @@ export const TrackThumbnail = React.memo(function TrackThumbnail({ theme, coords
     }).join(' ');
   }, [coords, size]);
 
-  if (!path) return <Icon name="route" color={theme.accent} size={26} strokeWidth={1.8} />;
+  if (!path) return <Icon name="route" color={color ?? theme.accent} size={26} strokeWidth={1.8} />;
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {/* A soft underlay gives the hairline a body at thumbnail scale. */}
-      <Path d={path} fill="none" stroke={theme.accentSofter} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d={path} fill="none" stroke={theme.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d={path} fill="none" stroke={color ?? theme.accentSofter} strokeOpacity={color ? 0.22 : 1} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d={path} fill="none" stroke={color ?? theme.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 });

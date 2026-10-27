@@ -16,6 +16,10 @@ struct TrailActivityAttributes: ActivityAttributes {
     var distance: String
     var ascent: String
     var descent: String
+    /// Captions under the three numbers, e.g. 里程 / 爬升 / 下降.
+    var distanceLabel: String
+    var ascentLabel: String
+    var descentLabel: String
     var warning: String
   }
 }

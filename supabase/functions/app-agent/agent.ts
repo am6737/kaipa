@@ -52,10 +52,14 @@ export function createAgentRuntime(config: { apiKey: string; baseUrl: string; mo
   // It defaults to the main model, so leaving KAIPA_AI_FLASH_MODEL unset changes
   // nothing about current behaviour.
   const flashModel = config.flashModel?.trim() || config.model;
+  // Recording gear the user named is a few parallel inserts; the main model
+  // spent ~13s per round on it, so that task alone runs on the flash model.
+  const gearOnly = task?.decision.mode === 'execute' && task.decision.operations.length > 0
+    && task.decision.operations.every(operation => operation === 'add_gear');
   const agent = new Agent<AgentContext, typeof assistantOutput>({
     name: 'Kaipa Assistant',
     instructions: coreInstructions,
-    model: measuredModel(provider, config.model, 'execution', recordMetric, budget),
+    model: measuredModel(provider, gearOnly ? flashModel : config.model, 'execution', recordMetric, budget),
     tools: [...(journeyMode ? kaipaJourneyTools : kaipaGlobalTools).filter(item =>
       (!isWriteOperation(item.name) || (task?.decision.mode === 'execute' && task.decision.operations.includes(item.name)))
       && !(item.name === 'add_packing_items' && task?.decision.packingMode === 'full')),

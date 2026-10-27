@@ -4,8 +4,9 @@
 // The body is TrackDetailContent, the same view a journey shows for its own
 // track, so a track looks identical wherever it is opened. Elevation synthesis is
 // off: a library row must show what its file contains, not a plausible curve.
+import { Image } from 'expo-image';
 import React, { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppActionDialog, AppIconButton, DetailPage, space, type } from '../../design-system';
 import { Icon } from '../Icon';
@@ -18,6 +19,8 @@ import { Theme } from '../../theme/theme';
 import { Track } from '../../data/tracks';
 import { formatTrackAscent, formatTrackDistance } from '../../lib/trackParser';
 import { exportTrack } from '../../lib/trackExport';
+import { removeMedia } from '../../lib/storage';
+import { MarkDetail, type MarkDetailItem } from '../trail/MarkDetail';
 import { TrackDetailContent } from '../overlays/TrackDetailContent';
 import { trackToPoi } from './trackToPoi';
 import { PickDialog } from './PickDialog';
@@ -66,6 +69,7 @@ export function TrackDetailPage({
   const [applyOpen, setApplyOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [openMark, setOpenMark] = useState<number | null>(null);
 
   const linkedJourneys = useMemo(() => data.journeys.filter((journey) => journey.trackId === track.id), [data.journeys, track.id]);
   const info = useMemo(() => trackToPoi(track), [track]);
@@ -74,6 +78,39 @@ export function TrackDetailPage({
   const hasElevation = (track.elevation?.length ?? 0) >= 2;
   const dist = splitMeasure(track.distM != null ? formatTrackDistance(track.distM) : null);
   const asc = splitMeasure(track.ascM != null ? formatTrackAscent(track.ascM) : null);
+
+  // Spots marked with a photo on a recorded walk. Imported waypoints are names
+  // only and stay in the profile's list below. The key is the waypoint's place
+  // in the stored array, which rename and delete edit.
+  const marks = useMemo<MarkDetailItem[]>(() => (track.waypoints ?? []).flatMap((waypoint, index) => (waypoint.photo ? [{
+    key: String(index),
+    name: waypoint.name,
+    photo: waypoint.photo,
+    at: waypoint.at,
+    alongM: waypoint.km * 1000,
+    lng: waypoint.lng,
+    lat: waypoint.lat,
+    ele: waypoint.ele,
+  }] : [])), [track.waypoints]);
+  const renameMark = (item: MarkDetailItem, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || !track.waypoints) return;
+    void data.updateTrack(track.id, { waypoints: track.waypoints.map((waypoint, index) => (String(index) === item.key ? { ...waypoint, name: trimmed } : waypoint)) }).then((ok) => {
+      if (!ok) nav.showToast(t('trail.mark.editFailed'));
+    });
+  };
+  const deleteMark = (item: MarkDetailItem) => {
+    if (!track.waypoints) return;
+    void data.updateTrack(track.id, { waypoints: track.waypoints.filter((_, index) => String(index) !== item.key) }).then((ok) => {
+      // The photo goes only once nothing points at it any more.
+      if (!ok) {
+        nav.showToast(t('trail.mark.editFailed'));
+        return;
+      }
+      nav.showToast(t('trail.mark.deleted'));
+      if (item.photo && /^https?:/i.test(item.photo)) void removeMedia([item.photo]).catch(() => undefined);
+    });
+  };
 
   const exportGpx = () => {
     if (!(track.coords?.length || track.fileUrl)) return;
@@ -149,6 +186,22 @@ export function TrackDetailPage({
             <StatTile theme={theme} label={t('tracks.stat.ascent')} value={asc.value} unit={asc.unit} />
           </View>
 
+          {marks.length ? (
+            <View style={{ marginTop: 18 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.6, color: theme.text2, marginBottom: 8 }}>
+                {`${t('trail.mark.section')} ${marks.length}`}
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -24 }} contentContainerStyle={{ paddingHorizontal: 24, gap: space.sm }}>
+                {marks.map((mark, index) => (
+                  <Press key={mark.key} accessibilityRole="button" accessibilityLabel={mark.name} onPress={() => setOpenMark(index)} style={{ width: 96 }}>
+                    <Image source={{ uri: mark.photo }} style={{ width: 96, height: 96, borderRadius: 16, backgroundColor: theme.fieldSurface }} contentFit="cover" transition={120} />
+                    <Text numberOfLines={1} style={[type.caption, { color: theme.text, marginTop: 6 }]}>{mark.name}</Text>
+                  </Press>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <View style={{ marginTop: 18 }}>
             <Text style={{ fontSize: 12, fontWeight: '700', letterSpacing: 0.6, color: theme.text2, marginBottom: 8 }}>
               {t('tracks.detail.journeys')}
@@ -187,6 +240,15 @@ export function TrackDetailPage({
           />
         </View>
       </DetailPage>
+
+      <MarkDetail
+        theme={theme}
+        items={marks}
+        index={openMark}
+        onClose={() => setOpenMark(null)}
+        onRename={renameMark}
+        onDelete={deleteMark}
+      />
 
       <RenameTrackDialog
         theme={theme}

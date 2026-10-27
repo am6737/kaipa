@@ -436,7 +436,7 @@ function GearScreenView({ theme, initialItem, onExit }: { theme: Theme; initialI
               entryVariant={pg.entry === 'pull' ? 'continuationY' : 'push'}
               onOpenItem={(item) => pushPage({ type: 'item', item })}
               onAdd={openAddMenu}
-              onOpenAssistant={() => nav.openAssistant('我还没有装备，请先询问我常见的出行场景、预算和偏好，再帮我创建适合我的装备。', undefined, true, undefined, true)}
+              onOpenAssistant={() => nav.openAssistant(t('gear.empty.askAiItemsPrefill'), undefined, false, undefined, true)}
               onAddCategory={() => setCatEditor({ mode: 'new' })}
               onEditCategory={(cat) => setCatEditor({ mode: 'edit', cat })}
               onDeleteCategory={(cat) => {

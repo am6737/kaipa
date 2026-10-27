@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, Pencil, Package, Share2, Trash2, Weight, type LucideIcon } from 'lucide-react-native';
+import { Check, Package, Share2, SquarePen, Trash2, Weight, type LucideIcon } from 'lucide-react-native';
 import { Theme } from '../../theme/theme';
 import { MONO } from '../../theme/fonts';
 import { Icon } from '../Icon';
@@ -615,7 +615,7 @@ function GearItemDetailView({
       flatChrome
       right={(
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <DetailActionButton theme={theme} icon={isEditing ? Check : Pencil} onPress={isEditing ? saveEditing : beginEditing} />
+          <DetailActionButton theme={theme} icon={isEditing ? Check : SquarePen} onPress={isEditing ? saveEditing : beginEditing} />
           <DetailActionButton theme={theme} icon={Trash2} danger onPress={() => setDeleteDialogOpen(true)} />
         </View>
       )}
@@ -797,14 +797,8 @@ function GearItemDetailView({
         <View style={{ marginTop: 26, marginBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={{ flex: 1, fontSize: 12, fontWeight: '600', color: theme.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>
-              {`${t('gear.section.customAttrs')}${primaryAttrs.length > 0 ? ' · ' + primaryAttrs.length : ''}`}
+              {`${t('gear.section.customAttrs')}${primaryAttrs.length > 0 ? ` ${primaryAttrs.length}` : ''}`}
             </Text>
-            {isEditing ? (
-              <Press onPress={() => patchDraft({ attrs: [...primaryAttrs, ['', '']] })} style={{ minHeight: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.fieldSurface }}>
-                <Icon name="plus" color={theme.accent} size={15} strokeWidth={2.2} />
-                <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>{t('gear.editor.addAttr')}</Text>
-              </Press>
-            ) : null}
           </View>
         </View>
         {isEditing ? (
@@ -831,11 +825,15 @@ function GearItemDetailView({
                 />
               </View>
             ))}
-            {primaryAttrs.length === 0 ? (
-              <View style={{ width: '100%', paddingHorizontal: space.md, paddingVertical: space.lg, borderRadius: radius.card, backgroundColor: theme.fieldSurface }}>
-                <Text style={{ fontSize: 13.5, lineHeight: 20, color: theme.text3 }}>暂无自定义属性，点击右侧添加</Text>
-              </View>
-            ) : null}
+            <Press
+              onPress={() => patchDraft({ attrs: [...primaryAttrs, ['', '']] })}
+              accessibilityRole="button"
+              accessibilityLabel={t('gear.editor.addAttr')}
+              style={{ width: customAttrCardWidth, minHeight: 84, alignItems: 'center', justifyContent: 'center', gap: space.xs, borderRadius: radius.card, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border }}
+            >
+              <Icon name="plus" color={theme.text2} size={18} strokeWidth={2} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2 }}>{t('gear.editor.addAttr')}</Text>
+            </Press>
           </View>
         ) : primaryAttrs.length > 0 ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

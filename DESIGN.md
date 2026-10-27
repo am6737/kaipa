@@ -88,6 +88,7 @@ App-wide roles:
 | `eyebrow` | 12 / 600, uppercase | section labels above grouped cards |
 | `caption` | 11.5 | secondary detail |
 | `metric` | mono 16 / 800 | compact stat strips |
+| `summaryValue` | mono 34 / 800 / -1.2, tabular | headline totals, set side by side at equal weight (装备总重量、总价值) |
 
 Reading roles (攻略详情), all in `type`:
 
@@ -204,7 +205,7 @@ Reach for these before writing a page-local equivalent. Keep feature-specific co
 | `AppProgressBar` | Neutral track with an accent fill. |
 | `AppIconButton` | 44×44 circular icon button. |
 | `AppFilterButton` | Trailing filter control of a list header: sliders icon plus a label naming the current state (全部, or 筛选 N), at least 44pt tall with no fill. `active` turns it accent once anything narrows the list. What it opens is up to the page: a popover for a single choice, a bottom sheet for several. |
-| `AppActionDialog` | Confirmation dialog, including the destructive variant. |
+| `AppActionDialog` | Confirmation dialog, including the destructive variant. Its two buttons share one row: cancel on the left, the action (accent, or `danger` when destructive) on the right; a long label shrinks to fit instead of wrapping. Dialogs with a field (`RenameTrackDialog`) use the same row. |
 | `DetailPage` | Full-screen detail shell with a floating back button. |
 | `AppHeaderSearch` | Top-bar search that expands in place. |
 
@@ -275,9 +276,13 @@ A strong page title, then a compact high-value summary, then a few grouped featu
 
 Shared top chrome, with `AppHeaderSearch` for search. Sorting, filtering, selection and layout controls stay secondary. List and grid geometry stays stable. Empty, loading and error states are explicit.
 
+What is counted must be visible. While searching, the count reads "shown / total", and the totals add up only the rows on screen. In the floating bottom bar, the add pill is the primary action, filled `accent` with white text, and sort stays on `controlSurface`.
+
+The gear library (`gear/GearItemsList.tsx`) pages by category instead of filtering. 总重量 and 总价值 sit side by side at the same size (`summaryValue`, unit in `liveUnit`), with no card behind them, and follow the page on screen or, in selection, the selected items. Below them, sticky tabs list 全部 then each non-empty category, heaviest first, with the shared 系统 suffix dropped; the indicator follows the swipe and takes the category colour. A grid button at the end of the tab row, with no background of its own, opens 全部分类: a two-column sheet of plain tiles with name, count, weight share and weight, and no colour dots or bars. Swiping to another page keeps the summary collapsed if it was and lands at the top of the new page. List rows sit straight on the page with no card or divider; only a press (`fieldSurface`) or a selection (`accentSofter`) tints them. Weight (`metric`) sits over value (`caption`, mono) on the right. Under the name, the category shows only on 全部, then quantity with unit weight, and the 穿戴, 消耗, 备选 and 待购 tags.
+
 Tell "nothing yet" apart from "nothing matches". A filtered-out list shows a centred line with a clear-filter action. A collection that is truly empty keeps the page's shape: totals read `--` in `text3`, and dashed placeholder cards with the same geometry as the real cards stand where the list will be. The first placeholder is the "add the first one" action; the ones behind it fade out. Because that card already adds an item, the bottom bar drops both its add and sort pills and keeps only the AI create action, centred (for gear, `EmptyLibraryCards` in `gear/GearItemsList.tsx`).
 
-Adding an item has no chooser page. Every add control (the bottom pill, the first placeholder card, the picker's +) opens the same compact menu next to itself, opening away from the nearer screen edge. It has three rows: 粘贴链接, 拍照识别 and 手动填写 (`AddGearMenu` in `gear/AddGearMenu.tsx`). Each row goes straight into its step. 粘贴链接 opens a single-question page (`GearLinkPastePage`) built from `type.question`, `type.lead` and one pill field on `featureSurface`. Its trailing control is 粘贴 while the field is empty, which reads the clipboard, and turns into an accent arrow once the text holds a link. Recognition runs on that page and lands on the item form already filled in; on failure the error and a quiet 手动填写 stay on the page. 拍照识别 opens the full-screen camera, and backing out of it leaves the add flow; the shot is recognized on the form, with one line under the name for progress or the failure. The item form carries no method buttons of its own. Recognition fills only fields that are still empty and tints the values it filled `accent` until the user edits them (number tiles switch to `accentSofter`), at the same size and padding so nothing shifts.
+Adding an item has no chooser page. Every add control (the bottom pill, the first placeholder card, the picker's +) opens the same compact menu next to itself, opening away from the nearer screen edge. It has three rows: 粘贴链接, 拍照识别 and 手动填写 (`AddGearMenu` in `gear/AddGearMenu.tsx`). Each row goes straight into its step. 粘贴链接 opens a single-question page (`GearLinkPastePage`) built from `type.question`, `type.lead` and one pill field on `featureSurface`. Its trailing control is 粘贴 while the field is empty, which reads the clipboard, and turns into an accent arrow once the text holds a link. Recognition runs on that page and lands on the item form already filled in; on failure the error and a quiet 手动填写 stay on the page. 拍照识别 opens the full-screen camera, and backing out of it leaves the add flow; the shot is recognized on the form, with one line under the name for progress or the failure. The item form carries no method buttons of its own. Tapping the form's photo area opens the same compact menu (`GearAnchoredMenu`) at the touch point, with 拍照 and 从相册选择 rows. Recognition fills only fields that are still empty and tints the values it filled `accent` until the user edits them (number tiles switch to `accentSofter`), at the same size and padding so nothing shifts.
 
 ### Detail
 

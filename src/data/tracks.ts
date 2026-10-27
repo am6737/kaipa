@@ -6,6 +6,23 @@
 
 export type TrackFormat = 'gpx' | 'kml' | 'kmz';
 
+/**
+ * A named spot on the track, placed by distance along it. Points marked while
+ * recording also keep where they were taken and, when one was shot, a photo.
+ */
+export interface TrackWaypoint {
+  name: string;
+  km: number;
+  lng?: number;
+  lat?: number;
+  /** Metres above sea level where it was marked. */
+  ele?: number;
+  /** Uploaded photo URL; a `file://` one is still waiting to go up. */
+  photo?: string;
+  /** ISO time the point was marked. */
+  at?: string;
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -16,7 +33,7 @@ export interface Track {
   coords?: [number, number][];
   elevation?: { km: number; ele: number }[];
   durationMs?: number;
-  waypoints?: { name: string; km: number }[];
+  waypoints?: TrackWaypoint[];
   distM?: number;
   ascM?: number;
   pointCount?: number;

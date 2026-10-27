@@ -14,6 +14,7 @@ struct TrailActivityBundle: WidgetBundle {
 }
 
 private let trailColor = Color("trail")
+private let cardColor = Color("card")
 
 /// `<app bundle id>://trail`: iOS registers the app's bundle id as a URL scheme, and this extension's id
 /// is the app's plus `.trailactivity`, so dev and release builds each open themselves. The app opens the
@@ -40,23 +41,72 @@ private struct TrailClock: View {
   }
 }
 
+/// The activity badge: a filled circle with the hiker, grey with a pause glyph while paused.
 private struct TrailMark: View {
   let state: TrailActivityAttributes.ContentState
+  var size: CGFloat = 22
 
   var body: some View {
     Image(systemName: state.paused ? "pause.fill" : "figure.hiking")
-      .foregroundStyle(state.paused ? Color.secondary : trailColor)
+      .font(.system(size: size * 0.55, weight: .bold))
+      .foregroundStyle(.white)
+      .frame(width: size, height: size)
+      .background(Circle().fill(state.paused ? Color.gray : trailColor))
   }
 }
 
-private struct TrailClimb: View {
+/// 记录中 / 已暂停, or the GPS warning in orange.
+private struct TrailStatus: View {
   let state: TrailActivityAttributes.ContentState
 
   var body: some View {
-    Text("↑ \(state.ascent)   ↓ \(state.descent)")
-      .monospacedDigit()
-      .foregroundStyle(.secondary)
+    Text(state.warning.isEmpty ? state.status : state.warning)
+      .foregroundStyle(state.warning.isEmpty ? Color.secondary : Color.orange)
       .lineLimit(1)
+  }
+}
+
+/// One number with its caption under it, centred in its third of the row.
+private struct TrailStat: View {
+  let value: String
+  let label: String
+
+  var body: some View {
+    VStack(spacing: 2) {
+      Text(value)
+        .font(.system(.headline, design: .rounded).weight(.semibold))
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+      Text(label)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+    .frame(maxWidth: .infinity)
+  }
+}
+
+/// Distance, ascent and descent in three columns split by hairlines.
+private struct TrailStats: View {
+  let state: TrailActivityAttributes.ContentState
+
+  var body: some View {
+    HStack(spacing: 0) {
+      TrailStat(value: state.distance, label: state.distanceLabel)
+      TrailStatDivider()
+      TrailStat(value: state.ascent, label: state.ascentLabel)
+      TrailStatDivider()
+      TrailStat(value: state.descent, label: state.descentLabel)
+    }
+  }
+}
+
+private struct TrailStatDivider: View {
+  var body: some View {
+    Rectangle()
+      .fill(Color.secondary.opacity(0.35))
+      .frame(width: 1, height: 22)
   }
 }
 
@@ -64,37 +114,27 @@ private struct TrailLockScreenView: View {
   let state: TrailActivityAttributes.ContentState
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 6) {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
         TrailMark(state: state)
-          .font(.subheadline.weight(.semibold))
         Text(state.name)
           .font(.subheadline.weight(.semibold))
           .lineLimit(1)
         Spacer(minLength: 8)
-        Text(state.warning.isEmpty ? state.status : state.warning)
+        TrailStatus(state: state)
           .font(.caption.weight(.medium))
-          .foregroundStyle(state.warning.isEmpty ? Color.secondary : Color.orange)
-          .lineLimit(1)
       }
-      HStack(alignment: .lastTextBaseline) {
-        TrailClock(state: state)
-          .font(.system(size: 34, weight: .bold, design: .rounded))
-          .foregroundStyle(state.paused ? Color.secondary : Color.primary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.7)
-        Spacer(minLength: 8)
-        VStack(alignment: .trailing, spacing: 2) {
-          Text(state.distance)
-            .font(.title3.weight(.bold))
-            .monospacedDigit()
-            .lineLimit(1)
-          TrailClimb(state: state)
-            .font(.caption)
-        }
-      }
+      TrailClock(state: state)
+        .font(.system(size: 46, weight: .semibold, design: .rounded))
+        .foregroundStyle(state.paused ? Color.secondary : Color.primary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.top, 8)
+      TrailStats(state: state)
+        .padding(.top, 10)
     }
-    .padding(16)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 16)
   }
 }
 
@@ -102,6 +142,7 @@ struct TrailLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: TrailActivityAttributes.self) { context in
       TrailLockScreenView(state: context.state)
+        .activityBackgroundTint(cardColor)
         .activitySystemActionForegroundColor(trailColor)
         .widgetURL(trailURL)
     } dynamicIsland: { context in
@@ -109,40 +150,31 @@ struct TrailLiveActivity: Widget {
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           HStack(spacing: 6) {
-            TrailMark(state: state)
-            Text(state.status)
+            TrailMark(state: state, size: 18)
+            Text(state.name)
               .lineLimit(1)
           }
           .font(.caption.weight(.semibold))
           .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Text(state.distance)
-            .font(.headline)
-            .monospacedDigit()
-            .lineLimit(1)
+          TrailStatus(state: state)
+            .font(.caption.weight(.medium))
             .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .lastTextBaseline) {
-              TrailClock(state: state)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .lineLimit(1)
-              Spacer(minLength: 8)
-              TrailClimb(state: state)
-                .font(.caption)
-            }
-            Text(state.warning.isEmpty ? state.name : state.warning)
-              .font(.caption)
-              .foregroundStyle(state.warning.isEmpty ? Color.secondary : Color.orange)
+          VStack(alignment: .leading, spacing: 6) {
+            TrailClock(state: state)
+              .font(.system(size: 34, weight: .semibold, design: .rounded))
+              .foregroundStyle(state.paused ? Color.secondary : Color.primary)
               .lineLimit(1)
+            TrailStats(state: state)
           }
           .padding(.horizontal, 4)
         }
       } compactLeading: {
         HStack(spacing: 4) {
-          TrailMark(state: state)
+          TrailMark(state: state, size: 18)
           Text(state.distance)
             .monospacedDigit()
             .lineLimit(1)
@@ -156,7 +188,7 @@ struct TrailLiveActivity: Widget {
           .multilineTextAlignment(.trailing)
           .frame(maxWidth: 56, alignment: .trailing)
       } minimal: {
-        TrailMark(state: state)
+        TrailMark(state: state, size: 18)
       }
       .keylineTint(trailColor)
       .widgetURL(trailURL)

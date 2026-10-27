@@ -43,6 +43,7 @@ export const type = {
   body: { fontSize: 14.5 },
   caption: { fontSize: 11.5 },
   metric: { fontFamily: MONO, fontSize: 16, fontWeight: '800' as const },
+  summaryValue: { fontFamily: MONO, fontSize: 34, fontWeight: '800' as const, letterSpacing: -1.2, fontVariant: tabular },
   // Form & measurement roles, taken from the 出行档案 pages (身高 / 体重 / 年龄).
   question: { fontSize: 27, fontWeight: '700' as const, lineHeight: 38 },
   lead: { fontSize: 14, lineHeight: 23 },

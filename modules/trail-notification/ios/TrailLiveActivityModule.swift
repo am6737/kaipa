@@ -9,6 +9,9 @@ struct TrailLivePayload: Record {
   @Field var distance: String = ""
   @Field var ascent: String = ""
   @Field var descent: String = ""
+  @Field var distanceLabel: String = ""
+  @Field var ascentLabel: String = ""
+  @Field var descentLabel: String = ""
   @Field var warning: String = ""
 }
 
@@ -27,6 +30,9 @@ struct TrailLiveActivityPayload: Record {
       distance: live.distance,
       ascent: live.ascent,
       descent: live.descent,
+      distanceLabel: live.distanceLabel,
+      ascentLabel: live.ascentLabel,
+      descentLabel: live.descentLabel,
       warning: live.warning
     )
   }

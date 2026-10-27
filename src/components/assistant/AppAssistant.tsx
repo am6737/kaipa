@@ -986,7 +986,8 @@ function actionResultsForTurn(turn: Turn): ActionResult[] {
     }
     results.push(...sets.values());
 
-    const gear = of('add_gear');
+    // Items the library already had come back as existing and were not added.
+    const gear = of('add_gear').filter((activity) => outputRecord(activity.output).existing !== true);
     if (gear.length) {
       // Older stored messages dropped add_gear output; the arguments still name the item.
       const names = gear.map((activity) => String(outputRecord(activity.output).name || activity.arguments.name || '装备'));

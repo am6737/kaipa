@@ -81,6 +81,64 @@ shows the running one and toasts `trail.busy`.
   `kaipa.trail.pendingSaves.v1`. The queue flushes on launch and when the app
   becomes active.
 
+## Overlays and marks
+
+- **叠加轨迹** (两步路's 叠加): any number of the walker's own tracks drawn on
+  the trail map beside the followed line, in the segment colours other than
+  the planned blue. A row in the settings (behind the ready panel's handle,
+  and at the live sheet's top detent) opens `TrailOverlaySheet`, a bottom
+  sheet listing 我的轨迹: each row draws the track's shape in its map colour
+  (grey while off), a tap toggles it, and 全部清除 turns them all off.
+  Taps change a draft inside the sheet that is committed once on close:
+  committing each tap re-rendered the page and the map before the check moved. Its
+  first row imports GPX/KML/KMZ files with the 我的轨迹 importer and switches
+  the new tracks on; progress and the outcome show in that row, since toasts
+  sit under the Modal.
+  They are only drawn: progress, off-route and voice follow the one planned
+  route. The ids live in `src/lib/trailOverlays.ts` under
+  `kaipa.trail.overlays.v1`, outside the session, so the choice survives
+  finishing, a kill and no signal (the tracks come from the offline cache).
+  The fit button frames the route and all overlays together.
+- **Marks**: while recording or paused, a camera button above the map
+  controls takes a photo and marks the spot (`addTrailMark`): the recorder's
+  fix if under 30 s old, else the last recorded point. Cancelling the camera
+  marks nothing. Marks are numbered badges on the map, there as soon as they
+  are taken, and are kept in the session (`marks`), so they survive a kill.
+- **Route layers**: the route card's annotations come along to the trail
+  map. The followed line and every overlay get kilometre labels
+  (`trailKmMarkers.tsx`, same pill, density per zoom and 60-label cap as
+  MapGlobe's; the dot takes the line's colour, and a line shorter than the
+  zoom's spacing falls back to 1/5/10 km so it still gets some), and their named
+  waypoints and every overlay's are drawn with the shared
+  `buildRouteWaypointMarkers`: one clustered layer, each dot ringed in its
+  line's colour (filled when a photo was taken there), and a tap opens the
+  mark detail below, read-only, for that line's spots. Both lay out
+  for a half-step zoom set once the camera has been quiet for 180 ms. The
+  followed line's go once the walk is finished. 距离标记 and 标注点 switches in the trail
+  settings (both panels) turn each layer off; they persist under
+  `kaipa.trail.layers.v1`, apart from the route card's own map settings.
+  The walker's own numbered marks always stay.
+- **Mark detail** (`src/components/trail/MarkDetail.tsx`): a tap on a badge
+  opens it as a bottom sheet over the map, photo or not: the photo rounded at
+  the top (tap to see it whole), then time, name, distance from the start and
+  altitude tiles, and copyable coordinates; swipe through all marks; rename
+  and delete sit in the ⋯ menu. It is a Modal because the trail page sits
+  above the page stack. The track page shows the same sheet from a row of
+  photo thumbnails (`标注点 N`), and there rename and delete write the track's
+  `waypoints`; a deleted mark's photo is removed from storage only once that
+  write succeeded. Deleting a track removes its mark photos too. Route and
+  overlay spots open the same sheet with no ⋯ menu and a line under the name
+  for the route or track they lie on, in its colour; their altitude comes
+  from the line's profile when the spot has none.
+- **Photos** (`src/lib/trailMarkPhotos.ts`) are shrunk to 2048 px and moved
+  out of the cache into `documents/trail-marks/` at once. On save, marks
+  become the track's `waypoints` (`标注点 N`, `km` along the joined line,
+  plus `lng`/`lat`/`at`/`photo`) and the photos go up as `track` uploads. A
+  save with a photo that can't go up is queued like an offline save, so a
+  track never reaches the server pointing at a `file://`. Unused photos are
+  swept after a save and each queue flush, sparing ones under 10 minutes old
+  (returning from the camera makes the app active, which flushes).
+
 ## Location sources
 
 | Platform | Source | Screen off |
@@ -125,9 +183,12 @@ track comes back as a few fixes joined by straight lines.
 ### Live Activity (iOS)
 
 The same module's iOS side (`TrailLiveActivityModule`) runs an ActivityKit Live
-Activity from the same `syncNotification` calls: lock screen card, Dynamic
-Island (compact: distance and clock; expanded: status, distance, clock, climb,
-route or GPS warning). The view lives in the widget extension
+Activity from the same `syncNotification` calls. The lock screen card follows
+Komoot's: a header with the hiker badge, route name and status (or the GPS
+warning in orange), a large moving-time clock, then distance, ascent and
+descent in three captioned columns (captions come from `trail.stat.*`).
+Dynamic Island: compact shows distance and clock; expanded shows the same
+header, clock and three columns. The view lives in the widget extension
 `targets/trail-activity`, added at prebuild by `@bacons/apple-targets`
 (bundle id `<app>.trailactivity`; EAS makes its provisioning profile).
 `TrailActivityAttributes.swift` exists twice, in the module and the target,

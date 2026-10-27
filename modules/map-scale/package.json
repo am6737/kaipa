@@ -1,0 +1,7 @@
+{
+  "name": "map-scale",
+  "version": "1.0.0",
+  "description": "App-local MKScaleView for Kaipa's Apple maps.",
+  "main": "src/index.ts",
+  "private": true
+}

@@ -10,6 +10,10 @@ export interface ProjectedRouteWaypoint {
   name: string;
   km: number;
   coord: MapCoordinate;
+  /** Ring colour; the accent when absent. Lets several tracks share one layer. */
+  color?: string;
+  /** A photo was taken there: the dot is filled, so it reads as more to see. */
+  photo?: boolean;
 }
 
 /** Place the library's `{name, km}` annotations along the geometry as drawn.
@@ -110,6 +114,8 @@ export function buildRouteWaypointMarkers({
   selected,
   onWaypointPress,
   onClusterPress,
+  idPrefix = 'route-wp',
+  callout = true,
 }: {
   theme: Theme;
   waypoints: ProjectedRouteWaypoint[];
@@ -117,6 +123,10 @@ export function buildRouteWaypointMarkers({
   selected: number | null;
   onWaypointPress: (index: number) => void;
   onClusterPress: (coordinates: MapCoordinate[]) => void;
+  /** Keeps ids apart when another layer of the same markers is on the map. */
+  idPrefix?: string;
+  /** The km bubble over the selected one; off where a tap opens a detail instead. */
+  callout?: boolean;
 }): NativeMapMarker[] {
   if (!waypoints.length) return [];
   const groups = clusterWaypoints(waypoints.map((waypoint) => waypoint.coord), zoom);
@@ -128,7 +138,7 @@ export function buildRouteWaypointMarkers({
     if (group.indices.length > 1) {
       values.push({
         // Android snapshots marker content by id, so the count lives in it.
-        id: `route-wp-cluster-${group.indices[0]}-${group.indices.length}`,
+        id: `${idPrefix}-cluster-${group.indices[0]}-${group.indices.length}`,
         coordinate: group.coordinate,
         anchor: { x: 0.5, y: 1 },
         centerOffset: { x: 0, y: -12 },
@@ -148,8 +158,8 @@ export function buildRouteWaypointMarkers({
     }
     const showName = labelled.has(index);
     values.push({
-      // Android snapshots marker content by id, so whether the name shows does too.
-      id: showName ? `route-wp-${index}` : `route-wp-${index}-dot`,
+      // Android snapshots marker content by id, so whether the name shows and the photo fill do too.
+      id: `${idPrefix}-${index}${showName ? '' : '-dot'}${waypoint.photo ? '-photo' : ''}`,
       coordinate: waypoint.coord,
       // The name rides on the map, not behind a tap: the pill sits over the
       // dot like the kilometre labels do, unless it would cover a neighbour.
@@ -167,15 +177,15 @@ export function buildRouteWaypointMarkers({
               <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '700', color: theme.text }}>{waypoint.name}</Text>
             </View>
           ) : null}
-          <View style={[styles.waypointMarker, { borderColor: theme.accent }]} />
+          <View style={[styles.waypointMarker, { borderColor: waypoint.color ?? theme.accent }, waypoint.photo && { backgroundColor: waypoint.color ?? theme.accent, borderColor: '#FFFFFF', width: 11, height: 11, borderRadius: 5.5 }]} />
         </View>
       ),
     });
   });
-  if (selected != null && waypoints[selected]) {
+  if (callout && selected != null && waypoints[selected]) {
     const waypoint = waypoints[selected];
     values.push({
-      id: `route-wp-callout-${selected}`,
+      id: `${idPrefix}-callout-${selected}`,
       coordinate: waypoint.coord,
       // Lift the bubble clear of both the dot and its now-always-visible name
       // pill; the dot stays the anchor of the whole stack.

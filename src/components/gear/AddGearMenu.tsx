@@ -35,6 +35,34 @@ export function AddGearMenu({ theme, visible, anchor, onPick, onClose }: {
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const rows: [AddGearMethod, IconName, string][] = [
+    ['link', 'link', t('gear.add.pasteLink')],
+    ['photo', 'camera', t('gear.add.scanPhoto')],
+    ['manual', 'edit', t('gear.add.manual')],
+  ];
+  return (
+    <GearAnchoredMenu
+      theme={theme}
+      visible={visible}
+      anchor={anchor}
+      title={t('gear.add.title')}
+      rows={rows.map(([method, icon, label]) => ({ key: method, icon, label, onPress: () => onPick(method) }))}
+      onClose={onClose}
+    />
+  );
+}
+
+export type GearMenuRow = { key: string; icon: IconName; label: string; onPress: () => void };
+
+/** Compact glass popover anchored next to the control that opened it. */
+export function GearAnchoredMenu({ theme, visible, anchor, title, rows, onClose }: {
+  theme: Theme;
+  visible: boolean;
+  anchor: MenuAnchor | null;
+  title: string;
+  rows: GearMenuRow[];
+  onClose: () => void;
+}) {
   const { width, height } = useWindowDimensions();
   const rect = anchor ?? { x: EDGE, y: height, width: 0, height: 0 };
   // Open away from the nearer screen edge so the menu never covers its own trigger.
@@ -44,11 +72,6 @@ export function AddGearMenu({ theme, visible, anchor, onPick, onClose }: {
   const horizontal = alignLeft
     ? { left: Math.min(Math.max(EDGE, rect.x), width - MENU_WIDTH - EDGE) }
     : { right: Math.min(Math.max(EDGE, width - rect.x - rect.width), width - MENU_WIDTH - EDGE) };
-  const rows: [AddGearMethod, IconName, string][] = [
-    ['link', 'link', t('gear.add.pasteLink')],
-    ['photo', 'camera', t('gear.add.scanPhoto')],
-    ['manual', 'edit', t('gear.add.manual')],
-  ];
 
   return (
     <GearMenuTransition
@@ -68,11 +91,11 @@ export function AddGearMenu({ theme, visible, anchor, onPick, onClose }: {
     >
       <Glass solidOnAndroid theme={theme} radius={24} intensity={78}>
         <View style={{ paddingTop: 12, paddingBottom: 10, backgroundColor: theme.dark ? 'rgba(32,32,35,0.64)' : 'rgba(255,255,255,0.72)' }}>
-          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{t('gear.add.title')}</Text>
-          {rows.map(([method, icon, label]) => (
-            <Press key={method} accessibilityRole="button" onPress={() => onPick(method)} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 25, alignItems: 'center' }}><Icon name={icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
-              <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{label}</Text>
+          <Text style={{ paddingHorizontal: 24, paddingTop: 2, paddingBottom: 5, fontSize: 11.5, fontWeight: '600', color: theme.text2 }}>{title}</Text>
+          {rows.map((row) => (
+            <Press key={row.key} accessibilityRole="button" onPress={row.onPress} style={{ height: 48, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ width: 25, alignItems: 'center' }}><Icon name={row.icon} color={theme.text} size={19} strokeWidth={1.8} /></View>
+              <Text style={{ marginLeft: 13, fontSize: 14.5, color: theme.text }}>{row.label}</Text>
             </Press>
           ))}
         </View>

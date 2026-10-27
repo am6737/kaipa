@@ -800,7 +800,7 @@ export const runSearchGroundTransport = (args: { origin: string; destination: st
 
 export const addGear = tool({
   name: 'add_gear',
-  description: 'Add one confirmed item to the user gear library. Read categories first and use a real categoryId or null.',
+  description: 'Add one item the user already owns to their gear library. When the user names several items (添加头灯、水袋、登山鞋), call add_gear once per item in the same turn. The user\'s words are the confirmation: never ask about scenarios, budget, preferences, weight, price or brand. Keep the user\'s wording (brand and model included) as the name, fill only what they stated, and leave the rest at the defaults. Use a matching categoryId from the categories given in the task input (or list_gear), or null; there is no need to read the library first. Call add_gear for every named item; an item whose name is already in the library comes back with existing=true and nothing is added, so report it as already in the library.',
   parameters: z.object({
     name: z.string().min(1).max(120),
     categoryId: z.string().max(100).nullable().default(null),
@@ -811,6 +811,13 @@ export const addGear = tool({
     note: z.string().max(500).nullable().default(null),
   }),
   execute: async (args, runContext) => mutate('add_gear', args, runContext as RunContext, async (client, context) => {
+    // Duplicates are skipped here, not left to the model: a request whose items
+    // all exist must still count as done, and must never insert a second copy.
+    const key = (name: string) => name.replace(/\s+/g, '').toLocaleLowerCase();
+    const owned = await client.from('gear_items').select('id,name').eq('user_id', context.userId);
+    if (owned.error) throw owned.error;
+    const match = owned.data.find((item: { name: string }) => key(item.name) === key(args.name));
+    if (match) return { ...match, existing: true };
     const { data, error } = await client.from('gear_items').insert({ user_id: context.userId, name: args.name, cat_id: args.categoryId || null, weight: args.weightKg, price: args.priceCny, qty: args.quantity, status: args.status, note: args.note || null }).select('id,name').single();
     if (error) throw error;
     return data;

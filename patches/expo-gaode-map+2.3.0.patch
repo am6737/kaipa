@@ -1,3 +1,42 @@
+diff --git a/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/managers/UIManager.kt b/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/managers/UIManager.kt
+index 4513c67..ce2b023 100644
+--- a/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/managers/UIManager.kt
++++ b/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/managers/UIManager.kt
+@@ -97,6 +97,8 @@ class UIManager(private val aMap: AMap, private val context: Context) : Location
+   private var currentLocationStyle: MyLocationStyle? = null
+   private var currentFollowUserLocation: Boolean = false
+   private var explicitLocationType: Int? = null
++  // userLocationRepresentation.showMyLocation; setShowsUserLocation must not reset it.
++  private var showMyLocationIcon: Boolean = true
+ 
+   private fun parseLocationType(locationType: String): Int? {
+     return when (locationType) {
+@@ -134,7 +136,7 @@ class UIManager(private val aMap: AMap, private val context: Context) : Location
+       currentLocationStyle?.apply {
+         myLocationType(resolveLocationType(followUserLocation))
+         interval(2000)  // 2秒定位一次
+-        showMyLocation(true)
++        showMyLocation(showMyLocationIcon)
+       }
+       
+       // 监听定位变化（用于通知 React Native）
+@@ -194,7 +196,7 @@ class UIManager(private val aMap: AMap, private val context: Context) : Location
+     if (currentLocationStyle == null) {
+       currentLocationStyle = MyLocationStyle().apply {
+         interval(2000)
+-        showMyLocation(true)
++        showMyLocation(showMyLocationIcon)
+       }
+     }
+     
+@@ -207,6 +209,7 @@ class UIManager(private val aMap: AMap, private val context: Context) : Location
+     // 注意：这个属性在 iOS 中没有对应项，是 Android 特有的
+     val showMyLocation = config["showMyLocation"] as? Boolean
+     if (showMyLocation != null) {
++      showMyLocationIcon = showMyLocation
+       style.showMyLocation(showMyLocation)
+     }
+     
 diff --git a/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/overlays/MarkerView.kt b/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/overlays/MarkerView.kt
 index aca1e8f..afa673d 100644
 --- a/node_modules/expo-gaode-map/android/src/main/java/expo/modules/gaodemap/overlays/MarkerView.kt

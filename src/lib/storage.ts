@@ -470,6 +470,10 @@ export async function uploadTrackFile(localUri: string, userId: string, fileName
   const ext = (fileName?.match(/\.([a-z0-9]{1,10})$/i)?.[1] || extFromUri(localUri)).toLowerCase();
   return ticketUpload(localUri,'track',userId,MIME[ext] || 'application/octet-stream',userId);
 }
+/** A photo marked on a recorded walk; kept beside the track files. */
+export async function uploadTrackPhoto(localUri: string, userId: string): Promise<string> {
+  return ticketUpload(localUri,'track',userId,'image/jpeg',userId);
+}
 // Long enough that a screenshot's small print stays legible to the model,
 // which reads well under this anyway.
 const AGENT_IMAGE_EDGE = 2048;

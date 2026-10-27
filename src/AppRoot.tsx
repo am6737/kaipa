@@ -124,11 +124,12 @@ function AppShell() {
             leaves and re-enters the window comes back with empty reused
             annotation views (every route pin gone); on Android display:none
             and the unmount tore AMap down, so every visit reloaded tiles and
-            rebuilt every marker, which lagged the tab. DiscoverScreen slides
-            the map off-screen instead, via keepMapWarm. */}
-        <TabPage selected={nav.mainTab === 'discover'} forced={detailOpen} whenHidden="keep">
+            rebuilt every marker, which lagged the tab. TabPage slides it
+            off-screen instead, and on the way back slides it in before the
+            page re-renders, so the switch doesn't wait on this heavy screen. */}
+        <TabPage selected={nav.mainTab === 'discover'} forced={detailOpen} fadeIn={false} whenHidden="offscreen">
           {(shown) => (
-            <FrozenNav frozen={nav.mainTab !== 'discover' && !detailOpen}>
+            <FrozenNav frozen={!shown}>
               <DiscoverScreen
                 theme={theme}
                 active={shown}

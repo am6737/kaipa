@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, GestureResponderEvent, Linking, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
@@ -17,6 +17,7 @@ import { removeGearImageBackground } from '../../lib/gearBackgroundRemoval';
 import { recognizeGearImage } from '../../lib/gearImageRecognition';
 import { defaultGearCat } from './gearRecognition';
 import { GearRecognitionCamera } from './GearRecognitionCamera';
+import { GearAnchoredMenu, type MenuAnchor } from './AddGearMenu';
 
 const numClean = (value: string) => value.replace(/[^0-9.]/g, '');
 
@@ -59,6 +60,7 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
   const [photos, setPhotos] = useState((item.photos || []).filter(Boolean));
   const [openChoice, setOpenChoice] = useState<'category' | 'status' | 'weight' | null>(null);
   const [photoSourceOpen, setPhotoSourceOpen] = useState(false);
+  const [photoSourceAnchor, setPhotoSourceAnchor] = useState<MenuAnchor | null>(null);
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
   const [pendingPhotoTotal, setPendingPhotoTotal] = useState(0);
   const [photoEditIndex, setPhotoEditIndex] = useState<number | null>(null);
@@ -203,7 +205,12 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
     }
   };
 
-  const openPhotoActions = () => setPhotoSourceOpen(true);
+  // The gallery is a large target, so the menu opens at the touch point rather than beside the whole image.
+  const openPhotoActions = (event: GestureResponderEvent) => {
+    const { pageX, pageY } = event.nativeEvent;
+    setPhotoSourceAnchor({ x: pageX, y: pageY, width: 0, height: 0 });
+    setPhotoSourceOpen(true);
+  };
 
   const editPhotoBackground = (index: number) => {
     setPhotoEditIndex(index);
@@ -331,12 +338,6 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
             theme={theme}
             text={t('gear.section.customAttrs')}
             marginTop={space.xxl}
-            trailing={(
-              <Press onPress={() => setAttrs((current) => [['', ''], ...current])} style={{ minHeight: 36, paddingHorizontal: space.sm, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.fieldSurface }}>
-                <Icon name="plus" color={theme.accent} size={15} strokeWidth={2.2} />
-                <Text style={{ marginLeft: space.xs, fontSize: 13, fontWeight: '700', color: theme.accent }}>{t('gear.editor.addAttr')}</Text>
-              </Press>
-            )}
           />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
             {attrs.map(([key, value], index) => (
@@ -361,6 +362,15 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
                 />
               </View>
             ))}
+            <Press
+              onPress={() => setAttrs((current) => [...current, ['', '']])}
+              accessibilityRole="button"
+              accessibilityLabel={t('gear.editor.addAttr')}
+              style={{ width: '48%', minHeight: 84, alignItems: 'center', justifyContent: 'center', gap: space.xs, borderRadius: radius.card, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.border }}
+            >
+              <Icon name="plus" color={theme.text2} size={18} strokeWidth={2} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text2 }}>{t('gear.editor.addAttr')}</Text>
+            </Press>
           </View>
         </View>
       </DetailPage>
@@ -421,23 +431,16 @@ export function GearItemEditor({ theme, item, cats, weightUnit = 'kg', recogniti
         onChooseCutout={chooseCutout}
         onConfirm={confirmPhotoReview}
       />
-      <PhotoSourceSheet
-        visible={photoSourceOpen}
+      <GearAnchoredMenu
         theme={theme}
+        visible={photoSourceOpen}
+        anchor={photoSourceAnchor}
         title={t('gear.editor.addPhoto')}
-        hint={t('gear.editor.photoSourceHint')}
-        cameraLabel={t('gear.editor.takePhoto')}
-        libraryLabel={t('gear.editor.pickFromLibrary')}
-        cancelLabel={t('common.cancel')}
+        rows={[
+          { key: 'camera', icon: 'camera', label: t('gear.editor.takePhoto'), onPress: () => { setPhotoSourceOpen(false); setTimeout(takePhoto, 380); } },
+          { key: 'library', icon: 'photo', label: t('gear.editor.pickFromLibrary'), onPress: () => { setPhotoSourceOpen(false); setTimeout(pickFromLibrary, 380); } },
+        ]}
         onClose={() => setPhotoSourceOpen(false)}
-        onCamera={() => {
-          setPhotoSourceOpen(false);
-          setTimeout(takePhoto, 380);
-        }}
-        onLibrary={() => {
-          setPhotoSourceOpen(false);
-          setTimeout(pickFromLibrary, 380);
-        }}
       />
       {cameraOpen ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 20 }]}>
@@ -480,7 +483,7 @@ function RecognitionStatus({ theme, state }: { theme: Theme; state: RecognitionS
   return null;
 }
 
-function AddGearPhotoGallery({ theme, item, photos, onPress, onEditPhoto }: { theme: Theme; item: GearItem; photos: string[]; onPress: () => void; onEditPhoto: (index: number) => void }) {
+function AddGearPhotoGallery({ theme, item, photos, onPress, onEditPhoto }: { theme: Theme; item: GearItem; photos: string[]; onPress: (event: GestureResponderEvent) => void; onEditPhoto: (index: number) => void }) {
   const { t } = useI18n();
   const { width } = useWindowDimensions();
   const galleryWidth = Math.min(380, Math.max(220, width - space.xxl * 2));
@@ -671,62 +674,6 @@ function PhotoReviewSheet({ visible, theme, sourceUri, previewUri, version, prog
             <Icon name="check" color="#FFFFFF" size={18} strokeWidth={2.3} />
             <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{confirmLabel}</Text>
           </Press>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function PhotoSourceSheet({ visible, theme, title, hint, cameraLabel, libraryLabel, cancelLabel, onClose, onCamera, onLibrary }: {
-  visible: boolean;
-  theme: Theme;
-  title: string;
-  hint: string;
-  cameraLabel: string;
-  libraryLabel: string;
-  cancelLabel: string;
-  onClose: () => void;
-  onCamera: () => void;
-  onLibrary: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)' }]} />
-        <View style={{ paddingTop: space.xs, paddingHorizontal: space.lg, paddingBottom: Math.max(insets.bottom, space.md) + space.sm, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: theme.surfaceTop }}>
-          <View style={{ alignSelf: 'center', width: 38, height: 5, marginBottom: space.lg, borderRadius: radius.pill, backgroundColor: theme.text3, opacity: 0.38 }} />
-          <View style={{ paddingHorizontal: space.xxs, flexDirection: 'row', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 22, lineHeight: 28, fontWeight: '800', letterSpacing: -0.45, color: theme.text }}>{title}</Text>
-              <Text style={{ marginTop: space.xxs, fontSize: 13.5, lineHeight: 20, color: theme.text2 }}>{hint}</Text>
-            </View>
-            <Press onPress={onClose} accessibilityLabel={cancelLabel} style={{ width: 38, height: 38, marginLeft: space.sm, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.fieldSurface }}>
-              <Icon name="close" color={theme.text2} size={17} strokeWidth={2} />
-            </Press>
-          </View>
-
-          <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.xl }}>
-            <Press onPress={onCamera} scaleTo={0.98} style={{ flex: 1, minHeight: 144, padding: space.md, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: theme.accent }}>
-              <View style={{ width: 48, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' }}>
-                <Icon name="camera" color="#FFFFFF" size={23} strokeWidth={2} />
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '800', color: '#FFFFFF' }}>{cameraLabel}</Text>
-                <Icon name="chevronR" color="rgba(255,255,255,0.78)" size={15} />
-              </View>
-            </Press>
-
-            <Press onPress={onLibrary} scaleTo={0.98} style={{ flex: 1, minHeight: 144, padding: space.md, borderRadius: radius.feature, justifyContent: 'space-between', backgroundColor: theme.fieldSurface }}>
-              <View style={{ width: 48, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.controlSurface }}>
-                <Icon name="photo" color={theme.accent} size={23} strokeWidth={2} />
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ flex: 1, fontSize: 16, lineHeight: 21, fontWeight: '800', color: theme.text }}>{libraryLabel}</Text>
-                <Icon name="chevronR" color={theme.text3} size={15} />
-              </View>
-            </Press>
-          </View>
         </View>
       </View>
     </Modal>

@@ -1519,9 +1519,8 @@ function DiscoverScreenView({
   // The route list is always there under the map.
   const listShown = !nav.pointInfo;
   const sheetVisible = listShown || !!nav.pointInfo;
-  // Bottom of the list-mode map tool column. The compass sits one slot above it
-  // rather than inside it: a column that grows mid-gesture drags every button
-  // that is already under the finger.
+  // Bottom of the list-mode map tool column, shared by the compass in the
+  // bottom-left corner.
   // With the list open the column is anchored at the full detent and rides the
   // sheet down from half to peek. Above half the list covers it, so it stays put.
   const listMapToolsBottom = sheetVisible ? full + 16 : tabSpace + 56;
@@ -2529,16 +2528,17 @@ function DiscoverScreenView({
   [nav.pointInfo, focusCoords, currentLocation]);
 
   return (
-    /* Under another bottom tab - or under our own full-screen search page - the
-       whole page slides off-screen rather than being display:none'd or unmounted.
-       MapKit keeps its instance, camera and every annotation view: a MapView that
-       re-enters the window comes back with empty reused annotation views, and a
-       remount reloads the tiles, which reads as a flash. Off-screen still lets
-       Core Animation cull it, so whatever covers the map keeps its frames. */
+    /* Under our own full-screen search page the whole page slides off-screen
+       rather than being display:none'd or unmounted (under another bottom tab,
+       TabPage slides it). The map keeps its instance, camera and every
+       annotation view: a MapView that re-enters the window comes back with empty
+       reused annotation views, and a remount reloads the tiles, which reads as a
+       flash. Off-screen still lets the system cull it, so whatever covers the
+       map keeps its frames. */
     <View
       style={[
         { flex: 1, backgroundColor: theme.bg },
-        (covered || !active) && keepMapWarm ? { transform: [{ translateX: width * 2 }] } : null,
+        covered && keepMapWarm ? { transform: [{ translateX: width * 2 }] } : null,
       ]}
     >
       {/* full-screen interactive map (Apple-Maps style) — subtabs, top-right
@@ -2663,18 +2663,6 @@ function DiscoverScreenView({
           </Animated.View>
         </View>
       </Press>
-      {areaPillMounted ? (
-        <Animated.View pointerEvents={areaPillShown ? 'box-none' : 'none'} style={{ position: 'absolute', left: 0, right: 0, top: insets.top + MAP_TOP_CHROME_HEIGHT, alignItems: 'center', zIndex: 9, opacity: areaPillOpacity, transform: [{ translateY: areaPillOpacity.interpolate({ inputRange: [0, 1], outputRange: [-space.xs, 0] }) }] }}>
-          <Press
-            accessibilityRole="button"
-            onPress={searchArea}
-            style={{ height: MAP_CONTROL_SIZE, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: chromeTheme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: chromeTheme.fieldBorder, boxShadow: chromeTheme.dark ? '0px 4px 12px rgba(0,0,0,0.45)' : '0px 4px 12px rgba(0,0,0,0.10)' }}
-          >
-            <Search color={theme.accent} size={17} strokeWidth={2.3} />
-            <Text style={[type.chip, { color: chromeTheme.text }]}>{t('discover.searchArea')}</Text>
-          </Press>
-        </Animated.View>
-      ) : null}
       <View style={{ position: 'absolute', top: insets.top + 4, right: 16, gap: 10 }}>
         <Press
           accessibilityRole="button"
@@ -2796,21 +2784,31 @@ function DiscoverScreenView({
               itself moved into the map style sheet). Follows the sheet, and
               keeps the route pill's visibility: gone when the card is fully
               expanded or this is a version preview. */}
-          {nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview ? (
-            <Animated.View style={[{
-              position: 'absolute',
-              left: space.md,
-              bottom: full + space.md,
-              zIndex: 8,
-            }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+          {/* The compass rides above it in the same bottom-left column. */}
+          <Animated.View pointerEvents="box-none" style={[{
+            position: 'absolute',
+            left: space.md,
+            bottom: full + space.md,
+            zIndex: 8,
+            alignItems: 'flex-start',
+          }, { transform: [{ translateY: pointSheetTranslateY }] }]}>
+            <MapCompassReveal visible={mapNorthOff}>
+              <MapRoundButton
+                theme={theme}
+                heading={mapHeading}
+                onPress={resetMapNorth}
+                accessibilityLabel={t('journey.map.north')}
+              />
+            </MapCompassReveal>
+            {nav.pointInfo?.kind === 'journey' && !nav.journeyVersionPreview ? (
               <CompanionShareSwitchPill
                 theme={theme}
                 label={t('discover.shareLocation')}
                 on={sharingThisJourney}
                 onToggle={toggleLocationShare}
               />
-            </Animated.View>
-          ) : null}
+            ) : null}
+          </Animated.View>
           {/* One column, bottom-anchored: the two view-state controls share a
               plate (复位 is the locate equivalent, 图层 the style toggle) and the
               one-shot actions (全屏, 清除对比) stay round buttons above it. Order
@@ -2860,24 +2858,36 @@ function DiscoverScreenView({
         </>
       ) : null}
 
-      {/* Compass and scale share the top-right corner, komoot-style, just under
-          the top chrome (搜索 in the list, 分享/设置 on a journey card): the
-          compass while the map is turned, the scale below it while it zooms. */}
+      {/* The scale takes the top-right corner, just under the top chrome
+          (搜索 in the list, 分享/设置 on a journey card), while the map zooms. */}
       {mapImmersive || !nav.pointInfo || pointMapControlsVisible ? (
         <View
-          pointerEvents="box-none"
+          pointerEvents="none"
           style={{ position: 'absolute', right: space.md, top: insets.top + (mapImmersive ? space.md : MAP_TOP_CHROME_HEIGHT + space.sm), zIndex: 8, alignItems: 'flex-end' }}
+        >
+          <MapScaleBar scale={mapScale} theme={nav.pointInfo || mapImmersive ? theme : chromeTheme} />
+        </View>
+      ) : null}
+
+      {/* The compass sits in the map's bottom-left corner, as Apple Maps has
+          it, only while the map is turned. In the list it rides the sheet on
+          the map tools' row; a journey card puts it in its own left column. */}
+      {mapImmersive || !nav.pointInfo ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={mapImmersive
+            ? { position: 'absolute', left: space.md, bottom: Math.max(insets.bottom, space.md) + space.md, zIndex: 8 }
+            : { position: 'absolute', left: space.md, bottom: listMapToolsBottom, zIndex: 8, transform: [{ translateY: listMapToolsShift }] }}
         >
           <MapCompassReveal visible={mapNorthOff}>
             <MapRoundButton
-              theme={nav.pointInfo || mapImmersive ? theme : chromeTheme}
+              theme={mapImmersive ? theme : chromeTheme}
               heading={mapHeading}
               onPress={resetMapNorth}
               accessibilityLabel={t('journey.map.north')}
             />
           </MapCompassReveal>
-          <MapScaleBar scale={mapScale} theme={nav.pointInfo || mapImmersive ? theme : chromeTheme} />
-        </View>
+        </Animated.View>
       ) : null}
 
       {!nav.pointInfo && !mapImmersive ? (
@@ -2901,6 +2911,21 @@ function DiscoverScreenView({
                 : <Icon name={mapAtCurrentLocation ? 'locate' : 'locateOutline'} color={mapAtCurrentLocation ? chromeTheme.accent : chromeTheme.text} size={18} />}
             </MapControlButton>
           </MapControlGroup>
+        </Animated.View>
+      ) : null}
+
+      {/* 搜索此区域 sits on the list's top edge, centred on the map tools' row and
+          riding the sheet with them: the list it rescopes is right below it. */}
+      {areaPillMounted && !nav.pointInfo && !mapImmersive ? (
+        <Animated.View pointerEvents={areaPillShown ? 'box-none' : 'none'} style={{ position: 'absolute', left: 0, right: 0, bottom: listMapToolsBottom, alignItems: 'center', opacity: areaPillOpacity, transform: [{ translateY: listMapToolsShift }, { translateY: areaPillOpacity.interpolate({ inputRange: [0, 1], outputRange: [space.xs, 0] }) }] }}>
+          <Press
+            accessibilityRole="button"
+            onPress={searchArea}
+            style={{ height: MAP_CONTROL_SIZE, paddingHorizontal: space.md, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: chromeTheme.controlSurface, borderWidth: StyleSheet.hairlineWidth, borderColor: chromeTheme.fieldBorder, boxShadow: chromeTheme.dark ? '0px 4px 12px rgba(0,0,0,0.45)' : '0px 4px 12px rgba(0,0,0,0.10)' }}
+          >
+            <Search color={theme.accent} size={17} strokeWidth={2.3} />
+            <Text style={[type.chip, { color: chromeTheme.text }]}>{t('discover.searchArea')}</Text>
+          </Press>
         </Animated.View>
       ) : null}
 

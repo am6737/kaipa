@@ -284,9 +284,9 @@ export function GearSetsList({
                 </View>
               ) : (
                 <>
-                  <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
-                    <Icon name="plus" color={theme.text} size={19} strokeWidth={2.1} />
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text }}>{t('gear.setList.add')}</Text>
+                  <Press onPress={onAdd} style={{ height: 52, minWidth: 126, paddingHorizontal: 24, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: theme.accent }}>
+                    <Icon name="plus" color="#FFFFFF" size={19} strokeWidth={2.1} />
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>{t('gear.setList.add')}</Text>
                   </Press>
                   <Press onPress={() => setSortOpen(true)} opacityTo={1} style={{ height: 52, minWidth: 150, paddingHorizontal: 22, borderRadius: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, backgroundColor: bottomControlBg }}>
                     <Icon name="arrowDown" color={theme.text} size={19} strokeWidth={2.1} />

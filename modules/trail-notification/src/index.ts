@@ -26,6 +26,10 @@ export interface TrailLiveContent {
   distance: string;
   ascent: string;
   descent: string;
+  /** Captions under the three numbers: 里程 / 爬升 / 下降. */
+  distanceLabel: string;
+  ascentLabel: string;
+  descentLabel: string;
   /** GPS warning, or empty. */
   warning: string;
 }

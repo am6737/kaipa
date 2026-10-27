@@ -12,5 +12,7 @@ module.exports = {
   colors: {
     // theme.trailMine, light and dark.
     trail: { color: '#FF5C3A', darkColor: '#FF7A55' },
+    // theme.surfaceStrong: the lock screen card follows the phone's light or dark appearance.
+    card: { color: '#FFFFFF', darkColor: '#1C1C1E' },
   },
 };

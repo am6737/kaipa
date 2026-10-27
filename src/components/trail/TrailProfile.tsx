@@ -1,6 +1,7 @@
 // TrailProfile.tsx — the route's elevation profile with the walker on it. The
 // part behind is filled in accent, so it doubles as the progress bar: one look
-// says how far along and how much climbing is left.
+// says how far along and how much climbing is left. Labelled after AllTrails:
+// the top and bottom of the climb on the right, the distance along the foot.
 import React, { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -8,7 +9,7 @@ import { space, type } from '../../design-system';
 import { MONO } from '../../theme/fonts';
 import type { Theme } from '../../theme/theme';
 
-const HEIGHT = 56;
+const HEIGHT = 80;
 const TOP = 6;
 const BOTTOM = 4;
 const DOT = 5;
@@ -47,8 +48,10 @@ export function TrailProfile({ theme, profile, fraction }: { theme: Theme; profi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, width, alongKm, here, minEle, span, totalKm]);
 
+  const label = [type.micro, { fontFamily: MONO, color: theme.text3 }];
   return (
     <View>
+      <Text style={[label, { textAlign: 'right', marginBottom: space.xxs }]}>{`${Math.round(maxEle).toLocaleString('en-US')} m`}</Text>
       <View onLayout={(event) => setWidth(Math.round(event.nativeEvent.layout.width))} style={{ height: HEIGHT }}>
         {paths ? (
           <Svg width={width} height={HEIGHT}>
@@ -60,12 +63,19 @@ export function TrailProfile({ theme, profile, fraction }: { theme: Theme; profi
           </Svg>
         ) : null}
       </View>
+      <Text style={[label, { textAlign: 'right', marginTop: space.xxs }]}>{`${Math.round(minEle).toLocaleString('en-US')} m`}</Text>
+      <View style={{ height: 2, borderRadius: 1, backgroundColor: theme.progressTrack, marginTop: space.xxs }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: space.xxs }}>
-        <Text style={[type.micro, { fontFamily: MONO, color: theme.text3 }]}>{`${Math.round(minEle).toLocaleString('en-US')} m`}</Text>
-        <Text style={[type.micro, { fontFamily: MONO, color: theme.text3 }]}>{`${Math.round(maxEle).toLocaleString('en-US')} m`}</Text>
+        <Text style={label}>0 km</Text>
+        <Text style={label}>{`${kmLabel(totalKm / 2)} km`}</Text>
+        <Text style={label}>{`${kmLabel(totalKm)} km`}</Text>
       </View>
     </View>
   );
+}
+
+function kmLabel(km: number): string {
+  return km < 10 ? String(Math.round(km * 10) / 10) : String(Math.round(km));
 }
 
 function eleAt(profile: Sample[], km: number): number {

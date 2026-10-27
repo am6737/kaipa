@@ -57,7 +57,8 @@ export interface DataValue {
   tracks: Track[];
   tracksLoading: boolean;
   createTrack: (draft: TrackDraft) => Promise<Track | null>;
-  updateTrack: (id: string, patch: Partial<TrackDraft>) => Promise<void>;
+  /** False when the write didn't reach the server (offline, error). */
+  updateTrack: (id: string, patch: Partial<TrackDraft>) => Promise<boolean>;
   deleteTrack: (id: string) => Promise<void>;
   deleteTracks: (ids: string[]) => Promise<void>;
   refetchTracks: () => Promise<Track[]>;

@@ -134,29 +134,15 @@ export function RenameTrackDialog({
             }}
           />
 
-          <View style={{ marginTop: space.lg, gap: space.sm }}>
-            <Press
-              accessibilityRole="button"
-              accessibilityLabel={confirmLabel}
-              accessibilityState={{ disabled: !trimmed }}
-              onPress={trimmed ? () => onConfirm(trimmed) : undefined}
-              opacityTo={1}
-              style={{
-                height: 52,
-                borderRadius: radius.card,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: trimmed ? theme.accent : theme.fieldSurface,
-              }}
-            >
-              <Text style={{ fontSize: 16, fontWeight: '800', color: trimmed ? '#FFFFFF' : theme.text3 }}>{confirmLabel}</Text>
-            </Press>
+          {/* Two short labels: one row, cancel first and the commit on the right, so the card stays low above the keyboard. */}
+          <View style={{ marginTop: space.lg, flexDirection: 'row', gap: space.sm }}>
             <Press
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
               onPress={onCancel}
               opacityTo={1}
               style={{
+                flex: 1,
                 height: 50,
                 borderRadius: radius.card,
                 alignItems: 'center',
@@ -167,6 +153,23 @@ export function RenameTrackDialog({
               }}
             >
               <Text style={{ fontSize: 15.5, fontWeight: '700', color: theme.text }}>{cancelLabel}</Text>
+            </Press>
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={confirmLabel}
+              accessibilityState={{ disabled: !trimmed }}
+              onPress={trimmed ? () => onConfirm(trimmed) : undefined}
+              opacityTo={1}
+              style={{
+                flex: 1,
+                height: 50,
+                borderRadius: radius.card,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: trimmed ? theme.accent : theme.fieldSurface,
+              }}
+            >
+              <Text style={{ fontSize: 15.5, fontWeight: '800', color: trimmed ? '#FFFFFF' : theme.text3 }}>{confirmLabel}</Text>
             </Press>
           </View>
         </Animated.View>

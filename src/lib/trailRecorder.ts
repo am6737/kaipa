@@ -87,6 +87,21 @@ export interface TrailRouteRef {
 
 export type TrailStatus = 'recording' | 'paused' | 'finished';
 
+/** A spot marked on the walk with the map's camera button. */
+export interface TrailMark {
+  id: string;
+  lng: number;
+  lat: number;
+  alt: number | null;
+  /** Flat index of the recorded point the mark follows, which places it along the saved line. */
+  pointIndex: number;
+  at: number;
+  /** Set once renamed; until then the mark is 标注点 N by its place in the list. */
+  name?: string;
+  /** A photo in the app's documents, until the track is saved. */
+  photo?: string;
+}
+
 export interface TrailSession {
   id: string;
   status: TrailStatus;
@@ -105,6 +120,8 @@ export interface TrailSession {
   climbRef: number | null;
   /** Whether fixes keep coming with the screen off. */
   background: boolean;
+  /** Absent on sessions stored before marks existed. */
+  marks?: TrailMark[];
 }
 
 export type GpsState = 'off' | 'searching' | 'good' | 'weak';
@@ -186,6 +203,9 @@ function notificationContent(): TrailNotificationContent | null {
     distance: `${value} ${unit}`,
     ascent: `${Math.round(session.totals.ascM)} m`,
     descent: `${Math.round(session.totals.descM)} m`,
+    distanceLabel: t('trail.stat.distance'),
+    ascentLabel: t('trail.stat.ascent'),
+    descentLabel: t('trail.stat.descent'),
   };
   if (session.status === 'paused' || session.resumedAt == null) {
     return {
@@ -304,6 +324,12 @@ export function restoreTrail(): Promise<void> {
 function armSignalTimer() {
   if (signalTimer) clearTimeout(signalTimer);
   signalTimer = setTimeout(() => {
+    // iOS honours the distance filter and sends nothing while the walker
+    // stands still, so silence from a phone lying still is not a lost sky.
+    if (isDeviceStill() === true) {
+      armSignalTimer();
+      return;
+    }
     if (session?.status === 'recording' || previewCount > 0) {
       gps = fix ? 'weak' : 'searching';
       emit();
@@ -767,6 +793,53 @@ export async function clearTrail() {
   error = null;
   emit();
   await persist(true);
+}
+
+// A mark goes where the walker is now; the last recorded point stands in
+// while the GPS has nothing fresh, as it may not right after a pause.
+const MARK_FIX_MAX_AGE_MS = 30_000;
+
+/** Marks the walker's position, with a photo already saved on the device. */
+export async function addTrailMark(photo?: string): Promise<TrailMark | null> {
+  if (!session || session.status === 'finished') return null;
+  const pointCount = session.segments.reduce((sum, segment) => sum + segment.length, 0);
+  const lastSegment = [...session.segments].reverse().find((segment) => segment.length);
+  const last = lastSegment?.[lastSegment.length - 1];
+  const fresh = fix && Date.now() - fix.t <= MARK_FIX_MAX_AGE_MS ? fix : null;
+  const at: [number, number, number | null] | null = fresh
+    ? [fresh.lng, fresh.lat, fresh.alt ?? null]
+    : last ? [last[0], last[1], last[2]] : null;
+  if (!at) return null;
+  const mark: TrailMark = {
+    id: `mark-${Date.now()}`,
+    lng: at[0],
+    lat: at[1],
+    alt: at[2],
+    pointIndex: Math.max(0, pointCount - 1),
+    at: Date.now(),
+    ...(photo ? { photo } : {}),
+  };
+  session = { ...session, marks: [...(session.marks ?? []), mark] };
+  emit();
+  await persist();
+  return mark;
+}
+
+/** Renames a mark; an empty name goes back to the numbered default. */
+export async function renameTrailMark(id: string, name: string) {
+  if (!session?.marks?.some((mark) => mark.id === id)) return;
+  const trimmed = name.trim();
+  session = { ...session, marks: session.marks.map((mark) => (mark.id === id ? { ...mark, name: trimmed || undefined } : mark)) };
+  emit();
+  await persist();
+}
+
+/** Drops a mark. Its photo stays on disk until the next sweep. */
+export async function removeTrailMark(id: string) {
+  if (!session?.marks?.some((mark) => mark.id === id)) return;
+  session = { ...session, marks: session.marks.filter((mark) => mark.id !== id) };
+  emit();
+  await persist();
 }
 
 export function clearTrailError() {

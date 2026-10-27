@@ -70,16 +70,17 @@ export function useTracks(userId: string | undefined) {
     return track;
   }, [userId]);
 
-  const updateTrack = useCallback(async (id: string, patch: Partial<TrackDraft>): Promise<void> => {
+  const updateTrack = useCallback(async (id: string, patch: Partial<TrackDraft>): Promise<boolean> => {
     const row = draftToRow(patch);
-    if (!Object.keys(row).length) return;
+    if (!Object.keys(row).length) return true;
     row.updated_at = new Date().toISOString();
     const { error } = await supabase.from('tracks').update(row).eq('id', id);
     if (error) {
       console.warn('[updateTrack] update error:', error.message);
-      return;
+      return false;
     }
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: row.updated_at } : t)));
+    return true;
   }, []);
 
   // Deleting a track unlinks it from every journey that used it (the FK is
@@ -87,7 +88,11 @@ export function useTracks(userId: string | undefined) {
   const deleteTracks = useCallback(async (ids: string[]): Promise<void> => {
     if (!ids.length) return;
     const removing = new Set(ids);
-    const urls = tracks.filter((t) => removing.has(t.id) && t.fileUrl).map((t) => t.fileUrl!);
+    // The file and any photos marked along the walk go with the row.
+    const urls = tracks.filter((t) => removing.has(t.id)).flatMap((t) => [
+      ...(t.fileUrl ? [t.fileUrl] : []),
+      ...(t.waypoints ?? []).flatMap((waypoint) => (waypoint.photo && /^https?:/i.test(waypoint.photo) ? [waypoint.photo] : [])),
+    ]);
     const { error } = await supabase.from('tracks').delete().in('id', ids);
     if (error) {
       console.warn('[deleteTracks] delete error:', error.message);

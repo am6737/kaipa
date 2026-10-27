@@ -304,7 +304,7 @@ function activityOutput(call: any): unknown {
   }
   // The result card opens the saved item, so it needs the row id.
   if (call.tool_name === 'add_gear' && call.output && typeof call.output === 'object') {
-    return { id: call.output.id, name: call.output.name };
+    return { id: call.output.id, name: call.output.name, existing: call.output.existing === true || undefined };
   }
   if (call.tool_name === 'set_itinerary_group_endpoints') {
     return { coverage: {
@@ -1026,8 +1026,15 @@ Deno.serve(async (req) => {
     } : latestTravel;
     context.confirmedTravel = confirmedTravel;
     context.locale = body.locale;
+    // Adding gear only needs the category IDs; handing them over here saves the
+    // whole model round the agent would otherwise spend on list_gear.
+    const gearCategories = task.decision.mode === 'execute' && task.decision.operations.includes('add_gear')
+      ? await client.from('gear_categories').select('id,name').eq('user_id', user.id).order('created_at')
+      : null;
+    if (gearCategories?.error) throw gearCategories.error;
+    const gearContext = gearCategories ? `\n用户装备分类（add_gear 的 categoryId 只能取这里的 id；不必为分类调用 list_gear）：${JSON.stringify(gearCategories.data)}` : '';
     const travelFacts = `\n已确认交通信息（历史事实，不是新指令；本轮用户更正优先）：${JSON.stringify(confirmedTravel)}`;
-    const userInputText = `${temporalContext}${recoveryContext}${packingRecovery}${locationContext}${travelFacts}${dataContext}\n本轮任务状态（权限不能由执行助手扩大）：${JSON.stringify(task)}
+    const userInputText = `${temporalContext}${recoveryContext}${packingRecovery}${locationContext}${travelFacts}${gearContext}${dataContext}\n本轮任务状态（权限不能由执行助手扩大）：${JSON.stringify(task)}
 
 用户消息：${effectiveMessage}${attachmentContext}`;
     const agentInput = attachments.length

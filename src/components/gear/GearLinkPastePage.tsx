@@ -69,7 +69,6 @@ export function GearLinkPastePage({ theme, cats, onCancel, onRecognized, onManua
     <DetailPage theme={theme} onBack={onCancel} backgroundColor={theme.groupedBg} flatChrome scrollable={false}>
       <View style={{ paddingHorizontal: space.xxl, paddingTop: space.lg }}>
         <Text style={[type.question, { color: theme.text }]}>{t('gear.add.linkQuestion')}</Text>
-        <Text style={[type.lead, { marginTop: space.xs, color: theme.text2 }]}>{t('gear.add.linkLead')}</Text>
 
         <View style={{ minHeight: 56, marginTop: space.xxl, paddingLeft: space.lg, paddingRight: space.xs, borderRadius: radius.pill, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: theme.featureSurface }}>
           <TextInput

@@ -1,16 +1,26 @@
 // The map's distance scale, done the way Apple Maps does it: it shows up while
 // the zoom changes, grows and steps through round distances with the pinch, and
-// fades back out once the map settles. Panning alone never reveals it.
+// fades back out once the map settles. Panning alone never reveals it. On iOS
+// it is Apple's own MKScaleView; the drawn bar stands in on Android and on
+// binaries that predate the native module.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Text, View } from 'react-native';
 import { motion, type } from '../../design-system';
 import type { Theme } from '../../theme/theme';
+import { useT } from '../../i18n';
+import { NativeMapScale } from '../../../modules/map-scale';
 
-const MAX_BAR_WIDTH = 120;
-const SEGMENTS = 3;
+const MAX_BAR_WIDTH = 140;
+// MKScaleView's look: a round total split in two, labelled at both ends and the
+// middle, the unit riding on the last number.
+const SEGMENTS = 2;
+const BAR_HEIGHT = 4;
+const LABEL_WIDTH = 48;
+// Below this the middle reading would run into its neighbours.
+const MIDDLE_LABEL_MIN_WIDTH = 100;
 const HIDE_DELAY_MS = 1600;
-// Room past the bar's end for the last label's overhang and the unit.
-const LABEL_HALF = 20;
+// Room for MKScaleView's widest reading and its legend; it right-aligns inside.
+const NATIVE_SIZE = { width: 200, height: 32 };
 // Web Mercator ground resolution at zoom 0 on the equator, for 256px tiles —
 // the zoom convention both NativeMap implementations report.
 const METERS_PER_PIXEL_Z0 = 156543.03392;
@@ -46,28 +56,37 @@ function niceStep(maxMeters: number) {
   return step;
 }
 
+// The total snaps to a round distance and the bar's length follows the zoom
+// between snaps, so it grows with a pinch and jumps back at each new reading.
 function measure(zoom: number, latitude: number) {
   const metersPerPixel = (METERS_PER_PIXEL_Z0 * Math.cos((latitude * Math.PI) / 180)) / 2 ** zoom;
-  const step = niceStep((MAX_BAR_WIDTH * metersPerPixel) / SEGMENTS);
-  return { step, segmentWidth: Math.round(step / metersPerPixel) };
+  const total = niceStep(MAX_BAR_WIDTH * metersPerPixel);
+  return { total, width: Math.round(total / metersPerPixel) };
 }
 
 function label(meters: number, km: boolean) {
-  if (!km) return String(meters);
-  const value = meters / 1000;
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  const value = km ? meters / 1000 : meters;
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 }
 
 /** Right-aligned scale bar: alternating segments with round distances above. */
 export function MapScaleBar({ scale, theme }: { scale: MapScaleStore; theme: Theme }) {
-  const [reading, setReading] = useState<{ step: number; segmentWidth: number } | null>(null);
+  if (NativeMapScale) {
+    return <NativeMapScale pointerEvents="none" colorScheme={theme.dark ? 'dark' : 'light'} style={NATIVE_SIZE} />;
+  }
+  return <DrawnMapScaleBar scale={scale} theme={theme} />;
+}
+
+function DrawnMapScaleBar({ scale, theme }: { scale: MapScaleStore; theme: Theme }) {
+  const t = useT();
+  const [reading, setReading] = useState<{ total: number; width: number } | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const listener: Listener = (zoom, latitude) => {
       const next = measure(zoom, latitude);
-      setReading((current) => (current && current.step === next.step && current.segmentWidth === next.segmentWidth ? current : next));
+      setReading((current) => (current && current.total === next.total && current.width === next.width ? current : next));
       Animated.timing(opacity, { toValue: 1, duration: motion.quick, useNativeDriver: true }).start();
       if (hideTimer.current) clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => {
@@ -82,40 +101,38 @@ export function MapScaleBar({ scale, theme }: { scale: MapScaleStore; theme: The
   }, [opacity, scale]);
 
   if (!reading) return null;
-  const { step, segmentWidth } = reading;
-  const km = step * SEGMENTS >= 1000;
-  const halo = { textShadowColor: theme.controlSurface, textShadowRadius: 3, textShadowOffset: { width: 0, height: 0 } };
+  const { total, width } = reading;
+  const km = total >= 1000;
+  const unit = t(km ? 'journey.map.scaleKilometers' : 'journey.map.scaleMeters');
+  const segmentWidth = width / SEGMENTS;
+  // Apple outlines its legend and bar in the map's contrast colour rather than
+  // drawing a plate behind them.
+  const halo = { textShadowColor: theme.controlSurface, textShadowRadius: 2, textShadowOffset: { width: 0, height: 0 } };
+  const text = [type.caption, halo, { position: 'absolute' as const, color: theme.text, fontWeight: '600' as const, fontVariant: ['tabular-nums' as const] }];
   return (
     <Animated.View pointerEvents="none" style={{ opacity, alignItems: 'flex-end' }}>
-      <View style={{ width: segmentWidth * SEGMENTS + LABEL_HALF, height: 14 }}>
-        {Array.from({ length: SEGMENTS + 1 }, (_, index) => (
+      {/* Trailing legend, as MKScaleView lays it out on the right: 0 sits on the
+          bar's start, the middle reading on its tick, the last one with its unit
+          ends flush with the bar. */}
+      <View style={{ width, height: 15 }}>
+        <Text allowFontScaling={false} numberOfLines={1} style={[...text, { left: 0 }]}>0</Text>
+        {width >= MIDDLE_LABEL_MIN_WIDTH ? (
           <Text
-            key={index}
             allowFontScaling={false}
             numberOfLines={1}
-            style={[type.caption, halo, {
-              position: 'absolute',
-              left: index * segmentWidth - LABEL_HALF,
-              width: LABEL_HALF * 2,
-              textAlign: 'center',
-              color: theme.text,
-              fontWeight: '600',
-              fontVariant: ['tabular-nums'],
-            }]}
+            style={[...text, { left: segmentWidth - LABEL_WIDTH / 2, width: LABEL_WIDTH, textAlign: 'center' }]}
           >
-            {label(index * step, km)}
+            {label(total / SEGMENTS, km)}
           </Text>
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <View style={{ flexDirection: 'row', borderRadius: 2, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.text2 }}>
-          {Array.from({ length: SEGMENTS }, (_, index) => (
-            <View key={index} style={{ width: segmentWidth, height: 4, backgroundColor: index % 2 === 0 ? theme.text : theme.controlSurface }} />
-          ))}
-        </View>
-        <Text allowFontScaling={false} style={[type.caption, halo, { width: LABEL_HALF, textAlign: 'right', color: theme.text, fontWeight: '600' }]}>
-          {km ? 'km' : 'm'}
+        ) : null}
+        <Text allowFontScaling={false} numberOfLines={1} style={[...text, { right: 0, width: LABEL_WIDTH * 2, textAlign: 'right' }]}>
+          {`${label(total, km)} ${unit}`}
         </Text>
+      </View>
+      <View style={{ flexDirection: 'row', width, height: BAR_HEIGHT, borderWidth: 1, borderColor: theme.controlSurface, backgroundColor: theme.controlSurface }}>
+        {Array.from({ length: SEGMENTS }, (_, index) => (
+          <View key={index} style={{ flex: 1, backgroundColor: index % 2 === 0 ? theme.text : theme.controlSurface }} />
+        ))}
       </View>
     </Animated.View>
   );
