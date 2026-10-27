@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
-import { PixelRatio, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { MapViewRef } from 'expo-gaode-map';
 import { amapModule, ensureAmapReady } from '../../lib/amapSdk';
 import { gcj02ToWgs84, wgs84ToGcj02 } from '../../lib/coordinates';
@@ -309,9 +309,9 @@ export const NativeMap = forwardRef<NativeMapHandle, NativeMapProps>(function Na
           anchor={marker.anchor}
           title={marker.title}
           icon={marker.image?.uri}
-          // A marker's icon size is in pixels, unlike the location layer's.
-          iconWidth={marker.image ? PixelRatio.getPixelSizeForLayoutSize(marker.image.size) : undefined}
-          iconHeight={marker.image ? PixelRatio.getPixelSizeForLayoutSize(marker.image.size) : undefined}
+          // In dp: MarkerView scales iconWidth/iconHeight by density itself.
+          iconWidth={marker.image?.size}
+          iconHeight={marker.image?.size}
           // Flat, so the heading stays on the compass when the map turns.
           flat={marker.rotation != null}
           rotation={marker.rotation}
